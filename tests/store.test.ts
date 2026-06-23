@@ -1,4 +1,4 @@
-import { lstat, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -211,5 +211,28 @@ describe("BridgeStore", () => {
 
     await expect(store.getReceipt(receipt.id)).rejects.toThrow(/symlink|changed|record/i);
     expect(await readFile(outsideFile, "utf8")).toBe("{}\n");
+  });
+
+  it("rejects record writes when the storage directory is swapped to a symlink before open", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
+    const outside = await mkdtemp(path.join(tmpdir(), "gptprouse-outside-"));
+    const movedReceiptsDir = path.join(root, ".bridge", "receipts-real");
+    const store = new BridgeStore(root);
+    await store.ensure();
+    let swapped = false;
+    setSafeFileTestHooks({
+      beforeOpen: async (_filePath, operation) => {
+        if (!swapped && operation === "write") {
+          swapped = true;
+          await rename(path.join(root, ".bridge", "receipts"), movedReceiptsDir);
+          await symlink(outside, path.join(root, ".bridge", "receipts"));
+        }
+      }
+    });
+
+    await expect(
+      store.writeReceipt({ kind: "consult_preview", summary: "Should not follow swapped receipt storage" })
+    ).rejects.toThrow(/Bridge storage directory|record|symlink|ENOENT/i);
+    expect(await readdir(outside)).toEqual([]);
   });
 });

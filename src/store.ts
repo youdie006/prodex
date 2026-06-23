@@ -1,4 +1,7 @@
-import { lstat, mkdir, readFile, readdir, realpath, rename, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { constants } from "node:fs";
+import { lstat, mkdir, open, readFile, readdir, realpath, rename, rm } from "node:fs/promises";
+import type { FileHandle } from "node:fs/promises";
 import path from "node:path";
 import { readVerifiedUtf8File, writeVerifiedUtf8File } from "./safe-file.js";
 import {
@@ -245,18 +248,69 @@ export class BridgeStore {
     const filePath = this.pathFor(kind, id);
     await this.assertStorageDirIsRealDirectory(kind);
     await this.assertRecordTargetInsideIfExists(kind, filePath);
-    await this.writeJson(filePath, value);
+    await this.writeJson(kind, filePath, value);
     await this.assertRecordTargetInside(kind, filePath);
   }
 
-  private async writeJson(filePath: string, value: unknown): Promise<void> {
-    await this.writeTextByRename(filePath, `${JSON.stringify(value, null, 2)}\n`);
+  private async writeJson(kind: BridgeRecordKind, filePath: string, value: unknown): Promise<void> {
+    await this.writeTextByRename(kind, filePath, `${JSON.stringify(value, null, 2)}\n`);
   }
 
-  private async writeTextByRename(filePath: string, content: string): Promise<void> {
-    const tmp = `${filePath}.${process.pid}.${Date.now()}.tmp`;
-    await writeFile(tmp, content, "utf8");
-    await rename(tmp, filePath);
+  private async writeTextByRename(kind: BridgeRecordKind, filePath: string, content: string): Promise<void> {
+    if (process.platform === "linux") {
+      await this.writeTextByStableStorageRename(kind, filePath, content);
+      return;
+    }
+    await this.writeTextByPathRename(kind, filePath, content);
+  }
+
+  private async writeTextByStableStorageRename(kind: BridgeRecordKind, filePath: string, content: string): Promise<void> {
+    const fileName = path.basename(filePath);
+    const expectedDir = this.dir(kind);
+    if (path.dirname(filePath) !== expectedDir) {
+      throw new Error(`Bridge record path must stay under .bridge/${kind}`);
+    }
+    const bridgeHandle = await openNoFollowDirectory(this.bridgeDir, "Bridge directory");
+    try {
+      const storageHandle = await openNoFollowDirectory(
+        path.join(procFdPath(bridgeHandle.fd), kind),
+        `Bridge storage directory .bridge/${kind}`
+      );
+      try {
+        await this.assertStorageDirIsRealDirectory(kind);
+        const storageFdPath = procFdPath(storageHandle.fd);
+        const targetPath = path.join(storageFdPath, fileName);
+        await assertRegularFileIfExists(targetPath, `Bridge record path for .bridge/${kind}`);
+        const tmpPath = path.join(storageFdPath, `.${fileName}.${process.pid}.${Date.now()}.${randomUUID()}.tmp`);
+        try {
+          await writeVerifiedUtf8File(tmpPath, content, async () => assertOpenDirectoryHandle(storageHandle), {
+            create: true
+          });
+          await rename(tmpPath, targetPath);
+          await assertRegularFileIfExists(targetPath, `Bridge record path for .bridge/${kind}`);
+          await this.assertStorageDirIsRealDirectory(kind);
+        } catch (error) {
+          await rm(tmpPath, { force: true }).catch(() => undefined);
+          throw error;
+        }
+      } finally {
+        await storageHandle.close();
+      }
+    } finally {
+      await bridgeHandle.close();
+    }
+  }
+
+  private async writeTextByPathRename(kind: BridgeRecordKind, filePath: string, content: string): Promise<void> {
+    const tmp = `${filePath}.${process.pid}.${Date.now()}.${randomUUID()}.tmp`;
+    try {
+      await writeVerifiedUtf8File(tmp, content, () => this.assertStorageDirIsRealDirectory(kind), { create: true });
+      await rename(tmp, filePath);
+      await this.assertStorageDirIsRealDirectory(kind);
+    } catch (error) {
+      await rm(tmp, { force: true }).catch(() => undefined);
+      throw error;
+    }
   }
 
   private resolveArtifactPath(relativePath: string): string {
@@ -410,6 +464,50 @@ async function exists(filePath: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+async function openNoFollowDirectory(dirPath: string, label: string): Promise<FileHandle> {
+  const noFollowFlag = typeof constants.O_NOFOLLOW === "number" ? constants.O_NOFOLLOW : 0;
+  const directoryFlag = typeof constants.O_DIRECTORY === "number" ? constants.O_DIRECTORY : 0;
+  try {
+    const handle = await open(dirPath, constants.O_RDONLY | directoryFlag | noFollowFlag);
+    try {
+      await assertOpenDirectoryHandle(handle);
+      return handle;
+    } catch (error) {
+      await handle.close().catch(() => undefined);
+      throw error;
+    }
+  } catch (error) {
+    const maybe = error as { code?: string };
+    if (maybe.code === "ELOOP") {
+      throw new Error(`${label} must be a real directory and must not be a symlink`);
+    }
+    throw error;
+  }
+}
+
+async function assertOpenDirectoryHandle(handle: FileHandle): Promise<void> {
+  const stat = await handle.stat();
+  if (!stat.isDirectory()) {
+    throw new Error("Bridge storage directory handle must remain a real directory");
+  }
+}
+
+async function assertRegularFileIfExists(filePath: string, label: string): Promise<void> {
+  try {
+    const stat = await lstat(filePath);
+    if (stat.isSymbolicLink() || !stat.isFile()) {
+      throw new Error(`${label} must be a regular file and must not be a symlink`);
+    }
+  } catch (error) {
+    const maybe = error as { code?: string };
+    if (maybe.code !== "ENOENT") throw error;
+  }
+}
+
+function procFdPath(fd: number): string {
+  return `/proc/self/fd/${fd}`;
 }
 
 function assertBridgeRecordId(kind: BridgeRecordKind, id: string): void {
