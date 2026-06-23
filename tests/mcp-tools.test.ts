@@ -1,8 +1,12 @@
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
 import { createMcpToolHandlers } from "../src/mcp-tools.js";
+
+const execFileAsync = promisify(execFile);
 
 describe("MCP tool handlers", () => {
   it("creates tasks and fetches results through Claude-compatible handlers", async () => {
@@ -31,4 +35,93 @@ describe("MCP tool handlers", () => {
 
     expect(result.content).toBe("beta");
   });
+
+  it("creates a write dry-run receipt and applies it only with matching head and preimage", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    await writeFile(path.join(cwd, "notes.md"), "old\n", "utf8");
+    const head = await initGitRepo(cwd);
+    const handlers = createMcpToolHandlers({ cwd });
+
+    const dryRun = await handlers.repo_write_file_dry_run({
+      path: "notes.md",
+      content: "new\n",
+      expected_head: head
+    });
+
+    expect(await readFile(path.join(cwd, "notes.md"), "utf8")).toBe("old\n");
+    expect(dryRun.receipt.kind).toBe("repo_write_dry_run");
+    expect(dryRun.path).toBe("notes.md");
+    expect(dryRun.diff).toContain("-old");
+    expect(dryRun.diff).toContain("+new");
+
+    const applied = await handlers.repo_write_file_apply({
+      receipt_id: dryRun.receipt.id,
+      expected_head: head,
+      preimage_sha256: dryRun.preimage_sha256
+    });
+
+    expect(applied.receipt.kind).toBe("repo_write_applied");
+    expect(await readFile(path.join(cwd, "notes.md"), "utf8")).toBe("new\n");
+  });
+
+  it("rejects write apply when the file preimage changed after dry-run", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    await writeFile(path.join(cwd, "notes.md"), "old\n", "utf8");
+    const head = await initGitRepo(cwd);
+    const handlers = createMcpToolHandlers({ cwd });
+    const dryRun = await handlers.repo_write_file_dry_run({
+      path: "notes.md",
+      content: "new\n",
+      expected_head: head
+    });
+    await writeFile(path.join(cwd, "notes.md"), "changed\n", "utf8");
+
+    await expect(
+      handlers.repo_write_file_apply({
+        receipt_id: dryRun.receipt.id,
+        expected_head: head,
+        preimage_sha256: dryRun.preimage_sha256
+      })
+    ).rejects.toThrow(/preimage/);
+  });
+
+  it("rejects write dry-runs when git HEAD does not match", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    await writeFile(path.join(cwd, "notes.md"), "old\n", "utf8");
+    await initGitRepo(cwd);
+    const handlers = createMcpToolHandlers({ cwd });
+
+    await expect(
+      handlers.repo_write_file_dry_run({
+        path: "notes.md",
+        content: "new\n",
+        expected_head: "not-the-current-head"
+      })
+    ).rejects.toThrow(/HEAD mismatch/);
+  });
+
+  it("rejects write dry-runs for sensitive local bridge paths", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    await writeFile(path.join(cwd, "notes.md"), "old\n", "utf8");
+    const head = await initGitRepo(cwd);
+    const handlers = createMcpToolHandlers({ cwd });
+
+    await expect(
+      handlers.repo_write_file_dry_run({
+        path: ".bridge/config.local.json",
+        content: "{}\n",
+        expected_head: head
+      })
+    ).rejects.toThrow(/sensitive/);
+  });
 });
+
+async function initGitRepo(cwd: string): Promise<string> {
+  await execFileAsync("git", ["init"], { cwd });
+  await execFileAsync("git", ["config", "user.email", "test@example.com"], { cwd });
+  await execFileAsync("git", ["config", "user.name", "Test User"], { cwd });
+  await execFileAsync("git", ["add", "notes.md"], { cwd });
+  await execFileAsync("git", ["commit", "-m", "initial"], { cwd });
+  const { stdout } = await execFileAsync("git", ["rev-parse", "HEAD"], { cwd });
+  return stdout.trim();
+}

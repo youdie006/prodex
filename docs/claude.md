@@ -1,6 +1,6 @@
 # Claude Setup
 
-`gptprouse` exposes a stdio MCP server so Claude can create bridge tasks, inspect task/results, and read/search the current repo.
+`gptprouse` exposes a stdio MCP server so Claude can create bridge tasks, inspect task/results, read/search the current repo, and request receipt-gated text-file edits.
 
 ## Build
 
@@ -40,7 +40,7 @@ If your install expects a JSON config, use the Claude Desktop JSON above.
 
 ## Tools
 
-The server currently exposes read-only and ledger-first tools:
+The server currently exposes ledger-first tools:
 
 - `bridge_create_task`
 - `bridge_list_tasks`
@@ -50,8 +50,12 @@ The server currently exposes read-only and ledger-first tools:
 - `bridge_fetch_result`
 - `repo_read_file`
 - `repo_search`
+- `repo_write_file_dry_run`
+- `repo_write_file_apply`
 
-No write, shell, browser, or public tunnel tools are exposed through the Claude stdio MCP server.
+Write tools are narrow and receipt-gated. Claude must first call `repo_write_file_dry_run` with an existing repo-relative text file, replacement content, and the expected git HEAD. The file is not changed. To apply it, Claude must call `repo_write_file_apply` with the dry-run receipt id, the same expected HEAD, and the reported preimage hash. If git HEAD or file content changed, apply fails.
+
+No shell, browser, public tunnel, direct ungated write, or staging tools are exposed through the Claude stdio MCP server.
 
 ## First Prompt
 

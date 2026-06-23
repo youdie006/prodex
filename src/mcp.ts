@@ -108,6 +108,32 @@ export function createServer(cwd = process.cwd(), options: CreateMcpServerOption
     async (input) => asText(await handlers.repo_search(input))
   );
 
+  server.registerTool(
+    "repo_write_file_dry_run",
+    {
+      description: "Create a receipt-gated write preview for an existing repo-relative text file. Does not modify files.",
+      inputSchema: {
+        path: z.string(),
+        content: z.string(),
+        expected_head: z.string().min(1)
+      }
+    },
+    async (input) => asText(await handlers.repo_write_file_dry_run(input))
+  );
+
+  server.registerTool(
+    "repo_write_file_apply",
+    {
+      description: "Apply a prior write dry-run only when git HEAD and preimage hash match.",
+      inputSchema: {
+        receipt_id: z.string().min(1),
+        expected_head: z.string().min(1),
+        preimage_sha256: z.string().min(1)
+      }
+    },
+    async (input) => asText(await handlers.repo_write_file_apply(input))
+  );
+
   return server;
 }
 

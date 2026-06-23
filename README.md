@@ -53,12 +53,13 @@ Implemented:
 - Claude-compatible stdio MCP server through `gptprouse mcp`.
 - ChatGPT Developer Mode-style Streamable HTTP MCP server through `gptprouse setup` and `gptprouse start`.
 - Read-only repo tools for bounded file reads and ripgrep search.
+- Receipt-gated repo write tools for existing text files: dry-run first, then apply only with matching git HEAD and preimage hash.
 
 Not implemented:
 
 - Hidden ChatGPT endpoints.
 - Cookie, token, localStorage, or sessionStorage extraction.
-- Direct write tools.
+- Direct ungated write tools.
 - Shell execution tools.
 - Automatic public tunnel setup.
 
@@ -122,6 +123,13 @@ node dist/cli.js status --show-token
 The URL token is stored only in `.bridge/config.local.json`, which is ignored by git.
 
 If ChatGPT cannot reach `127.0.0.1` from its app runtime, keep `gptprouse start` local and put a tunnel in front of it. Tunnel setup is intentionally not automatic yet.
+
+The MCP write path is intentionally narrow:
+
+- `repo_write_file_dry_run` previews an existing repo-relative text-file replacement and stores a receipt.
+- `repo_write_file_apply` applies that receipt only when the current git HEAD and file preimage hash still match.
+- Sensitive local paths such as `.bridge`, `.git`, `.env*`, `node_modules`, and `dist` are rejected.
+- No shell execution or staging tool is exposed.
 
 For local task-bus smoke tests:
 

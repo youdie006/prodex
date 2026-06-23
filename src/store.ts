@@ -35,6 +35,10 @@ export interface CompleteTaskInput {
   warnings?: string[];
 }
 
+export type WriteReceiptInput = Omit<Receipt, "schema_version" | "id" | "created_at" | "metadata"> & {
+  metadata?: Record<string, unknown>;
+};
+
 export class BridgeStore {
   readonly root: string;
   readonly bridgeDir: string;
@@ -153,7 +157,11 @@ export class BridgeStore {
     return ResultSchema.parse(await this.readJson(this.pathFor("results", taskId)));
   }
 
-  async writeReceipt(input: Omit<Receipt, "schema_version" | "id" | "created_at">): Promise<Receipt> {
+  async getReceipt(receiptId: string): Promise<Receipt> {
+    return ReceiptSchema.parse(await this.readJson(this.pathFor("receipts", receiptId)));
+  }
+
+  async writeReceipt(input: WriteReceiptInput): Promise<Receipt> {
     await this.ensure();
     const receipt = ReceiptSchema.parse({
       schema_version: SCHEMA_VERSION,
