@@ -1,4 +1,4 @@
-import { lstat, mkdir, readFile, realpath, rename, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readFile, readdir, realpath, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
   type BridgeFile,
@@ -17,6 +17,12 @@ import {
 import type { z } from "zod";
 
 type Source = z.infer<typeof SourceSchema>;
+type BridgeStorageKind = "tasks" | "results" | "sessions" | "artifacts" | "receipts";
+type BridgeRecordKind = Exclude<BridgeStorageKind, "artifacts">;
+
+const TASK_ID_PATTERN = /^task_\d{8}_\d{6}_[a-z0-9-]+$/;
+const SESSION_ID_PATTERN = /^sess_\d{8}_\d{6}_[a-z0-9-]+$/;
+const RECEIPT_ID_PATTERN = /^receipt_\d{8}_\d{6}_[a-z0-9-]+$/;
 
 export interface CreateTaskInput {
   source: Source;
@@ -58,9 +64,10 @@ export class BridgeStore {
       mkdir(this.dir("artifacts"), { recursive: true }),
       mkdir(this.dir("receipts"), { recursive: true })
     ]);
+    await this.assertStorageDirsAreRealDirectories();
   }
 
-  dir(kind: "tasks" | "results" | "sessions" | "artifacts" | "receipts"): string {
+  dir(kind: BridgeStorageKind): string {
     return path.join(this.bridgeDir, kind);
   }
 
@@ -80,7 +87,7 @@ export class BridgeStore {
       created_at: timestamp,
       updated_at: timestamp
     });
-    await this.writeJson(this.pathFor("tasks", task.id), task);
+    await this.writeRecordJson("tasks", task.id, task);
     await this.writeReceipt({
       kind: "task_created",
       task_id: task.id,
@@ -98,7 +105,7 @@ export class BridgeStore {
   }
 
   async getTask(taskId: string): Promise<Task> {
-    return TaskSchema.parse(await this.readJson(this.pathFor("tasks", taskId)));
+    return TaskSchema.parse(await this.readRecordJson("tasks", taskId));
   }
 
   async claimTask(taskId: string, claimedBy: string): Promise<Task> {
@@ -113,7 +120,7 @@ export class BridgeStore {
       claimed_at: nowIso(),
       updated_at: nowIso()
     });
-    await this.writeJson(this.pathFor("tasks", taskId), updated);
+    await this.writeRecordJson("tasks", taskId, updated);
     await this.writeReceipt({
       kind: "task_claimed",
       task_id: taskId,
@@ -134,14 +141,14 @@ export class BridgeStore {
       warnings: input.warnings ?? [],
       created_at: nowIso()
     });
-    await this.writeJson(this.pathFor("results", taskId), result);
+    await this.writeRecordJson("results", taskId, result);
     const updated = TaskSchema.parse({
       ...task,
       status: input.status,
       result_path: `.bridge/results/${taskId}.json`,
       updated_at: nowIso()
     });
-    await this.writeJson(this.pathFor("tasks", taskId), updated);
+    await this.writeRecordJson("tasks", taskId, updated);
     await this.writeReceipt({
       kind: "task_completed",
       task_id: taskId,
@@ -156,11 +163,11 @@ export class BridgeStore {
   }
 
   async getResult(taskId: string): Promise<Result> {
-    return ResultSchema.parse(await this.readJson(this.pathFor("results", taskId)));
+    return ResultSchema.parse(await this.readRecordJson("results", taskId));
   }
 
   async getReceipt(receiptId: string): Promise<Receipt> {
-    return ReceiptSchema.parse(await this.readJson(this.pathFor("receipts", receiptId)));
+    return ReceiptSchema.parse(await this.readRecordJson("receipts", receiptId));
   }
 
   async writeArtifactText(relativePath: string, content: string): Promise<string> {
@@ -191,7 +198,7 @@ export class BridgeStore {
       created_at: nowIso(),
       ...input
     });
-    await this.writeJson(this.pathFor("receipts", receipt.id), receipt);
+    await this.writeRecordJson("receipts", receipt.id, receipt);
     return receipt;
   }
 
@@ -205,12 +212,12 @@ export class BridgeStore {
     return id;
   }
 
-  private pathFor(kind: "tasks" | "results" | "sessions" | "receipts", id: string): string {
+  private pathFor(kind: BridgeRecordKind, id: string): string {
+    assertBridgeRecordId(kind, id);
     return path.join(this.dir(kind), `${id}.json`);
   }
 
   private async readAll<T>(kind: "tasks" | "results", schema: { parse(value: unknown): T }): Promise<T[]> {
-    const { readdir } = await import("node:fs/promises");
     const dir = this.dir(kind);
     const entries = await readdir(dir, { withFileTypes: true });
     const items: T[] = [];
@@ -223,6 +230,20 @@ export class BridgeStore {
 
   private async readJson(filePath: string): Promise<unknown> {
     return JSON.parse(await readFile(filePath, "utf8"));
+  }
+
+  private async readRecordJson(kind: BridgeRecordKind, id: string): Promise<unknown> {
+    const filePath = this.pathFor(kind, id);
+    await this.assertStorageDirIsRealDirectory(kind);
+    await this.assertRecordTargetInside(kind, filePath);
+    return this.readJson(filePath);
+  }
+
+  private async writeRecordJson(kind: BridgeRecordKind, id: string, value: unknown): Promise<void> {
+    const filePath = this.pathFor(kind, id);
+    await this.assertStorageDirIsRealDirectory(kind);
+    await this.assertRecordTargetInsideIfExists(kind, filePath);
+    await this.writeJson(filePath, value);
   }
 
   private async writeJson(filePath: string, value: unknown): Promise<void> {
@@ -257,10 +278,7 @@ export class BridgeStore {
   }
 
   private async assertArtifactsDirIsRealDirectory(): Promise<void> {
-    const stat = await lstat(this.dir("artifacts"));
-    if (stat.isSymbolicLink() || !stat.isDirectory()) {
-      throw new Error("Artifact path must stay under .bridge/artifacts");
-    }
+    await this.assertStorageDirIsRealDirectory("artifacts");
   }
 
   private async ensureArtifactParentDirectory(parentPath: string): Promise<void> {
@@ -319,6 +337,39 @@ export class BridgeStore {
     }
   }
 
+  private async assertStorageDirsAreRealDirectories(): Promise<void> {
+    await Promise.all(
+      (["tasks", "results", "sessions", "artifacts", "receipts"] as const).map((kind) =>
+        this.assertStorageDirIsRealDirectory(kind)
+      )
+    );
+  }
+
+  private async assertStorageDirIsRealDirectory(kind: BridgeStorageKind): Promise<void> {
+    await this.assertBridgeDirIsRealDirectory();
+    const stat = await lstat(this.dir(kind));
+    if (stat.isSymbolicLink() || !stat.isDirectory()) {
+      throw new Error(`Bridge storage directory .bridge/${kind} must be a real directory`);
+    }
+  }
+
+  private async assertRecordTargetInside(kind: BridgeRecordKind, filePath: string): Promise<void> {
+    const stat = await lstat(filePath);
+    if (stat.isSymbolicLink() || !stat.isFile()) {
+      throw new Error(`Bridge record path for .bridge/${kind} must be a regular file and must not be a symlink`);
+    }
+    await this.assertRealPathInsideStorageDir(kind, filePath);
+  }
+
+  private async assertRecordTargetInsideIfExists(kind: BridgeRecordKind, filePath: string): Promise<void> {
+    try {
+      await this.assertRecordTargetInside(kind, filePath);
+    } catch (error) {
+      const maybe = error as { code?: string };
+      if (maybe.code !== "ENOENT") throw error;
+    }
+  }
+
   private async assertArtifactTargetInsideIfExists(filePath: string): Promise<void> {
     try {
       await this.assertArtifactTargetInside(filePath);
@@ -335,6 +386,14 @@ export class BridgeStore {
       throw new Error("Artifact path must stay under .bridge/artifacts");
     }
   }
+
+  private async assertRealPathInsideStorageDir(kind: BridgeRecordKind, filePath: string): Promise<void> {
+    const [realStorageDir, realTarget] = await Promise.all([realpath(this.dir(kind)), realpath(filePath)]);
+    const relative = path.relative(realStorageDir, realTarget);
+    if (relative.startsWith("..") || path.isAbsolute(relative)) {
+      throw new Error(`Bridge record path must stay under .bridge/${kind}`);
+    }
+  }
 }
 
 async function exists(filePath: string): Promise<boolean> {
@@ -343,5 +402,12 @@ async function exists(filePath: string): Promise<boolean> {
     return true;
   } catch {
     return false;
+  }
+}
+
+function assertBridgeRecordId(kind: BridgeRecordKind, id: string): void {
+  const pattern = kind === "receipts" ? RECEIPT_ID_PATTERN : kind === "sessions" ? SESSION_ID_PATTERN : TASK_ID_PATTERN;
+  if (!pattern.test(id)) {
+    throw new Error(`Invalid bridge record id for ${kind}: ${id}`);
   }
 }

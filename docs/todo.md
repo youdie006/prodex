@@ -20,6 +20,7 @@
 - [x] Define task/result JSON schemas.
 - [x] Implement `tasks list`, `tasks claim`, `results show`.
 - [x] Add receipt files for every consult and local action.
+- [x] Reject `.bridge` task/result/receipt ID traversal plus symlinked record files/storage directories.
 
 ## Phase 3 - Codex-First Consult
 
@@ -47,6 +48,7 @@
 - [x] Add local setup/start/status commands and ignored `.bridge/config.local.json`.
 - [x] Redact local MCP URL tokens by default; require `status --show-token` for paste-ready URL.
 - [x] Block `.bridge`, `.git`, `.env*`, build outputs, and oversized files from repo read/search tools.
+- [x] Guard `.bridge` record reads/writes against traversal IDs, symlinked record files, and symlinked storage dirs.
 - [ ] Add Project/thread selection only after manual confirmation.
 - [ ] Add optional tunnel helper for remote ChatGPT clients only after local auth/token expiry warnings are implemented.
 

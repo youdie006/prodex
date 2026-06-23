@@ -1,4 +1,4 @@
-import { lstat, mkdir, mkdtemp, readFile, symlink } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readFile, readdir, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -124,5 +124,18 @@ describe("BridgeStore", () => {
     await expect(
       store.readArtifactText(".bridge/artifacts/linked-dir/payload.txt")
     ).rejects.toThrow(/artifacts/);
+  });
+
+  it("rejects receipt storage when the receipts directory itself is a symlink", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
+    const outside = await mkdtemp(path.join(tmpdir(), "gptprouse-outside-"));
+    await mkdir(path.join(root, ".bridge"), { recursive: true });
+    await symlink(outside, path.join(root, ".bridge", "receipts"));
+    const store = new BridgeStore(root);
+
+    await expect(
+      store.writeReceipt({ kind: "consult_preview", summary: "Should not escape local receipt storage" })
+    ).rejects.toThrow(/Bridge storage directory/);
+    expect(await readdir(outside)).toEqual([]);
   });
 });
