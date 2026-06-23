@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -30,6 +30,57 @@ describe("release-check", () => {
     expect(result.code).toBe(0);
     expect(result.stdout).toContain("release_metadata=ok");
   });
+
+  it("runs the full release verification command sequence", async () => {
+    const root = await copyPackageJsonToTemp();
+    const packageJson = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
+    packageJson.license = "UNLICENSED";
+    packageJson.private = true;
+    await writeFile(path.join(root, "package.json"), `${JSON.stringify(packageJson, null, 2)}\n`, "utf8");
+    const fakeCommands = await createFakeReleaseCommands(root);
+    const npmCommand = expectedNpmCommand();
+
+    const result = await runReleaseCheck(root, { metadataOnly: false, pathPrefix: fakeCommands.binDir, logPath: fakeCommands.logPath });
+
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain(`release_check: ${npmCommand} test`);
+    expect(result.stdout).toContain(`release_check: ${npmCommand} run typecheck`);
+    expect(result.stdout).toContain(`release_check: ${npmCommand} run build`);
+    expect(result.stdout).toContain(`release_check: ${npmCommand} run smoke:package`);
+    expect(result.stdout).toContain("release_check: node dist/cli.js doctor");
+    expect(result.stdout).toContain("release_verification=ok");
+    await expect(readFile(fakeCommands.logPath, "utf8")).resolves.toBe(
+      [
+        `${npmCommand}\ttest\t${root}`,
+        `${npmCommand}\trun typecheck\t${root}`,
+        `${npmCommand}\trun build\t${root}`,
+        `${npmCommand}\trun smoke:package\t${root}`,
+        `node\tdist/cli.js doctor\t${root}`,
+        ""
+      ].join("\n")
+    );
+  });
+
+  it("stops the full release verification sequence when a child check fails", async () => {
+    const root = await copyPackageJsonToTemp();
+    const packageJson = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
+    packageJson.license = "UNLICENSED";
+    packageJson.private = true;
+    await writeFile(path.join(root, "package.json"), `${JSON.stringify(packageJson, null, 2)}\n`, "utf8");
+    const npmCommand = expectedNpmCommand();
+    const fakeCommands = await createFakeReleaseCommands(root, { failCommand: `${npmCommand}\trun typecheck` });
+
+    const result = await runReleaseCheck(root, { metadataOnly: false, pathPrefix: fakeCommands.binDir, logPath: fakeCommands.logPath });
+
+    expect(result.code).toBe(1);
+    expect(result.stdout).toContain(`release_check: ${npmCommand} test`);
+    expect(result.stdout).toContain(`release_check: ${npmCommand} run typecheck`);
+    expect(result.stdout).not.toContain(`release_check: ${npmCommand} run build`);
+    expect(result.stderr).toContain("fake release-check command failed");
+    await expect(readFile(fakeCommands.logPath, "utf8")).resolves.toBe(
+      [`${npmCommand}\ttest\t${root}`, `${npmCommand}\trun typecheck\t${root}`, ""].join("\n")
+    );
+  });
 });
 
 async function copyPackageJsonToTemp(): Promise<string> {
@@ -39,10 +90,66 @@ async function copyPackageJsonToTemp(): Promise<string> {
   return root;
 }
 
-async function runReleaseCheck(root: string): Promise<{ code: number; stdout: string; stderr: string }> {
+function expectedNpmCommand(): "npm" | "npm.cmd" {
+  return process.platform === "win32" ? "npm.cmd" : "npm";
+}
+
+async function createFakeReleaseCommands(
+  root: string,
+  options: { failCommand?: string } = {}
+): Promise<{ binDir: string; logPath: string }> {
+  const binDir = path.join(root, "fake-bin");
+  const logPath = path.join(root, "release-check-commands.log");
+  await mkdir(binDir, { recursive: true });
+  await Promise.all([
+    writeFakeCommand(path.join(binDir, "npm"), "npm", logPath, options.failCommand),
+    writeFakeCommand(path.join(binDir, "npm.cmd.mjs"), "npm.cmd", logPath, options.failCommand),
+    writeFakeCommand(path.join(binDir, "node"), "node", logPath, options.failCommand),
+    writeFakeCommand(path.join(binDir, "node.cmd.mjs"), "node", logPath, options.failCommand),
+    writeWindowsCommandWrapper(path.join(binDir, "npm.cmd"), "npm.cmd.mjs"),
+    writeWindowsCommandWrapper(path.join(binDir, "node.cmd"), "node.cmd.mjs")
+  ]);
+  return { binDir, logPath };
+}
+
+async function writeFakeCommand(filePath: string, command: string, logPath: string, failCommand?: string): Promise<void> {
+  await writeFile(
+    filePath,
+    [
+      `#!${process.execPath}`,
+      'import { appendFileSync } from "node:fs";',
+      `const commandLine = ${JSON.stringify(`${command}\t`)} + process.argv.slice(2).join(" ");`,
+      `appendFileSync(${JSON.stringify(logPath)}, commandLine + "\\t" + process.cwd() + "\\n");`,
+      `if (commandLine === ${JSON.stringify(failCommand ?? "")}) {`,
+      `  console.error("fake release-check command failed: " + commandLine);`,
+      "  process.exit(42);",
+      "}"
+    ].join("\n"),
+    "utf8"
+  );
+  await chmod(filePath, 0o755);
+}
+
+async function writeWindowsCommandWrapper(filePath: string, moduleFileName: string): Promise<void> {
+  await writeFile(filePath, `@echo off\r\n"${process.execPath}" "%~dp0${moduleFileName}" %*\r\n`, "utf8");
+}
+
+async function runReleaseCheck(
+  root: string,
+  options: { metadataOnly?: boolean; pathPrefix?: string; logPath?: string } = {}
+): Promise<{ code: number; stdout: string; stderr: string }> {
+  const args = [path.join(repoRoot, "scripts", "release-check.mjs")];
+  if (options.metadataOnly ?? true) args.push("--metadata-only");
+  args.push("--root", root);
+  const env = {
+    ...process.env,
+    ...(options.pathPrefix ? { PATH: `${options.pathPrefix}${path.delimiter}${process.env.PATH ?? ""}` } : {}),
+    ...(options.logPath ? { GPTPROUSE_RELEASE_CHECK_LOG: options.logPath } : {})
+  };
   try {
-    const result = await execFileAsync("node", [path.join(repoRoot, "scripts", "release-check.mjs"), "--metadata-only", "--root", root], {
-      cwd: repoRoot
+    const result = await execFileAsync(process.execPath, args, {
+      cwd: repoRoot,
+      env
     });
     return { code: 0, stdout: result.stdout, stderr: result.stderr };
   } catch (error) {
