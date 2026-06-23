@@ -134,6 +134,18 @@ export function createServer(cwd = process.cwd(), options: CreateMcpServerOption
     async (input) => asText(await handlers.repo_write_file_apply(input))
   );
 
+  server.registerTool(
+    "repo_stage_reviewed_paths",
+    {
+      description: "Stage paths only when backed by applied write receipts matching the current git HEAD and file content.",
+      inputSchema: {
+        receipt_ids: z.array(z.string().min(1)).min(1),
+        expected_head: z.string().min(1)
+      }
+    },
+    async (input) => asText(await handlers.repo_stage_reviewed_paths(input))
+  );
+
   return server;
 }
 

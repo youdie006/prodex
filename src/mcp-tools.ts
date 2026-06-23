@@ -1,6 +1,6 @@
 import { BridgeStore } from "./store.js";
 import { readRepoFile, searchRepo } from "./repo.js";
-import { applyRepoWriteDryRun, createRepoWriteDryRun } from "./repo-write.js";
+import { applyRepoWriteDryRun, createRepoWriteDryRun, stageReviewedPaths } from "./repo-write.js";
 import type { SourceSchema } from "./schema.js";
 import type { z } from "zod";
 
@@ -71,6 +71,10 @@ export function createMcpToolHandlers(context: McpToolContext) {
 
     async repo_write_file_apply(input: { receipt_id: string; expected_head: string; preimage_sha256: string }) {
       return applyRepoWriteDryRun(context.cwd, store, input);
+    },
+
+    async repo_stage_reviewed_paths(input: { receipt_ids: string[]; expected_head: string }) {
+      return stageReviewedPaths(context.cwd, store, input);
     }
   };
 }

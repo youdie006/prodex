@@ -42,7 +42,7 @@ Mutating tools should be opt-in and receipt-based:
 - `repo_write_file_apply`
 - `repo_stage_reviewed_paths`
 
-Current implementation exposes `repo_write_file_dry_run` and `repo_write_file_apply` for existing text-file replacement only. It requires a matching git HEAD and preimage hash before apply. Staging remains intentionally unimplemented.
+Current implementation exposes `repo_write_file_dry_run` and `repo_write_file_apply` for existing text-file replacement only. It requires a matching git HEAD and preimage hash before apply. `repo_stage_reviewed_paths` stages only paths backed by matching applied write receipts.
 
 ## Data Model
 
@@ -111,4 +111,4 @@ Phase 3:
 Phase 4:
 
 - Optional tunnel helper for ChatGPT clients that cannot reach `127.0.0.1`.
-- Broader write/stage tools only after dry-run, expected-head checks, and receipt gates exist.
+- Broader write tools only after dry-run, expected-head checks, and receipt gates exist.

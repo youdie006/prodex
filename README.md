@@ -53,7 +53,7 @@ Implemented:
 - Claude-compatible stdio MCP server through `gptprouse mcp`.
 - ChatGPT Developer Mode-style Streamable HTTP MCP server through `gptprouse setup` and `gptprouse start`.
 - Read-only repo tools for bounded file reads and ripgrep search.
-- Receipt-gated repo write tools for existing text files: dry-run first, then apply only with matching git HEAD and preimage hash.
+- Receipt-gated repo write/stage tools for existing text files: dry-run first, apply only with matching git HEAD and preimage hash, then stage only reviewed applied receipts.
 
 Not implemented:
 
@@ -128,8 +128,9 @@ The MCP write path is intentionally narrow:
 
 - `repo_write_file_dry_run` previews an existing repo-relative text-file replacement and stores a receipt.
 - `repo_write_file_apply` applies that receipt only when the current git HEAD and file preimage hash still match.
+- `repo_stage_reviewed_paths` stages only files whose applied write receipts still match the current git HEAD and file content.
 - Sensitive local paths such as `.bridge`, `.git`, `.env*`, `node_modules`, and `dist` are rejected.
-- No shell execution or staging tool is exposed.
+- No shell execution or direct ungated staging tool is exposed.
 
 For local task-bus smoke tests:
 

@@ -22,6 +22,11 @@ export interface RepoWriteApplyInput {
   preimage_sha256: string;
 }
 
+export interface RepoStageReviewedPathsInput {
+  receipt_ids: string[];
+  expected_head: string;
+}
+
 export interface RepoWriteDryRunResult {
   receipt: Receipt;
   path: string;
@@ -39,6 +44,13 @@ export interface RepoWriteApplyResult {
   new_sha256: string;
 }
 
+export interface RepoStageReviewedPathsResult {
+  receipt: Receipt;
+  paths: string[];
+  receipt_ids: string[];
+  expected_head: string;
+}
+
 interface DryRunMetadata {
   path: string;
   expected_head: string;
@@ -46,6 +58,13 @@ interface DryRunMetadata {
   new_sha256: string;
   diff: string;
   new_content: string;
+}
+
+interface AppliedMetadata {
+  path: string;
+  expected_head: string;
+  preimage_sha256: string;
+  new_sha256: string;
 }
 
 export async function createRepoWriteDryRun(
@@ -141,6 +160,58 @@ export async function applyRepoWriteDryRun(
   };
 }
 
+export async function stageReviewedPaths(
+  root: string,
+  store: BridgeStore,
+  input: RepoStageReviewedPathsInput
+): Promise<RepoStageReviewedPathsResult> {
+  if (input.receipt_ids.length === 0) {
+    throw new Error("At least one applied write receipt is required");
+  }
+  const head = await getGitHead(root);
+  if (head !== input.expected_head) {
+    throw new Error(`Git HEAD mismatch: expected ${input.expected_head}, got ${head}`);
+  }
+
+  const paths = new Set<string>();
+  for (const receiptId of input.receipt_ids) {
+    const receipt = await store.getReceipt(receiptId);
+    if (receipt.kind !== "repo_write_applied") {
+      throw new Error(`Receipt ${receiptId} is not a repo_write_applied receipt`);
+    }
+    const metadata = parseAppliedMetadata(receipt.metadata);
+    if (metadata.expected_head !== input.expected_head) {
+      throw new Error(`Expected HEAD does not match applied receipt ${receiptId}`);
+    }
+
+    const current = await readWritableExistingFile(root, metadata.path);
+    const currentSha = sha256(current.content);
+    if (currentSha !== metadata.new_sha256) {
+      throw new Error(`File content changed after applied receipt ${receiptId} for ${metadata.path}`);
+    }
+    const gitPath = path.relative(root, current.resolved).replaceAll(path.sep, "/");
+    paths.add(gitPath);
+  }
+
+  const stagedPaths = Array.from(paths).sort();
+  await execFileAsync("git", ["add", "--", ...stagedPaths], { cwd: root });
+  const receipt = await store.writeReceipt({
+    kind: "repo_stage_reviewed_paths",
+    summary: `Staged reviewed paths: ${stagedPaths.join(", ")}`,
+    metadata: {
+      expected_head: input.expected_head,
+      receipt_ids: input.receipt_ids,
+      paths: stagedPaths
+    }
+  });
+  return {
+    receipt,
+    paths: stagedPaths,
+    receipt_ids: input.receipt_ids,
+    expected_head: input.expected_head
+  };
+}
+
 async function getGitHead(root: string): Promise<string> {
   const { stdout } = await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: root });
   return stdout.trim();
@@ -175,6 +246,16 @@ function parseDryRunMetadata(value: Record<string, unknown>): DryRunMetadata {
     }
   }
   return metadata as DryRunMetadata;
+}
+
+function parseAppliedMetadata(value: Record<string, unknown>): AppliedMetadata {
+  const metadata = value as Partial<AppliedMetadata>;
+  for (const key of ["path", "expected_head", "preimage_sha256", "new_sha256"] as const) {
+    if (typeof metadata[key] !== "string") {
+      throw new Error(`Applied receipt metadata is missing ${key}`);
+    }
+  }
+  return metadata as AppliedMetadata;
 }
 
 function sha256(value: string): string {

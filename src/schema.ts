@@ -77,7 +77,15 @@ export const SessionSchema = z.object({
 export const ReceiptSchema = z.object({
   schema_version: z.literal(SCHEMA_VERSION),
   id: z.string(),
-  kind: z.enum(["task_created", "task_claimed", "task_completed", "consult_preview", "repo_write_dry_run", "repo_write_applied"]),
+  kind: z.enum([
+    "task_created",
+    "task_claimed",
+    "task_completed",
+    "consult_preview",
+    "repo_write_dry_run",
+    "repo_write_applied",
+    "repo_stage_reviewed_paths"
+  ]),
   task_id: z.string().optional(),
   session_id: z.string().optional(),
   summary: z.string(),

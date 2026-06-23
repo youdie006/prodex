@@ -52,10 +52,11 @@ The server currently exposes ledger-first tools:
 - `repo_search`
 - `repo_write_file_dry_run`
 - `repo_write_file_apply`
+- `repo_stage_reviewed_paths`
 
-Write tools are narrow and receipt-gated. Claude must first call `repo_write_file_dry_run` with an existing repo-relative text file, replacement content, and the expected git HEAD. The file is not changed. To apply it, Claude must call `repo_write_file_apply` with the dry-run receipt id, the same expected HEAD, and the reported preimage hash. If git HEAD or file content changed, apply fails.
+Write tools are narrow and receipt-gated. Claude must first call `repo_write_file_dry_run` with an existing repo-relative text file, replacement content, and the expected git HEAD. The file is not changed. To apply it, Claude must call `repo_write_file_apply` with the dry-run receipt id, the same expected HEAD, and the reported preimage hash. If git HEAD or file content changed, apply fails. To stage the result, Claude must call `repo_stage_reviewed_paths` with applied write receipt ids and the same expected HEAD; staging fails if any file changed after apply.
 
-No shell, browser, public tunnel, direct ungated write, or staging tools are exposed through the Claude stdio MCP server.
+No shell, browser, public tunnel, direct ungated write, or direct ungated staging tools are exposed through the Claude stdio MCP server.
 
 ## First Prompt
 

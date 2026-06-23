@@ -27,6 +27,7 @@ describe("HTTP MCP server", () => {
     expect(tools.tools.map((tool) => tool.name)).toContain("repo_search");
     expect(tools.tools.map((tool) => tool.name)).toContain("repo_write_file_dry_run");
     expect(tools.tools.map((tool) => tool.name)).toContain("repo_write_file_apply");
+    expect(tools.tools.map((tool) => tool.name)).toContain("repo_stage_reviewed_paths");
   });
 
   it("rejects requests that omit the configured URL token", async () => {
