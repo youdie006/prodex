@@ -352,6 +352,21 @@ describe("runCli", () => {
     clearTimeout(stop);
   });
 
+  it("requires setup before start creates a persisted local MCP config", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+
+    const start = runCli(["start"], {
+      cwd,
+      stdout: () => {},
+      stderr: () => {}
+    });
+    const stop = setTimeout(() => process.emit("SIGTERM"), 50);
+
+    await expect(start).rejects.toThrow(/setup/i);
+    clearTimeout(stop);
+    await expect(readFile(path.join(cwd, ".bridge", "config.local.json"), "utf8")).rejects.toThrow();
+  });
+
   it("does not replace corrupt local MCP config when starting", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
     await mkdir(path.join(cwd, ".bridge"), { recursive: true });

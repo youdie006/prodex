@@ -74,7 +74,9 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
 
   if (command === "start") {
     const config = await loadLocalConfig(io.cwd).catch(async (error) => {
-      if (isMissingFileError(error)) return writeLocalConfig(io.cwd);
+      if (isMissingFileError(error)) {
+        throw new Error("start requires local MCP setup. Run `gptprouse setup --token-ttl-hours <hours>` first.");
+      }
       throw error;
     });
     const overrideToken = readFlag(rest, "--token");
