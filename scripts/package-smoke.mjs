@@ -1,6 +1,7 @@
 #!/usr/bin/env node
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import net from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -49,12 +50,14 @@ try {
   assertIncludes(doctor.stdout, "mcp_write_smoke: ok", "installed doctor output");
   assertIncludes(doctor.stdout, "http_mcp_smoke: ok", "installed doctor output");
 
+  await smokeInstalledHttpOnboarding(binPath, consumerDir);
+
   const tools = await smokeStdioMcp(binPath, consumerDir);
   for (const tool of REQUIRED_MCP_TOOLS) {
     if (!tools.includes(tool)) throw new Error(`Installed MCP catalog is missing ${tool}`);
   }
 
-  console.log(`package_smoke: ok tarball=${path.basename(tarball)} tools=${REQUIRED_MCP_TOOLS.join(",")}`);
+  console.log(`package_smoke: ok tarball=${path.basename(tarball)} http_onboarding=ok tools=${REQUIRED_MCP_TOOLS.join(",")}`);
 } finally {
   await rm(tmp, { recursive: true, force: true });
 }
@@ -90,6 +93,100 @@ async function smokeStdioMcp(binPath, cwd) {
   }
 }
 
+async function smokeInstalledHttpOnboarding(binPath, cwd) {
+  const port = await getFreePort();
+  const token = "package-smoke-token";
+  const expectedUrl = `http://127.0.0.1:${port}/mcp?gptprouse_token=${token}`;
+
+  const setup = await run(binPath, ["setup", "--port", String(port), "--token", token], { cwd });
+  const setupOutput = `${setup.stdout}\n${setup.stderr}`;
+  assertIncludes(setupOutput, "gptprouse_token=***", "installed setup output");
+  assertNotIncludes(setupOutput, token, "installed setup output");
+
+  const status = await run(binPath, ["status"], { cwd });
+  const statusOutput = `${status.stdout}\n${status.stderr}`;
+  assertIncludes(statusOutput, "gptprouse_token=***", "installed status output");
+  assertNotIncludes(statusOutput, token, "installed status output");
+
+  const pasteReady = await run(binPath, ["status", "--show-token", "--url-only"], { cwd });
+  if (pasteReady.stdout.trim() !== expectedUrl) {
+    throw new Error(`Installed status --show-token --url-only returned ${pasteReady.stdout.trim()}, expected ${expectedUrl}`);
+  }
+
+  const child = spawn(binPath, ["start"], {
+    cwd,
+    stdio: ["ignore", "pipe", "pipe"]
+  });
+  let stdout = "";
+  let stderr = "";
+  child.stdout.on("data", (chunk) => {
+    stdout += chunk.toString();
+  });
+  child.stderr.on("data", (chunk) => {
+    stderr += chunk.toString();
+  });
+  try {
+    await waitForHttpHealth(`http://127.0.0.1:${port}/health`, 20_000);
+  } finally {
+    await terminateChild(child, stdout, stderr);
+  }
+  const startOutput = `${stdout}\n${stderr}`;
+  assertIncludes(startOutput, "gptprouse_token=***", "installed start output");
+  assertNotIncludes(startOutput, token, "installed start output");
+}
+
+async function getFreePort() {
+  const server = net.createServer();
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  const address = server.address();
+  const port = typeof address === "object" && address ? address.port : undefined;
+  await new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+  if (!port) throw new Error("Could not allocate a free loopback port");
+  return port;
+}
+
+async function waitForHttpHealth(url, timeoutMs) {
+  const started = Date.now();
+  let lastError;
+  while (Date.now() - started < timeoutMs) {
+    try {
+      const response = await fetch(url, { signal: AbortSignal.timeout(1000) });
+      if (response.ok) {
+        const body = await response.json();
+        if (body?.ok === true && body?.name === "gptprouse") return;
+        throw new Error(`Unexpected health body: ${JSON.stringify(body)}`);
+      }
+      throw new Error(`HTTP ${response.status}`);
+    } catch (error) {
+      lastError = error;
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+  }
+  throw new Error(`Timed out waiting for installed HTTP health at ${url}: ${lastError instanceof Error ? lastError.message : String(lastError)}`);
+}
+
+async function terminateChild(child, stdout, stderr) {
+  if (child.exitCode !== null) {
+    if (child.exitCode !== 0) {
+      throw new Error(`Installed HTTP server exited early with ${child.exitCode}. stdout:\n${stdout}\nstderr:\n${stderr}`);
+    }
+    return;
+  }
+  const exit = new Promise((resolve) => child.once("exit", (code, signal) => resolve({ code, signal })));
+  child.kill("SIGTERM");
+  const result = await withTimeout(
+    exit,
+    10_000,
+    "Timed out stopping installed HTTP server"
+  );
+  if (result.code !== 0 && result.signal !== "SIGTERM") {
+    throw new Error(`Installed HTTP server exited unexpectedly with code=${result.code} signal=${result.signal}. stdout:\n${stdout}\nstderr:\n${stderr}`);
+  }
+}
+
 async function run(command, args, options = {}) {
   return execFileAsync(command, args, {
     timeout: options.timeout ?? 30_000,
@@ -115,5 +212,11 @@ async function withTimeout(promise, timeoutMs, message) {
 function assertIncludes(text, expected, label) {
   if (!text.includes(expected)) {
     throw new Error(`${label} did not include ${expected}. Output was:\n${text.slice(0, 1000)}`);
+  }
+}
+
+function assertNotIncludes(text, unexpected, label) {
+  if (text.includes(unexpected)) {
+    throw new Error(`${label} unexpectedly included ${unexpected}. Output was:\n${text.slice(0, 1000)}`);
   }
 }

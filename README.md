@@ -171,7 +171,7 @@ Before publishing or sharing a package tarball, run:
 npm run smoke:package
 ```
 
-This packs the project, installs the tarball into a temporary consumer project, runs the installed `gptprouse` binary, and verifies the installed stdio MCP server exposes the expected tool catalog.
+This packs the project, installs the tarball into a temporary consumer project, runs the installed `gptprouse` binary, verifies HTTP MCP onboarding through installed `setup`/`status`/`start` plus `/health`, and verifies the installed stdio MCP server exposes the expected tool catalog.
 
 ## Claude MCP
 
