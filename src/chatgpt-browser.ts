@@ -47,6 +47,9 @@ interface ChatGptAnswerState {
   generating: boolean;
   assistantMessageCount: number;
   userMessageCount: number;
+  textSample: string;
+  blockerTextSample: string;
+  visibleButtonLabels: string[];
 }
 
 interface ChatGptPageStatus {
@@ -58,6 +61,9 @@ interface ChatGptPageStatus {
   textSample: string;
   visibleButtonLabels: string[];
 }
+
+export const CHATGPT_RUNTIME_BLOCKER_TEXT_EXCLUDED_ANCESTORS =
+  '[data-message-author-role],script,style,noscript,[aria-hidden="true"],div[role="textbox"],textarea,[contenteditable="true"]';
 
 export interface DevtoolsPage {
   type: string;
@@ -145,6 +151,14 @@ export function detectChatGptBlocker(
       next_step: "Complete the visible browser check manually, then retry."
     };
   }
+  if (hasLikelyChatGptLoginPrompt(haystack)) {
+    return {
+      code: "login_required",
+      message: "ChatGPT is asking you to log in.",
+      retryable: true,
+      next_step: "Log in manually in the visible browser, then retry."
+    };
+  }
   if (/captcha|robot|로봇|사람인지|자동화|보안문자/i.test(haystack)) {
     return {
       code: "captcha_required",
@@ -170,6 +184,22 @@ export function detectChatGptBlocker(
     };
   }
   return undefined;
+}
+
+function hasLikelyChatGptLoginPrompt(haystack: string): boolean {
+  const hasSpecificSignup = /sign up for free|무료로 가입/i.test(haystack);
+  const hasLogin = /\blog in\b|로그인/i.test(haystack);
+  const hasSignup = /\bsign up\b|가입/i.test(haystack);
+  const hasSessionPrompt = /log in to|login to|sign in to|session expired|logged out|다시 로그인|로그인이 필요/i.test(haystack);
+  return hasSpecificSignup || (hasLogin && hasSignup) || hasSessionPrompt;
+}
+
+export function chatGptBlockerErrorFromAnswerState(state: {
+  textSample: string;
+  blockerTextSample?: string;
+  visibleButtonLabels: string[];
+}): string | undefined {
+  return formatBlockerError(detectChatGptBlocker(state.blockerTextSample ?? state.textSample, []));
 }
 
 export function computePromptAcceptanceDeadline(timeoutMs: number, startedAt: number): number {
@@ -337,6 +367,8 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
   while (Date.now() < acceptDeadline) {
     await sleep(500);
     finalState = await evaluateOnPage<ChatGptAnswerState>(page, answerExpression());
+    const runtimeBlocker = chatGptBlockerErrorFromAnswerState(finalState);
+    if (runtimeBlocker) throw new Error(runtimeBlocker);
     if (
       finalState.userMessageCount > beforeSubmit.userMessageCount ||
       finalState.assistantMessageCount > beforeSubmit.assistantMessageCount ||
@@ -353,6 +385,8 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
   while (Date.now() - started < timeoutMs) {
     await sleep(1000);
     finalState = await evaluateOnPage<ChatGptAnswerState>(page, answerExpression());
+    const runtimeBlocker = chatGptBlockerErrorFromAnswerState(finalState);
+    if (runtimeBlocker) throw new Error(runtimeBlocker);
     if (hasFreshChatGptAnswer(beforeSubmit.assistantMessageCount, finalState)) break;
   }
   const completed = finalState;
@@ -591,8 +625,27 @@ function submitExpression(): string {
 }
 
 function answerExpression(): string {
+  const excludedTextSelector = JSON.stringify(CHATGPT_RUNTIME_BLOCKER_TEXT_EXCLUDED_ANCESTORS);
   return `(() => {
     const text = document.body?.innerText || "";
+    const excludedTextSelector = ${excludedTextSelector};
+    const visibleTextOutsideMessages = () => {
+      if (!document.body) return "";
+      const parts = [];
+      const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+      while (walker.nextNode()) {
+        const node = walker.currentNode;
+        const parent = node.parentElement;
+        const value = node.nodeValue?.trim();
+        if (!parent || !value) continue;
+        if (parent.closest(excludedTextSelector)) continue;
+        const style = window.getComputedStyle(parent);
+        if (style.display === "none" || style.visibility === "hidden") continue;
+        if (!(parent.offsetWidth || parent.offsetHeight || parent.getClientRects().length)) continue;
+        parts.push(value);
+      }
+      return parts.join(String.fromCharCode(10));
+    };
     const lines = text.split(String.fromCharCode(10)).map((line) => line.trim()).filter(Boolean);
     const messages = [...document.querySelectorAll('[data-message-author-role]')].map((node) => ({
       role: node.getAttribute('data-message-author-role'),
@@ -602,6 +655,7 @@ function answerExpression(): string {
     const userMessages = messages.filter((message) => message.role === "user");
     const assistant = assistantMessages.at(-1);
     const buttons = [...document.querySelectorAll('button,[role="button"]')]
+      .filter((node) => !!(node.offsetWidth || node.offsetHeight || node.getClientRects().length))
       .map((node) => (node.innerText || node.getAttribute("aria-label") || node.getAttribute("data-testid") || "").trim())
       .filter(Boolean);
     const answer = assistant?.text || "";
@@ -610,6 +664,9 @@ function answerExpression(): string {
       title: document.title,
       url: location.href,
       answer: answer || text.slice(-4000),
+      textSample: text.slice(0, 12000),
+      blockerTextSample: visibleTextOutsideMessages().slice(0, 12000),
+      visibleButtonLabels: buttons,
       generating: placeholder || buttons.some((label) => /stop|cancel|중지|취소|응답 중지/i.test(label)),
       assistantMessageCount: assistantMessages.length,
       userMessageCount: userMessages.length,

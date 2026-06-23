@@ -3,6 +3,8 @@ import {
   buildChromeLaunchArgs,
   assertVisibleChatGptTab,
   chatGptUrlsReferToSameTarget,
+  chatGptBlockerErrorFromAnswerState,
+  CHATGPT_RUNTIME_BLOCKER_TEXT_EXCLUDED_ANCESTORS,
   computePageDiscoveryTimeout,
   computePromptAcceptanceDeadline,
   detectChatGptBlocker,
@@ -83,11 +85,87 @@ describe("ChatGPT browser adapter", () => {
     expect(isLikelyChatGptSubmitButton("시작하기", null)).toBe(false);
   });
 
+  it("excludes current composer text from runtime blocker scans", () => {
+    expect(CHATGPT_RUNTIME_BLOCKER_TEXT_EXCLUDED_ANCESTORS).toContain('[data-message-author-role]');
+    expect(CHATGPT_RUNTIME_BLOCKER_TEXT_EXCLUDED_ANCESTORS).toContain('div[role="textbox"]');
+    expect(CHATGPT_RUNTIME_BLOCKER_TEXT_EXCLUDED_ANCESTORS).toContain('textarea');
+    expect(CHATGPT_RUNTIME_BLOCKER_TEXT_EXCLUDED_ANCESTORS).toContain('[contenteditable="true"]');
+  });
+
   it("detects ChatGPT browser blocker states before sending", () => {
     expect(detectChatGptBlocker("Just a moment... Checking if the site connection is secure", [])?.code).toBe("cloudflare_check");
     expect(detectChatGptBlocker("Please solve this captcha to continue", [])?.code).toBe("captcha_required");
     expect(detectChatGptBlocker("You've reached the GPT-5 message limit. Try again later.", [])?.code).toBe("usage_limit");
     expect(detectChatGptBlocker("Additional verification required", ["Continue"])?.code).toBe("permission_required");
+  });
+
+  it("reports blockers that appear while waiting for a submitted prompt", () => {
+    const message = chatGptBlockerErrorFromAnswerState({
+      textSample: "You've reached the GPT-5 message limit. Try again later.",
+      visibleButtonLabels: ["Switch model"]
+    });
+
+    expect(message).toContain("usage");
+    expect(message).toContain("Next:");
+    expect(message).toContain("Wait for the limit");
+  });
+
+  it("does not treat submitted message text as a post-submit blocker", () => {
+    expect(
+      chatGptBlockerErrorFromAnswerState({
+        textSample: "How do I explain captcha challenges to users?\nSend prompt",
+        blockerTextSample: "Send prompt",
+        visibleButtonLabels: ["Send prompt"]
+      })
+    ).toBeUndefined();
+  });
+
+  it("ignores post-submit button labels that are not in the page text", () => {
+    expect(
+      chatGptBlockerErrorFromAnswerState({
+        textSample: "Conversation ready",
+        visibleButtonLabels: ["Log in"]
+      })
+    ).toBeUndefined();
+  });
+
+  it("does not report login from a lone post-submit button text", () => {
+    expect(
+      chatGptBlockerErrorFromAnswerState({
+        textSample: "Conversation ready\nLog in",
+        blockerTextSample: "Log in",
+        visibleButtonLabels: []
+      })
+    ).toBeUndefined();
+  });
+
+  it("does not let short message text hide a real post-submit blocker", () => {
+    const message = chatGptBlockerErrorFromAnswerState({
+      textSample: "Please solve this captcha to continue",
+      visibleButtonLabels: ["Continue"]
+    });
+
+    expect(message).toContain("captcha");
+  });
+
+  it("does not let exact message text hide a real non-message blocker", () => {
+    const message = chatGptBlockerErrorFromAnswerState({
+      textSample: "Please solve this captcha to continue",
+      blockerTextSample: "Please solve this captcha to continue",
+      visibleButtonLabels: ["Continue"]
+    });
+
+    expect(message).toContain("captcha");
+  });
+
+  it("reports login prompts that appear after a prompt is submitted", () => {
+    const message = chatGptBlockerErrorFromAnswerState({
+      textSample: "Log in\nSign up for free",
+      visibleButtonLabels: ["Log in", "Sign up"]
+    });
+
+    expect(message).toContain("log in");
+    expect(message).toContain("Next:");
   });
 
   it("does not flag a normal ChatGPT composer as blocked", () => {
