@@ -10,6 +10,7 @@ export interface StartHttpMcpServerOptions {
   port?: number;
   token?: string;
   tokenExpiresAt?: string;
+  requestBodyLimitBytes?: number;
 }
 
 export interface RunningHttpMcpServer {
@@ -24,9 +25,12 @@ interface TransportEntry {
   transport: StreamableHTTPServerTransport;
 }
 
+const DEFAULT_REQUEST_BODY_LIMIT_BYTES = 1_048_576;
+
 export async function startHttpMcpServer(options: StartHttpMcpServerOptions): Promise<RunningHttpMcpServer> {
   const host = options.host ?? "127.0.0.1";
   const token = options.token;
+  const requestBodyLimitBytes = options.requestBodyLimitBytes ?? DEFAULT_REQUEST_BODY_LIMIT_BYTES;
   const transports = new Map<string, TransportEntry>();
 
   const server = http.createServer(async (req, res) => {
@@ -45,7 +49,7 @@ export async function startHttpMcpServer(options: StartHttpMcpServerOptions): Pr
         return;
       }
       if (req.method === "POST") {
-        await handlePost(req, res, transports, options.cwd);
+        await handlePost(req, res, transports, options.cwd, requestBodyLimitBytes);
         return;
       }
       if (req.method === "GET" || req.method === "DELETE") {
@@ -55,6 +59,10 @@ export async function startHttpMcpServer(options: StartHttpMcpServerOptions): Pr
       writeJson(res, 405, { error: "method_not_allowed" });
     } catch (error) {
       if (!res.headersSent) {
+        if (error instanceof HttpRequestError) {
+          writeJson(res, error.status, error.body);
+          return;
+        }
         writeJson(res, 500, {
           error: "internal_server_error",
           message: error instanceof Error ? error.message : String(error)
@@ -92,9 +100,10 @@ async function handlePost(
   req: IncomingMessage,
   res: ServerResponse,
   transports: Map<string, TransportEntry>,
-  cwd: string
+  cwd: string,
+  requestBodyLimitBytes: number
 ): Promise<void> {
-  const body = await readJsonBody(req);
+  const body = await readJsonBody(req, requestBodyLimitBytes);
   const sessionId = headerValue(req.headers["mcp-session-id"]);
   if (sessionId && transports.has(sessionId)) {
     await transports.get(sessionId)!.transport.handleRequest(req, res, body);
@@ -139,14 +148,44 @@ async function handleSessionRequest(
   await transports.get(sessionId)!.transport.handleRequest(req, res);
 }
 
-async function readJsonBody(req: IncomingMessage): Promise<unknown> {
+async function readJsonBody(req: IncomingMessage, limitBytes: number): Promise<unknown> {
+  const contentLength = parseContentLength(req.headers["content-length"]);
+  if (contentLength !== undefined && contentLength > limitBytes) {
+    throw new HttpRequestError(413, { error: "request_too_large", max_bytes: limitBytes });
+  }
   const chunks: Buffer[] = [];
+  let totalBytes = 0;
   for await (const chunk of req) {
-    chunks.push(typeof chunk === "string" ? Buffer.from(chunk) : chunk);
+    const buffer = typeof chunk === "string" ? Buffer.from(chunk) : chunk;
+    totalBytes += buffer.length;
+    if (totalBytes > limitBytes) {
+      throw new HttpRequestError(413, { error: "request_too_large", max_bytes: limitBytes });
+    }
+    chunks.push(buffer);
   }
   const text = Buffer.concat(chunks).toString("utf8");
   if (!text.trim()) return undefined;
-  return JSON.parse(text);
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new HttpRequestError(400, { error: "invalid_json" });
+  }
+}
+
+function parseContentLength(value: string | string[] | undefined): number | undefined {
+  const raw = headerValue(value);
+  if (!raw) return undefined;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined;
+}
+
+class HttpRequestError extends Error {
+  constructor(
+    readonly status: number,
+    readonly body: Record<string, unknown>
+  ) {
+    super(String(body.error ?? status));
+  }
 }
 
 function isAuthorized(req: IncomingMessage, url: URL, token?: string, tokenExpiresAt?: string): boolean {

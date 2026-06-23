@@ -16,6 +16,7 @@ Typical use:
 - ChatGPT fetches the result through MCP.
 
 The server is personal and local-first. Do not expose it as a shared service.
+HTTP MCP requests are bounded: malformed JSON returns `400`, and request bodies over 1 MiB are rejected with `413`.
 
 ## Build And Prepare
 

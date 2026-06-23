@@ -1,6 +1,7 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { mkdtemp } from "node:fs/promises";
+import { request as httpRequest } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -39,6 +40,70 @@ describe("HTTP MCP server", () => {
     expect(response.status).toBe(401);
   });
 
+  it("rejects authorized MCP request bodies over the configured byte limit", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-http-mcp-"));
+    running = await startHttpMcpServer({
+      cwd,
+      host: "127.0.0.1",
+      port: 0,
+      token: "test-token",
+      requestBodyLimitBytes: 16
+    });
+
+    const response = await fetch(`${running.url}/mcp?gptprouse_token=test-token`, {
+      method: "POST",
+      body: JSON.stringify({ jsonrpc: "2.0", method: "initialize", params: {} })
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(413);
+    expect(body.error).toBe("request_too_large");
+  });
+
+  it("rejects chunked authorized MCP request bodies over the configured byte limit", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-http-mcp-"));
+    running = await startHttpMcpServer({
+      cwd,
+      host: "127.0.0.1",
+      port: 0,
+      token: "test-token",
+      requestBodyLimitBytes: 8
+    });
+
+    const response = await postChunked(`${running.url}/mcp?gptprouse_token=test-token`, [
+      '{"json',
+      'rpc":"2.0"}'
+    ]);
+
+    expect(response.status).toBe(413);
+    expect(response.body.error).toBe("request_too_large");
+  });
+
+  it("rejects malformed authorized JSON as a bad request", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-http-mcp-"));
+    running = await startHttpMcpServer({ cwd, host: "127.0.0.1", port: 0, token: "test-token" });
+
+    const response = await fetch(`${running.url}/mcp?gptprouse_token=test-token`, {
+      method: "POST",
+      body: "{not json"
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(body.error).toBe("invalid_json");
+  });
+
+  it("keeps valid JSON without a valid MCP session as a protocol bad request", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-http-mcp-"));
+    running = await startHttpMcpServer({ cwd, host: "127.0.0.1", port: 0, token: "test-token" });
+
+    const response = await fetch(`${running.url}/mcp?gptprouse_token=test-token`, { method: "POST", body: "{}" });
+    const body = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(body.error.message).toContain("no valid MCP session");
+  });
+
   it("rejects requests that use an expired configured URL token", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-http-mcp-"));
     running = await startHttpMcpServer({
@@ -54,3 +119,34 @@ describe("HTTP MCP server", () => {
     expect(response.status).toBe(401);
   });
 });
+
+function postChunked(url: string, chunks: string[]): Promise<{ status: number; body: Record<string, unknown> }> {
+  return new Promise((resolve, reject) => {
+    const req = httpRequest(
+      new URL(url),
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json"
+        }
+      },
+      (res) => {
+        const responseChunks: Buffer[] = [];
+        res.on("data", (chunk) => responseChunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
+        res.on("error", reject);
+        res.on("end", () => {
+          const rawBody = Buffer.concat(responseChunks).toString("utf8");
+          resolve({
+            status: res.statusCode ?? 0,
+            body: rawBody ? (JSON.parse(rawBody) as Record<string, unknown>) : {}
+          });
+        });
+      }
+    );
+    req.on("error", reject);
+    for (const chunk of chunks) {
+      req.write(chunk);
+    }
+    req.end();
+  });
+}
