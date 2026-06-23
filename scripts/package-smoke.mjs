@@ -57,7 +57,7 @@ try {
     if (!tools.includes(tool)) throw new Error(`Installed MCP catalog is missing ${tool}`);
   }
 
-  console.log(`package_smoke: ok tarball=${path.basename(tarball)} http_onboarding=ok tools=${REQUIRED_MCP_TOOLS.join(",")}`);
+  console.log(`package_smoke: ok tarball=${path.basename(tarball)} http_onboarding=ok tunnel_url=ok tools=${REQUIRED_MCP_TOOLS.join(",")}`);
 } finally {
   await rm(tmp, { recursive: true, force: true });
 }
@@ -114,6 +114,16 @@ async function smokeInstalledHttpOnboarding(binPath, cwd) {
   const pasteReady = await run(binPath, ["status", "--show-token", "--url-only"], { cwd });
   if (pasteReady.stdout.trim() !== expectedUrl) {
     throw new Error(`Installed status --show-token --url-only returned ${pasteReady.stdout.trim()}, expected ${expectedUrl}`);
+  }
+
+  const tunnelUrl = await run(
+    binPath,
+    ["tunnel", "url", "--public-url", "https://gptprouse-package-smoke.example/ignored", "--show-token", "--url-only"],
+    { cwd }
+  );
+  const expectedTunnelUrl = `https://gptprouse-package-smoke.example/mcp?gptprouse_token=${token}`;
+  if (tunnelUrl.stdout.trim() !== expectedTunnelUrl) {
+    throw new Error(`Installed tunnel url returned ${tunnelUrl.stdout.trim()}, expected ${expectedTunnelUrl}`);
   }
 
   const child = spawn(binPath, ["start"], {

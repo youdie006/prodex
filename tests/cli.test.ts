@@ -403,6 +403,148 @@ describe("runCli", () => {
     expect(text).not.toContain("expired-secret-token");
     expect(text).toContain("mcp_write_smoke: ok");
   });
+
+  it("prints a paste-ready public tunnel MCP URL only with an explicit token reveal", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    await runCli(["setup", "--port", "8789", "--token", "super-secret-token", "--token-ttl-hours", "1"], {
+      cwd,
+      stdout: () => {},
+      stderr: () => {}
+    });
+    const out: string[] = [];
+
+    await runCli(["tunnel", "url", "--public-url", "https://example.trycloudflare.com/path?ignored=1", "--show-token", "--url-only"], {
+      cwd,
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    expect(out).toEqual(["https://example.trycloudflare.com/mcp?gptprouse_token=super-secret-token"]);
+  });
+
+  it("redacts public tunnel MCP URL tokens by default", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    await runCli(["setup", "--port", "8789", "--token", "super-secret-token", "--token-ttl-hours", "1"], {
+      cwd,
+      stdout: () => {},
+      stderr: () => {}
+    });
+    const out: string[] = [];
+
+    await runCli(["tunnel", "url", "--public-url", "https://example.trycloudflare.com"], {
+      cwd,
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    const text = out.join("\n");
+    const payload = JSON.parse(text) as { mcp_url?: string; token_status?: string; warnings?: string[] };
+    expect(payload.mcp_url).toBe("https://example.trycloudflare.com/mcp?gptprouse_token=***");
+    expect(payload.token_status).toBe("valid");
+    expect(payload.warnings?.join("\n")).toContain("does not create a tunnel");
+    expect(text).not.toContain("super-secret-token");
+  });
+
+  it("redacts public tunnel MCP URL tokens in url-only output unless explicitly revealed", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    await runCli(["setup", "--port", "8789", "--token", "super-secret-token", "--token-ttl-hours", "1"], {
+      cwd,
+      stdout: () => {},
+      stderr: () => {}
+    });
+    const out: string[] = [];
+
+    await runCli(["tunnel", "url", "--public-url", "https://example.trycloudflare.com", "--url-only"], {
+      cwd,
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    expect(out).toEqual(["https://example.trycloudflare.com/mcp?gptprouse_token=***"]);
+  });
+
+  it("requires a short-lived token before printing a public tunnel MCP URL", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    await runCli(["setup", "--port", "8789", "--token", "super-secret-token"], {
+      cwd,
+      stdout: () => {},
+      stderr: () => {}
+    });
+
+    await expect(
+      runCli(["tunnel", "url", "--public-url", "https://example.trycloudflare.com"], {
+        cwd,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.toThrow(/token-ttl-hours/);
+  });
+
+  it("rejects public tunnel MCP URLs for expired tokens", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    await writeExpiredLocalConfig(cwd);
+
+    await expect(
+      runCli(["tunnel", "url", "--public-url", "https://example.trycloudflare.com"], {
+        cwd,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.toThrow(/token expired/i);
+  });
+
+  it("rejects non-HTTPS public tunnel URLs", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    await runCli(["setup", "--port", "8789", "--token", "super-secret-token", "--token-ttl-hours", "1"], {
+      cwd,
+      stdout: () => {},
+      stderr: () => {}
+    });
+
+    await expect(
+      runCli(["tunnel", "url", "--public-url", "http://example.com"], {
+        cwd,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.toThrow(/https/i);
+  });
+
+  it("strips userinfo from public tunnel URLs", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    await runCli(["setup", "--port", "8789", "--token", "super-secret-token", "--token-ttl-hours", "1"], {
+      cwd,
+      stdout: () => {},
+      stderr: () => {}
+    });
+    const out: string[] = [];
+
+    await runCli(["tunnel", "url", "--public-url", "https://user:pass@example.trycloudflare.com", "--show-token", "--url-only"], {
+      cwd,
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    expect(out).toEqual(["https://example.trycloudflare.com/mcp?gptprouse_token=super-secret-token"]);
+  });
+
+  it("allows non-HTTPS loopback tunnel URL formatting for local diagnostics", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    await runCli(["setup", "--port", "8789", "--token", "super-secret-token", "--token-ttl-hours", "1"], {
+      cwd,
+      stdout: () => {},
+      stderr: () => {}
+    });
+    const out: string[] = [];
+
+    await runCli(["tunnel", "url", "--public-url", "http://localhost:7777/dev", "--show-token", "--url-only"], {
+      cwd,
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    expect(out).toEqual(["http://localhost:7777/mcp?gptprouse_token=super-secret-token"]);
+  });
 });
 
 async function writeExpiredLocalConfig(cwd: string): Promise<void> {

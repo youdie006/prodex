@@ -117,4 +117,5 @@ Phase 4:
 
 - Optional tunnel helper for ChatGPT clients that cannot reach `127.0.0.1`.
 - Tunnel-facing configs should use `setup --token-ttl-hours <hours>` so pasted MCP URLs can expire and be rotated.
+- The tunnel helper is URL-only: it validates a user-provided HTTPS public URL and formats the MCP URL, but never starts a tunnel process.
 - Broader write tools only after dry-run, expected-head checks, and receipt gates exist.

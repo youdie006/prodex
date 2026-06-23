@@ -108,6 +108,44 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
     return 0;
   }
 
+  if (command === "tunnel") {
+    const [subcommand, ...tunnelArgs] = rest;
+    if (subcommand !== "url") throw new Error("tunnel requires url");
+    const config = await loadLocalConfig(io.cwd);
+    const tokenStatus = getTokenExpiryStatus(config);
+    if (tokenStatus.status === "none") {
+      throw new Error("tunnel url requires a short-lived token. Run `gptprouse setup --token-ttl-hours <hours>` first.");
+    }
+    if (tokenStatus.status === "expired") {
+      throw new Error(`token expired at ${tokenStatus.token_expires_at}. Run \`gptprouse setup --token-ttl-hours <hours>\`.`);
+    }
+    const publicUrl = readFlag(tunnelArgs, "--public-url");
+    if (!publicUrl) throw new Error("tunnel url requires --public-url <https-url>");
+    const mcpUrl = makeTunnelMcpUrl(publicUrl, config.token);
+    const showToken = tunnelArgs.includes("--show-token");
+    const outputUrl = showToken ? mcpUrl : redactServerUrl(mcpUrl);
+    if (tunnelArgs.includes("--url-only")) {
+      io.stdout(outputUrl);
+      return 0;
+    }
+    io.stdout(
+      JSON.stringify(
+        {
+          mcp_url: outputUrl,
+          token_status: tokenStatus.status,
+          token_expires_at: tokenStatus.token_expires_at,
+          warnings: [
+            "This command does not create a tunnel. Keep `gptprouse start` running behind your own tunnel.",
+            "Only paste the token-bearing URL into a trusted private MCP client."
+          ]
+        },
+        null,
+        2
+      )
+    );
+    return 0;
+  }
+
   if (command === "doctor") {
     return runDoctor(store, io);
   }
@@ -385,6 +423,7 @@ Commands:
   gptprouse setup [--host 127.0.0.1] [--port 8787] [--token-ttl-hours 24]
   gptprouse start
   gptprouse status [--show-token] [--url-only]
+  gptprouse tunnel url --public-url https://... [--show-token] [--url-only]
   gptprouse ask-pro --dry-run|--send [--file path] "prompt"
   gptprouse pro ask [--file path] "prompt"  # dry-run preview
   gptprouse pro browser login
@@ -657,6 +696,29 @@ function redactServerUrl(value: string): string {
   } catch {
     return value.replace(/([?&]gptprouse_token=)[^&]+/g, "$1***");
   }
+}
+
+function makeTunnelMcpUrl(publicUrl: string, token: string): string {
+  let url: URL;
+  try {
+    url = new URL(publicUrl);
+  } catch {
+    throw new Error("--public-url must be a valid URL");
+  }
+  if (url.protocol !== "https:" && !isLoopbackHost(url.hostname)) {
+    throw new Error("--public-url must use https for non-loopback tunnel URLs");
+  }
+  url.username = "";
+  url.password = "";
+  url.pathname = "/mcp";
+  url.search = "";
+  url.hash = "";
+  url.searchParams.set("gptprouse_token", token);
+  return url.toString();
+}
+
+function isLoopbackHost(hostname: string): boolean {
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1" || hostname === "[::1]";
 }
 
 function readFlag(args: string[], flag: string): string | undefined {

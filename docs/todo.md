@@ -55,7 +55,7 @@
 - [x] Add optional HTTP MCP token TTL, status warnings, expired-token start/doctor failures, and request-time expiry enforcement.
 - [x] Add dedicated ChatGPT Project HTTP MCP setup docs.
 - [x] Add Project/thread target URL sends only after manual `--confirm-target` confirmation.
-- [ ] Add optional tunnel helper for remote ChatGPT clients with explicit short-lived-token guidance.
+- [x] Add optional tunnel URL helper for remote ChatGPT clients with explicit short-lived-token guidance.
 
 ## Safety Checklist
 

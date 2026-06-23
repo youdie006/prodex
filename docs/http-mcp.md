@@ -75,6 +75,14 @@ If the ChatGPT app runtime cannot reach `127.0.0.1`, this project intentionally 
 node dist/cli.js setup --token-ttl-hours 24
 ```
 
+After you create your own tunnel, ask `gptprouse` to format the public MCP URL. This command only rewrites the URL; it does not start or manage any tunnel process:
+
+```bash
+node dist/cli.js tunnel url --public-url "https://your-tunnel.example" --show-token --url-only
+```
+
+`tunnel url` refuses non-expiring or expired tokens. By default it redacts the token; use `--show-token` only when you are ready to paste the URL into a trusted private MCP client.
+
 ## Available Tools
 
 The HTTP server exposes the same tool catalog as stdio MCP:

@@ -134,7 +134,11 @@ node dist/cli.js status --show-token --url-only
 
 The URL token is stored only in `.bridge/config.local.json`, which is ignored by git. If you omit `--token-ttl-hours`, the token does not expire; keep that local-only and rerun `setup --token-ttl-hours <hours>` before putting any tunnel in front of it.
 
-If ChatGPT cannot reach `127.0.0.1` from its app runtime, keep `gptprouse start` local and put a tunnel in front of it only after creating a short-lived token. Tunnel setup is intentionally not automatic yet.
+If ChatGPT cannot reach `127.0.0.1` from its app runtime, keep `gptprouse start` local and put your own tunnel in front of it only after creating a short-lived token. `gptprouse` does not create the tunnel for you, but it can format the public MCP URL safely:
+
+```bash
+node dist/cli.js tunnel url --public-url "https://your-tunnel.example" --show-token --url-only
+```
 
 See [docs/http-mcp.md](docs/http-mcp.md) for the full ChatGPT Project HTTP MCP setup flow and safety notes.
 
@@ -171,7 +175,7 @@ Before publishing or sharing a package tarball, run:
 npm run smoke:package
 ```
 
-This packs the project, installs the tarball into a temporary consumer project, runs the installed `gptprouse` binary, verifies HTTP MCP onboarding through installed token-TTL `setup`/`status`/`start` plus `/health`, and verifies the installed stdio MCP server exposes the expected tool catalog.
+This packs the project, installs the tarball into a temporary consumer project, runs the installed `gptprouse` binary, verifies HTTP MCP onboarding through installed token-TTL `setup`/`status`/`tunnel url`/`start` plus `/health`, and verifies the installed stdio MCP server exposes the expected tool catalog.
 
 ## Claude MCP
 
