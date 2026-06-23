@@ -1,15 +1,25 @@
 import { createHash } from "node:crypto";
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { realpath } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 import { resolveRepoPath } from "./repo.js";
-import { readVerifiedUtf8File, writeVerifiedUtf8File } from "./safe-file.js";
+import { readVerifiedUtf8File, replaceVerifiedUtf8File } from "./safe-file.js";
 import type { Receipt } from "./schema.js";
 import type { BridgeStore } from "./store.js";
 
 const execFileAsync = promisify(execFile);
 const MAX_WRITE_BYTES = 1_000_000;
+
+export type RepoWriteTestHooks = {
+  beforeGitAdd?: (paths: string[]) => Promise<void> | void;
+};
+
+let testHooks: RepoWriteTestHooks = {};
+
+export function setRepoWriteTestHooks(hooks: RepoWriteTestHooks): void {
+  testHooks = hooks;
+}
 
 export interface RepoWriteDryRunInput {
   path: string;
@@ -144,9 +154,17 @@ export async function applyRepoWriteDryRun(
 
   const newContent = await readDryRunReplacementContent(store, metadata);
 
-  await writeVerifiedUtf8File(current.resolved, newContent, () => assertRealPathInside(root, current.resolved, metadata.path), {
-    maxBytes: MAX_WRITE_BYTES
-  });
+  await replaceVerifiedUtf8File(
+    current.resolved,
+    newContent,
+    () => assertRealPathInside(root, current.resolved, metadata.path),
+    (latestContent) => {
+      if (sha256(latestContent) !== input.preimage_sha256) {
+        throw new Error(`File preimage changed for ${metadata.path}`);
+      }
+    },
+    { maxBytes: MAX_WRITE_BYTES }
+  );
   const receipt = await store.writeReceipt({
     kind: "repo_write_applied",
     summary: `Applied write receipt ${input.receipt_id} to ${metadata.path}`,
@@ -181,6 +199,7 @@ export async function stageReviewedPaths(
   }
 
   const paths = new Set<string>();
+  const expectedObjectIdByPath = new Map<string, string>();
   for (const receiptId of input.receipt_ids) {
     const receipt = await store.getReceipt(receiptId);
     if (receipt.kind !== "repo_write_applied") {
@@ -198,10 +217,18 @@ export async function stageReviewedPaths(
     }
     const gitPath = path.relative(root, current.resolved).replaceAll(path.sep, "/");
     paths.add(gitPath);
+    expectedObjectIdByPath.set(gitPath, await gitObjectIdForContent(root, gitPath, current.content));
   }
 
   const stagedPaths = Array.from(paths).sort();
+  await testHooks.beforeGitAdd?.(stagedPaths);
   await execFileAsync("git", ["add", "--", ...stagedPaths], { cwd: root });
+  try {
+    await verifyStagedContent(root, expectedObjectIdByPath);
+  } catch (error) {
+    await unstagePaths(root, stagedPaths);
+    throw error;
+  }
   const receipt = await store.writeReceipt({
     kind: "repo_stage_reviewed_paths",
     summary: `Staged reviewed paths: ${stagedPaths.join(", ")}`,
@@ -217,6 +244,55 @@ export async function stageReviewedPaths(
     receipt_ids: input.receipt_ids,
     expected_head: input.expected_head
   };
+}
+
+async function gitObjectIdForContent(root: string, gitPath: string, content: string): Promise<string> {
+  return runGitWithStdin(root, ["hash-object", `--path=${gitPath}`, "--stdin"], content);
+}
+
+async function verifyStagedContent(root: string, expectedObjectIdByPath: Map<string, string>): Promise<void> {
+  for (const [gitPath, expectedObjectId] of expectedObjectIdByPath) {
+    const stagedObjectId = await gitObjectIdForStagedPath(root, gitPath);
+    if (stagedObjectId !== expectedObjectId) {
+      throw new Error(`Staged content changed before git add for ${gitPath}`);
+    }
+  }
+}
+
+async function gitObjectIdForStagedPath(root: string, gitPath: string): Promise<string> {
+  const { stdout } = await execFileAsync("git", ["ls-files", "--stage", "-z", "--", gitPath], {
+    cwd: root,
+    maxBuffer: MAX_WRITE_BYTES + 1024
+  });
+  const entry = stdout.split("\0").find(Boolean);
+  const objectId = entry?.split(/\s+/)[1];
+  if (!objectId) {
+    throw new Error(`Path ${gitPath} was not staged`);
+  }
+  return objectId;
+}
+
+async function unstagePaths(root: string, paths: string[]): Promise<void> {
+  await execFileAsync("git", ["restore", "--staged", "--", ...paths], { cwd: root }).catch(() => undefined);
+}
+
+async function runGitWithStdin(root: string, args: string[], input: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const child = spawn("git", args, { cwd: root, stdio: ["pipe", "pipe", "pipe"] });
+    const stdout: Buffer[] = [];
+    const stderr: Buffer[] = [];
+    child.stdout.on("data", (chunk: Buffer) => stdout.push(chunk));
+    child.stderr.on("data", (chunk: Buffer) => stderr.push(chunk));
+    child.on("error", reject);
+    child.on("close", (code) => {
+      if (code === 0) {
+        resolve(Buffer.concat(stdout).toString("utf8").trim());
+      } else {
+        reject(new Error(Buffer.concat(stderr).toString("utf8").trim() || `git ${args.join(" ")} failed with code ${code}`));
+      }
+    });
+    child.stdin.end(input, "utf8");
+  });
 }
 
 async function getGitHead(root: string): Promise<string> {

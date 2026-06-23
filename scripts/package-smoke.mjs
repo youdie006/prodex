@@ -49,6 +49,10 @@ try {
   const help = await run(binPath, ["help"], { cwd: consumerDir });
   assertIncludes(help.stdout, "gptprouse doctor", "installed help output");
   assertIncludes(help.stdout, `gptprouse v${installedPackageJson.version}`, "installed help output");
+  const browserLoginGuide = await run(binPath, ["pro", "browser", "login", "--dry-run"], { cwd: consumerDir });
+  assertIncludes(browserLoginGuide.stdout, "gptprouse pro browser check", "installed browser login guide");
+  assertIncludes(browserLoginGuide.stdout, "gptprouse pro browser smoke", "installed browser login guide");
+  assertNotIncludes(browserLoginGuide.stdout, "node dist/cli.js", "installed browser login guide");
 
   const init = await run(binPath, ["init"], { cwd: consumerDir });
   assertIncludes(init.stdout, "Initialized .bridge", "installed init output");

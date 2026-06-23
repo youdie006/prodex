@@ -161,8 +161,9 @@ describe("runCli", () => {
     const text = out.join("\n");
     expect(text).toContain("ChatGPT Pro browser login");
     expect(text).toContain("Log in manually");
-    expect(text).toContain("pro browser check");
-    expect(text).toContain("pro browser smoke");
+    expect(text).toContain("gptprouse pro browser check");
+    expect(text).toContain("gptprouse pro browser smoke");
+    expect(text).not.toContain("node dist/cli.js");
     expect(text).toContain("You can close this Chrome window after login");
   });
 

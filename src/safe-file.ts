@@ -6,6 +6,7 @@ type SafeFileOperation = "read" | "write";
 
 export type SafeFileTestHooks = {
   beforeOpen?: (filePath: string, operation: SafeFileOperation) => Promise<void> | void;
+  beforeReplace?: (filePath: string) => Promise<void> | void;
 };
 
 let testHooks: SafeFileTestHooks = {};
@@ -77,6 +78,63 @@ export async function writeVerifiedUtf8File(
   } finally {
     await handle.close();
   }
+}
+
+export async function replaceVerifiedUtf8File(
+  filePath: string,
+  content: string,
+  validate: () => Promise<void>,
+  verifyCurrentContent: (currentContent: string) => Promise<void> | void,
+  options: { maxBytes?: number; mode?: number } = {}
+): Promise<void> {
+  if (options.maxBytes !== undefined && Buffer.byteLength(content, "utf8") > options.maxBytes) {
+    throw new Error(`New content is too large (${Buffer.byteLength(content, "utf8")} bytes)`);
+  }
+  await validate();
+  const parentSnapshot = await captureParentSnapshot(filePath);
+  await testHooks.beforeOpen?.(filePath, "write");
+  const handle = await openStableNoFollow(filePath, constants.O_RDWR, "write", parentSnapshot, options.mode);
+  try {
+    const currentContent = await readHandleUtf8(handle, filePath, options.maxBytes);
+    await verifyCurrentContent(currentContent);
+    await testHooks.beforeReplace?.(filePath);
+    const latestContent = await readHandleUtf8(handle, filePath, options.maxBytes);
+    await verifyCurrentContent(latestContent);
+    const replacement = Buffer.from(content, "utf8");
+    await handle.truncate(0);
+    let offset = 0;
+    while (offset < replacement.length) {
+      const { bytesWritten } = await handle.write(replacement, offset, replacement.length - offset, offset);
+      if (bytesWritten === 0) {
+        throw new Error(`Could not write replacement content to ${filePath}`);
+      }
+      offset += bytesWritten;
+    }
+    if (options.mode !== undefined) {
+      await handle.chmod(options.mode);
+    }
+    await validate();
+  } finally {
+    await handle.close();
+  }
+}
+
+async function readHandleUtf8(handle: FileHandle, filePath: string, maxBytes?: number): Promise<string> {
+  const stat = await handle.stat();
+  if (!stat.isFile()) {
+    throw new Error(`Path ${filePath} is not a regular file`);
+  }
+  if (maxBytes !== undefined && stat.size > maxBytes) {
+    throw new Error(`Path ${filePath} is too large (${stat.size} bytes)`);
+  }
+  const buffer = Buffer.alloc(stat.size);
+  let offset = 0;
+  while (offset < buffer.length) {
+    const { bytesRead } = await handle.read(buffer, offset, buffer.length - offset, offset);
+    if (bytesRead === 0) break;
+    offset += bytesRead;
+  }
+  return buffer.subarray(0, offset).toString("utf8");
 }
 
 async function captureParentSnapshot(filePath: string): Promise<ParentSnapshot | undefined> {

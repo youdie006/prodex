@@ -78,6 +78,9 @@ interface CdpResponse {
   };
 }
 
+const MAX_PAGE_DISCOVERY_TIMEOUT_MS = 5_000;
+const PAGE_VISIBILITY_PROBE_TIMEOUT_MS = 1_000;
+
 export function defaultChatGptProfileDir(): string {
   return path.join(os.homedir(), ".local", "share", "gptprouse", "chrome-chatgpt-pro");
 }
@@ -172,6 +175,10 @@ export function computePromptAcceptanceDeadline(timeoutMs: number, startedAt: nu
   return startedAt + Math.max(1, timeoutMs);
 }
 
+export function computePageDiscoveryTimeout(timeoutMs: number): number {
+  return Math.max(1, Math.min(timeoutMs, MAX_PAGE_DISCOVERY_TIMEOUT_MS));
+}
+
 export function normalizeChatGptTargetUrl(value: string): string {
   let url: URL;
   try {
@@ -196,9 +203,15 @@ export function chatGptUrlsReferToSameTarget(currentUrl: string, expectedUrl: st
   }
 }
 
-export function selectChatGptPage(pages: DevtoolsPage[], targetUrl?: string): DevtoolsPage | undefined {
+export function selectChatGptPage(
+  pages: DevtoolsPage[],
+  targetUrl?: string,
+  visibilityByPage = new Map<string, string>()
+): DevtoolsPage | undefined {
   const chatGptPages = pages.filter((page) => page.type === "page" && isChatGptPageUrl(page.url));
-  if (!targetUrl) return chatGptPages[0];
+  if (!targetUrl) {
+    return chatGptPages.find((page) => visibilityByPage.get(page.webSocketDebuggerUrl) === "visible") ?? chatGptPages[0];
+  }
   return chatGptPages.find((page) => chatGptUrlsReferToSameTarget(page.url, targetUrl));
 }
 
@@ -275,9 +288,9 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
   const port = options.port ?? 9333;
   const timeoutMs = options.timeoutMs ?? 90_000;
   const normalizedTargetUrl = options.targetUrl ? normalizeChatGptTargetUrl(options.targetUrl) : undefined;
-  const pageResult = await findChatGptPage(port, 1500, normalizedTargetUrl);
+  const pageResult = await findChatGptPage(port, computePageDiscoveryTimeout(timeoutMs), normalizedTargetUrl);
   if (!pageResult.ok) {
-    throw new Error(pageResult.blocker?.message ?? "ChatGPT browser page is not available");
+    throw new Error(formatBlockerError(pageResult.blocker) ?? "ChatGPT browser page is not available");
   }
   if (!pageResult.page) {
     if (normalizedTargetUrl) {
@@ -363,7 +376,8 @@ async function findChatGptPage(
     const response = await fetch(`http://127.0.0.1:${port}/json/list`, { signal: AbortSignal.timeout(timeoutMs) });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const pages = (await response.json()) as DevtoolsPage[];
-    return { ok: true, page: selectChatGptPage(pages, targetUrl) };
+    const visibilityByPage = targetUrl ? undefined : await getChatGptPageVisibility(pages);
+    return { ok: true, page: selectChatGptPage(pages, targetUrl, visibilityByPage) };
   } catch (error) {
     return {
       ok: false,
@@ -378,6 +392,25 @@ async function findChatGptPage(
   }
 }
 
+async function getChatGptPageVisibility(pages: DevtoolsPage[]): Promise<Map<string, string>> {
+  const visibilityByPage = new Map<string, string>();
+  await Promise.all(
+    pages
+      .filter((page) => page.type === "page" && isChatGptPageUrl(page.url))
+      .map(async (page) => {
+        try {
+          visibilityByPage.set(
+            page.webSocketDebuggerUrl,
+            await evaluateOnPage<string>(page, "document.visibilityState", { timeoutMs: PAGE_VISIBILITY_PROBE_TIMEOUT_MS })
+          );
+        } catch {
+          // A stale DevTools page should not prevent falling back to the first ChatGPT tab.
+        }
+      })
+  );
+  return visibilityByPage;
+}
+
 function isChatGptPageUrl(value: string): boolean {
   try {
     const url = new URL(value);
@@ -387,8 +420,13 @@ function isChatGptPageUrl(value: string): boolean {
   }
 }
 
-async function evaluateOnPage<T>(page: DevtoolsPage, expression: string): Promise<T> {
-  const cdp = await connectCdp(page.webSocketDebuggerUrl);
+function formatBlockerError(blocker: ChatGptBrowserStatus["blocker"] | undefined): string | undefined {
+  if (!blocker) return undefined;
+  return `${blocker.message}${blocker.next_step ? ` Next: ${blocker.next_step}` : ""}`;
+}
+
+async function evaluateOnPage<T>(page: DevtoolsPage, expression: string, options: { timeoutMs?: number } = {}): Promise<T> {
+  const cdp = await connectCdp(page.webSocketDebuggerUrl, options.timeoutMs);
   try {
     await cdp.send("Runtime.enable");
     return await cdp.evaluate<T>(expression);
@@ -397,30 +435,71 @@ async function evaluateOnPage<T>(page: DevtoolsPage, expression: string): Promis
   }
 }
 
-async function connectCdp(webSocketUrl: string): Promise<{
+async function connectCdp(webSocketUrl: string, timeoutMs?: number): Promise<{
   send: (method: string, params?: Record<string, unknown>) => Promise<CdpResponse>;
   evaluate: <T>(expression: string) => Promise<T>;
   close: () => void;
 }> {
   const ws = new WebSocket(webSocketUrl);
   let id = 0;
-  const pending = new Map<number, (value: CdpResponse) => void>();
+  const pending = new Map<
+    number,
+    { resolve: (value: CdpResponse) => void; reject: (error: Error) => void; timer?: ReturnType<typeof setTimeout> }
+  >();
   ws.addEventListener("message", (event) => {
     const data = typeof event.data === "string" ? event.data : Buffer.from(event.data as ArrayBuffer).toString("utf8");
     const message = JSON.parse(data) as CdpResponse;
     if (message.id && pending.has(message.id)) {
-      pending.get(message.id)!(message);
+      const waiter = pending.get(message.id)!;
+      if (waiter.timer) clearTimeout(waiter.timer);
+      waiter.resolve(message);
       pending.delete(message.id);
     }
   });
+  ws.addEventListener("close", () => {
+    for (const [messageId, waiter] of pending) {
+      if (waiter.timer) clearTimeout(waiter.timer);
+      waiter.reject(new Error("Chrome DevTools websocket closed"));
+      pending.delete(messageId);
+    }
+  });
   await new Promise<void>((resolve, reject) => {
-    ws.addEventListener("open", () => resolve(), { once: true });
-    ws.addEventListener("error", () => reject(new Error("Chrome DevTools websocket failed")), { once: true });
+    const timer = timeoutMs
+      ? setTimeout(() => {
+          ws.close();
+          reject(new Error("Chrome DevTools websocket timed out"));
+        }, Math.max(1, timeoutMs))
+      : undefined;
+    ws.addEventListener(
+      "open",
+      () => {
+        if (timer) clearTimeout(timer);
+        resolve();
+      },
+      { once: true }
+    );
+    ws.addEventListener(
+      "error",
+      () => {
+        if (timer) clearTimeout(timer);
+        reject(new Error("Chrome DevTools websocket failed"));
+      },
+      { once: true }
+    );
   });
   const send = (method: string, params: Record<string, unknown> = {}) => {
     const messageId = ++id;
-    ws.send(JSON.stringify({ id: messageId, method, params }));
-    return new Promise<CdpResponse>((resolve) => pending.set(messageId, resolve));
+    return new Promise<CdpResponse>((resolve, reject) => {
+      const timer = timeoutMs
+        ? setTimeout(() => {
+            pending.delete(messageId);
+            ws.close();
+            reject(new Error(`Chrome DevTools command timed out: ${method}`));
+          }, Math.max(1, timeoutMs))
+        : undefined;
+      pending.set(messageId, { resolve, reject, timer });
+      ws.send(JSON.stringify({ id: messageId, method, params }));
+    });
   };
   const evaluate = async <T>(expression: string) => {
     const response = await send("Runtime.evaluate", { expression, returnByValue: true, awaitPromise: true });

@@ -578,8 +578,8 @@ function printBrowserLoginGuide(
   stdout("1. Log in manually at https://chatgpt.com/ in the dedicated Chrome window.");
   stdout("2. If ChatGPT asks for captcha, permission, or account verification, complete it in the browser.");
   stdout("3. Select the Pro/Thinking model you want in the ChatGPT UI.");
-  stdout("4. Run `node dist/cli.js pro browser check` to confirm the session is reachable.");
-  stdout("5. Run `node dist/cli.js pro browser smoke` to verify a real Pro response path.");
+  stdout("4. Run `gptprouse pro browser check` to confirm the session is reachable.");
+  stdout("5. Run `gptprouse pro browser smoke` to verify a real Pro response path.");
   stdout("");
   stdout(`Profile: ${input.profileDir}`);
   stdout(`Debug: http://127.0.0.1:${input.port}`);

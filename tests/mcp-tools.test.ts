@@ -6,6 +6,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
 import { createMcpToolHandlers } from "../src/mcp-tools.js";
+import { setRepoWriteTestHooks } from "../src/repo-write.js";
 import { setSafeFileTestHooks } from "../src/safe-file.js";
 import { BridgeStore } from "../src/store.js";
 
@@ -14,6 +15,7 @@ const execFileAsync = promisify(execFile);
 describe("MCP tool handlers", () => {
   afterEach(() => {
     setSafeFileTestHooks({});
+    setRepoWriteTestHooks({});
   });
 
   it("creates tasks and fetches results through Claude-compatible handlers", async () => {
@@ -199,6 +201,68 @@ describe("MCP tool handlers", () => {
     expect(await readFile(outsideFile, "utf8")).toBe("outside\n");
   });
 
+  it("rejects write apply when the target content changes after preimage validation", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    const repoFile = path.join(cwd, "notes.md");
+    await writeFile(repoFile, "old\n", "utf8");
+    const head = await initGitRepo(cwd);
+    const handlers = createMcpToolHandlers({ cwd });
+    const dryRun = await handlers.repo_write_file_dry_run({
+      path: "notes.md",
+      content: "new\n",
+      expected_head: head
+    });
+    let changed = false;
+    setSafeFileTestHooks({
+      beforeOpen: async (filePath, operation) => {
+        if (!changed && operation === "write" && filePath === repoFile) {
+          changed = true;
+          await writeFile(repoFile, "raced\n", "utf8");
+        }
+      }
+    });
+
+    await expect(
+      handlers.repo_write_file_apply({
+        receipt_id: dryRun.receipt.id,
+        expected_head: head,
+        preimage_sha256: dryRun.preimage_sha256
+      })
+    ).rejects.toThrow(/preimage|changed/i);
+    expect(await readFile(repoFile, "utf8")).toBe("raced\n");
+  });
+
+  it("rejects write apply when the target content changes immediately before replacement", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    const repoFile = path.join(cwd, "notes.md");
+    await writeFile(repoFile, "old\n", "utf8");
+    const head = await initGitRepo(cwd);
+    const handlers = createMcpToolHandlers({ cwd });
+    const dryRun = await handlers.repo_write_file_dry_run({
+      path: "notes.md",
+      content: "new\n",
+      expected_head: head
+    });
+    let changed = false;
+    setSafeFileTestHooks({
+      beforeReplace: async (filePath) => {
+        if (!changed && filePath === repoFile) {
+          changed = true;
+          await writeFile(repoFile, "raced immediately\n", "utf8");
+        }
+      }
+    });
+
+    await expect(
+      handlers.repo_write_file_apply({
+        receipt_id: dryRun.receipt.id,
+        expected_head: head,
+        preimage_sha256: dryRun.preimage_sha256
+      })
+    ).rejects.toThrow(/preimage|changed/i);
+    expect(await readFile(repoFile, "utf8")).toBe("raced immediately\n");
+  });
+
   it("rejects write dry-runs when git HEAD does not match", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
     await writeFile(path.join(cwd, "notes.md"), "old\n", "utf8");
@@ -376,6 +440,37 @@ describe("MCP tool handlers", () => {
     expect(stdout.trim()).toBe("notes.md");
   });
 
+  it("stages reviewed paths when git normalizes the worktree bytes", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    await writeFile(path.join(cwd, ".gitattributes"), "*.md text eol=lf\n", "utf8");
+    await writeFile(path.join(cwd, "notes.md"), "old\r\n", "utf8");
+    await execFileAsync("git", ["init"], { cwd });
+    await execFileAsync("git", ["config", "user.email", "test@example.com"], { cwd });
+    await execFileAsync("git", ["config", "user.name", "Test User"], { cwd });
+    await execFileAsync("git", ["add", ".gitattributes", "notes.md"], { cwd });
+    await execFileAsync("git", ["commit", "-m", "initial"], { cwd });
+    const { stdout: headOut } = await execFileAsync("git", ["rev-parse", "HEAD"], { cwd });
+    const head = headOut.trim();
+    const handlers = createMcpToolHandlers({ cwd });
+    const dryRun = await handlers.repo_write_file_dry_run({
+      path: "notes.md",
+      content: "new\r\n",
+      expected_head: head
+    });
+    const applied = await handlers.repo_write_file_apply({
+      receipt_id: dryRun.receipt.id,
+      expected_head: head,
+      preimage_sha256: dryRun.preimage_sha256
+    });
+
+    const staged = await handlers.repo_stage_reviewed_paths({
+      receipt_ids: [applied.receipt.id],
+      expected_head: head
+    });
+
+    expect(staged.paths).toEqual(["notes.md"]);
+  });
+
   it("rejects staging when applied receipt content changed again", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
     await writeFile(path.join(cwd, "notes.md"), "old\n", "utf8");
@@ -399,6 +494,38 @@ describe("MCP tool handlers", () => {
         expected_head: head
       })
     ).rejects.toThrow(/content changed/);
+  });
+
+  it("rejects staging when content changes after validation but before git add", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    const repoFile = path.join(cwd, "notes.md");
+    await writeFile(repoFile, "old\n", "utf8");
+    const head = await initGitRepo(cwd);
+    const handlers = createMcpToolHandlers({ cwd });
+    const dryRun = await handlers.repo_write_file_dry_run({
+      path: "notes.md",
+      content: "new\n",
+      expected_head: head
+    });
+    const applied = await handlers.repo_write_file_apply({
+      receipt_id: dryRun.receipt.id,
+      expected_head: head,
+      preimage_sha256: dryRun.preimage_sha256
+    });
+    setRepoWriteTestHooks({
+      beforeGitAdd: async () => {
+        await writeFile(repoFile, "raced before add\n", "utf8");
+      }
+    });
+
+    await expect(
+      handlers.repo_stage_reviewed_paths({
+        receipt_ids: [applied.receipt.id],
+        expected_head: head
+      })
+    ).rejects.toThrow(/staged content|content changed/i);
+    const { stdout } = await execFileAsync("git", ["diff", "--cached", "--name-only"], { cwd });
+    expect(stdout.trim()).toBe("");
   });
 
   it("rejects staging when git HEAD moved after apply", async () => {

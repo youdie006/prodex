@@ -3,6 +3,7 @@ import {
   buildChromeLaunchArgs,
   assertVisibleChatGptTab,
   chatGptUrlsReferToSameTarget,
+  computePageDiscoveryTimeout,
   computePromptAcceptanceDeadline,
   detectChatGptBlocker,
   type DevtoolsPage,
@@ -12,6 +13,7 @@ import {
   isLikelyChatGptSubmitButton,
   normalizeChatGptTargetUrl,
   selectChatGptPage,
+  sendChatGptPrompt,
   isUsableChatGptAnswer
 } from "../src/chatgpt-browser.js";
 
@@ -21,6 +23,15 @@ describe("ChatGPT browser adapter", () => {
 
     expect(status.reachable).toBe(false);
     expect(status.blocker?.code).toBe("browser_unreachable");
+  });
+
+  it("includes the browser login next step when sending without a reachable browser", async () => {
+    await expect(sendChatGptPrompt({ port: 9, prompt: "test", timeoutMs: 100 })).rejects.toThrow(/pro browser login/);
+  });
+
+  it("keeps initial page discovery bounded below the full answer timeout", () => {
+    expect(computePageDiscoveryTimeout(90_000)).toBe(5_000);
+    expect(computePageDiscoveryTimeout(100)).toBe(100);
   });
 
   it("builds a visible Chrome launch command without exposing cookies or tokens", () => {
@@ -115,6 +126,17 @@ describe("ChatGPT browser adapter", () => {
     expect(selectChatGptPage(pages)?.url).toBe("https://chatgpt.com/c/first");
   });
 
+  it("prefers the active visible ChatGPT page when no target is confirmed", () => {
+    const hidden = devtoolsPage("https://chatgpt.com/c/hidden");
+    const visible = devtoolsPage("https://chatgpt.com/c/visible");
+    const visibilityByPage = new Map([
+      [hidden.webSocketDebuggerUrl, "hidden"],
+      [visible.webSocketDebuggerUrl, "visible"]
+    ]);
+
+    expect(selectChatGptPage([hidden, visible], undefined, visibilityByPage)?.url).toBe("https://chatgpt.com/c/visible");
+  });
+
   it("requires a visible ChatGPT tab before sending prompts", () => {
     expect(() => assertVisibleChatGptTab("hidden", "https://chatgpt.com/c/background")).toThrow(/active visible tab/i);
     expect(() => assertVisibleChatGptTab("visible", "https://chatgpt.com/c/current")).not.toThrow();
@@ -126,6 +148,6 @@ function devtoolsPage(url: string): DevtoolsPage {
     type: "page",
     url,
     title: url,
-    webSocketDebuggerUrl: "ws://127.0.0.1/devtools/page/test"
+    webSocketDebuggerUrl: `ws://127.0.0.1/devtools/page/${encodeURIComponent(url)}`
   };
 }
