@@ -44,6 +44,82 @@ describe("runCli", () => {
     expect(out.join("\n")).toContain("Review");
   });
 
+  it("shows task details by id or latest", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    await writeFile(path.join(cwd, "plan.md"), "plan\n", "utf8");
+    const createOut: string[] = [];
+
+    await runCli(["tasks", "create", "--title", "First", "--prompt", "First prompt"], {
+      cwd,
+      stdout: () => {},
+      stderr: () => {}
+    });
+    await runCli(["tasks", "create", "--title", "Inspect", "--prompt", "Inspect this task", "--file", "plan.md"], {
+      cwd,
+      stdout: (line) => createOut.push(line),
+      stderr: () => {}
+    });
+    const taskId = createOut[0].split("\t")[0];
+    const byIdOut: string[] = [];
+    const latestOut: string[] = [];
+
+    await runCli(["tasks", "show", taskId], {
+      cwd,
+      stdout: (line) => byIdOut.push(line),
+      stderr: () => {}
+    });
+    await runCli(["tasks", "show", "latest"], {
+      cwd,
+      stdout: (line) => latestOut.push(line),
+      stderr: () => {}
+    });
+
+    const byId = JSON.parse(byIdOut.join("\n")) as { id?: string; prompt?: string; files?: Array<{ path?: string }> };
+    const latest = JSON.parse(latestOut.join("\n")) as { id?: string; prompt?: string };
+    expect(byId.id).toBe(taskId);
+    expect(byId.prompt).toBe("Inspect this task");
+    expect(byId.files).toEqual([expect.objectContaining({ path: "plan.md" })]);
+    expect(latest.id).toBe(taskId);
+  });
+
+  it("uses task ids as the latest tie-breaker when showing latest task details", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const store = new BridgeStore(cwd);
+    await store.ensure();
+    const lowerId = {
+      schema_version: 1,
+      id: "task_20990101_000000_a-task",
+      source: "codex",
+      status: "new",
+      title: "Lower",
+      prompt: "Lower prompt",
+      repo_id: "default",
+      files: [],
+      provenance: { adapter: "cli", warnings: [] },
+      created_at: "2099-01-01T00:00:00.000Z",
+      updated_at: "2099-01-01T00:00:00.000Z"
+    };
+    const higherId = {
+      ...lowerId,
+      id: "task_20990101_000000_z-task",
+      title: "Higher",
+      prompt: "Higher prompt"
+    };
+    await writeFile(path.join(cwd, ".bridge", "tasks", `${lowerId.id}.json`), `${JSON.stringify(lowerId, null, 2)}\n`, "utf8");
+    await writeFile(path.join(cwd, ".bridge", "tasks", `${higherId.id}.json`), `${JSON.stringify(higherId, null, 2)}\n`, "utf8");
+    const out: string[] = [];
+
+    await runCli(["tasks", "show", "latest"], {
+      cwd,
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    const shown = JSON.parse(out.join("\n")) as { id?: string; prompt?: string };
+    expect(shown.id).toBe(higherId.id);
+    expect(shown.prompt).toBe("Higher prompt");
+  });
+
   it("blocks tasks with a durable blocker result", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
     const createOut: string[] = [];
@@ -563,6 +639,19 @@ describe("runCli", () => {
     expect(out.join("\n")).toContain(
       'gptprouse tasks block <task-id> --summary "Summary" [--code code] [--next-step "Next step"] [--retryable]'
     );
+  });
+
+  it("lists task inspection command in help", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const out: string[] = [];
+
+    await runCli(["help"], {
+      cwd,
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    expect(out.join("\n")).toContain("gptprouse tasks show <task-id|latest>");
   });
 
   it("lists session inspection commands in help", async () => {

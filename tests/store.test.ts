@@ -288,6 +288,35 @@ describe("BridgeStore", () => {
     await expect(store.listResults()).resolves.toMatchObject([{ task_id: second.task_id }, { task_id: first.task_id }]);
   });
 
+  it("uses task ids as a deterministic task list tie-breaker", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
+    const store = new BridgeStore(root);
+    await store.ensure();
+    const first = {
+      schema_version: 1,
+      id: "task_20990101_000000_z-first",
+      source: "codex",
+      status: "new",
+      title: "First",
+      prompt: "First prompt",
+      repo_id: "default",
+      files: [],
+      provenance: { adapter: "cli", warnings: [] },
+      created_at: "2099-01-01T00:00:00.000Z",
+      updated_at: "2099-01-01T00:00:00.000Z"
+    };
+    const second = {
+      ...first,
+      id: "task_20990101_000000_a-second",
+      title: "Second",
+      prompt: "Second prompt"
+    };
+    await writeFile(path.join(root, ".bridge", "tasks", `${first.id}.json`), `${JSON.stringify(first, null, 2)}\n`, "utf8");
+    await writeFile(path.join(root, ".bridge", "tasks", `${second.id}.json`), `${JSON.stringify(second, null, 2)}\n`, "utf8");
+
+    await expect(store.listTasks()).resolves.toMatchObject([{ id: second.id }, { id: first.id }]);
+  });
+
   it("rejects record writes when the storage directory is swapped to a symlink before open", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
     const outside = await mkdtemp(path.join(tmpdir(), "gptprouse-outside-"));

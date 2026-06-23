@@ -45,7 +45,7 @@ ChatGPT Pro              ChatGPT Projects / Claude
 Implemented:
 
 - Versioned `.bridge` ledger schemas for tasks, results, sessions, and receipts.
-- CLI commands for task creation/listing/claiming/completion/blocking and result display.
+- CLI commands for task creation/listing/inspection/claiming/completion/blocking and result display.
 - `pro ask` and `pro latest` for Codex-first consult previews and review receipts.
 - `sessions list` and `sessions show` for inspecting dry-run, running, done, or blocked consult sessions.
 - `receipts list` and `receipts show` for inspecting the local action ledger without exposing legacy inline write payloads.
@@ -178,6 +178,7 @@ For local task-bus smoke tests:
 gptprouse doctor
 gptprouse tasks create --title "Review plan" --prompt "Review this architecture"
 gptprouse tasks list
+gptprouse tasks show latest
 gptprouse tasks block <task-id> --summary "Blocked reason" --code manual_blocker --next-step "What to do next" --retryable
 gptprouse pro ask --dry-run --file README.md "Review the project positioning"
 gptprouse sessions list

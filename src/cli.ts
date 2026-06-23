@@ -221,6 +221,14 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       }
       return 0;
     }
+    if (subcommand === "show") {
+      const taskId = taskArgs[0];
+      if (!taskId) throw new Error("tasks show requires <task-id|latest>");
+      const task = taskId === "latest" ? await latestTask(store) : await store.getTask(taskId);
+      if (!task) throw new Error(`Task not found: ${taskId}`);
+      io.stdout(JSON.stringify(task, null, 2));
+      return 0;
+    }
     if (subcommand === "claim") {
       const taskId = taskArgs[0];
       if (!taskId) throw new Error("tasks claim requires <task-id>");
@@ -601,6 +609,7 @@ Commands:
   gptprouse chatgpt open|status|smoke  # low-level alias
   gptprouse tasks create --title "Title" --prompt "Prompt"
   gptprouse tasks list [--status new|claimed|done|blocked]
+  gptprouse tasks show <task-id|latest>
   gptprouse tasks claim <task-id> [--by codex]
   gptprouse tasks complete <task-id> --summary "Summary" [--command "npm test"]
   gptprouse tasks block <task-id> --summary "Summary" [--code code] [--next-step "Next step"] [--retryable]
@@ -807,6 +816,10 @@ async function latestResultTaskId(store: BridgeStore): Promise<string> {
   const result = (await store.listResults()).at(-1);
   if (!result) throw new Error("No results found");
   return result.task_id;
+}
+
+async function latestTask(store: BridgeStore): Promise<Awaited<ReturnType<BridgeStore["listTasks"]>>[number] | undefined> {
+  return (await store.listTasks()).sort((a, b) => b.created_at.localeCompare(a.created_at) || b.id.localeCompare(a.id))[0];
 }
 
 async function getConsult(store: BridgeStore, taskId: string): Promise<ConsultRecord | undefined> {

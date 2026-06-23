@@ -19,6 +19,7 @@ gptprouse pro browser ask --file src/server.ts --file docs/design.md "Find risks
 gptprouse pro browser ask --target-url "https://chatgpt.com/c/..." --confirm-target --file docs/design.md "Continue in this confirmed thread"
 gptprouse pro latest
 gptprouse tasks list
+gptprouse tasks show <task-id|latest>
 gptprouse tasks claim <task-id>
 gptprouse tasks block <task-id> --summary "Blocked reason" --code manual_blocker --next-step "What to do next" --retryable
 gptprouse results show <task-id>

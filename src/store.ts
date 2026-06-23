@@ -127,7 +127,7 @@ export class BridgeStore {
     const tasks = await this.readAll("tasks", TaskSchema);
     return tasks
       .filter((task) => (status ? task.status === status : true))
-      .sort((a, b) => a.created_at.localeCompare(b.created_at));
+      .sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id));
   }
 
   async getTask(taskId: string): Promise<Task> {
