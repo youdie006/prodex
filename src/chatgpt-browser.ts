@@ -54,6 +54,8 @@ interface ChatGptPageStatus {
   modelHints: string[];
   url: string;
   visibilityState: string;
+  textSample: string;
+  visibleButtonLabels: string[];
 }
 
 export interface DevtoolsPage {
@@ -124,6 +126,50 @@ export function hasFreshChatGptAnswer(
 export function isLikelyChatGptSubmitButton(label: string, dataTestId: string | null): boolean {
   const normalized = label.trim().toLowerCase();
   return dataTestId === "send-button" || /\b(send|submit)\b|보내기|전송/.test(normalized);
+}
+
+export function detectChatGptBlocker(
+  text: string,
+  visibleButtonLabels: string[] = []
+): ChatGptBrowserStatus["blocker"] | undefined {
+  const haystack = `${text}\n${visibleButtonLabels.join("\n")}`.toLowerCase();
+  if (/just a moment|checking if the site connection is secure|verify you are human|잠시만 기다려|연결이 안전한지/i.test(haystack)) {
+    return {
+      code: "cloudflare_check",
+      message: "ChatGPT is showing a Cloudflare or human-verification interstitial.",
+      retryable: true,
+      next_step: "Complete the visible browser check manually, then retry."
+    };
+  }
+  if (/captcha|robot|로봇|사람인지|자동화|보안문자/i.test(haystack)) {
+    return {
+      code: "captcha_required",
+      message: "ChatGPT is asking for captcha or human verification.",
+      retryable: true,
+      next_step: "Solve it manually in the visible browser, then retry."
+    };
+  }
+  if (/message limit|usage limit|rate limit|you.?ve reached|try again later|limit resets|사용 한도|메시지 한도|요금 제한|나중에 다시/i.test(haystack)) {
+    return {
+      code: "usage_limit",
+      message: "ChatGPT is reporting a usage, message, model, or rate limit.",
+      retryable: true,
+      next_step: "Wait for the limit to reset or choose an available model in the browser."
+    };
+  }
+  if (/additional verification|required verification|verify your account|permission required|account verification|권한|추가 인증|계정 인증|인증 필요/i.test(haystack)) {
+    return {
+      code: "permission_required",
+      message: "ChatGPT requires account verification or permission handling.",
+      retryable: true,
+      next_step: "Complete the visible account or permission prompt manually, then retry."
+    };
+  }
+  return undefined;
+}
+
+export function computePromptAcceptanceDeadline(timeoutMs: number, startedAt: number): number {
+  return startedAt + Math.max(1, timeoutMs);
 }
 
 export function normalizeChatGptTargetUrl(value: string): string {
@@ -202,14 +248,18 @@ export async function getChatGptBrowserStatus(options: { port?: number; timeoutM
     loggedInLikely: boolean;
     hasComposer: boolean;
     modelHints: string[];
+    textSample: string;
+    visibleButtonLabels: string[];
   }>(page.page, statusExpression());
+  const blocker = detectChatGptBlocker(state.textSample, state.visibleButtonLabels);
   return {
     reachable: true,
     loggedInLikely: state.loggedInLikely,
     hasComposer: state.hasComposer,
     url: state.url,
     title: state.title,
-    modelHints: state.modelHints
+    modelHints: state.modelHints,
+    blocker
   };
 }
 
@@ -229,6 +279,10 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
   }
   const page = pageResult.page;
   const status = await evaluateOnPage<ChatGptPageStatus>(page, statusExpression());
+  const blocker = detectChatGptBlocker(status.textSample, status.visibleButtonLabels);
+  if (blocker) {
+    throw new Error(`${blocker.message}${blocker.next_step ? ` Next: ${blocker.next_step}` : ""}`);
+  }
   if (!status.loggedInLikely || !status.hasComposer) {
     throw new Error("ChatGPT browser is reachable, but it is not logged in with an active composer.");
   }
@@ -257,9 +311,10 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
   }
 
   const started = Date.now();
+  const acceptDeadline = computePromptAcceptanceDeadline(timeoutMs, started);
   let accepted = false;
   let finalState: ChatGptAnswerState | undefined;
-  while (Date.now() - started < Math.min(timeoutMs, 10_000)) {
+  while (Date.now() < acceptDeadline) {
     await sleep(500);
     finalState = await evaluateOnPage<ChatGptAnswerState>(page, answerExpression());
     if (
@@ -389,6 +444,8 @@ function statusExpression(): string {
       title: document.title,
       url: location.href,
       visibilityState: document.visibilityState,
+      textSample: text.slice(0, 12000),
+      visibleButtonLabels,
       loggedInLikely: !hasLoginPrompt && hasNewChat && (hasProfileButton || hasProjectNav || hasPlanHint),
       hasComposer,
       modelHints: lines.filter((line) => /GPT|Pro|Thinking|ChatGPT|Extra High|Auto/i.test(line)).slice(0, 30)

@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   buildChromeLaunchArgs,
   chatGptUrlsReferToSameTarget,
+  computePromptAcceptanceDeadline,
+  detectChatGptBlocker,
   type DevtoolsPage,
   getChatGptBrowserStatus,
   hasFreshChatGptAnswer,
@@ -67,6 +69,22 @@ describe("ChatGPT browser adapter", () => {
     expect(isLikelyChatGptSubmitButton("프롬프트 보내기", null)).toBe(true);
     expect(isLikelyChatGptSubmitButton("", "send-button")).toBe(true);
     expect(isLikelyChatGptSubmitButton("시작하기", null)).toBe(false);
+  });
+
+  it("detects ChatGPT browser blocker states before sending", () => {
+    expect(detectChatGptBlocker("Just a moment... Checking if the site connection is secure", [])?.code).toBe("cloudflare_check");
+    expect(detectChatGptBlocker("Please solve this captcha to continue", [])?.code).toBe("captcha_required");
+    expect(detectChatGptBlocker("You've reached the GPT-5 message limit. Try again later.", [])?.code).toBe("usage_limit");
+    expect(detectChatGptBlocker("Additional verification required", ["Continue"])?.code).toBe("permission_required");
+  });
+
+  it("does not flag a normal ChatGPT composer as blocked", () => {
+    expect(detectChatGptBlocker("새 채팅\n무엇이든 물어보세요", ["프롬프트 보내기"])).toBeUndefined();
+  });
+
+  it("honors the configured timeout while waiting for prompt acceptance", () => {
+    expect(computePromptAcceptanceDeadline(90_000, 0)).toBe(90_000);
+    expect(computePromptAcceptanceDeadline(3_000, 0)).toBe(3_000);
   });
 
   it("normalizes confirmed ChatGPT target URLs", () => {
