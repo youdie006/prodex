@@ -20,6 +20,7 @@ gptprouse pro browser ask --target-url "https://chatgpt.com/c/..." --confirm-tar
 gptprouse pro latest
 gptprouse tasks list
 gptprouse tasks claim <task-id>
+gptprouse tasks block <task-id> --summary "Blocked reason" --code manual_blocker --next-step "What to do next" --retryable
 gptprouse results show <task-id>
 gptprouse doctor
 gptprouse setup

@@ -44,6 +44,78 @@ describe("runCli", () => {
     expect(out.join("\n")).toContain("Review");
   });
 
+  it("blocks tasks with a durable blocker result", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const createOut: string[] = [];
+    const blockOut: string[] = [];
+
+    await runCli(["tasks", "create", "--title", "Needs browser", "--prompt", "Use ChatGPT Project"], {
+      cwd,
+      stdout: (line) => createOut.push(line),
+      stderr: () => {}
+    });
+    const taskId = createOut[0].split("\t")[0];
+
+    await runCli(
+      [
+        "tasks",
+        "block",
+        taskId,
+        "--summary",
+        "Visible browser login is required.",
+        "--code",
+        "browser_login_required",
+        "--next-step",
+        "Run gptprouse pro browser login.",
+        "--retryable"
+      ],
+      {
+        cwd,
+        stdout: (line) => blockOut.push(line),
+        stderr: () => {}
+      }
+    );
+
+    const store = new BridgeStore(cwd);
+    const task = await store.getTask(taskId);
+    const result = await store.getResult(taskId);
+
+    expect(blockOut).toEqual([`${taskId}\tblocked\tVisible browser login is required.`]);
+    expect(task.status).toBe("blocked");
+    expect(result.status).toBe("blocked");
+    expect(result.summary).toBe("Visible browser login is required.");
+    expect(result.blocker).toEqual({
+      code: "browser_login_required",
+      message: "Visible browser login is required.",
+      retryable: true,
+      next_step: "Run gptprouse pro browser login."
+    });
+  });
+
+  it("rejects invalid task status filters", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+
+    await expect(
+      runCli(["tasks", "list", "--status", "claimeed"], {
+        cwd,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.toThrow("--status must be one of new, claimed, done, blocked");
+  });
+
+  it("rejects flags that are missing required values", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+
+    await expect(
+      runCli(["tasks", "create", "--title", "--prompt", "Review the plan"], {
+        cwd,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.toThrow("--title requires a value");
+  });
+
   it("adds missing build output ignores even when dependencies are already ignored", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
     await writeFile(path.join(cwd, ".gitignore"), "node_modules/\n", "utf8");
@@ -402,6 +474,21 @@ describe("runCli", () => {
     const text = out.join("\n");
     expect(text).toContain('gptprouse pro ask [--file path] "prompt"  # dry-run preview');
     expect(text).toContain('gptprouse pro browser ask [--target-url url --confirm-target] [--file path] "prompt"  # explicit visible-browser send');
+  });
+
+  it("lists task blocking command in help", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const out: string[] = [];
+
+    await runCli(["help"], {
+      cwd,
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    expect(out.join("\n")).toContain(
+      'gptprouse tasks block <task-id> --summary "Summary" [--code code] [--next-step "Next step"] [--retryable]'
+    );
   });
 
   it("lists session inspection commands in help", async () => {

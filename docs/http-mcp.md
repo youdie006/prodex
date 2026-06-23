@@ -116,6 +116,8 @@ The HTTP server exposes the same tool catalog as stdio MCP:
 - `repo_write_file_apply`
 - `repo_stage_reviewed_paths`
 
+`bridge_fetch_result_artifact` only returns text artifacts that are listed on a result record and stored under `.bridge/artifacts/pro-consults/`; it does not expose arbitrary `.bridge/artifacts` files.
+
 ## Write Flow
 
 Writes are deliberately gated:

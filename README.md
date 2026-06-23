@@ -45,12 +45,12 @@ ChatGPT Pro              ChatGPT Projects / Claude
 Implemented:
 
 - Versioned `.bridge` ledger schemas for tasks, results, sessions, and receipts.
-- CLI commands for task creation/listing/claiming/completion and result display.
+- CLI commands for task creation/listing/claiming/completion/blocking and result display.
 - `pro ask` and `pro latest` for Codex-first consult previews and review receipts.
 - `sessions list` and `sessions show` for inspecting dry-run, running, done, or blocked consult sessions.
 - `receipts list` and `receipts show` for inspecting the local action ledger without exposing legacy inline write payloads.
 - Read-only MCP tools for listing/fetching task, result, session, and receipt records from Claude or ChatGPT Projects.
-- Read-only result artifact fetch for artifacts explicitly listed on a result record.
+- Read-only result artifact fetch for Pro consult artifacts explicitly listed on a result record.
 - `ask-pro --dry-run` and `ask-pro --send` as explicit lower-level aliases.
 - `pro browser login/check/smoke/ask` for the optional visible browser adapter.
 - Claude-compatible stdio MCP server through `gptprouse mcp`.
@@ -177,6 +177,7 @@ For local task-bus smoke tests:
 gptprouse doctor
 gptprouse tasks create --title "Review plan" --prompt "Review this architecture"
 gptprouse tasks list
+gptprouse tasks block <task-id> --summary "Blocked reason" --code manual_blocker --next-step "What to do next" --retryable
 gptprouse pro ask --dry-run --file README.md "Review the project positioning"
 gptprouse sessions list
 ```

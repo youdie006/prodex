@@ -15,7 +15,7 @@ import { assertTokenNotExpired, getTokenExpiryStatus, loadLocalConfig, writeLoca
 import { startHttpMcpServer } from "./http-mcp.js";
 import { createMcpToolHandlers } from "./mcp-tools.js";
 import { runMcpServer } from "./mcp.js";
-import { ReceiptKindSchema } from "./schema.js";
+import { ReceiptKindSchema, TaskStatusSchema } from "./schema.js";
 import { BridgeStore, type ListReceiptsInput } from "./store.js";
 
 const execFileAsync = promisify(execFile);
@@ -214,7 +214,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       return 0;
     }
     if (subcommand === "list") {
-      const status = readFlag(taskArgs, "--status") as Parameters<typeof store.listTasks>[0];
+      const status = readTaskStatusFlag(taskArgs);
       const tasks = await store.listTasks(status);
       for (const task of tasks) {
         io.stdout(`${task.id}\t${task.status}\t${task.title}`);
@@ -235,6 +235,24 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       const result = await store.completeTask(taskId, {
         status: "done",
         summary,
+        commands: readRepeatedFlag(taskArgs, "--command")
+      });
+      io.stdout(`${result.task_id}\t${result.status}\t${result.summary}`);
+      return 0;
+    }
+    if (subcommand === "block") {
+      const taskId = taskArgs[0];
+      const summary = readFlag(taskArgs, "--summary");
+      if (!taskId || !summary) throw new Error("tasks block requires <task-id> --summary");
+      const result = await store.completeTask(taskId, {
+        status: "blocked",
+        summary,
+        blocker: {
+          code: readFlag(taskArgs, "--code") ?? "manual_blocker",
+          message: summary,
+          retryable: taskArgs.includes("--retryable"),
+          next_step: readFlag(taskArgs, "--next-step")
+        },
         commands: readRepeatedFlag(taskArgs, "--command")
       });
       io.stdout(`${result.task_id}\t${result.status}\t${result.summary}`);
@@ -599,6 +617,7 @@ Commands:
   gptprouse tasks list [--status new|claimed|done|blocked]
   gptprouse tasks claim <task-id> [--by codex]
   gptprouse tasks complete <task-id> --summary "Summary" [--command "npm test"]
+  gptprouse tasks block <task-id> --summary "Summary" [--code code] [--next-step "Next step"] [--retryable]
   gptprouse results show <task-id>
   gptprouse results artifact <task-id|latest> [artifact-path]
   gptprouse receipts list [--kind kind] [--task-id task-id]
@@ -942,7 +961,7 @@ function isLoopbackHost(hostname: string): boolean {
 function readFlag(args: string[], flag: string): string | undefined {
   const index = args.indexOf(flag);
   if (index === -1) return undefined;
-  return args[index + 1];
+  return readFlagValue(args, index, flag);
 }
 
 function readNumberFlag(args: string[], flag: string): number | undefined {
@@ -956,12 +975,18 @@ function readNumberFlag(args: string[], flag: string): number | undefined {
 function readRepeatedFlag(args: string[], flag: string): string[] {
   const values: string[] = [];
   for (let index = 0; index < args.length; index += 1) {
-    if (args[index] === flag && args[index + 1]) {
-      values.push(args[index + 1]);
+    if (args[index] === flag) {
+      values.push(readFlagValue(args, index, flag));
       index += 1;
     }
   }
   return values;
+}
+
+function readFlagValue(args: string[], index: number, flag: string): string {
+  const value = args[index + 1];
+  if (!value || value.startsWith("--")) throw new Error(`${flag} requires a value`);
+  return value;
 }
 
 function readSessionStatusFlag(args: string[]): Parameters<BridgeStore["listSessions"]>[0] {
@@ -969,6 +994,15 @@ function readSessionStatusFlag(args: string[]): Parameters<BridgeStore["listSess
   if (value === undefined) return undefined;
   if (value === "preview" || value === "running" || value === "done" || value === "blocked") return value;
   throw new Error("--status must be one of preview, running, done, blocked");
+}
+
+const TASK_STATUSES = TaskStatusSchema.options satisfies readonly NonNullable<Parameters<BridgeStore["listTasks"]>[0]>[];
+
+function readTaskStatusFlag(args: string[]): Parameters<BridgeStore["listTasks"]>[0] {
+  const value = readFlag(args, "--status");
+  if (value === undefined) return undefined;
+  if (TaskStatusSchema.safeParse(value).success) return value as Parameters<BridgeStore["listTasks"]>[0];
+  throw new Error(`--status must be one of ${TASK_STATUSES.join(", ")}`);
 }
 
 const RECEIPT_KINDS = ReceiptKindSchema.options satisfies readonly NonNullable<ListReceiptsInput["kind"]>[];
