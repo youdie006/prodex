@@ -20,6 +20,7 @@ gptprouse pro latest
 gptprouse tasks list
 gptprouse tasks claim <task-id>
 gptprouse results show <task-id>
+gptprouse doctor
 gptprouse setup
 gptprouse start
 ```
@@ -91,6 +92,8 @@ Session:
 ## Implementation Preference
 
 Use a small TypeScript Node CLI/MCP server. Keep Codex CLI commands as the primary UX. Keep stdio MCP for Claude and Streamable HTTP MCP for optional ChatGPT Developer Mode-style inbound handoff.
+
+`gptprouse doctor` is the local product-health check. It verifies `.bridge` setup, reports local MCP config with tokens redacted, runs the receipt-backed write/apply/stage flow in an isolated temp git repo, and starts a loopback HTTP MCP server to confirm the expected tool catalog is reachable through the actual protocol.
 
 Phase 1:
 

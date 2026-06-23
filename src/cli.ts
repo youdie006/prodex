@@ -4,6 +4,8 @@ import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { buildDryRunBundle } from "./bundle.js";
 import { defaultChatGptProfileDir, getChatGptBrowserStatus, openChatGptBrowser, sendChatGptPrompt } from "./chatgpt-browser.js";
 import { loadLocalConfig, writeLocalConfig } from "./config.js";
@@ -13,6 +15,15 @@ import { runMcpServer } from "./mcp.js";
 import { BridgeStore } from "./store.js";
 
 const execFileAsync = promisify(execFile);
+
+const DOCTOR_REQUIRED_MCP_TOOLS = [
+  "bridge_create_task",
+  "repo_read_file",
+  "repo_search",
+  "repo_write_file_dry_run",
+  "repo_write_file_apply",
+  "repo_stage_reviewed_paths"
+] as const;
 
 export interface CliIO {
   cwd: string;
@@ -384,7 +395,37 @@ async function runDoctor(store: BridgeStore, io: CliIO): Promise<number> {
     io.stdout(`mcp_write_smoke: failed ${errorMessage(error)}`);
   }
 
+  try {
+    const smoke = await runHttpMcpCatalogSmoke(io.cwd);
+    io.stdout(`http_mcp_smoke: ok tools=${smoke.tools.join(",")}`);
+  } catch (error) {
+    ok = false;
+    io.stdout(`http_mcp_smoke: failed ${errorMessage(error)}`);
+  }
+
   return ok ? 0 : 1;
+}
+
+async function runHttpMcpCatalogSmoke(cwd: string): Promise<{ tools: string[] }> {
+  const running = await startHttpMcpServer({
+    cwd,
+    host: "127.0.0.1",
+    port: 0,
+    token: "doctor-token"
+  });
+  let client: Client | undefined;
+  try {
+    client = new Client({ name: "gptprouse-doctor", version: "0.2.0" });
+    await client.connect(new StreamableHTTPClientTransport(new URL(running.mcp_url)));
+    const result = await client.listTools();
+    const names = result.tools.map((tool) => tool.name);
+    const missing = DOCTOR_REQUIRED_MCP_TOOLS.filter((tool) => !names.includes(tool));
+    if (missing.length > 0) throw new Error(`missing MCP tools: ${missing.join(",")}`);
+    return { tools: [...DOCTOR_REQUIRED_MCP_TOOLS] };
+  } finally {
+    await client?.close().catch(() => undefined);
+    await running.close();
+  }
 }
 
 async function runMcpWriteSmoke(): Promise<{ path: string; receipt_payload: "artifact"; staged: string }> {

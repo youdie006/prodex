@@ -54,6 +54,7 @@ Implemented:
 - ChatGPT Developer Mode-style Streamable HTTP MCP server through `gptprouse setup` and `gptprouse start`.
 - Read-only repo tools for bounded file reads and ripgrep search.
 - Receipt-gated repo write/stage tools for existing text files: dry-run first, apply only with matching git HEAD and preimage hash, then stage only reviewed applied receipts.
+- `doctor` local health check for `.bridge`, redacted config loading, receipt-backed write/apply/stage, and the real HTTP MCP tool catalog.
 
 Not implemented:
 
@@ -141,6 +142,8 @@ node dist/cli.js tasks create --title "Review plan" --prompt "Review this archit
 node dist/cli.js tasks list
 node dist/cli.js pro ask --dry-run --file README.md "Review the project positioning"
 ```
+
+`doctor` stays local: it does not open ChatGPT or a browser. It creates an isolated temp git repo for the write/apply/stage smoke, then starts a loopback HTTP MCP server on a random port and confirms the expected bridge/repo tools are visible over the MCP protocol.
 
 During local development, you can run the TypeScript source directly:
 

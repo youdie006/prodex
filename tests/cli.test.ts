@@ -226,6 +226,9 @@ describe("runCli", () => {
     expect(text).toContain("mcp_write_smoke: ok");
     expect(text).toContain("receipt_payload=artifact");
     expect(text).toContain("staged=notes.md");
+    expect(text).toContain("http_mcp_smoke: ok");
+    expect(text).toContain("bridge_create_task");
+    expect(text).toContain("repo_stage_reviewed_paths");
   });
 
   it("redacts local MCP tokens from doctor output", async () => {

@@ -30,7 +30,7 @@
 - [x] Add `pro list/latest/show` for Codex-first consult review.
 - [x] Add friendly `pro browser login` onboarding flow.
 - [x] Add `pro browser check` for local browser-adapter health checks.
-- [x] Add `doctor` for local bridge and MCP write/apply/stage smoke checks.
+- [x] Add `doctor` for local bridge, MCP write/apply/stage, and HTTP MCP tool-catalog smoke checks.
 - [x] Demote browser automation from the primary CLI path.
 - [x] Add write tools only after dry-run and expected-head checks exist.
   - [x] `repo_write_file_dry_run`: create a diff receipt without modifying files.
@@ -43,6 +43,7 @@
 - [x] Implement MCP server exposing task creation and result fetch.
 - [x] Add repo read/search with path sandbox.
 - [x] Add Streamable HTTP MCP endpoint for ChatGPT Developer Mode-style clients.
+- [x] Verify Streamable HTTP MCP tool catalog from `doctor`.
 - [x] Add local setup/start/status commands and ignored `.bridge/config.local.json`.
 - [x] Redact local MCP URL tokens by default; require `status --show-token` for paste-ready URL.
 - [x] Block `.bridge`, `.git`, `.env*`, build outputs, and oversized files from repo read/search tools.
