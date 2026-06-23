@@ -180,6 +180,18 @@ describe("runCli", () => {
     ).rejects.toThrow("--status must be one of new, claimed, done, blocked");
   });
 
+  it("rejects unknown task list options", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+
+    await expect(
+      runCli(["tasks", "list", "--stauts", "blocked"], {
+        cwd,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.toThrow("Unknown option for tasks list: --stauts");
+  });
+
   it("rejects flags that are missing required values", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
 
@@ -481,6 +493,18 @@ describe("runCli", () => {
         stderr: () => {}
       })
     ).rejects.toThrow(/preview, running, done, blocked/);
+  });
+
+  it("rejects unknown session list options", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+
+    await expect(
+      runCli(["sessions", "list", "--stats", "blocked"], {
+        cwd,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.toThrow("Unknown option for sessions list: --stats");
   });
 
   it("ignores legacy invalid session filenames when listing sessions", async () => {

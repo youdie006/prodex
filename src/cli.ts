@@ -217,6 +217,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       return 0;
     }
     if (subcommand === "list") {
+      assertOnlyOptions(taskArgs, "tasks list", ["--status"]);
       const status = readTaskStatusFlag(taskArgs);
       const tasks = await store.listTasks(status);
       for (const task of tasks) {
@@ -315,6 +316,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
   if (command === "sessions") {
     const [subcommand, ...sessionArgs] = rest;
     if (subcommand === "list") {
+      assertOnlyOptions(sessionArgs, "sessions list", ["--status"]);
       const status = readSessionStatusFlag(sessionArgs);
       const sessions = await store.listSessions(status);
       for (const session of sessions) {
@@ -1304,6 +1306,22 @@ function readRepeatedFlag(args: string[], flag: string): string[] {
     }
   }
   return values;
+}
+
+function assertOnlyOptions(args: string[], command: string, valueFlags: readonly string[]): void {
+  const valueFlagSet = new Set(valueFlags);
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (valueFlagSet.has(arg)) {
+      readFlagValue(args, index, arg);
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith("-")) {
+      throw new Error(`Unknown option for ${command}: ${arg}`);
+    }
+    throw new Error(`Unexpected argument for ${command}: ${arg}`);
+  }
 }
 
 const ASK_PRO_BOOLEAN_FLAGS = new Set(["--dry-run", "--send", "--confirm-target"]);
