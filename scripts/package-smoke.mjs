@@ -75,8 +75,9 @@ try {
   for (const tool of REQUIRED_MCP_TOOLS) {
     if (!tools.includes(tool)) throw new Error(`Installed MCP catalog is missing ${tool}`);
   }
+  await smokeInstalledStdioTaskFinalizers(binPath, consumerDir);
 
-  console.log(`package_smoke: ok tarball=${path.basename(packed.filename)} http_onboarding=ok tunnel_url=ok tools=${REQUIRED_MCP_TOOLS.join(",")}`);
+  console.log(`package_smoke: ok tarball=${path.basename(packed.filename)} http_onboarding=ok tunnel_url=ok stdio_task_finalizers=ok tools=${REQUIRED_MCP_TOOLS.join(",")}`);
 } finally {
   await rm(tmp, { recursive: true, force: true });
 }
@@ -137,7 +138,73 @@ async function smokeStdioMcp(binPath, cwd) {
     const result = await withTimeout(client.listTools(), 20_000, "Timed out listing installed stdio MCP tools");
     return result.tools.map((tool) => tool.name);
   } finally {
-    await client.close().catch(() => undefined);
+    await client.close();
+  }
+}
+
+async function smokeInstalledStdioTaskFinalizers(binPath, cwd) {
+  const client = new Client({ name: "gptprouse-package-finalizers-smoke", version: "0.2.0" });
+  const transport = new StdioClientTransport({
+    command: binPath,
+    args: ["mcp"],
+    cwd,
+    stderr: "pipe"
+  });
+  try {
+    await withTimeout(client.connect(transport), 20_000, "Timed out connecting to installed stdio MCP server for task finalizer smoke");
+    const doneTask = await callJsonTool(client, "bridge_create_task", {
+      title: "Package stdio complete smoke",
+      prompt: "Complete this task over installed stdio MCP"
+    });
+    const completed = await callJsonTool(client, "bridge_complete_task", {
+      task_id: doneTask.task.id,
+      summary: "Completed by installed stdio MCP",
+      commands: ["package stdio finalizer smoke"]
+    });
+    const blockedTask = await callJsonTool(client, "bridge_create_task", {
+      title: "Package stdio block smoke",
+      prompt: "Block this task over installed stdio MCP"
+    });
+    const blocked = await callJsonTool(client, "bridge_block_task", {
+      task_id: blockedTask.task.id,
+      summary: "Blocked by installed stdio MCP",
+      code: "package_smoke_blocker",
+      retryable: true,
+      next_step: "Inspect package smoke output."
+    });
+    const fetchedDone = await callJsonTool(client, "bridge_fetch_result", { task_id: doneTask.task.id });
+    const fetchedBlocked = await callJsonTool(client, "bridge_fetch_result", { task_id: blockedTask.task.id });
+
+    assertResult(completed.result, {
+      taskId: doneTask.task.id,
+      status: "done",
+      summary: "Completed by installed stdio MCP",
+      commands: ["package stdio finalizer smoke"]
+    });
+    assertResult(fetchedDone.result, {
+      taskId: doneTask.task.id,
+      status: "done",
+      summary: "Completed by installed stdio MCP",
+      commands: ["package stdio finalizer smoke"]
+    });
+    assertResult(blocked.result, {
+      taskId: blockedTask.task.id,
+      status: "blocked",
+      summary: "Blocked by installed stdio MCP",
+      blockerCode: "package_smoke_blocker",
+      retryable: true,
+      nextStep: "Inspect package smoke output."
+    });
+    assertResult(fetchedBlocked.result, {
+      taskId: blockedTask.task.id,
+      status: "blocked",
+      summary: "Blocked by installed stdio MCP",
+      blockerCode: "package_smoke_blocker",
+      retryable: true,
+      nextStep: "Inspect package smoke output."
+    });
+  } finally {
+    await client.close();
   }
 }
 
@@ -268,6 +335,35 @@ async function withTimeout(promise, timeoutMs, message) {
     ]);
   } finally {
     clearTimeout(timeout);
+  }
+}
+
+async function callJsonTool(client, name, args) {
+  const result = await withTimeout(
+    client.callTool({ name, arguments: args }),
+    20_000,
+    `Timed out calling installed stdio MCP tool ${name}`
+  );
+  const text = result.content.find((item) => item.type === "text")?.text;
+  if (!text) throw new Error(`Installed stdio MCP tool ${name} did not return text content`);
+  return JSON.parse(text);
+}
+
+function assertResult(result, expected) {
+  if (result?.task_id !== expected.taskId || result?.status !== expected.status || result?.summary !== expected.summary) {
+    throw new Error(`Unexpected result record: ${JSON.stringify(result)} expected ${JSON.stringify(expected)}`);
+  }
+  if (expected.commands && JSON.stringify(result?.commands) !== JSON.stringify(expected.commands)) {
+    throw new Error(`Unexpected result commands: ${JSON.stringify(result?.commands)} expected ${JSON.stringify(expected.commands)}`);
+  }
+  if (expected.blockerCode && result?.blocker?.code !== expected.blockerCode) {
+    throw new Error(`Unexpected result blocker: ${JSON.stringify(result?.blocker)} expected code ${expected.blockerCode}`);
+  }
+  if (expected.retryable !== undefined && result?.blocker?.retryable !== expected.retryable) {
+    throw new Error(`Unexpected result blocker retryable: ${JSON.stringify(result?.blocker)} expected ${expected.retryable}`);
+  }
+  if (expected.nextStep !== undefined && result?.blocker?.next_step !== expected.nextStep) {
+    throw new Error(`Unexpected result blocker next_step: ${JSON.stringify(result?.blocker)} expected ${expected.nextStep}`);
   }
 }
 
