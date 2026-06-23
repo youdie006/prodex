@@ -76,6 +76,21 @@ describe("runCli", () => {
     expect(text).toContain("manual bridge first");
   });
 
+  it("labels pro ask as a dry-run preview in help", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const out: string[] = [];
+
+    await runCli(["help"], {
+      cwd,
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    const text = out.join("\n");
+    expect(text).toContain('gptprouse pro ask [--file path] "prompt"  # dry-run preview');
+    expect(text).toContain('gptprouse pro browser ask [--file path] "prompt"  # explicit visible-browser send');
+  });
+
   it("requires explicit browser namespace for browser product checks", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
     const out: string[] = [];
@@ -206,6 +221,24 @@ describe("runCli", () => {
     });
 
     expect(out.join("\n")).toContain("super-secret-token");
+  });
+
+  it("prints a paste-ready local MCP URL when url-only is requested", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    await runCli(["setup", "--port", "8789", "--token", "super-secret-token"], {
+      cwd,
+      stdout: () => {},
+      stderr: () => {}
+    });
+    const out: string[] = [];
+
+    await runCli(["status", "--show-token", "--url-only"], {
+      cwd,
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    expect(out).toEqual(["http://127.0.0.1:8789/mcp?gptprouse_token=super-secret-token"]);
   });
 
   it("runs a local doctor smoke for bridge storage and MCP writes", async () => {

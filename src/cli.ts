@@ -77,7 +77,12 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
   if (command === "status") {
     const config = await loadLocalConfig(io.cwd);
     const showToken = rest.includes("--show-token");
-    io.stdout(JSON.stringify({ server_url: showToken ? config.server_url : redactServerUrl(config.server_url), config_path: ".bridge/config.local.json" }, null, 2));
+    const serverUrl = showToken ? config.server_url : redactServerUrl(config.server_url);
+    if (rest.includes("--url-only")) {
+      io.stdout(serverUrl);
+      return 0;
+    }
+    io.stdout(JSON.stringify({ server_url: serverUrl, config_path: ".bridge/config.local.json" }, null, 2));
     return 0;
   }
 
@@ -348,12 +353,12 @@ Commands:
   gptprouse doctor
   gptprouse setup [--host 127.0.0.1] [--port 8787]
   gptprouse start
-  gptprouse status [--show-token]
+  gptprouse status [--show-token] [--url-only]
   gptprouse ask-pro --dry-run|--send [--file path] "prompt"
-  gptprouse pro ask [--file path] "prompt"
+  gptprouse pro ask [--file path] "prompt"  # dry-run preview
   gptprouse pro browser login
   gptprouse pro browser check|smoke
-  gptprouse pro browser ask [--file path] "prompt"
+  gptprouse pro browser ask [--file path] "prompt"  # explicit visible-browser send
   gptprouse pro latest|list|show <task-id|latest>
   gptprouse pro browser open|status
   gptprouse chatgpt open|status|smoke  # low-level alias

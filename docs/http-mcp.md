@@ -1,0 +1,121 @@
+# ChatGPT Project HTTP MCP Setup
+
+Use this path when you want a ChatGPT Project to hand tasks back to this local repo through MCP.
+
+This is not the ChatGPT Pro browser adapter. It does not open ChatGPT, read cookies, or automate a web session. It starts a local HTTP MCP server that exposes the same bridge/repo tools as the Claude stdio server.
+
+## What It Is
+
+`gptprouse start` runs a local Streamable HTTP MCP server.
+
+Typical use:
+
+- ChatGPT creates a structured task in `.bridge/tasks/`.
+- Codex claims and executes that task locally.
+- Codex writes the result to `.bridge/results/`.
+- ChatGPT fetches the result through MCP.
+
+The server is personal and local-first. Do not expose it as a shared service.
+
+## Build And Prepare
+
+From the repo root:
+
+```bash
+npm install
+npm run build
+node dist/cli.js setup
+```
+
+`setup` writes a local server profile to `.bridge/config.local.json`. The file is ignored by git.
+
+By default, command output redacts the URL token:
+
+```text
+gptprouse_token=***
+```
+
+## Start The Local Server
+
+Run this in a terminal and keep it running while ChatGPT is using the bridge:
+
+```bash
+node dist/cli.js start
+```
+
+In another terminal, get the paste-ready MCP URL:
+
+```bash
+node dist/cli.js status --show-token --url-only
+```
+
+Only use `--show-token` when you need to paste the URL into a trusted local/private MCP client configuration.
+
+## Add It To ChatGPT
+
+In your ChatGPT Project MCP or Developer Mode setup, add the URL from:
+
+```bash
+node dist/cli.js status --show-token --url-only
+```
+
+Use it as a remote Streamable HTTP MCP server URL. Keep `node dist/cli.js start` running.
+
+If the ChatGPT app runtime cannot reach `127.0.0.1`, this project intentionally does not create a tunnel automatically. Put your own explicit tunnel in front of the local server only after you understand the token exposure risk, and rotate the token if it may have leaked:
+
+```bash
+node dist/cli.js setup
+```
+
+## Available Tools
+
+The HTTP server exposes the same tool catalog as stdio MCP:
+
+- `bridge_create_task`
+- `bridge_list_tasks`
+- `bridge_get_task`
+- `bridge_claim_task`
+- `bridge_list_results`
+- `bridge_fetch_result`
+- `repo_read_file`
+- `repo_search`
+- `repo_write_file_dry_run`
+- `repo_write_file_apply`
+- `repo_stage_reviewed_paths`
+
+## Write Flow
+
+Writes are deliberately gated:
+
+1. `repo_write_file_dry_run` previews replacing an existing repo-relative text file. It records the diff, git HEAD, preimage hash, and a replacement-text artifact under `.bridge/artifacts/repo-writes/`.
+2. `repo_write_file_apply` applies that exact receipt only if git HEAD, file path, preimage hash, and artifact content still match.
+3. `repo_stage_reviewed_paths` stages only files backed by matching applied write receipts.
+
+There is no direct ungated write tool and no shell execution tool.
+
+## Safety Boundaries
+
+- No hidden ChatGPT API client.
+- No browser cookie, token, localStorage, or sessionStorage extraction.
+- No captcha, Cloudflare, rate-limit, or permission bypass.
+- No recurring prompt loops.
+- No public account-sharing service.
+- No shell execution over MCP.
+- No access to `.bridge`, `.git`, `.env*`, `node_modules`, `dist`, or oversized files through repo read/search tools.
+
+## Troubleshooting
+
+Run the local health check:
+
+```bash
+node dist/cli.js doctor
+```
+
+`doctor` stays local. It verifies `.bridge`, redacted config loading, receipt-gated write/apply/stage behavior in a temporary git repo, and the real HTTP MCP tool catalog.
+
+If ChatGPT cannot connect:
+
+- Confirm `node dist/cli.js start` is still running.
+- Confirm you pasted the full `status --show-token --url-only` URL.
+- Confirm the client can reach the host in that URL.
+- Run `node dist/cli.js setup` again to rotate the token and update the URL.

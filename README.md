@@ -39,7 +39,7 @@ ChatGPT Pro              ChatGPT Projects / Claude
 - `docs/research.md`: repo and policy research summary.
 - `docs/design.md`: proposed architecture and commands.
 - `docs/todo.md`: implementation checklist.
-- `.bridge/`: future task/result/session/artifact storage.
+- `.bridge/`: local task/result/session/artifact/receipt storage.
 
 ## v0.2 Status
 
@@ -121,12 +121,14 @@ node dist/cli.js start
 `setup`, `start`, and `status` redact the URL token by default. When you are ready to paste the MCP URL into ChatGPT Developer Mode / Apps, run:
 
 ```bash
-node dist/cli.js status --show-token
+node dist/cli.js status --show-token --url-only
 ```
 
 The URL token is stored only in `.bridge/config.local.json`, which is ignored by git.
 
 If ChatGPT cannot reach `127.0.0.1` from its app runtime, keep `gptprouse start` local and put a tunnel in front of it. Tunnel setup is intentionally not automatic yet.
+
+See [docs/http-mcp.md](docs/http-mcp.md) for the full ChatGPT Project HTTP MCP setup flow and safety notes.
 
 The MCP write path is intentionally narrow:
 
