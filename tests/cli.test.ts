@@ -1,10 +1,28 @@
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { runCli } from "../src/cli.js";
 
 describe("runCli", () => {
+  it("prints the package version from version commands and help", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const packageJson = JSON.parse(await readFile(path.resolve(import.meta.dirname, "..", "package.json"), "utf8")) as {
+      version: string;
+    };
+    const versionOut: string[] = [];
+    const aliasOut: string[] = [];
+    const helpOut: string[] = [];
+
+    await runCli(["--version"], { cwd, stdout: (line) => versionOut.push(line), stderr: () => {} });
+    await runCli(["version"], { cwd, stdout: (line) => aliasOut.push(line), stderr: () => {} });
+    await runCli(["help"], { cwd, stdout: (line) => helpOut.push(line), stderr: () => {} });
+
+    expect(versionOut).toEqual([packageJson.version]);
+    expect(aliasOut).toEqual([packageJson.version]);
+    expect(helpOut.join("\n")).toContain(`gptprouse v${packageJson.version}`);
+  });
+
   it("creates and lists tasks", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
     const out: string[] = [];

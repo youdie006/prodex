@@ -2,6 +2,7 @@
 import { execFile } from "node:child_process";
 import { realpathSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -17,6 +18,9 @@ import { runMcpServer } from "./mcp.js";
 import { BridgeStore } from "./store.js";
 
 const execFileAsync = promisify(execFile);
+const requirePackageJson = createRequire(import.meta.url);
+const packageJson = requirePackageJson("../package.json") as { version?: string };
+const CLI_VERSION = packageJson.version ?? "0.0.0";
 
 const DOCTOR_REQUIRED_MCP_TOOLS = [
   "bridge_create_task",
@@ -36,6 +40,11 @@ export interface CliIO {
 export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<number> {
   const [command, ...rest] = args;
   const store = new BridgeStore(io.cwd);
+
+  if (command === "--version" || command === "-v" || command === "version") {
+    io.stdout(CLI_VERSION);
+    return 0;
+  }
 
   if (!command || command === "help" || command === "--help" || command === "-h") {
     printHelp(io.stdout);
@@ -415,9 +424,10 @@ function defaultIo(): CliIO {
 }
 
 function printHelp(stdout: (line: string) => void): void {
-  stdout(`gptprouse v0.2
+  stdout(`gptprouse v${CLI_VERSION}
 
 Commands:
+  gptprouse --version
   gptprouse init
   gptprouse doctor
   gptprouse setup [--host 127.0.0.1] [--port 8787] [--token-ttl-hours 24]

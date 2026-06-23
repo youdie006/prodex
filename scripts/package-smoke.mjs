@@ -41,8 +41,14 @@ try {
   });
 
   const binPath = path.join(consumerDir, "node_modules", ".bin", process.platform === "win32" ? "gptprouse.cmd" : "gptprouse");
+  const installedPackageJson = JSON.parse(await readFile(path.join(consumerDir, "node_modules", "gptprouse", "package.json"), "utf8"));
+  const version = await run(binPath, ["--version"], { cwd: consumerDir });
+  if (version.stdout.trim() !== installedPackageJson.version) {
+    throw new Error(`Installed --version returned ${version.stdout.trim()}, expected ${installedPackageJson.version}`);
+  }
   const help = await run(binPath, ["help"], { cwd: consumerDir });
   assertIncludes(help.stdout, "gptprouse doctor", "installed help output");
+  assertIncludes(help.stdout, `gptprouse v${installedPackageJson.version}`, "installed help output");
 
   const init = await run(binPath, ["init"], { cwd: consumerDir });
   assertIncludes(init.stdout, "Initialized .bridge", "installed init output");
