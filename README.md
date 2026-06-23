@@ -70,6 +70,7 @@ node dist/cli.js init
 node dist/cli.js chatgpt open
 node dist/cli.js chatgpt status
 node dist/cli.js ask-pro --send --file README.md "Review the project positioning"
+node dist/cli.js consults latest
 ```
 
 For optional ChatGPT Project -> local handoff, start the HTTP MCP bridge:

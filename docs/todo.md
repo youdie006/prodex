@@ -26,6 +26,7 @@
 - [x] Add visible-browser blocker handling.
 - [x] Add one-shot Codex -> ChatGPT Pro consult path through `ask-pro --send`.
 - [x] Fix Korean ChatGPT UI detection and thinking-placeholder handling.
+- [x] Add `consults list/latest/show` for Codex-first consult review.
 - [ ] Add write tools only after dry-run and expected-head checks exist.
   - [ ] `repo_write_file_dry_run`: create a diff receipt without modifying files.
   - [ ] `repo_write_file_apply`: require path sandbox, expected git HEAD, prior diff receipt id, and preimage hash.

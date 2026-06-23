@@ -146,6 +146,31 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
     }
   }
 
+  if (command === "consults") {
+    const [subcommand, ...consultArgs] = rest;
+    if (subcommand === "list") {
+      const consults = await listConsults(store);
+      for (const consult of consults) {
+        io.stdout(`${consult.task.id}\t${consult.result.status}\t${firstLine(consult.result.summary)}`);
+      }
+      return 0;
+    }
+    if (subcommand === "latest") {
+      const consult = (await listConsults(store))[0];
+      if (!consult) throw new Error("No consult results found");
+      io.stdout(formatConsult(consult));
+      return 0;
+    }
+    if (subcommand === "show") {
+      const taskId = consultArgs[0];
+      if (!taskId) throw new Error("consults show requires <task-id|latest>");
+      const consult = taskId === "latest" ? (await listConsults(store))[0] : await getConsult(store, taskId);
+      if (!consult) throw new Error(`Consult not found: ${taskId}`);
+      io.stdout(formatConsult(consult));
+      return 0;
+    }
+  }
+
   if (command === "ask-pro") {
     if (!rest.includes("--dry-run") && !rest.includes("--send")) {
       throw new Error("ask-pro requires --dry-run or --send");
@@ -236,7 +261,59 @@ Commands:
   gptprouse tasks claim <task-id> [--by codex]
   gptprouse tasks complete <task-id> --summary "Summary" [--command "npm test"]
   gptprouse results show <task-id>
+  gptprouse consults list|latest|show <task-id|latest>
   gptprouse mcp`);
+}
+
+type ConsultRecord = {
+  task: Awaited<ReturnType<BridgeStore["listTasks"]>>[number];
+  result: Awaited<ReturnType<BridgeStore["listResults"]>>[number];
+};
+
+async function listConsults(store: BridgeStore): Promise<ConsultRecord[]> {
+  const [tasks, results] = await Promise.all([store.listTasks(), store.listResults()]);
+  const tasksById = new Map(tasks.map((task) => [task.id, task]));
+  return results
+    .map((result) => {
+      const task = tasksById.get(result.task_id);
+      return task ? { task, result } : undefined;
+    })
+    .filter((record): record is ConsultRecord => Boolean(record && isConsultRecord(record)))
+    .sort((a, b) => b.result.created_at.localeCompare(a.result.created_at));
+}
+
+async function getConsult(store: BridgeStore, taskId: string): Promise<ConsultRecord | undefined> {
+  const [task, result] = await Promise.all([store.getTask(taskId), store.getResult(taskId)]).catch(() => [undefined, undefined] as const);
+  if (!task || !result) return undefined;
+  const record = { task, result };
+  return isConsultRecord(record) ? record : undefined;
+}
+
+function isConsultRecord(record: ConsultRecord): boolean {
+  return (
+    record.task.provenance.adapter === "chatgpt-control" ||
+    record.task.title.toLowerCase() === "gpt pro consult" ||
+    record.result.commands.includes("visible ChatGPT browser consult")
+  );
+}
+
+function formatConsult(consult: ConsultRecord): string {
+  return JSON.stringify(
+    {
+      task_id: consult.task.id,
+      status: consult.result.status,
+      thread: consult.task.provenance.thread,
+      created_at: consult.result.created_at,
+      summary: consult.result.summary,
+      warnings: consult.result.warnings
+    },
+    null,
+    2
+  );
+}
+
+function firstLine(value: string): string {
+  return value.split(/\r?\n/).find((line) => line.trim())?.trim() ?? "";
 }
 
 function readFlag(args: string[], flag: string): string | undefined {

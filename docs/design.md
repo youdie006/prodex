@@ -14,6 +14,7 @@ Create a local project that supports:
 ```bash
 gptprouse chatgpt open
 gptprouse ask-pro --send --file src/server.ts --file docs/design.md "Find risks"
+gptprouse consults latest
 gptprouse tasks list
 gptprouse tasks claim <task-id>
 gptprouse results show <task-id>

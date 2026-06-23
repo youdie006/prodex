@@ -33,4 +33,27 @@ describe("runCli", () => {
     expect(out.join("\n")).toContain("DRY RUN");
     expect(out.join("\n")).toContain("## File: notes.md");
   });
+
+  it("lists and shows GPT Pro consult results without requiring a copied task id", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const out: string[] = [];
+
+    const createOut: string[] = [];
+    await runCli(
+      ["tasks", "create", "--title", "GPT Pro consult", "--prompt", "Ask Pro"],
+      { cwd, stdout: (line) => createOut.push(line), stderr: () => {} }
+    );
+    const taskId = createOut[0].split("\t")[0];
+    await runCli(["tasks", "claim", taskId, "--by", "chatgpt-pro"], { cwd, stdout: () => {}, stderr: () => {} });
+    await runCli(
+      ["tasks", "complete", taskId, "--summary", "Use receipt-gated writes next.", "--command", "visible ChatGPT browser consult"],
+      { cwd, stdout: () => {}, stderr: () => {} }
+    );
+
+    await runCli(["consults", "list"], { cwd, stdout: (line) => out.push(line), stderr: () => {} });
+    await runCli(["consults", "latest"], { cwd, stdout: (line) => out.push(line), stderr: () => {} });
+
+    expect(out.join("\n")).toContain(taskId);
+    expect(out.join("\n")).toContain("Use receipt-gated writes next.");
+  });
 });
