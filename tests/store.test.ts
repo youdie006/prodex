@@ -1,10 +1,15 @@
-import { lstat, mkdir, mkdtemp, readFile, readdir, symlink } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
+import { setSafeFileTestHooks } from "../src/safe-file.js";
 import { BridgeStore } from "../src/store.js";
 
 describe("BridgeStore", () => {
+  afterEach(() => {
+    setSafeFileTestHooks({});
+  });
+
   it("creates, claims, completes, and fetches task results", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
     const store = new BridgeStore(root);
@@ -62,6 +67,29 @@ describe("BridgeStore", () => {
     await expect(
       store.writeArtifactText(".bridge/artifacts/repo-writes/outside/payload.txt", "payload\n")
     ).rejects.toThrow(/artifacts/);
+  });
+
+  it("rejects artifact writes when the target is swapped to a symlink before open", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
+    const outside = await mkdtemp(path.join(tmpdir(), "gptprouse-outside-"));
+    const outsideFile = path.join(outside, "secret.txt");
+    const relativePath = ".bridge/artifacts/repo-writes/payload.txt";
+    const artifactPath = path.join(root, relativePath);
+    await mkdir(path.dirname(artifactPath), { recursive: true });
+    await writeFile(outsideFile, "outside\n", "utf8");
+    const store = new BridgeStore(root);
+    let swapped = false;
+    setSafeFileTestHooks({
+      beforeOpen: async (filePath) => {
+        if (!swapped && filePath === artifactPath) {
+          swapped = true;
+          await symlink(outsideFile, artifactPath);
+        }
+      }
+    });
+
+    await expect(store.writeArtifactText(relativePath, "payload\n")).rejects.toThrow(/symlink|changed|artifacts/i);
+    expect(await readFile(outsideFile, "utf8")).toBe("outside\n");
   });
 
   it("does not create directories through symlinked artifact ancestors before rejecting", async () => {
@@ -126,6 +154,29 @@ describe("BridgeStore", () => {
     ).rejects.toThrow(/artifacts/);
   });
 
+  it("rejects artifact reads when the target is swapped to a symlink before open", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
+    const outside = await mkdtemp(path.join(tmpdir(), "gptprouse-outside-"));
+    const outsideFile = path.join(outside, "secret.txt");
+    await writeFile(outsideFile, "outside\n", "utf8");
+    const store = new BridgeStore(root);
+    const relativePath = await store.writeArtifactText(".bridge/artifacts/repo-writes/payload.txt", "payload\n");
+    const artifactPath = path.join(root, relativePath);
+    let swapped = false;
+    setSafeFileTestHooks({
+      beforeOpen: async (filePath) => {
+        if (!swapped && filePath === artifactPath) {
+          swapped = true;
+          await rm(artifactPath);
+          await symlink(outsideFile, artifactPath);
+        }
+      }
+    });
+
+    await expect(store.readArtifactText(relativePath)).rejects.toThrow(/symlink|changed|artifacts/i);
+    expect(await readFile(outsideFile, "utf8")).toBe("outside\n");
+  });
+
   it("rejects receipt storage when the receipts directory itself is a symlink", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
     const outside = await mkdtemp(path.join(tmpdir(), "gptprouse-outside-"));
@@ -137,5 +188,28 @@ describe("BridgeStore", () => {
       store.writeReceipt({ kind: "consult_preview", summary: "Should not escape local receipt storage" })
     ).rejects.toThrow(/Bridge storage directory/);
     expect(await readdir(outside)).toEqual([]);
+  });
+
+  it("rejects record reads when the target is swapped to a symlink before open", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
+    const outside = await mkdtemp(path.join(tmpdir(), "gptprouse-outside-"));
+    const outsideFile = path.join(outside, "receipt.json");
+    await writeFile(outsideFile, "{}\n", "utf8");
+    const store = new BridgeStore(root);
+    const receipt = await store.writeReceipt({ kind: "consult_preview", summary: "safe receipt" });
+    const receiptPath = path.join(root, ".bridge", "receipts", `${receipt.id}.json`);
+    let swapped = false;
+    setSafeFileTestHooks({
+      beforeOpen: async (filePath) => {
+        if (!swapped && filePath === receiptPath) {
+          swapped = true;
+          await rm(receiptPath);
+          await symlink(outsideFile, receiptPath);
+        }
+      }
+    });
+
+    await expect(store.getReceipt(receipt.id)).rejects.toThrow(/symlink|changed|record/i);
+    expect(await readFile(outsideFile, "utf8")).toBe("{}\n");
   });
 });

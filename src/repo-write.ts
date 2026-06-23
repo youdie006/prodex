@@ -1,9 +1,10 @@
 import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
-import { lstat, readFile, realpath, writeFile } from "node:fs/promises";
+import { realpath } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 import { resolveRepoPath } from "./repo.js";
+import { readVerifiedUtf8File, writeVerifiedUtf8File } from "./safe-file.js";
 import type { Receipt } from "./schema.js";
 import type { BridgeStore } from "./store.js";
 
@@ -143,7 +144,9 @@ export async function applyRepoWriteDryRun(
 
   const newContent = await readDryRunReplacementContent(store, metadata);
 
-  await writeFile(current.resolved, newContent, "utf8");
+  await writeVerifiedUtf8File(current.resolved, newContent, () => assertRealPathInside(root, current.resolved, metadata.path), {
+    maxBytes: MAX_WRITE_BYTES
+  });
   const receipt = await store.writeReceipt({
     kind: "repo_write_applied",
     summary: `Applied write receipt ${input.receipt_id} to ${metadata.path}`,
@@ -223,15 +226,15 @@ async function getGitHead(root: string): Promise<string> {
 
 async function readWritableExistingFile(root: string, repoPath: string): Promise<{ resolved: string; content: string }> {
   const resolved = resolveRepoPath(root, repoPath);
-  await assertRealPathInside(root, resolved, repoPath);
-  const stat = await lstat(resolved);
-  if (!stat.isFile()) {
-    throw new Error(`Path ${repoPath} is not a regular file`);
-  }
-  if (stat.size > MAX_WRITE_BYTES) {
-    throw new Error(`Path ${repoPath} is too large to write through repo tools (${stat.size} bytes)`);
-  }
-  return { resolved, content: await readFile(resolved, "utf8") };
+  const content = await readVerifiedUtf8File(resolved, () => assertRealPathInside(root, resolved, repoPath), {
+    maxBytes: MAX_WRITE_BYTES
+  }).catch((error) => {
+    if (error instanceof Error && /too large/.test(error.message)) {
+      throw new Error(`Path ${repoPath} is too large to write through repo tools`);
+    }
+    throw error;
+  });
+  return { resolved, content };
 }
 
 async function assertRealPathInside(root: string, resolved: string, repoPath: string): Promise<void> {

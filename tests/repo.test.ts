@@ -1,10 +1,15 @@
-import { mkdir, mkdtemp, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { readRepoFile, resolveRepoPath, searchRepo } from "../src/repo.js";
+import { setSafeFileTestHooks } from "../src/safe-file.js";
 
 describe("repo path policy", () => {
+  afterEach(() => {
+    setSafeFileTestHooks({});
+  });
+
   it("reads repo-relative files with line metadata", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "gptprouse-repo-"));
     await writeFile(path.join(root, "README.md"), "one\ntwo\nthree\n", "utf8");
@@ -26,6 +31,28 @@ describe("repo path policy", () => {
     expect(() => resolveRepoPath(root, "../secret.txt")).toThrow(/repo-relative/);
     expect(() => resolveRepoPath(root, path.join(root, "README.md"))).toThrow(/repo-relative/);
     await expect(readRepoFile(root, "links/outside/file.txt")).rejects.toThrow(/escapes/);
+  });
+
+  it("rejects reads when the target is swapped to a symlink before open", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-repo-"));
+    const outside = await mkdtemp(path.join(tmpdir(), "gptprouse-outside-"));
+    const outsideFile = path.join(outside, "secret.txt");
+    const repoFile = path.join(root, "README.md");
+    await writeFile(outsideFile, "outside\n", "utf8");
+    await writeFile(repoFile, "inside\n", "utf8");
+    let swapped = false;
+    setSafeFileTestHooks({
+      beforeOpen: async (filePath) => {
+        if (!swapped && filePath === repoFile) {
+          swapped = true;
+          await rm(repoFile);
+          await symlink(outsideFile, repoFile);
+        }
+      }
+    });
+
+    await expect(readRepoFile(root, "README.md")).rejects.toThrow(/symlink|changed|escapes/i);
+    expect(await readFile(outsideFile, "utf8")).toBe("outside\n");
   });
 
   it("blocks local bridge, git, and env files from repo reads", async () => {

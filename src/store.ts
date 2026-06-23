@@ -1,5 +1,6 @@
 import { lstat, mkdir, readFile, readdir, realpath, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { readVerifiedUtf8File, writeVerifiedUtf8File } from "./safe-file.js";
 import {
   type BridgeFile,
   makeBridgeId,
@@ -176,8 +177,15 @@ export class BridgeStore {
     await this.assertArtifactsDirIsRealDirectory();
     const artifactPath = this.resolveArtifactPath(relativePath);
     await this.ensureArtifactParentDirectory(path.dirname(artifactPath));
-    await this.assertArtifactTargetInsideIfExists(artifactPath);
-    await writeFile(artifactPath, content, "utf8");
+    await writeVerifiedUtf8File(
+      artifactPath,
+      content,
+      async () => {
+        await this.assertArtifactParentDirectory(path.dirname(artifactPath));
+        await this.assertArtifactTargetInsideIfExists(artifactPath);
+      },
+      { create: true }
+    );
     return this.relativeToRoot(artifactPath);
   }
 
@@ -186,8 +194,7 @@ export class BridgeStore {
     await this.assertArtifactsDirIsRealDirectory();
     const artifactPath = this.resolveArtifactPath(relativePath);
     await this.assertArtifactParentDirectory(path.dirname(artifactPath));
-    await this.assertArtifactTargetInside(artifactPath);
-    return readFile(artifactPath, "utf8");
+    return readVerifiedUtf8File(artifactPath, () => this.assertArtifactTargetInside(artifactPath));
   }
 
   async writeReceipt(input: WriteReceiptInput): Promise<Receipt> {
@@ -223,20 +230,15 @@ export class BridgeStore {
     const items: T[] = [];
     for (const entry of entries) {
       if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
-      items.push(schema.parse(await this.readJson(path.join(dir, entry.name))));
+      items.push(schema.parse(await this.readRecordJson(kind, entry.name.replace(/\.json$/, ""))));
     }
     return items;
-  }
-
-  private async readJson(filePath: string): Promise<unknown> {
-    return JSON.parse(await readFile(filePath, "utf8"));
   }
 
   private async readRecordJson(kind: BridgeRecordKind, id: string): Promise<unknown> {
     const filePath = this.pathFor(kind, id);
     await this.assertStorageDirIsRealDirectory(kind);
-    await this.assertRecordTargetInside(kind, filePath);
-    return this.readJson(filePath);
+    return JSON.parse(await readVerifiedUtf8File(filePath, () => this.assertRecordTargetInside(kind, filePath)));
   }
 
   private async writeRecordJson(kind: BridgeRecordKind, id: string, value: unknown): Promise<void> {
@@ -244,11 +246,16 @@ export class BridgeStore {
     await this.assertStorageDirIsRealDirectory(kind);
     await this.assertRecordTargetInsideIfExists(kind, filePath);
     await this.writeJson(filePath, value);
+    await this.assertRecordTargetInside(kind, filePath);
   }
 
   private async writeJson(filePath: string, value: unknown): Promise<void> {
+    await this.writeTextByRename(filePath, `${JSON.stringify(value, null, 2)}\n`);
+  }
+
+  private async writeTextByRename(filePath: string, content: string): Promise<void> {
     const tmp = `${filePath}.${process.pid}.${Date.now()}.tmp`;
-    await writeFile(tmp, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+    await writeFile(tmp, content, "utf8");
     await rename(tmp, filePath);
   }
 

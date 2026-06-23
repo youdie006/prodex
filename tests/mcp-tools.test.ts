@@ -1,16 +1,21 @@
 import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, readFile, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { createMcpToolHandlers } from "../src/mcp-tools.js";
+import { setSafeFileTestHooks } from "../src/safe-file.js";
 import { BridgeStore } from "../src/store.js";
 
 const execFileAsync = promisify(execFile);
 
 describe("MCP tool handlers", () => {
+  afterEach(() => {
+    setSafeFileTestHooks({});
+  });
+
   it("creates tasks and fetches results through Claude-compatible handlers", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
     const handlers = createMcpToolHandlers({ cwd });
@@ -157,6 +162,41 @@ describe("MCP tool handlers", () => {
         preimage_sha256: dryRun.preimage_sha256
       })
     ).rejects.toThrow(/preimage/);
+  });
+
+  it("rejects write apply when the target is swapped to a symlink before write", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    const outside = await mkdtemp(path.join(tmpdir(), "gptprouse-outside-"));
+    const outsideFile = path.join(outside, "secret.txt");
+    const repoFile = path.join(cwd, "notes.md");
+    await writeFile(outsideFile, "outside\n", "utf8");
+    await writeFile(repoFile, "old\n", "utf8");
+    const head = await initGitRepo(cwd);
+    const handlers = createMcpToolHandlers({ cwd });
+    const dryRun = await handlers.repo_write_file_dry_run({
+      path: "notes.md",
+      content: "new\n",
+      expected_head: head
+    });
+    let swapped = false;
+    setSafeFileTestHooks({
+      beforeOpen: async (filePath) => {
+        if (!swapped && filePath === repoFile) {
+          swapped = true;
+          await rm(repoFile);
+          await symlink(outsideFile, repoFile);
+        }
+      }
+    });
+
+    await expect(
+      handlers.repo_write_file_apply({
+        receipt_id: dryRun.receipt.id,
+        expected_head: head,
+        preimage_sha256: dryRun.preimage_sha256
+      })
+    ).rejects.toThrow(/symlink|changed|escapes/i);
+    expect(await readFile(outsideFile, "utf8")).toBe("outside\n");
   });
 
   it("rejects write dry-runs when git HEAD does not match", async () => {
