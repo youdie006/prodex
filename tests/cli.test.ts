@@ -89,6 +89,37 @@ describe("runCli", () => {
     expect(out.join("\n")).toContain("chatgpt: browser_unreachable");
   });
 
+  it("prints a friendly browser login guide without opening Chrome in dry-run mode", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const out: string[] = [];
+
+    await runCli(["pro", "browser", "login", "--dry-run"], {
+      cwd,
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    const text = out.join("\n");
+    expect(text).toContain("ChatGPT Pro browser login");
+    expect(text).toContain("Log in manually");
+    expect(text).toContain("pro browser check");
+    expect(text).toContain("pro browser smoke");
+    expect(text).toContain("You can close this Chrome window after login");
+  });
+
+  it("points unreachable browser checks at the login flow", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const out: string[] = [];
+
+    await runCli(["pro", "browser", "check", "--port", "65534", "--timeout-ms", "10"], {
+      cwd,
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    expect(out.join("\n")).toContain("pro browser login");
+  });
+
   it("does not keep old pro browser aliases at the top level", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
 

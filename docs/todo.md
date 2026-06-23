@@ -28,6 +28,7 @@
 - [x] Add explicit one-shot Codex -> ChatGPT Pro browser consult path through `pro browser ask`.
 - [x] Fix Korean ChatGPT UI detection and thinking-placeholder handling.
 - [x] Add `pro list/latest/show` for Codex-first consult review.
+- [x] Add friendly `pro browser login` onboarding flow.
 - [x] Add `pro browser check` for local browser-adapter health checks.
 - [x] Demote browser automation from the primary CLI path.
 - [ ] Add write tools only after dry-run and expected-head checks exist.

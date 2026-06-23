@@ -13,6 +13,8 @@ Create a local project that supports:
 
 ```bash
 gptprouse pro ask --file src/server.ts --file docs/design.md "Find risks"
+gptprouse pro browser login
+gptprouse pro browser check
 gptprouse pro browser ask --file src/server.ts --file docs/design.md "Find risks"
 gptprouse pro latest
 gptprouse tasks list
@@ -96,7 +98,7 @@ Phase 1:
 
 Phase 2:
 
-- Optional visible browser backend for Codex -> ChatGPT Pro consults through `pro browser ask`.
+- Optional visible browser backend for Codex -> ChatGPT Pro consults through `pro browser login/check/ask`.
 - Explicit blocker handling and resumable sessions.
 
 Phase 3:

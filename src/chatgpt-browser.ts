@@ -258,7 +258,7 @@ async function findChatGptPage(
         code: "browser_unreachable",
         message: `No Chrome DevTools endpoint is reachable on 127.0.0.1:${port}.`,
         retryable: true,
-        next_step: "Run `gptprouse pro browser open`, log in, then retry.",
+        next_step: "Run `gptprouse pro browser login`, log in, then retry.",
         ...(error instanceof Error ? { detail: error.message } : {})
       } as ChatGptBrowserStatus["blocker"]
     };

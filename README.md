@@ -49,7 +49,7 @@ Implemented:
 - CLI commands for task creation/listing/claiming/completion and result display.
 - `pro ask` and `pro latest` for Codex-first consult previews and review receipts.
 - `ask-pro --dry-run` and `ask-pro --send` as explicit lower-level aliases.
-- `pro browser open/status/smoke/check/ask` for the optional visible browser adapter.
+- `pro browser login/check/smoke/ask` for the optional visible browser adapter.
 - Claude-compatible stdio MCP server through `gptprouse mcp`.
 - ChatGPT Developer Mode-style Streamable HTTP MCP server through `gptprouse setup` and `gptprouse start`.
 - Read-only repo tools for bounded file reads and ripgrep search.
@@ -73,14 +73,38 @@ node dist/cli.js pro ask --file README.md "Review the project positioning"
 
 `pro ask` is a dry-run/manual preview by default. It does not drive a logged-in browser unless you explicitly choose the browser adapter.
 
-Optional, explicit visible-browser consult:
+## First Pro Login
+
+Use this only when you explicitly want to use your logged-in ChatGPT Pro web session.
 
 ```bash
-node dist/cli.js pro browser open
+node dist/cli.js pro browser login
 node dist/cli.js pro browser check
+node dist/cli.js pro browser smoke
+```
+
+What happens:
+
+- A dedicated Chrome profile opens at ChatGPT.
+- You log in manually in the visible browser.
+- If ChatGPT asks for captcha, permission, or account verification, handle it in that browser.
+- Pick the Pro/Thinking model you want in the ChatGPT UI.
+- The login stays in the dedicated profile:
+
+```text
+~/.local/share/gptprouse/chrome-chatgpt-pro
+```
+
+You can close that Chrome window after login. The next time you need it, run `pro browser login` or `pro browser check` again. `check` will tell you what to do if the browser is closed.
+
+Actual explicit visible-browser consult:
+
+```bash
 node dist/cli.js pro browser ask --file README.md "Review the project positioning"
 node dist/cli.js pro latest
 ```
+
+This uses the currently available ChatGPT web session and model selection. It is not a hidden API client, and it does not read cookies, tokens, localStorage, or sessionStorage.
 
 For optional ChatGPT Project -> local handoff, start the HTTP MCP bridge:
 

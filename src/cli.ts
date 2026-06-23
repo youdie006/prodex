@@ -2,7 +2,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { buildDryRunBundle } from "./bundle.js";
-import { getChatGptBrowserStatus, openChatGptBrowser, sendChatGptPrompt } from "./chatgpt-browser.js";
+import { defaultChatGptProfileDir, getChatGptBrowserStatus, openChatGptBrowser, sendChatGptPrompt } from "./chatgpt-browser.js";
 import { loadLocalConfig, writeLocalConfig } from "./config.js";
 import { startHttpMcpServer } from "./http-mcp.js";
 import { runMcpServer } from "./mcp.js";
@@ -155,6 +155,27 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
     }
     if (subcommand === "browser") {
       const [browserSubcommand, ...browserArgs] = proArgs;
+      if (browserSubcommand === "login") {
+        if (browserArgs.includes("--dry-run")) {
+          printBrowserLoginGuide(io.stdout, {
+            opened: false,
+            profileDir: readFlag(browserArgs, "--profile-dir") ?? defaultChatGptProfileDir(),
+            port: Number(readFlag(browserArgs, "--port") ?? "9333")
+          });
+          return 0;
+        }
+        const opened = openChatGptBrowser({
+          port: Number(readFlag(browserArgs, "--port") ?? "9333"),
+          profileDir: readFlag(browserArgs, "--profile-dir"),
+          url: readFlag(browserArgs, "--url") ?? "https://chatgpt.com/"
+        });
+        printBrowserLoginGuide(io.stdout, {
+          opened: true,
+          profileDir: opened.profileDir,
+          port: opened.port
+        });
+        return 0;
+      }
       if (browserSubcommand === "ask") {
         const hasMode = browserArgs.includes("--send") || browserArgs.includes("--dry-run");
         return runCli(["ask-pro", ...(hasMode ? [] : ["--send"]), ...browserArgs], io);
@@ -166,7 +187,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
         await printProductCheck(store, io, browserArgs);
         return 0;
       }
-      throw new Error("pro browser requires ask|open|status|smoke|check");
+      throw new Error("pro browser requires login|ask|open|status|smoke|check");
     }
     if (subcommand === "open" || subcommand === "status" || subcommand === "smoke" || subcommand === "check" || subcommand === "doctor") {
       throw new Error(`Use \`gptprouse pro browser ${subcommand === "doctor" ? "check" : subcommand}\` for explicit browser automation.`);
@@ -306,16 +327,37 @@ Commands:
   gptprouse status [--show-token]
   gptprouse ask-pro --dry-run|--send [--file path] "prompt"
   gptprouse pro ask [--file path] "prompt"
+  gptprouse pro browser login
+  gptprouse pro browser check|smoke
   gptprouse pro browser ask [--file path] "prompt"
   gptprouse pro latest|list|show <task-id|latest>
-  gptprouse pro browser open|status|smoke|check
-  gptprouse chatgpt open|status|smoke
+  gptprouse pro browser open|status
+  gptprouse chatgpt open|status|smoke  # low-level alias
   gptprouse tasks create --title "Title" --prompt "Prompt"
   gptprouse tasks list [--status new|claimed|done|blocked]
   gptprouse tasks claim <task-id> [--by codex]
   gptprouse tasks complete <task-id> --summary "Summary" [--command "npm test"]
   gptprouse results show <task-id>
   gptprouse mcp`);
+}
+
+function printBrowserLoginGuide(
+  stdout: (line: string) => void,
+  input: { opened: boolean; profileDir: string; port: number }
+): void {
+  stdout("ChatGPT Pro browser login");
+  stdout(input.opened ? "Opened the dedicated Chrome window for ChatGPT." : "Dry run: no browser was opened.");
+  stdout("");
+  stdout("Steps:");
+  stdout("1. Log in manually at https://chatgpt.com/ in the dedicated Chrome window.");
+  stdout("2. If ChatGPT asks for captcha, permission, or account verification, complete it in the browser.");
+  stdout("3. Select the Pro/Thinking model you want in the ChatGPT UI.");
+  stdout("4. Run `node dist/cli.js pro browser check` to confirm the session is reachable.");
+  stdout("5. Run `node dist/cli.js pro browser smoke` to verify a real Pro response path.");
+  stdout("");
+  stdout(`Profile: ${input.profileDir}`);
+  stdout(`Debug: http://127.0.0.1:${input.port}`);
+  stdout("You can close this Chrome window after login. The dedicated profile is reused next time.");
 }
 
 async function printProductCheck(store: BridgeStore, io: CliIO, args: string[]): Promise<void> {
