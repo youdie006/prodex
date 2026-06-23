@@ -15,7 +15,7 @@ The goal is not to turn ChatGPT Pro into a public API. The goal is to make Codex
 
 ```text
 Codex
-  | ask-pro / tasks / results
+  | pro ask / pro latest / tasks
   v
 gptprouse local bridge + .bridge receipts
   |                         ^
@@ -46,9 +46,9 @@ Implemented:
 
 - Versioned `.bridge` ledger schemas for tasks, results, sessions, and receipts.
 - CLI commands for task creation/listing/claiming/completion and result display.
-- `ask-pro --dry-run` for manual-copy consult bundles.
-- `ask-pro --send` for visible-browser ChatGPT Pro consults when a logged-in local Chrome profile is available.
-- `chatgpt open/status/smoke` commands for the visible browser adapter.
+- `pro ask` and `pro latest` for Codex-first ChatGPT Pro consults.
+- `ask-pro --dry-run` and `ask-pro --send` as explicit lower-level aliases.
+- `pro open/status/smoke` for the visible browser adapter.
 - Claude-compatible stdio MCP server through `gptprouse mcp`.
 - ChatGPT Developer Mode-style Streamable HTTP MCP server through `gptprouse setup` and `gptprouse start`.
 - Read-only repo tools for bounded file reads and ripgrep search.
@@ -67,10 +67,10 @@ Not implemented:
 npm install
 npm run build
 node dist/cli.js init
-node dist/cli.js chatgpt open
-node dist/cli.js chatgpt status
-node dist/cli.js ask-pro --send --file README.md "Review the project positioning"
-node dist/cli.js consults latest
+node dist/cli.js pro open
+node dist/cli.js pro status
+node dist/cli.js pro ask --file README.md "Review the project positioning"
+node dist/cli.js pro latest
 ```
 
 For optional ChatGPT Project -> local handoff, start the HTTP MCP bridge:
@@ -89,7 +89,7 @@ For local task-bus smoke tests:
 ```bash
 node dist/cli.js tasks create --title "Review plan" --prompt "Review this architecture"
 node dist/cli.js tasks list
-node dist/cli.js ask-pro --dry-run --file README.md "Review the project positioning"
+node dist/cli.js pro ask --dry-run --file README.md "Review the project positioning"
 ```
 
 During local development, you can run the TypeScript source directly:

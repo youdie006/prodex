@@ -146,6 +146,38 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
     }
   }
 
+  if (command === "pro") {
+    const [subcommand, ...proArgs] = rest;
+    if (subcommand === "ask") {
+      const hasMode = proArgs.includes("--send") || proArgs.includes("--dry-run");
+      return runCli(["ask-pro", ...(hasMode ? [] : ["--send"]), ...proArgs], io);
+    }
+    if (subcommand === "open" || subcommand === "status" || subcommand === "smoke") {
+      return runCli(["chatgpt", subcommand, ...proArgs], io);
+    }
+    if (subcommand === "list") {
+      const consults = await listConsults(store);
+      for (const consult of consults) {
+        io.stdout(`${consult.task.id}\t${consult.result.status}\t${firstLine(consult.result.summary)}`);
+      }
+      return 0;
+    }
+    if (subcommand === "latest") {
+      const consult = (await listConsults(store))[0];
+      if (!consult) throw new Error("No GPT Pro answers found");
+      io.stdout(formatProAnswer(consult));
+      return 0;
+    }
+    if (subcommand === "show") {
+      const taskId = proArgs[0];
+      if (!taskId) throw new Error("pro show requires <task-id|latest>");
+      const consult = taskId === "latest" ? (await listConsults(store))[0] : await getConsult(store, taskId);
+      if (!consult) throw new Error(`GPT Pro answer not found: ${taskId}`);
+      io.stdout(formatProAnswer(consult));
+      return 0;
+    }
+  }
+
   if (command === "consults") {
     const [subcommand, ...consultArgs] = rest;
     if (subcommand === "list") {
@@ -218,6 +250,8 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
         warnings: consult.warnings
       });
       io.stdout(`${result.task_id}\t${result.status}\t${consult.url}`);
+      io.stdout("");
+      io.stdout(result.summary);
     } else {
       await store.writeReceipt({
         kind: "consult_preview",
@@ -255,13 +289,15 @@ Commands:
   gptprouse start
   gptprouse status
   gptprouse ask-pro --dry-run|--send [--file path] "prompt"
+  gptprouse pro ask [--file path] "prompt"
+  gptprouse pro latest|list|show <task-id|latest>
+  gptprouse pro open|status|smoke
   gptprouse chatgpt open|status|smoke
   gptprouse tasks create --title "Title" --prompt "Prompt"
   gptprouse tasks list [--status new|claimed|done|blocked]
   gptprouse tasks claim <task-id> [--by codex]
   gptprouse tasks complete <task-id> --summary "Summary" [--command "npm test"]
   gptprouse results show <task-id>
-  gptprouse consults list|latest|show <task-id|latest>
   gptprouse mcp`);
 }
 
@@ -310,6 +346,22 @@ function formatConsult(consult: ConsultRecord): string {
     null,
     2
   );
+}
+
+function formatProAnswer(consult: ConsultRecord): string {
+  const lines = [
+    `task_id: ${consult.task.id}`,
+    `status: ${consult.result.status}`,
+    consult.task.provenance.thread ? `thread: ${consult.task.provenance.thread}` : undefined,
+    `created_at: ${consult.result.created_at}`,
+    "",
+    consult.result.summary
+  ].filter((line): line is string => line !== undefined);
+  if (consult.result.warnings.length > 0) {
+    lines.push("", "warnings:");
+    for (const warning of consult.result.warnings) lines.push(`- ${warning}`);
+  }
+  return lines.join("\n");
 }
 
 function firstLine(value: string): string {

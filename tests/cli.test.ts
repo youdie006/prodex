@@ -34,7 +34,7 @@ describe("runCli", () => {
     expect(out.join("\n")).toContain("## File: notes.md");
   });
 
-  it("lists and shows GPT Pro consult results without requiring a copied task id", async () => {
+  it("lists and shows GPT Pro answers with the short pro command", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
     const out: string[] = [];
 
@@ -50,10 +50,12 @@ describe("runCli", () => {
       { cwd, stdout: () => {}, stderr: () => {} }
     );
 
-    await runCli(["consults", "list"], { cwd, stdout: (line) => out.push(line), stderr: () => {} });
-    await runCli(["consults", "latest"], { cwd, stdout: (line) => out.push(line), stderr: () => {} });
+    await runCli(["pro", "list"], { cwd, stdout: (line) => out.push(line), stderr: () => {} });
+    await runCli(["pro", "latest"], { cwd, stdout: (line) => out.push(line), stderr: () => {} });
+    await runCli(["pro", "show", "latest"], { cwd, stdout: (line) => out.push(line), stderr: () => {} });
 
     expect(out.join("\n")).toContain(taskId);
+    expect(out.join("\n")).toContain("task_id:");
     expect(out.join("\n")).toContain("Use receipt-gated writes next.");
   });
 });
