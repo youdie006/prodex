@@ -82,6 +82,7 @@ export const ReceiptSchema = z.object({
     "task_claimed",
     "task_completed",
     "consult_preview",
+    "consult_answer_saved",
     "repo_write_dry_run",
     "repo_write_applied",
     "repo_stage_reviewed_paths"

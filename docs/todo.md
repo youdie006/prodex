@@ -27,6 +27,7 @@
 - [x] Add visible-browser blocker handling.
 - [x] Keep `pro ask` as a dry-run/manual consult preview by default.
 - [x] Add explicit one-shot Codex -> ChatGPT Pro browser consult path through `pro browser ask`.
+- [x] Persist `pro browser ask` task records before send, record blocked consults on browser failure, and save successful answers as `.bridge` artifacts before result finalization.
 - [x] Fix Korean ChatGPT UI detection and thinking-placeholder handling.
 - [x] Add `pro list/latest/show` for Codex-first consult review.
 - [x] Add friendly `pro browser login` onboarding flow.

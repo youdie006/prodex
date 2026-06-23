@@ -368,12 +368,6 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
     if (!prompt) throw new Error("ask-pro requires a prompt");
     const bundle = await buildDryRunBundle(io.cwd, { prompt, files });
     if (rest.includes("--send")) {
-      const consult = await sendChatGptPrompt({
-        port: Number(readFlag(rest, "--port") ?? "9333"),
-        prompt: bundle.text,
-        targetUrl: normalizedTargetUrl,
-        timeoutMs: Number(readFlag(rest, "--timeout-ms") ?? "90000")
-      });
       const task = await store.createTask({
         source: "codex",
         title: "GPT Pro consult",
@@ -383,16 +377,61 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
         provenance: {
           adapter: "chatgpt-control",
           session_id: bundle.id,
+          thread: normalizedTargetUrl,
+          warnings: []
+        }
+      });
+      await store.claimTask(task.id, "chatgpt-pro");
+      let consult: Awaited<ReturnType<typeof sendChatGptPrompt>>;
+      try {
+        consult = await sendChatGptPrompt({
+          port: Number(readFlag(rest, "--port") ?? "9333"),
+          prompt: bundle.text,
+          targetUrl: normalizedTargetUrl,
+          timeoutMs: Number(readFlag(rest, "--timeout-ms") ?? "90000")
+        });
+      } catch (error) {
+        const message = errorMessage(error);
+        try {
+          await store.completeTask(task.id, {
+            status: "blocked",
+            summary: message,
+            commands: ["visible ChatGPT browser consult"],
+            blocker: {
+              code: "browser_send_failed",
+              message,
+              retryable: true,
+              next_step: "Resolve the visible browser issue manually, then rerun the consult if needed."
+            }
+          });
+        } catch (recordError) {
+          throw new Error(`${message} (also failed to record blocked consult: ${errorMessage(recordError)})`);
+        }
+        throw error;
+      }
+      const answerArtifactText = formatProConsultArtifact(consult);
+      const answerArtifactPath = await store.writeArtifactText(`.bridge/artifacts/pro-consults/${task.id}.md`, answerArtifactText);
+      await store.writeReceipt({
+        kind: "consult_answer_saved",
+        task_id: task.id,
+        session_id: bundle.id,
+        summary: `Saved ChatGPT answer for ${task.id}`,
+        metadata: {
+          artifact_path: answerArtifactPath,
           thread: consult.url,
           warnings: consult.warnings
         }
       });
-      await store.claimTask(task.id, "chatgpt-pro");
       const result = await store.completeTask(task.id, {
         status: "done",
         summary: consult.answer,
+        artifacts: [{ path: answerArtifactPath, role: "result", bytes: Buffer.byteLength(answerArtifactText, "utf8") }],
         commands: ["visible ChatGPT browser consult"],
-        warnings: consult.warnings
+        warnings: consult.warnings,
+        provenance: {
+          thread: consult.url,
+          warnings: consult.warnings
+        }
       });
       io.stdout(`${result.task_id}\t${result.status}\t${consult.url}`);
       io.stdout("");
@@ -685,6 +724,18 @@ function formatProAnswer(consult: ConsultRecord): string {
     lines.push("", "warnings:");
     for (const warning of consult.result.warnings) lines.push(`- ${warning}`);
   }
+  return lines.join("\n");
+}
+
+function formatProConsultArtifact(consult: Awaited<ReturnType<typeof sendChatGptPrompt>>): string {
+  const lines = [`# ChatGPT Pro Consult`, "", `Thread: ${consult.url}`, `Title: ${consult.title}`, ""];
+  if (consult.modelHints.length > 0) {
+    lines.push("Model hints:", ...consult.modelHints.map((hint) => `- ${hint}`), "");
+  }
+  if (consult.warnings.length > 0) {
+    lines.push("Warnings:", ...consult.warnings.map((warning) => `- ${warning}`), "");
+  }
+  lines.push("## Answer", "", consult.answer.trim(), "");
   return lines.join("\n");
 }
 

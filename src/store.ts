@@ -6,6 +6,7 @@ import path from "node:path";
 import { readVerifiedUtf8File, writeVerifiedUtf8File } from "./safe-file.js";
 import {
   type BridgeFile,
+  type Blocker,
   makeBridgeId,
   nowIso,
   type Provenance,
@@ -43,6 +44,8 @@ export interface CompleteTaskInput {
   artifacts?: BridgeFile[];
   commands?: string[];
   warnings?: string[];
+  blocker?: Blocker;
+  provenance?: Partial<Provenance>;
 }
 
 export type WriteReceiptInput = Omit<Receipt, "schema_version" | "id" | "created_at" | "metadata"> & {
@@ -143,12 +146,15 @@ export class BridgeStore {
       artifacts: input.artifacts ?? [],
       commands: input.commands ?? [],
       warnings: input.warnings ?? [],
+      blocker: input.blocker,
       created_at: nowIso()
     });
     await this.writeRecordJson("results", taskId, result);
     const updated = TaskSchema.parse({
       ...task,
       status: input.status,
+      provenance: input.provenance ? { ...task.provenance, ...input.provenance } : task.provenance,
+      blocker: input.blocker,
       result_path: `.bridge/results/${taskId}.json`,
       updated_at: nowIso()
     });
