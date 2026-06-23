@@ -40,6 +40,10 @@ ChatGPT Pro              ChatGPT Projects / Claude
 - `docs/claude.md`: Claude stdio MCP setup and tool notes.
 - `.bridge/`: local task/result/session/artifact/receipt storage.
 
+## Package Surface
+
+The npm package is CLI-only for now. The supported public surfaces are the `gptprouse` command, the stdio MCP server, and the optional HTTP MCP server. JavaScript imports from `gptprouse` or `gptprouse/dist/*` are intentionally not exported until a library API is designed and documented.
+
 ## v0.2 Status
 
 Implemented:
@@ -201,7 +205,7 @@ Before sharing a package tarball, run:
 npm run smoke:package
 ```
 
-This packs the project, installs the tarball into a temporary consumer project, runs the installed `gptprouse` binary, verifies HTTP MCP onboarding through installed token-TTL `setup`/`status`/`tunnel url`/`start` plus `/health`, verifies the installed stdio MCP server exposes the expected tool catalog, and calls the installed stdio task completion/blocking tools.
+This packs the project, installs the tarball into a temporary consumer project, runs the installed `gptprouse` binary, verifies HTTP MCP onboarding through installed token-TTL `setup`/`status`/`tunnel url`/`start` plus `/health`, verifies the package is CLI-only by blocking unsupported deep imports, verifies the installed stdio MCP server exposes the expected tool catalog, and calls the installed stdio task completion/blocking tools.
 
 Before publishing to npm, choose an explicit license and add the matching `LICENSE` file. `npm publish` is intentionally guarded by `prepublishOnly`; it runs:
 

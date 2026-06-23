@@ -72,6 +72,7 @@ try {
 
   await smokeInstalledHttpOnboarding(binPath, consumerDir);
   await assertInstalledDocsArePortable(consumerDir);
+  await assertInstalledPackageImportBoundary(consumerDir, packed.files);
 
   const tools = await smokeStdioMcp(binPath, consumerDir);
   for (const tool of REQUIRED_MCP_TOOLS) {
@@ -79,7 +80,7 @@ try {
   }
   await smokeInstalledStdioTaskFinalizers(binPath, consumerDir);
 
-  console.log(`package_smoke: ok tarball=${path.basename(packed.filename)} http_onboarding=ok tunnel_url=ok stdio_task_flow=ok stdio_task_finalizers=ok tools=${REQUIRED_MCP_TOOLS.join(",")}`);
+  console.log(`package_smoke: ok tarball=${path.basename(packed.filename)} http_onboarding=ok tunnel_url=ok package_boundary=ok stdio_task_flow=ok stdio_task_finalizers=ok tools=${REQUIRED_MCP_TOOLS.join(",")}`);
 } finally {
   await rm(tmp, { recursive: true, force: true });
 }
@@ -122,9 +123,50 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertNotIncludes(claudeDoc, "/absolute/path/to/project", "installed Claude docs");
   assertIncludes(readme, "For an installed package", "installed README");
   assertIncludes(readme, "gptprouse init", "installed README");
+  assertIncludes(readme, "CLI-only", "installed README");
   assertIncludes(httpMcpDoc, "For an installed package", "installed HTTP MCP docs");
   assertIncludes(httpMcpDoc, "gptprouse setup --token-ttl-hours 24", "installed HTTP MCP docs");
   assertIncludes(httpMcpDoc, "Keep `gptprouse start` running", "installed HTTP MCP docs");
+  assertIncludes(httpMcpDoc, "CLI-only", "installed HTTP MCP docs");
+  assertIncludes(claudeDoc, "CLI-only", "installed Claude docs");
+}
+
+async function assertInstalledPackageImportBoundary(consumerDir, packedFiles) {
+  const unsupportedSpecifiers = [
+    "gptprouse",
+    ...packedFiles
+      .map((file) => file.path)
+      .filter((filePath) => filePath.startsWith("dist/") && filePath.endsWith(".js"))
+      .sort()
+      .map((filePath) => `gptprouse/${filePath}`)
+  ];
+  assertArrayIncludes(unsupportedSpecifiers, "gptprouse/dist/cli.js", "installed package boundary specifiers");
+  assertArrayIncludes(unsupportedSpecifiers, "gptprouse/dist/index.js", "installed package boundary specifiers");
+  for (const specifier of unsupportedSpecifiers) {
+    await assertPackageImportBlocked(consumerDir, specifier);
+    await assertPackageRequireBlocked(consumerDir, specifier);
+  }
+}
+
+async function assertPackageImportBlocked(consumerDir, specifier) {
+  await assertPackageSpecifierBlocked(consumerDir, specifier, "import", ["--input-type=module", "--eval", `await import(${JSON.stringify(specifier)});`]);
+}
+
+async function assertPackageRequireBlocked(consumerDir, specifier) {
+  await assertPackageSpecifierBlocked(consumerDir, specifier, "require", ["--eval", `require(${JSON.stringify(specifier)});`]);
+}
+
+async function assertPackageSpecifierBlocked(consumerDir, specifier, mode, nodeArgs) {
+  try {
+    await run(process.execPath, nodeArgs, {
+      cwd: consumerDir
+    });
+  } catch (error) {
+    const output = `${error.stdout ?? ""}\n${error.stderr ?? ""}\n${error.message ?? ""}`;
+    assertIncludes(output, "ERR_PACKAGE_PATH_NOT_EXPORTED", `installed package ${mode} failure for ${specifier}`);
+    return;
+  }
+  throw new Error(`Installed package unexpectedly allowed ${mode}(${specifier}); the npm package should expose only the CLI for now`);
 }
 
 async function smokeStdioMcp(binPath, cwd) {

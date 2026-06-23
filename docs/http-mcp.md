@@ -28,6 +28,8 @@ For an installed package:
 gptprouse setup --token-ttl-hours 24
 ```
 
+The installed npm package is CLI-only. Use the `gptprouse` command and MCP server surfaces; JavaScript imports from `gptprouse` or `gptprouse/dist/*` are unsupported until a library API is designed and documented.
+
 For a source checkout:
 
 ```bash

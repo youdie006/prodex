@@ -6,6 +6,7 @@
   "bin": {
     "gptprouse": "./dist/cli.js"
   },
+  "exports": {},
   "files": [
     "dist",
     "README.md",
