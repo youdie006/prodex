@@ -66,6 +66,26 @@ describe("repo path policy", () => {
     await expect(searchRepo(root, "SECRET", "services/api/.env.local")).rejects.toThrow(/sensitive/);
   });
 
+  it("blocks nested git, dependency, and build output paths from repo reads and searches", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-repo-"));
+    await mkdir(path.join(root, "services", "api", ".git"), { recursive: true });
+    await mkdir(path.join(root, "packages", "a", "node_modules", "pkg"), { recursive: true });
+    await mkdir(path.join(root, "packages", "a", "dist"), { recursive: true });
+    await writeFile(path.join(root, "services", "api", ".git", "config"), "needle git\n", "utf8");
+    await writeFile(path.join(root, "packages", "a", "node_modules", "pkg", "secret.txt"), "needle dependency\n", "utf8");
+    await writeFile(path.join(root, "packages", "a", "dist", "build.txt"), "needle build\n", "utf8");
+    await writeFile(path.join(root, "packages", "a", "README.md"), "needle docs\n", "utf8");
+
+    await expect(readRepoFile(root, "services/api/.git/config")).rejects.toThrow(/sensitive/);
+    await expect(readRepoFile(root, "packages/a/node_modules/pkg/secret.txt")).rejects.toThrow(/sensitive/);
+    await expect(readRepoFile(root, "packages/a/dist/build.txt")).rejects.toThrow(/sensitive/);
+
+    await expect(searchRepo(root, "needle")).resolves.toEqual([{ path: "packages/a/README.md", line: 1, text: "needle docs" }]);
+    await expect(searchRepo(root, "needle", "packages/a/node_modules/**")).rejects.toThrow(/sensitive/);
+    await expect(searchRepo(root, "needle", "packages/**/node_modules/**")).rejects.toThrow(/sensitive/);
+    await expect(searchRepo(root, "needle", "packages/a/dist/**")).rejects.toThrow(/sensitive/);
+  });
+
   it("rejects large files before reading them into the response", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "gptprouse-repo-"));
     await writeFile(path.join(root, "large.txt"), "x".repeat(1_100_000), "utf8");

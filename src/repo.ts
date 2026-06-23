@@ -90,13 +90,19 @@ export async function searchRepo(root: string, query: string, glob?: string): Pr
     "--glob",
     "!.git/**",
     "--glob",
+    "!**/.git/**",
+    "--glob",
     "!.env*",
     "--glob",
     "!**/.env*",
     "--glob",
     "!node_modules/**",
     "--glob",
+    "!**/node_modules/**",
+    "--glob",
     "!dist/**",
+    "--glob",
+    "!**/dist/**",
     query
   ];
   if (glob) {
@@ -130,11 +136,11 @@ function assertNotSensitiveRepoPath(normalizedPath: string): void {
   if (segments.some((segment) => segment === ".env" || segment.startsWith(".env."))) {
     throw new Error(`Path ${normalizedPath} is sensitive and cannot be read through repo tools`);
   }
+  if (segments.some((segment) => segment === ".git" || segment === "node_modules" || segment === "dist")) {
+    throw new Error(`Path ${normalizedPath} is sensitive and cannot be read through repo tools`);
+  }
   if (
-    firstSegment === ".bridge" ||
-    firstSegment === ".git" ||
-    firstSegment === "node_modules" ||
-    firstSegment === "dist"
+    firstSegment === ".bridge"
   ) {
     throw new Error(`Path ${normalizedPath} is sensitive and cannot be read through repo tools`);
   }
@@ -145,9 +151,28 @@ function assertRepoRelativeGlob(glob: string): void {
   if (normalized.startsWith("../") || normalized === ".." || path.isAbsolute(normalized)) {
     throw new Error("Glob must stay inside the repo-relative root");
   }
+  assertNoSensitiveLiteralGlobSegment(normalized);
   const concretePrefix = normalized.replace(/[*?[{].*$/, "").replace(/\/+$/, "");
   if (concretePrefix) {
     assertNotSensitiveRepoPath(concretePrefix);
+  }
+}
+
+function assertNoSensitiveLiteralGlobSegment(normalizedGlob: string): void {
+  const literalSegments = normalizedGlob
+    .split("/")
+    .filter((segment) => segment && !/[*?[{]/.test(segment));
+  if (
+    literalSegments.some(
+      (segment) =>
+        segment === ".git" ||
+        segment === "node_modules" ||
+        segment === "dist" ||
+        segment === ".env" ||
+        segment.startsWith(".env.")
+    )
+  ) {
+    throw new Error(`Glob ${normalizedGlob} is sensitive and cannot be used through repo tools`);
   }
 }
 
