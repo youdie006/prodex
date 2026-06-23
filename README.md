@@ -69,6 +69,7 @@ Not implemented:
 npm install
 npm run build
 node dist/cli.js init
+node dist/cli.js doctor
 node dist/cli.js pro ask --file README.md "Review the project positioning"
 ```
 
@@ -135,6 +136,7 @@ The MCP write path is intentionally narrow:
 For local task-bus smoke tests:
 
 ```bash
+node dist/cli.js doctor
 node dist/cli.js tasks create --title "Review plan" --prompt "Review this architecture"
 node dist/cli.js tasks list
 node dist/cli.js pro ask --dry-run --file README.md "Review the project positioning"

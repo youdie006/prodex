@@ -1,4 +1,4 @@
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -206,5 +206,64 @@ describe("runCli", () => {
     });
 
     expect(out.join("\n")).toContain("super-secret-token");
+  });
+
+  it("runs a local doctor smoke for bridge storage and MCP writes", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const out: string[] = [];
+
+    const code = await runCli(["doctor"], {
+      cwd,
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    const text = out.join("\n");
+    expect(code).toBe(0);
+    expect(text).toContain("gptprouse doctor");
+    expect(text).toContain("bridge: ok");
+    expect(text).toContain("config: missing");
+    expect(text).toContain("mcp_write_smoke: ok");
+    expect(text).toContain("receipt_payload=artifact");
+    expect(text).toContain("staged=notes.md");
+  });
+
+  it("redacts local MCP tokens from doctor output", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    await runCli(["setup", "--port", "8789", "--token", "super-secret-token"], {
+      cwd,
+      stdout: () => {},
+      stderr: () => {}
+    });
+    const out: string[] = [];
+
+    await runCli(["doctor"], {
+      cwd,
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    const text = out.join("\n");
+    expect(text).toContain("gptprouse_token=***");
+    expect(text).not.toContain("super-secret-token");
+  });
+
+  it("reports corrupt local MCP config as a doctor failure", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    await mkdir(path.join(cwd, ".bridge"), { recursive: true });
+    await writeFile(path.join(cwd, ".bridge", "config.local.json"), "{not json", "utf8");
+    const out: string[] = [];
+
+    const code = await runCli(["doctor"], {
+      cwd,
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    const text = out.join("\n");
+    expect(code).toBe(1);
+    expect(text).toContain("config: failed");
+    expect(text).not.toContain("config: missing");
+    expect(text).toContain("mcp_write_smoke: ok");
   });
 });

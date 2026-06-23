@@ -30,6 +30,7 @@
 - [x] Add `pro list/latest/show` for Codex-first consult review.
 - [x] Add friendly `pro browser login` onboarding flow.
 - [x] Add `pro browser check` for local browser-adapter health checks.
+- [x] Add `doctor` for local bridge and MCP write/apply/stage smoke checks.
 - [x] Demote browser automation from the primary CLI path.
 - [x] Add write tools only after dry-run and expected-head checks exist.
   - [x] `repo_write_file_dry_run`: create a diff receipt without modifying files.

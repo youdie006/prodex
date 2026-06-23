@@ -1,12 +1,18 @@
 #!/usr/bin/env node
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
+import { promisify } from "node:util";
 import { buildDryRunBundle } from "./bundle.js";
 import { defaultChatGptProfileDir, getChatGptBrowserStatus, openChatGptBrowser, sendChatGptPrompt } from "./chatgpt-browser.js";
 import { loadLocalConfig, writeLocalConfig } from "./config.js";
 import { startHttpMcpServer } from "./http-mcp.js";
+import { createMcpToolHandlers } from "./mcp-tools.js";
 import { runMcpServer } from "./mcp.js";
 import { BridgeStore } from "./store.js";
+
+const execFileAsync = promisify(execFile);
 
 export interface CliIO {
   cwd: string;
@@ -60,6 +66,10 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
     const showToken = rest.includes("--show-token");
     io.stdout(JSON.stringify({ server_url: showToken ? config.server_url : redactServerUrl(config.server_url), config_path: ".bridge/config.local.json" }, null, 2));
     return 0;
+  }
+
+  if (command === "doctor") {
+    return runDoctor(store, io);
   }
 
   if (command === "chatgpt") {
@@ -322,6 +332,7 @@ function printHelp(stdout: (line: string) => void): void {
 
 Commands:
   gptprouse init
+  gptprouse doctor
   gptprouse setup [--host 127.0.0.1] [--port 8787]
   gptprouse start
   gptprouse status [--show-token]
@@ -339,6 +350,85 @@ Commands:
   gptprouse tasks complete <task-id> --summary "Summary" [--command "npm test"]
   gptprouse results show <task-id>
   gptprouse mcp`);
+}
+
+async function runDoctor(store: BridgeStore, io: CliIO): Promise<number> {
+  let ok = true;
+  io.stdout("gptprouse doctor");
+
+  try {
+    await store.ensure();
+    io.stdout("bridge: ok (.bridge)");
+  } catch (error) {
+    ok = false;
+    io.stdout(`bridge: failed ${errorMessage(error)}`);
+  }
+
+  try {
+    const config = await loadLocalConfig(io.cwd);
+    io.stdout(`config: ok ${redactServerUrl(config.server_url)}`);
+  } catch (error) {
+    if (isMissingFileError(error)) {
+      io.stdout("config: missing - run `gptprouse setup`");
+    } else {
+      ok = false;
+      io.stdout(`config: failed ${errorMessage(error)}`);
+    }
+  }
+
+  try {
+    const smoke = await runMcpWriteSmoke();
+    io.stdout(`mcp_write_smoke: ok path=${smoke.path} receipt_payload=${smoke.receipt_payload} staged=${smoke.staged}`);
+  } catch (error) {
+    ok = false;
+    io.stdout(`mcp_write_smoke: failed ${errorMessage(error)}`);
+  }
+
+  return ok ? 0 : 1;
+}
+
+async function runMcpWriteSmoke(): Promise<{ path: string; receipt_payload: "artifact"; staged: string }> {
+  const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-doctor-"));
+  await writeFile(path.join(cwd, "notes.md"), "old\n", "utf8");
+  await execFileAsync("git", ["init"], { cwd });
+  await execFileAsync("git", ["config", "user.email", "doctor@example.com"], { cwd });
+  await execFileAsync("git", ["config", "user.name", "GPTProUse Doctor"], { cwd });
+  await execFileAsync("git", ["add", "notes.md"], { cwd });
+  await execFileAsync("git", ["commit", "-m", "initial"], { cwd });
+  const { stdout: headOut } = await execFileAsync("git", ["rev-parse", "HEAD"], { cwd });
+  const head = headOut.trim();
+  const handlers = createMcpToolHandlers({ cwd });
+
+  const dryRun = await handlers.repo_write_file_dry_run({
+    path: "notes.md",
+    content: "new\n",
+    expected_head: head
+  });
+  const receipt = JSON.parse(await readFile(path.join(cwd, ".bridge", "receipts", `${dryRun.receipt.id}.json`), "utf8")) as {
+    metadata?: { new_content?: unknown; new_content_artifact?: unknown };
+  };
+  if (Object.hasOwn(receipt.metadata ?? {}, "new_content")) {
+    throw new Error("dry-run receipt contains inline write payload");
+  }
+  if (typeof receipt.metadata?.new_content_artifact !== "string") {
+    throw new Error("dry-run receipt is missing write payload artifact");
+  }
+
+  const applied = await handlers.repo_write_file_apply({
+    receipt_id: dryRun.receipt.id,
+    expected_head: head,
+    preimage_sha256: dryRun.preimage_sha256
+  });
+  const staged = await handlers.repo_stage_reviewed_paths({
+    receipt_ids: [applied.receipt.id],
+    expected_head: head
+  });
+  const { stdout: stagedOut } = await execFileAsync("git", ["diff", "--cached", "--name-only"], { cwd });
+  const stagedName = stagedOut.trim();
+  if (stagedName !== "notes.md" || staged.paths.join(",") !== "notes.md") {
+    throw new Error(`unexpected staged paths: ${stagedName || "<none>"}`);
+  }
+  return { path: "notes.md", receipt_payload: "artifact", staged: stagedName };
 }
 
 function printBrowserLoginGuide(
@@ -459,6 +549,14 @@ function formatProAnswer(consult: ConsultRecord): string {
 
 function firstLine(value: string): string {
   return value.split(/\r?\n/).find((line) => line.trim())?.trim() ?? "";
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function isMissingFileError(error: unknown): boolean {
+  return typeof error === "object" && error !== null && "code" in error && (error as { code?: unknown }).code === "ENOENT";
 }
 
 function redactServerUrl(value: string): string {
