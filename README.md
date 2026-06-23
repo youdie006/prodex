@@ -94,6 +94,7 @@ The examples below use the installed `gptprouse` binary. In a source checkout, r
 `init` creates the local `.bridge/` ledger directories and ignore rules. On a source checkout it may also add `node_modules/` and `dist/` to the repo root `.gitignore` so local dependencies and build output stay out of git.
 
 `pro ask` is a dry-run/manual preview by default. It does not drive a logged-in browser unless you explicitly choose the browser adapter.
+If your prompt itself starts with flag-like text, put `--` before the prompt, for example `gptprouse pro ask -- --strict mode review`.
 
 ## First Pro Login
 

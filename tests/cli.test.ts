@@ -116,6 +116,26 @@ describe("runCli", () => {
     ).rejects.toThrow("--title requires a value");
   });
 
+  it("rejects numeric flags that are not finite numbers", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+
+    await expect(
+      runCli(["setup", "--port", "not-a-number"], {
+        cwd,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.toThrow("--port requires a finite number");
+
+    await expect(
+      runCli(["pro", "browser", "check", "--timeout-ms", "not-a-number"], {
+        cwd,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.toThrow("--timeout-ms requires a finite number");
+  });
+
   it("adds missing build output ignores even when dependencies are already ignored", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
     await writeFile(path.join(cwd, ".gitignore"), "node_modules/\n", "utf8");
@@ -139,6 +159,60 @@ describe("runCli", () => {
 
     expect(out.join("\n")).toContain("DRY RUN");
     expect(out.join("\n")).toContain("## File: notes.md");
+  });
+
+  it("rejects unknown ask-pro flags before they become prompt text", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+
+    await expect(
+      runCli(["ask-pro", "--dry-run", "--fil", "notes.md", "Check this"], {
+        cwd,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.toThrow("Unknown option: --fil");
+  });
+
+  it("rejects unknown short ask-pro flags before they become prompt text", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+
+    await expect(
+      runCli(["ask-pro", "--dry-run", "-n", "Check this"], {
+        cwd,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.toThrow("Unknown option: -n");
+  });
+
+  it("allows prompt text that looks like flags after a double dash", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const out: string[] = [];
+
+    await runCli(["ask-pro", "--dry-run", "--", "Explain", "--strict", "mode"], {
+      cwd,
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    const text = out.join("\n");
+    expect(text).toContain("DRY RUN");
+    expect(text).toContain("Explain --strict mode");
+  });
+
+  it("keeps pro ask dry-run mode when prompt text after double dash contains mode-like flags", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const out: string[] = [];
+
+    await runCli(["pro", "ask", "--", "--send", "hello"], {
+      cwd,
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    const text = out.join("\n");
+    expect(text).toContain("DRY RUN");
+    expect(text).toContain("--send hello");
   });
 
   it("records ask-pro dry-run previews as consult sessions", async () => {

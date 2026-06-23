@@ -67,7 +67,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
   if (command === "setup") {
     const config = await writeLocalConfig(io.cwd, {
       host: readFlag(rest, "--host") ?? "127.0.0.1",
-      port: Number(readFlag(rest, "--port") ?? "8787"),
+      port: readNumberFlag(rest, "--port") ?? 8787,
       token: readFlag(rest, "--token"),
       tokenTtlHours: readNumberFlag(rest, "--token-ttl-hours")
     });
@@ -90,7 +90,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
     const running = await startHttpMcpServer({
       cwd: io.cwd,
       host: readFlag(rest, "--host") ?? config.host,
-      port: Number(readFlag(rest, "--port") ?? String(config.port)),
+      port: readNumberFlag(rest, "--port") ?? config.port,
       token: overrideToken ?? config.token,
       tokenExpiresAt: overrideToken ? undefined : config.token_expires_at
     });
@@ -171,7 +171,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
     const [subcommand, ...chatgptArgs] = rest;
     if (subcommand === "open") {
       const opened = openChatGptBrowser({
-        port: Number(readFlag(chatgptArgs, "--port") ?? "9333"),
+        port: readNumberFlag(chatgptArgs, "--port") ?? 9333,
         profileDir: readFlag(chatgptArgs, "--profile-dir"),
         url: readFlag(chatgptArgs, "--url") ?? "https://chatgpt.com/"
       });
@@ -181,15 +181,15 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       return 0;
     }
     if (subcommand === "status") {
-      const status = await getChatGptBrowserStatus({ port: Number(readFlag(chatgptArgs, "--port") ?? "9333") });
+      const status = await getChatGptBrowserStatus({ port: readNumberFlag(chatgptArgs, "--port") ?? 9333 });
       io.stdout(JSON.stringify(status, null, 2));
       return 0;
     }
     if (subcommand === "smoke") {
       const result = await sendChatGptPrompt({
-        port: Number(readFlag(chatgptArgs, "--port") ?? "9333"),
+        port: readNumberFlag(chatgptArgs, "--port") ?? 9333,
         prompt: "This is a one-time gptprouse smoke test. Reply exactly: GPTPROUSE_PRO_SMOKE_OK",
-        timeoutMs: Number(readFlag(chatgptArgs, "--timeout-ms") ?? "90000")
+        timeoutMs: readNumberFlag(chatgptArgs, "--timeout-ms") ?? 90000
       });
       io.stdout(JSON.stringify(result, null, 2));
       return 0;
@@ -323,7 +323,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
   if (command === "pro") {
     const [subcommand, ...proArgs] = rest;
     if (subcommand === "ask") {
-      const hasMode = proArgs.includes("--send") || proArgs.includes("--dry-run");
+      const hasMode = hasAskProMode(proArgs);
       return runCli(["ask-pro", ...(hasMode ? [] : ["--dry-run"]), ...proArgs], io);
     }
     if (subcommand === "browser") {
@@ -333,12 +333,12 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
           printBrowserLoginGuide(io.stdout, {
             opened: false,
             profileDir: readFlag(browserArgs, "--profile-dir") ?? defaultChatGptProfileDir(),
-            port: Number(readFlag(browserArgs, "--port") ?? "9333")
+            port: readNumberFlag(browserArgs, "--port") ?? 9333
           });
           return 0;
         }
         const opened = openChatGptBrowser({
-          port: Number(readFlag(browserArgs, "--port") ?? "9333"),
+          port: readNumberFlag(browserArgs, "--port") ?? 9333,
           profileDir: readFlag(browserArgs, "--profile-dir"),
           url: readFlag(browserArgs, "--url") ?? "https://chatgpt.com/"
         });
@@ -350,7 +350,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
         return 0;
       }
       if (browserSubcommand === "ask") {
-        const hasMode = browserArgs.includes("--send") || browserArgs.includes("--dry-run");
+        const hasMode = hasAskProMode(browserArgs);
         return runCli(["ask-pro", ...(hasMode ? [] : ["--send"]), ...browserArgs], io);
       }
       if (browserSubcommand === "open" || browserSubcommand === "status" || browserSubcommand === "smoke") {
@@ -414,34 +414,20 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
   }
 
   if (command === "ask-pro") {
-    if (!rest.includes("--dry-run") && !rest.includes("--send")) {
+    const parsedAskPro = parseAskProArgs(rest);
+    if (!parsedAskPro.optionArgs.includes("--dry-run") && !parsedAskPro.optionArgs.includes("--send")) {
       throw new Error("ask-pro requires --dry-run or --send");
     }
-    const files = readRepeatedFlag(rest, "--file");
-    const targetUrl = readFlag(rest, "--target-url");
+    const files = readRepeatedFlag(parsedAskPro.optionArgs, "--file");
+    const targetUrl = readFlag(parsedAskPro.optionArgs, "--target-url");
     const normalizedTargetUrl = targetUrl ? normalizeChatGptTargetUrl(targetUrl) : undefined;
-    if (normalizedTargetUrl && rest.includes("--send") && !rest.includes("--confirm-target")) {
+    if (normalizedTargetUrl && parsedAskPro.optionArgs.includes("--send") && !parsedAskPro.optionArgs.includes("--confirm-target")) {
       throw new Error("--target-url requires --confirm-target after you manually verify the visible ChatGPT tab is the intended Project/thread.");
     }
-    const prompt = rest.filter((arg, index) => {
-      const prev = rest[index - 1];
-      return (
-        arg !== "--dry-run" &&
-        arg !== "--send" &&
-        arg !== "--file" &&
-        arg !== "--port" &&
-        arg !== "--timeout-ms" &&
-        arg !== "--target-url" &&
-        arg !== "--confirm-target" &&
-        prev !== "--file" &&
-        prev !== "--port" &&
-        prev !== "--timeout-ms" &&
-        prev !== "--target-url"
-      );
-    }).join(" ").trim();
+    const prompt = parsedAskPro.promptParts.join(" ").trim();
     if (!prompt) throw new Error("ask-pro requires a prompt");
     const bundle = await buildDryRunBundle(io.cwd, { prompt, files });
-    if (rest.includes("--send")) {
+    if (parsedAskPro.optionArgs.includes("--send")) {
       const task = await store.createTask({
         source: "codex",
         title: "GPT Pro consult",
@@ -472,10 +458,10 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       let consult: Awaited<ReturnType<typeof sendChatGptPrompt>>;
       try {
         consult = await sendChatGptPrompt({
-          port: Number(readFlag(rest, "--port") ?? "9333"),
+          port: readNumberFlag(parsedAskPro.optionArgs, "--port") ?? 9333,
           prompt: bundle.text,
           targetUrl: normalizedTargetUrl,
-          timeoutMs: Number(readFlag(rest, "--timeout-ms") ?? "90000")
+          timeoutMs: readNumberFlag(parsedAskPro.optionArgs, "--timeout-ms") ?? 90000
         });
       } catch (error) {
         const message = errorMessage(error);
@@ -779,8 +765,8 @@ async function printProductCheck(store: BridgeStore, io: CliIO, args: string[]):
   }
 
   const browserStatus = await getChatGptBrowserStatus({
-    port: Number(readFlag(args, "--port") ?? "9333"),
-    timeoutMs: Number(readFlag(args, "--timeout-ms") ?? "1500")
+    port: readNumberFlag(args, "--port") ?? 9333,
+    timeoutMs: readNumberFlag(args, "--timeout-ms") ?? 1500
   });
   if (!browserStatus.reachable) {
     io.stdout(`chatgpt: ${browserStatus.blocker?.code ?? "unreachable"} - ${browserStatus.blocker?.message ?? "browser is not reachable"}`);
@@ -981,6 +967,40 @@ function readRepeatedFlag(args: string[], flag: string): string[] {
     }
   }
   return values;
+}
+
+const ASK_PRO_BOOLEAN_FLAGS = new Set(["--dry-run", "--send", "--confirm-target"]);
+const ASK_PRO_VALUE_FLAGS = new Set(["--file", "--port", "--timeout-ms", "--target-url"]);
+
+function parseAskProArgs(args: string[]): { optionArgs: string[]; promptParts: string[] } {
+  const delimiterIndex = args.indexOf("--");
+  const optionArgs = delimiterIndex === -1 ? args : args.slice(0, delimiterIndex);
+  const promptTail = delimiterIndex === -1 ? [] : args.slice(delimiterIndex + 1);
+  const positionalPromptParts: string[] = [];
+
+  for (let index = 0; index < optionArgs.length; index += 1) {
+    const arg = optionArgs[index];
+    if (!arg.startsWith("--")) {
+      if (arg.startsWith("-")) throw new Error(`Unknown option: ${arg}`);
+      positionalPromptParts.push(arg);
+      continue;
+    }
+    if (ASK_PRO_BOOLEAN_FLAGS.has(arg)) continue;
+    if (ASK_PRO_VALUE_FLAGS.has(arg)) {
+      readFlagValue(optionArgs, index, arg);
+      index += 1;
+      continue;
+    }
+    throw new Error(`Unknown option: ${arg}`);
+  }
+
+  return { optionArgs, promptParts: [...positionalPromptParts, ...promptTail] };
+}
+
+function hasAskProMode(args: string[]): boolean {
+  const delimiterIndex = args.indexOf("--");
+  const optionArgs = delimiterIndex === -1 ? args : args.slice(0, delimiterIndex);
+  return optionArgs.includes("--send") || optionArgs.includes("--dry-run");
 }
 
 function readFlagValue(args: string[], index: number, flag: string): string {
