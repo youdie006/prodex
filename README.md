@@ -47,6 +47,7 @@ Implemented:
 - Versioned `.bridge` ledger schemas for tasks, results, sessions, and receipts.
 - CLI commands for task creation/listing/claiming/completion and result display.
 - `pro ask` and `pro latest` for Codex-first consult previews and review receipts.
+- `sessions list` and `sessions show` for inspecting dry-run, running, done, or blocked consult sessions.
 - `ask-pro --dry-run` and `ask-pro --send` as explicit lower-level aliases.
 - `pro browser login/check/smoke/ask` for the optional visible browser adapter.
 - Claude-compatible stdio MCP server through `gptprouse mcp`.
@@ -120,6 +121,7 @@ Actual explicit visible-browser consult:
 ```bash
 gptprouse pro browser ask --file README.md "Review the project positioning"
 gptprouse pro latest
+gptprouse sessions show latest
 ```
 
 This uses the currently available ChatGPT web session and model selection. It is not a hidden API client, and it does not read cookies, tokens, localStorage, or sessionStorage.
@@ -172,6 +174,7 @@ gptprouse doctor
 gptprouse tasks create --title "Review plan" --prompt "Review this architecture"
 gptprouse tasks list
 gptprouse pro ask --dry-run --file README.md "Review the project positioning"
+gptprouse sessions list
 ```
 
 `doctor` stays local: it does not open ChatGPT or a browser. It creates an isolated temp git repo for the write/apply/stage smoke, then starts a loopback HTTP MCP server on a random port and confirms the expected bridge/repo tools are visible over the MCP protocol.

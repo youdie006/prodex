@@ -239,6 +239,30 @@ describe("BridgeStore", () => {
     expect(await readFile(outsideFile, "utf8")).toBe("{}\n");
   });
 
+  it("uses session ids as a deterministic latest tie-breaker", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
+    const store = new BridgeStore(root);
+    await store.ensure();
+    const first = {
+      schema_version: 1,
+      id: "sess_20990101_000000_first",
+      direction: "codex_to_chatgpt",
+      backend: "manual",
+      status: "preview",
+      warnings: [],
+      created_at: "2099-01-01T00:00:00.000Z",
+      last_used_at: "2099-01-01T00:00:00.000Z"
+    };
+    const second = {
+      ...first,
+      id: "sess_20990101_000000_second"
+    };
+    await writeFile(path.join(root, ".bridge", "sessions", `${first.id}.json`), `${JSON.stringify(first, null, 2)}\n`, "utf8");
+    await writeFile(path.join(root, ".bridge", "sessions", `${second.id}.json`), `${JSON.stringify(second, null, 2)}\n`, "utf8");
+
+    await expect(store.listSessions()).resolves.toMatchObject([{ id: second.id }, { id: first.id }]);
+  });
+
   it("rejects record writes when the storage directory is swapped to a symlink before open", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
     const outside = await mkdtemp(path.join(tmpdir(), "gptprouse-outside-"));

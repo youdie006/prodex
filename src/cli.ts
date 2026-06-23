@@ -246,6 +246,26 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
     }
   }
 
+  if (command === "sessions") {
+    const [subcommand, ...sessionArgs] = rest;
+    if (subcommand === "list") {
+      const status = readSessionStatusFlag(sessionArgs);
+      const sessions = await store.listSessions(status);
+      for (const session of sessions) {
+        io.stdout(`${session.id}\t${session.status}\t${session.backend}\t${session.direction}`);
+      }
+      return 0;
+    }
+    if (subcommand === "show") {
+      const sessionId = sessionArgs[0];
+      if (!sessionId) throw new Error("sessions show requires <session-id|latest>");
+      const session = sessionId === "latest" ? (await store.listSessions())[0] : await store.getSession(sessionId);
+      if (!session) throw new Error(`Session not found: ${sessionId}`);
+      io.stdout(formatSession(session));
+      return 0;
+    }
+  }
+
   if (command === "pro") {
     const [subcommand, ...proArgs] = rest;
     if (subcommand === "ask") {
@@ -544,6 +564,8 @@ Commands:
   gptprouse tasks claim <task-id> [--by codex]
   gptprouse tasks complete <task-id> --summary "Summary" [--command "npm test"]
   gptprouse results show <task-id>
+  gptprouse sessions list [--status preview|running|done|blocked]
+  gptprouse sessions show <session-id|latest>
   gptprouse mcp`);
 }
 
@@ -783,6 +805,26 @@ function formatProAnswer(consult: ConsultRecord): string {
   return lines.join("\n");
 }
 
+function formatSession(session: Awaited<ReturnType<BridgeStore["getSession"]>>): string {
+  return JSON.stringify(
+    {
+      id: session.id,
+      status: session.status,
+      direction: session.direction,
+      backend: session.backend,
+      project: session.project,
+      thread: session.thread,
+      task_id: session.task_id,
+      blocker: session.blocker,
+      warnings: session.warnings,
+      created_at: session.created_at,
+      last_used_at: session.last_used_at
+    },
+    null,
+    2
+  );
+}
+
 function formatProConsultArtifact(consult: Awaited<ReturnType<typeof sendChatGptPrompt>>): string {
   const lines = [`# ChatGPT Pro Consult`, "", `Thread: ${consult.url}`, `Title: ${consult.title}`, ""];
   if (consult.modelHints.length > 0) {
@@ -875,6 +917,13 @@ function readRepeatedFlag(args: string[], flag: string): string[] {
     }
   }
   return values;
+}
+
+function readSessionStatusFlag(args: string[]): Parameters<BridgeStore["listSessions"]>[0] {
+  const value = readFlag(args, "--status");
+  if (value === undefined) return undefined;
+  if (value === "preview" || value === "running" || value === "done" || value === "blocked") return value;
+  throw new Error("--status must be one of preview, running, done, blocked");
 }
 
 function formatTokenExpiryLine(config: { token_expires_at?: string }): string {

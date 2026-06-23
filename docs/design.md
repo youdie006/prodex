@@ -80,11 +80,21 @@ Session:
 
 ```json
 {
+  "schema_version": 1,
   "id": "",
-  "direction": "codex_to_chatgpt|chatgpt_to_codex",
-  "backend": "oracle|chatgpt-control|mcp",
+  "direction": "codex_to_chatgpt|chatgpt_to_codex|claude_to_codex",
+  "backend": "cli|mcp|manual|oracle|chatgpt-control",
   "project": "",
   "thread": "",
+  "task_id": "",
+  "status": "preview|running|done|blocked",
+  "blocker": {
+    "code": "",
+    "message": "",
+    "retryable": false,
+    "next_step": ""
+  },
+  "warnings": [],
   "created_at": "",
   "last_used_at": ""
 }

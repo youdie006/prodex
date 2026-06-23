@@ -32,6 +32,7 @@
 - [x] Add `pro list/latest/show` for Codex-first consult review.
 - [x] Add friendly `pro browser login` onboarding flow.
 - [x] Add `pro browser check` for local browser-adapter health checks.
+- [x] Add `sessions list/show` for inspecting dry-run, running, done, and blocked consult sessions.
 - [x] Add `doctor` for local bridge, MCP write/apply/stage, and HTTP MCP tool-catalog smoke checks.
 - [x] Demote browser automation from the primary CLI path.
 - [x] Add write tools only after dry-run and expected-head checks exist.

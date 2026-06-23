@@ -217,6 +217,14 @@ export class BridgeStore {
     return SessionSchema.parse(await this.readRecordJson("sessions", sessionId));
   }
 
+  async listSessions(status?: Session["status"]): Promise<Session[]> {
+    await this.ensure();
+    const sessions = await this.readAll("sessions", SessionSchema);
+    return sessions
+      .filter((session) => (status ? session.status === status : true))
+      .sort((a, b) => b.last_used_at.localeCompare(a.last_used_at) || b.id.localeCompare(a.id));
+  }
+
   async getReceipt(receiptId: string): Promise<Receipt> {
     return ReceiptSchema.parse(await this.readRecordJson("receipts", receiptId));
   }
@@ -274,13 +282,15 @@ export class BridgeStore {
     return path.join(this.dir(kind), `${id}.json`);
   }
 
-  private async readAll<T>(kind: "tasks" | "results", schema: { parse(value: unknown): T }): Promise<T[]> {
+  private async readAll<T>(kind: "tasks" | "results" | "sessions", schema: { parse(value: unknown): T }): Promise<T[]> {
     const dir = this.dir(kind);
     const entries = await readdir(dir, { withFileTypes: true });
     const items: T[] = [];
     for (const entry of entries) {
       if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
-      items.push(schema.parse(await this.readRecordJson(kind, entry.name.replace(/\.json$/, ""))));
+      const id = entry.name.replace(/\.json$/, "");
+      if (!isBridgeRecordId(kind, id)) continue;
+      items.push(schema.parse(await this.readRecordJson(kind, id)));
     }
     return items;
   }
@@ -558,8 +568,12 @@ function procFdPath(fd: number): string {
 }
 
 function assertBridgeRecordId(kind: BridgeRecordKind, id: string): void {
-  const pattern = kind === "receipts" ? RECEIPT_ID_PATTERN : kind === "sessions" ? SESSION_ID_PATTERN : TASK_ID_PATTERN;
-  if (!pattern.test(id)) {
+  if (!isBridgeRecordId(kind, id)) {
     throw new Error(`Invalid bridge record id for ${kind}: ${id}`);
   }
+}
+
+function isBridgeRecordId(kind: BridgeRecordKind, id: string): boolean {
+  const pattern = kind === "receipts" ? RECEIPT_ID_PATTERN : kind === "sessions" ? SESSION_ID_PATTERN : TASK_ID_PATTERN;
+  return pattern.test(id);
 }

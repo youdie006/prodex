@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { runCli } from "../src/cli.js";
 import { setSafeFileTestHooks } from "../src/safe-file.js";
+import { BridgeStore } from "../src/store.js";
 
 describe("runCli", () => {
   afterEach(() => {
@@ -94,6 +95,130 @@ describe("runCli", () => {
     );
   });
 
+  it("lists and shows consult sessions", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const previewOut: string[] = [];
+
+    await runCli(["ask-pro", "--dry-run", "Check this"], {
+      cwd,
+      stdout: (line) => previewOut.push(line),
+      stderr: () => {}
+    });
+    const sessionId = previewOut[0].match(/DRY RUN (sess_[^\s]+)/)?.[1];
+    expect(sessionId).toBeDefined();
+
+    const listOut: string[] = [];
+    const latestOut: string[] = [];
+    const showOut: string[] = [];
+    await runCli(["sessions", "list"], {
+      cwd,
+      stdout: (line) => listOut.push(line),
+      stderr: () => {}
+    });
+    await runCli(["sessions", "show", "latest"], {
+      cwd,
+      stdout: (line) => latestOut.push(line),
+      stderr: () => {}
+    });
+    await runCli(["sessions", "show", sessionId ?? ""], {
+      cwd,
+      stdout: (line) => showOut.push(line),
+      stderr: () => {}
+    });
+
+    const text = listOut.join("\n");
+    expect(text).toContain(`${sessionId}\tpreview\tmanual\tcodex_to_chatgpt`);
+    const latest = JSON.parse(latestOut.join("\n")) as { id?: string };
+    const shown = JSON.parse(showOut.join("\n")) as {
+      id?: string;
+      status?: string;
+      direction?: string;
+      backend?: string;
+    };
+    expect(latest.id).toBe(sessionId);
+    expect(shown).toEqual(
+      expect.objectContaining({
+        id: sessionId,
+        status: "preview",
+        direction: "codex_to_chatgpt",
+        backend: "manual"
+      })
+    );
+  });
+
+  it("filters listed sessions by status", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const previewOut: string[] = [];
+    const blockedOut: string[] = [];
+
+    await runCli(["ask-pro", "--dry-run", "Preview this"], {
+      cwd,
+      stdout: (line) => previewOut.push(line),
+      stderr: () => {}
+    });
+    await runCli(["tasks", "create", "--title", "GPT Pro consult", "--prompt", "Ask Pro"], {
+      cwd,
+      stdout: (line) => blockedOut.push(line),
+      stderr: () => {}
+    });
+    const taskId = blockedOut[0].split("\t")[0];
+    const store = new BridgeStore(cwd);
+    await store.writeSession({
+      id: "sess_20990101_000000_blocked-consult",
+      direction: "codex_to_chatgpt",
+      backend: "chatgpt-control",
+      task_id: taskId,
+      status: "blocked"
+    });
+
+    const out: string[] = [];
+    await runCli(["sessions", "list", "--status", "blocked"], {
+      cwd,
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    const text = out.join("\n");
+    expect(text).toContain("sess_20990101_000000_blocked-consult\tblocked\tchatgpt-control\tcodex_to_chatgpt");
+    expect(text).not.toContain("preview\tmanual");
+    expect(previewOut[0]).toContain("DRY RUN sess_");
+  });
+
+  it("rejects invalid session status filters", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+
+    await expect(
+      runCli(["sessions", "list", "--status", "runnning"], {
+        cwd,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.toThrow(/preview, running, done, blocked/);
+  });
+
+  it("ignores legacy invalid session filenames when listing sessions", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const previewOut: string[] = [];
+
+    await runCli(["ask-pro", "--dry-run", "Check this"], {
+      cwd,
+      stdout: (line) => previewOut.push(line),
+      stderr: () => {}
+    });
+    const sessionId = previewOut[0].match(/DRY RUN (sess_[^\s]+)/)?.[1];
+    expect(sessionId).toBeDefined();
+    await writeFile(path.join(cwd, ".bridge", "sessions", "chatgpt-pro-browser.json"), "{}\n", "utf8");
+
+    const out: string[] = [];
+    await runCli(["sessions", "list"], {
+      cwd,
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    expect(out.join("\n")).toContain(`${sessionId}\tpreview\tmanual\tcodex_to_chatgpt`);
+  });
+
   it("prints ask-pro dry-run bundles when optional session recording fails", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
     setSafeFileTestHooks({
@@ -177,6 +302,21 @@ describe("runCli", () => {
     const text = out.join("\n");
     expect(text).toContain('gptprouse pro ask [--file path] "prompt"  # dry-run preview');
     expect(text).toContain('gptprouse pro browser ask [--target-url url --confirm-target] [--file path] "prompt"  # explicit visible-browser send');
+  });
+
+  it("lists session inspection commands in help", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const out: string[] = [];
+
+    await runCli(["help"], {
+      cwd,
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    const text = out.join("\n");
+    expect(text).toContain("gptprouse sessions list [--status preview|running|done|blocked]");
+    expect(text).toContain("gptprouse sessions show <session-id|latest>");
   });
 
   it("describes token TTL as an explicit help placeholder", async () => {
