@@ -48,7 +48,7 @@ Implemented:
 - CLI commands for task creation/listing/claiming/completion and result display.
 - `pro ask` and `pro latest` for Codex-first ChatGPT Pro consults.
 - `ask-pro --dry-run` and `ask-pro --send` as explicit lower-level aliases.
-- `pro open/status/smoke` for the visible browser adapter.
+- `pro open/status/smoke/check` for the visible browser adapter and product health checks.
 - Claude-compatible stdio MCP server through `gptprouse mcp`.
 - ChatGPT Developer Mode-style Streamable HTTP MCP server through `gptprouse setup` and `gptprouse start`.
 - Read-only repo tools for bounded file reads and ripgrep search.
@@ -68,6 +68,7 @@ npm install
 npm run build
 node dist/cli.js init
 node dist/cli.js pro open
+node dist/cli.js pro check
 node dist/cli.js pro status
 node dist/cli.js pro ask --file README.md "Review the project positioning"
 node dist/cli.js pro latest

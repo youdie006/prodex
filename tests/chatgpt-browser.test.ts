@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { buildChromeLaunchArgs, getChatGptBrowserStatus, inferLoggedInLikely, isUsableChatGptAnswer } from "../src/chatgpt-browser.js";
+import {
+  buildChromeLaunchArgs,
+  getChatGptBrowserStatus,
+  hasFreshChatGptAnswer,
+  inferLoggedInLikely,
+  isLikelyChatGptSubmitButton,
+  isUsableChatGptAnswer
+} from "../src/chatgpt-browser.js";
 
 describe("ChatGPT browser adapter", () => {
   it("returns a clear blocker when the local debug port is not reachable", async () => {
@@ -32,5 +39,29 @@ describe("ChatGPT browser adapter", () => {
   it("does not treat Korean thinking placeholders as final answers", () => {
     expect(isUsableChatGptAnswer("생각 중...")).toBe(false);
     expect(isUsableChatGptAnswer("9s 동안 생각함\n\n실제 답변입니다.")).toBe(true);
+  });
+
+  it("waits for a newly added assistant message before accepting an answer", () => {
+    expect(
+      hasFreshChatGptAnswer(1, {
+        assistantMessageCount: 1,
+        answer: "old answer",
+        generating: false
+      })
+    ).toBe(false);
+    expect(
+      hasFreshChatGptAnswer(1, {
+        assistantMessageCount: 2,
+        answer: "GPTPROUSE_PRO_SMOKE_OK",
+        generating: false
+      })
+    ).toBe(true);
+  });
+
+  it("recognizes current English and Korean ChatGPT submit buttons", () => {
+    expect(isLikelyChatGptSubmitButton("Send prompt", null)).toBe(true);
+    expect(isLikelyChatGptSubmitButton("프롬프트 보내기", null)).toBe(true);
+    expect(isLikelyChatGptSubmitButton("", "send-button")).toBe(true);
+    expect(isLikelyChatGptSubmitButton("시작하기", null)).toBe(false);
   });
 });

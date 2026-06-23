@@ -43,6 +43,8 @@ interface ChatGptAnswerState {
   answer: string;
   modelHints: string[];
   generating: boolean;
+  assistantMessageCount: number;
+  userMessageCount: number;
 }
 
 interface DevtoolsPage {
@@ -101,6 +103,18 @@ export function isUsableChatGptAnswer(answer: string): boolean {
     return normalized.split(/\r?\n/).filter(Boolean).length > 1;
   }
   return true;
+}
+
+export function hasFreshChatGptAnswer(
+  previousAssistantMessageCount: number,
+  state: Pick<ChatGptAnswerState, "answer" | "assistantMessageCount" | "generating">
+): boolean {
+  return state.assistantMessageCount > previousAssistantMessageCount && isUsableChatGptAnswer(state.answer) && !state.generating;
+}
+
+export function isLikelyChatGptSubmitButton(label: string, dataTestId: string | null): boolean {
+  const normalized = label.trim().toLowerCase();
+  return dataTestId === "send-button" || /\b(send|submit)\b|보내기|전송/.test(normalized);
 }
 
 export function openChatGptBrowser(options: ChatGptBrowserOptions = {}): { command: string; args: string[]; profileDir: string; port: number } {
@@ -175,14 +189,14 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
   if (!status.loggedInLikely || !status.hasComposer) {
     throw new Error("ChatGPT browser is reachable, but it is not logged in with an active composer.");
   }
+  const beforeSubmit = await evaluateOnPage<ChatGptAnswerState>(page, answerExpression());
   const cdp = await connectCdp(page.webSocketDebuggerUrl);
   try {
     await cdp.send("Runtime.enable");
-    const focused = await cdp.evaluate<{ ok: boolean; reason?: string }>(focusComposerExpression());
-    if (!focused.ok) throw new Error(focused.reason ?? "Could not focus ChatGPT composer");
-    await cdp.send("Input.insertText", { text: options.prompt });
+    const inserted = await cdp.evaluate<{ ok: boolean; reason?: string; actualText?: string }>(setComposerTextExpression(options.prompt));
+    if (!inserted.ok) throw new Error(inserted.reason ?? "Could not insert text into ChatGPT composer");
     await sleep(300);
-    const submitted = await cdp.evaluate<{ ok: boolean }>(submitExpression());
+    const submitted = await cdp.evaluate<{ ok: boolean; reason?: string }>(submitExpression());
     if (!submitted.ok) {
       await cdp.send("Input.dispatchKeyEvent", enterKeyEvent("keyDown"));
       await cdp.send("Input.dispatchKeyEvent", enterKeyEvent("keyUp"));
@@ -192,14 +206,31 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
   }
 
   const started = Date.now();
+  let accepted = false;
   let finalState: ChatGptAnswerState | undefined;
+  while (Date.now() - started < Math.min(timeoutMs, 10_000)) {
+    await sleep(500);
+    finalState = await evaluateOnPage<ChatGptAnswerState>(page, answerExpression());
+    if (
+      finalState.userMessageCount > beforeSubmit.userMessageCount ||
+      finalState.assistantMessageCount > beforeSubmit.assistantMessageCount ||
+      finalState.generating
+    ) {
+      accepted = true;
+      break;
+    }
+  }
+  if (!accepted) {
+    throw new Error("Timed out waiting for ChatGPT to accept the prompt.");
+  }
+
   while (Date.now() - started < timeoutMs) {
     await sleep(1000);
     finalState = await evaluateOnPage<ChatGptAnswerState>(page, answerExpression());
-    if (isUsableChatGptAnswer(finalState.answer) && !finalState.generating) break;
+    if (hasFreshChatGptAnswer(beforeSubmit.assistantMessageCount, finalState)) break;
   }
   const completed = finalState;
-  if (!completed || !isUsableChatGptAnswer(completed.answer)) {
+  if (!completed || !hasFreshChatGptAnswer(beforeSubmit.assistantMessageCount, completed)) {
     throw new Error("Timed out waiting for ChatGPT response.");
   }
   return {
@@ -303,13 +334,41 @@ function statusExpression(): string {
   })()`;
 }
 
-function focusComposerExpression(): string {
+function setComposerTextExpression(text: string): string {
+  const serializedText = JSON.stringify(text);
   return `(() => {
     const el = [...document.querySelectorAll('div[role="textbox"], textarea, [contenteditable="true"]')]
       .find((node) => !!(node.offsetWidth || node.offsetHeight || node.getClientRects().length));
     if (!el) return { ok: false, reason: "No visible composer" };
     el.focus();
-    return { ok: true };
+    const text = ${serializedText};
+    const dispatchInput = () => {
+      el.dispatchEvent(new InputEvent("input", { inputType: "insertText", data: text, bubbles: true, composed: true }));
+      el.dispatchEvent(new Event("change", { bubbles: true }));
+    };
+    if ("value" in el) {
+      const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+      const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
+      if (setter) setter.call(el, text);
+      else el.value = text;
+      dispatchInput();
+    } else {
+      const selection = window.getSelection();
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      range.deleteContents();
+      range.collapse(true);
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+      document.execCommand("insertText", false, text);
+      const current = el.innerText || el.textContent || "";
+      if (!current.trim()) {
+        el.textContent = text;
+        dispatchInput();
+      }
+    }
+    const actualText = ("value" in el ? el.value : el.innerText || el.textContent || "").trim();
+    return actualText ? { ok: true, actualText: actualText.slice(0, 120) } : { ok: false, reason: "Composer stayed empty after text insertion" };
   })()`;
 }
 
@@ -317,9 +376,10 @@ function submitExpression(): string {
   return `(() => {
     const button = [...document.querySelectorAll('button')].find((node) => {
       const label = (node.innerText || node.getAttribute("aria-label") || node.getAttribute("data-testid") || "").toLowerCase();
-      return !node.disabled && (label.includes("send") || label.includes("submit") || node.getAttribute("data-testid") === "send-button");
+      const dataTestId = node.getAttribute("data-testid");
+      return !node.disabled && node.getAttribute("aria-disabled") !== "true" && (dataTestId === "send-button" || /\\b(send|submit)\\b|보내기|전송/.test(label));
     });
-    if (!button) return { ok: false };
+    if (!button) return { ok: false, reason: "No enabled submit button" };
     button.click();
     return { ok: true };
   })()`;
@@ -333,7 +393,9 @@ function answerExpression(): string {
       role: node.getAttribute('data-message-author-role'),
       text: node.innerText || ""
     }));
-    const assistant = messages.filter((message) => message.role === "assistant").at(-1);
+    const assistantMessages = messages.filter((message) => message.role === "assistant");
+    const userMessages = messages.filter((message) => message.role === "user");
+    const assistant = assistantMessages.at(-1);
     const buttons = [...document.querySelectorAll('button,[role="button"]')]
       .map((node) => (node.innerText || node.getAttribute("aria-label") || node.getAttribute("data-testid") || "").trim())
       .filter(Boolean);
@@ -344,6 +406,8 @@ function answerExpression(): string {
       url: location.href,
       answer: answer || text.slice(-4000),
       generating: placeholder || buttons.some((label) => /stop|cancel|중지|취소|응답 중지/i.test(label)),
+      assistantMessageCount: assistantMessages.length,
+      userMessageCount: userMessages.length,
       modelHints: lines.filter((line) => /GPT|Pro|Thinking|ChatGPT|Extra High|Auto/i.test(line)).slice(0, 30)
     };
   })()`;

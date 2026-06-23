@@ -27,6 +27,7 @@
 - [x] Add one-shot Codex -> ChatGPT Pro consult path through `pro ask`.
 - [x] Fix Korean ChatGPT UI detection and thinking-placeholder handling.
 - [x] Add `pro list/latest/show` for Codex-first consult review.
+- [x] Add `pro check` for local product health checks.
 - [ ] Add write tools only after dry-run and expected-head checks exist.
   - [ ] `repo_write_file_dry_run`: create a diff receipt without modifying files.
   - [ ] `repo_write_file_apply`: require path sandbox, expected git HEAD, prior diff receipt id, and preimage hash.

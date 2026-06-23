@@ -155,6 +155,10 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
     if (subcommand === "open" || subcommand === "status" || subcommand === "smoke") {
       return runCli(["chatgpt", subcommand, ...proArgs], io);
     }
+    if (subcommand === "check" || subcommand === "doctor") {
+      await printProductCheck(store, io, proArgs);
+      return 0;
+    }
     if (subcommand === "list") {
       const consults = await listConsults(store);
       for (const consult of consults) {
@@ -291,7 +295,7 @@ Commands:
   gptprouse ask-pro --dry-run|--send [--file path] "prompt"
   gptprouse pro ask [--file path] "prompt"
   gptprouse pro latest|list|show <task-id|latest>
-  gptprouse pro open|status|smoke
+  gptprouse pro open|status|smoke|check
   gptprouse chatgpt open|status|smoke
   gptprouse tasks create --title "Title" --prompt "Prompt"
   gptprouse tasks list [--status new|claimed|done|blocked]
@@ -299,6 +303,40 @@ Commands:
   gptprouse tasks complete <task-id> --summary "Summary" [--command "npm test"]
   gptprouse results show <task-id>
   gptprouse mcp`);
+}
+
+async function printProductCheck(store: BridgeStore, io: CliIO, args: string[]): Promise<void> {
+  await store.ensure();
+  io.stdout("gptprouse product check");
+  io.stdout("bridge: ok (.bridge)");
+
+  try {
+    const config = await loadLocalConfig(io.cwd);
+    io.stdout(`config: ok ${redactServerUrl(config.server_url)}`);
+  } catch {
+    io.stdout("config: missing - run `gptprouse setup`");
+  }
+
+  const browserStatus = await getChatGptBrowserStatus({
+    port: Number(readFlag(args, "--port") ?? "9333"),
+    timeoutMs: Number(readFlag(args, "--timeout-ms") ?? "1500")
+  });
+  if (!browserStatus.reachable) {
+    io.stdout(`chatgpt: ${browserStatus.blocker?.code ?? "unreachable"} - ${browserStatus.blocker?.message ?? "browser is not reachable"}`);
+    if (browserStatus.blocker?.next_step) io.stdout(`next: ${browserStatus.blocker.next_step}`);
+  } else if (browserStatus.loggedInLikely && browserStatus.hasComposer) {
+    io.stdout(`chatgpt: ok logged_in=true composer=true${browserStatus.url ? ` url=${browserStatus.url}` : ""}`);
+  } else {
+    io.stdout(`chatgpt: blocked logged_in=${browserStatus.loggedInLikely} composer=${browserStatus.hasComposer}`);
+    if (browserStatus.blocker?.next_step) io.stdout(`next: ${browserStatus.blocker.next_step}`);
+  }
+
+  const latest = (await listConsults(store))[0];
+  if (latest) {
+    io.stdout(`latest_pro: ok ${latest.task.id} ${latest.result.status} ${latest.result.created_at}`);
+  } else {
+    io.stdout("latest_pro: missing");
+  }
 }
 
 type ConsultRecord = {
@@ -366,6 +404,16 @@ function formatProAnswer(consult: ConsultRecord): string {
 
 function firstLine(value: string): string {
   return value.split(/\r?\n/).find((line) => line.trim())?.trim() ?? "";
+}
+
+function redactServerUrl(value: string): string {
+  try {
+    const url = new URL(value);
+    if (url.searchParams.has("gptprouse_token")) url.searchParams.set("gptprouse_token", "***");
+    return url.toString();
+  } catch {
+    return value.replace(/([?&]gptprouse_token=)[^&]+/g, "$1***");
+  }
 }
 
 function readFlag(args: string[], flag: string): string | undefined {

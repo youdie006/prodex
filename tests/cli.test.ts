@@ -58,4 +58,41 @@ describe("runCli", () => {
     expect(out.join("\n")).toContain("task_id:");
     expect(out.join("\n")).toContain("Use receipt-gated writes next.");
   });
+
+  it("prints a product check instead of failing when setup pieces are missing", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const out: string[] = [];
+
+    await runCli(["pro", "check", "--port", "65534", "--timeout-ms", "10"], {
+      cwd,
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    const text = out.join("\n");
+    expect(text).toContain("bridge: ok");
+    expect(text).toContain("config: missing");
+    expect(text).toContain("chatgpt: browser_unreachable");
+    expect(text).toContain("latest_pro: missing");
+  });
+
+  it("redacts the local MCP token in product checks", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    await runCli(["setup", "--port", "8789", "--token", "super-secret-token"], {
+      cwd,
+      stdout: () => {},
+      stderr: () => {}
+    });
+    const out: string[] = [];
+
+    await runCli(["pro", "check", "--port", "65534", "--timeout-ms", "10"], {
+      cwd,
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    const text = out.join("\n");
+    expect(text).toContain("gptprouse_token=***");
+    expect(text).not.toContain("super-secret-token");
+  });
 });
