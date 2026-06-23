@@ -18,7 +18,7 @@
 ## Phase 2 - Task Bus
 
 - [x] Define task/result JSON schemas.
-- [x] Implement `tasks list`, `tasks show`, `tasks claim`, `tasks block`, `results show`.
+- [x] Implement `tasks list`, `tasks show`, `tasks claim`, `tasks block`, `results show latest`.
 - [x] Add receipt files for every consult and local action.
 - [x] Add safe receipt list/show over CLI and MCP with legacy inline write payload redaction.
 - [x] Add safe result artifact fetch for artifacts explicitly listed on result records.

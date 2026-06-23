@@ -22,7 +22,7 @@ gptprouse tasks list
 gptprouse tasks show <task-id|latest>
 gptprouse tasks claim <task-id>
 gptprouse tasks block <task-id> --summary "Blocked reason" --code manual_blocker --next-step "What to do next" --retryable
-gptprouse results show <task-id>
+gptprouse results show <task-id|latest>
 gptprouse doctor
 gptprouse setup
 gptprouse start

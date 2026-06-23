@@ -125,6 +125,7 @@ Actual explicit visible-browser consult:
 ```bash
 gptprouse pro browser ask --file README.md "Review the project positioning"
 gptprouse pro latest
+gptprouse results show latest
 gptprouse results artifact latest
 gptprouse sessions show latest
 ```

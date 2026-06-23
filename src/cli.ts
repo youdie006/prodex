@@ -272,8 +272,9 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
     const [subcommand, ...resultArgs] = rest;
     if (subcommand === "show") {
       const taskId = resultArgs[0];
-      if (!taskId) throw new Error("results show requires <task-id>");
-      io.stdout(JSON.stringify(await store.getResult(taskId), null, 2));
+      if (!taskId) throw new Error("results show requires <task-id|latest>");
+      const resolvedTaskId = taskId === "latest" ? await latestResultTaskId(store) : taskId;
+      io.stdout(JSON.stringify(await store.getResult(resolvedTaskId), null, 2));
       return 0;
     }
     if (subcommand === "artifact") {
@@ -613,7 +614,7 @@ Commands:
   gptprouse tasks claim <task-id> [--by codex]
   gptprouse tasks complete <task-id> --summary "Summary" [--command "npm test"]
   gptprouse tasks block <task-id> --summary "Summary" [--code code] [--next-step "Next step"] [--retryable]
-  gptprouse results show <task-id>
+  gptprouse results show <task-id|latest>
   gptprouse results artifact <task-id|latest> [artifact-path]
   gptprouse receipts list [--kind kind] [--task-id task-id]
   gptprouse receipts show <receipt-id|latest>

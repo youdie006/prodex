@@ -594,6 +594,57 @@ describe("runCli", () => {
     expect(out).toEqual(["latest artifact answer"]);
   });
 
+  it("shows result details by id or latest", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const firstCreateOut: string[] = [];
+    const byIdOut: string[] = [];
+    const latestShowOut: string[] = [];
+
+    await runCli(["tasks", "create", "--title", "First consult", "--prompt", "First prompt"], {
+      cwd,
+      stdout: (line) => firstCreateOut.push(line),
+      stderr: () => {}
+    });
+    const firstTaskId = firstCreateOut[0].split("\t")[0];
+    await runCli(["tasks", "complete", firstTaskId, "--summary", "First answer"], {
+      cwd,
+      stdout: () => {},
+      stderr: () => {}
+    });
+
+    const secondOut: string[] = [];
+    await runCli(["tasks", "create", "--title", "Latest consult", "--prompt", "Latest prompt"], {
+      cwd,
+      stdout: (line) => secondOut.push(line),
+      stderr: () => {}
+    });
+    const latestTaskId = secondOut[0].split("\t")[0];
+    await runCli(["tasks", "complete", latestTaskId, "--summary", "Latest answer", "--command", "visible consult"], {
+      cwd,
+      stdout: () => {},
+      stderr: () => {}
+    });
+
+    await runCli(["results", "show", firstTaskId], {
+      cwd,
+      stdout: (line) => byIdOut.push(line),
+      stderr: () => {}
+    });
+    await runCli(["results", "show", "latest"], {
+      cwd,
+      stdout: (line) => latestShowOut.push(line),
+      stderr: () => {}
+    });
+
+    const byId = JSON.parse(byIdOut.join("\n")) as { task_id?: string; summary?: string };
+    const latest = JSON.parse(latestShowOut.join("\n")) as { task_id?: string; summary?: string; commands?: string[] };
+    expect(byId.task_id).toBe(firstTaskId);
+    expect(byId.summary).toBe("First answer");
+    expect(latest.task_id).toBe(latestTaskId);
+    expect(latest.summary).toBe("Latest answer");
+    expect(latest.commands).toEqual(["visible consult"]);
+  });
+
   it("keeps pro ask as a dry-run preview unless browser send is explicit", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
     await writeFile(path.join(cwd, "notes.md"), "manual bridge first\n", "utf8");
@@ -669,7 +720,7 @@ describe("runCli", () => {
     expect(text).toContain("gptprouse sessions show <session-id|latest>");
   });
 
-  it("lists result artifact inspection commands in help", async () => {
+  it("lists result inspection commands in help", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
     const out: string[] = [];
 
@@ -679,7 +730,9 @@ describe("runCli", () => {
       stderr: () => {}
     });
 
-    expect(out.join("\n")).toContain("gptprouse results artifact <task-id|latest> [artifact-path]");
+    const text = out.join("\n");
+    expect(text).toContain("gptprouse results show <task-id|latest>");
+    expect(text).toContain("gptprouse results artifact <task-id|latest> [artifact-path]");
   });
 
   it("lists receipt inspection commands in help", async () => {

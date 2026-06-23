@@ -3,5 +3,5 @@ results/*.json
 sessions/*.json
 receipts/*.json
 artifacts/*
-!.gitignore
 config.local.json
+!.gitignore
