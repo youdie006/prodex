@@ -166,15 +166,23 @@ During local development, you can run the TypeScript source directly:
 npm run dev -- tasks list
 ```
 
-## Release Smoke
+## Release Checks
 
-Before publishing or sharing a package tarball, run:
+Before sharing a package tarball, run:
 
 ```bash
 npm run smoke:package
 ```
 
 This packs the project, installs the tarball into a temporary consumer project, runs the installed `gptprouse` binary, verifies HTTP MCP onboarding through installed token-TTL `setup`/`status`/`tunnel url`/`start` plus `/health`, and verifies the installed stdio MCP server exposes the expected tool catalog.
+
+Before publishing to npm, choose an explicit license and add the matching `LICENSE` file. `npm publish` is intentionally guarded by `prepublishOnly`; it runs:
+
+```bash
+npm run release:check
+```
+
+Until the license is chosen, `release:check` fails with a metadata error instead of letting an accidental public publish proceed.
 
 ## Claude MCP
 

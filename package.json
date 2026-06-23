@@ -9,16 +9,19 @@
   "files": [
     "dist",
     "README.md",
+    "docs/claude.md",
     "docs/http-mcp.md",
-    "docs/claude.md"
+    "scripts/release-check.mjs"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "dev": "tsx src/cli.ts",
+    "release:check": "node scripts/release-check.mjs",
     "smoke:package": "node scripts/package-smoke.mjs",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "prepack": "npm run build"
+    "prepack": "npm run build",
+    "prepublishOnly": "node scripts/release-check.mjs"
   },
   "engines": {
     "node": ">=20"

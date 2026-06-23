@@ -84,6 +84,7 @@ function assertPackageFileScope(files) {
   assertArrayIncludes(paths, "README.md", "packed files");
   assertArrayIncludes(paths, "docs/http-mcp.md", "packed files");
   assertArrayIncludes(paths, "docs/claude.md", "packed files");
+  assertArrayIncludes(paths, "scripts/release-check.mjs", "packed files");
   assertArrayNotIncludes(paths, "docs/research.md", "packed files");
   assertArrayNotIncludes(paths, "docs/todo.md", "packed files");
   if (paths.some((filePath) => filePath.startsWith("docs/superpowers/"))) {
