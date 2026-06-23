@@ -26,6 +26,7 @@ export interface ChatGptBrowserStatus {
 export interface SendChatGptPromptOptions {
   port?: number;
   prompt: string;
+  targetUrl?: string;
   timeoutMs?: number;
 }
 
@@ -47,7 +48,15 @@ interface ChatGptAnswerState {
   userMessageCount: number;
 }
 
-interface DevtoolsPage {
+interface ChatGptPageStatus {
+  loggedInLikely: boolean;
+  hasComposer: boolean;
+  modelHints: string[];
+  url: string;
+  visibilityState: string;
+}
+
+export interface DevtoolsPage {
   type: string;
   url: string;
   title: string;
@@ -117,6 +126,36 @@ export function isLikelyChatGptSubmitButton(label: string, dataTestId: string | 
   return dataTestId === "send-button" || /\b(send|submit)\b|보내기|전송/.test(normalized);
 }
 
+export function normalizeChatGptTargetUrl(value: string): string {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error("Target URL must be a ChatGPT web URL.");
+  }
+  if (url.protocol !== "https:" || url.hostname !== "chatgpt.com") {
+    throw new Error("Target URL must be a ChatGPT web URL.");
+  }
+  url.hash = "";
+  url.search = "";
+  url.pathname = url.pathname.replace(/\/+$/, "") || "/";
+  return url.toString();
+}
+
+export function chatGptUrlsReferToSameTarget(currentUrl: string, expectedUrl: string): boolean {
+  try {
+    return normalizeChatGptTargetUrl(currentUrl) === normalizeChatGptTargetUrl(expectedUrl);
+  } catch {
+    return false;
+  }
+}
+
+export function selectChatGptPage(pages: DevtoolsPage[], targetUrl?: string): DevtoolsPage | undefined {
+  const chatGptPages = pages.filter((page) => page.type === "page" && isChatGptPageUrl(page.url));
+  if (!targetUrl) return chatGptPages[0];
+  return chatGptPages.find((page) => chatGptUrlsReferToSameTarget(page.url, targetUrl));
+}
+
 export function openChatGptBrowser(options: ChatGptBrowserOptions = {}): { command: string; args: string[]; profileDir: string; port: number } {
   const command = resolveChromeCommand();
   const port = options.port ?? 9333;
@@ -177,17 +216,29 @@ export async function getChatGptBrowserStatus(options: { port?: number; timeoutM
 export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Promise<SendChatGptPromptResult> {
   const port = options.port ?? 9333;
   const timeoutMs = options.timeoutMs ?? 90_000;
-  const pageResult = await findChatGptPage(port, 1500);
+  const normalizedTargetUrl = options.targetUrl ? normalizeChatGptTargetUrl(options.targetUrl) : undefined;
+  const pageResult = await findChatGptPage(port, 1500, normalizedTargetUrl);
   if (!pageResult.ok) {
     throw new Error(pageResult.blocker?.message ?? "ChatGPT browser page is not available");
   }
   if (!pageResult.page) {
+    if (normalizedTargetUrl) {
+      throw new Error(`No open ChatGPT tab matches the confirmed target URL. Open ${normalizedTargetUrl} in the dedicated browser and retry.`);
+    }
     throw new Error("Chrome debug port is reachable, but no chatgpt.com tab is open.");
   }
   const page = pageResult.page;
-  const status = await evaluateOnPage<{ loggedInLikely: boolean; hasComposer: boolean; modelHints: string[] }>(page, statusExpression());
+  const status = await evaluateOnPage<ChatGptPageStatus>(page, statusExpression());
   if (!status.loggedInLikely || !status.hasComposer) {
     throw new Error("ChatGPT browser is reachable, but it is not logged in with an active composer.");
+  }
+  if (normalizedTargetUrl && !chatGptUrlsReferToSameTarget(status.url, normalizedTargetUrl)) {
+    throw new Error(
+      `ChatGPT tab is not at the confirmed target URL. Open ${normalizedTargetUrl} in the visible browser and retry. Current: ${status.url}`
+    );
+  }
+  if (normalizedTargetUrl && status.visibilityState !== "visible") {
+    throw new Error(`Confirmed ChatGPT target is open but not the active visible tab. Select ${normalizedTargetUrl} in the dedicated browser and retry.`);
   }
   const beforeSubmit = await evaluateOnPage<ChatGptAnswerState>(page, answerExpression());
   const cdp = await connectCdp(page.webSocketDebuggerUrl);
@@ -244,13 +295,14 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
 
 async function findChatGptPage(
   port: number,
-  timeoutMs: number
+  timeoutMs: number,
+  targetUrl?: string
 ): Promise<{ ok: true; page?: DevtoolsPage } | { ok: false; blocker: ChatGptBrowserStatus["blocker"] }> {
   try {
     const response = await fetch(`http://127.0.0.1:${port}/json/list`, { signal: AbortSignal.timeout(timeoutMs) });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const pages = (await response.json()) as DevtoolsPage[];
-    return { ok: true, page: pages.find((page) => page.type === "page" && page.url.includes("chatgpt.com")) };
+    return { ok: true, page: selectChatGptPage(pages, targetUrl) };
   } catch (error) {
     return {
       ok: false,
@@ -262,6 +314,15 @@ async function findChatGptPage(
         ...(error instanceof Error ? { detail: error.message } : {})
       } as ChatGptBrowserStatus["blocker"]
     };
+  }
+}
+
+function isChatGptPageUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && url.hostname === "chatgpt.com";
+  } catch {
+    return false;
   }
 }
 
@@ -327,6 +388,7 @@ function statusExpression(): string {
     return {
       title: document.title,
       url: location.href,
+      visibilityState: document.visibilityState,
       loggedInLikely: !hasLoginPrompt && hasNewChat && (hasProfileButton || hasProjectNav || hasPlanHint),
       hasComposer,
       modelHints: lines.filter((line) => /GPT|Pro|Thinking|ChatGPT|Extra High|Auto/i.test(line)).slice(0, 30)

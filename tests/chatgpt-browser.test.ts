@@ -1,10 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
   buildChromeLaunchArgs,
+  chatGptUrlsReferToSameTarget,
+  type DevtoolsPage,
   getChatGptBrowserStatus,
   hasFreshChatGptAnswer,
   inferLoggedInLikely,
   isLikelyChatGptSubmitButton,
+  normalizeChatGptTargetUrl,
+  selectChatGptPage,
   isUsableChatGptAnswer
 } from "../src/chatgpt-browser.js";
 
@@ -64,4 +68,40 @@ describe("ChatGPT browser adapter", () => {
     expect(isLikelyChatGptSubmitButton("", "send-button")).toBe(true);
     expect(isLikelyChatGptSubmitButton("시작하기", null)).toBe(false);
   });
+
+  it("normalizes confirmed ChatGPT target URLs", () => {
+    expect(normalizeChatGptTargetUrl("https://chatgpt.com/c/abc?utm=1#frag")).toBe("https://chatgpt.com/c/abc");
+    expect(normalizeChatGptTargetUrl("https://chatgpt.com/c/abc/")).toBe("https://chatgpt.com/c/abc");
+  });
+
+  it("rejects non-ChatGPT target URLs", () => {
+    expect(() => normalizeChatGptTargetUrl("https://example.com/c/abc")).toThrow(/ChatGPT/);
+    expect(() => normalizeChatGptTargetUrl("https://chat.openai.com/c/abc")).toThrow(/ChatGPT/);
+    expect(() => normalizeChatGptTargetUrl("javascript:alert(1)")).toThrow(/ChatGPT/);
+  });
+
+  it("compares current ChatGPT tab URLs to confirmed targets without query noise", () => {
+    expect(chatGptUrlsReferToSameTarget("https://chatgpt.com/c/abc?model=gpt-5", "https://chatgpt.com/c/abc")).toBe(true);
+    expect(chatGptUrlsReferToSameTarget("https://chatgpt.com/c/other", "https://chatgpt.com/c/abc")).toBe(false);
+  });
+
+  it("selects the ChatGPT page that matches a confirmed target instead of the first tab", () => {
+    const pages = [
+      devtoolsPage("https://chatgpt.com/c/first"),
+      devtoolsPage("https://chatgpt.com/c/target?model=gpt-5"),
+      devtoolsPage("https://example.com/c/target")
+    ];
+
+    expect(selectChatGptPage(pages, "https://chatgpt.com/c/target")?.url).toBe("https://chatgpt.com/c/target?model=gpt-5");
+    expect(selectChatGptPage(pages)?.url).toBe("https://chatgpt.com/c/first");
+  });
 });
+
+function devtoolsPage(url: string): DevtoolsPage {
+  return {
+    type: "page",
+    url,
+    title: url,
+    webSocketDebuggerUrl: "ws://127.0.0.1/devtools/page/test"
+  };
+}

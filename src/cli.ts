@@ -9,7 +9,7 @@ import { promisify } from "node:util";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { buildDryRunBundle } from "./bundle.js";
-import { defaultChatGptProfileDir, getChatGptBrowserStatus, openChatGptBrowser, sendChatGptPrompt } from "./chatgpt-browser.js";
+import { defaultChatGptProfileDir, getChatGptBrowserStatus, normalizeChatGptTargetUrl, openChatGptBrowser, sendChatGptPrompt } from "./chatgpt-browser.js";
 import { loadLocalConfig, writeLocalConfig } from "./config.js";
 import { startHttpMcpServer } from "./http-mcp.js";
 import { createMcpToolHandlers } from "./mcp-tools.js";
@@ -273,6 +273,11 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       throw new Error("ask-pro requires --dry-run or --send");
     }
     const files = readRepeatedFlag(rest, "--file");
+    const targetUrl = readFlag(rest, "--target-url");
+    const normalizedTargetUrl = targetUrl ? normalizeChatGptTargetUrl(targetUrl) : undefined;
+    if (normalizedTargetUrl && rest.includes("--send") && !rest.includes("--confirm-target")) {
+      throw new Error("--target-url requires --confirm-target after you manually verify the visible ChatGPT tab is the intended Project/thread.");
+    }
     const prompt = rest.filter((arg, index) => {
       const prev = rest[index - 1];
       return (
@@ -281,9 +286,12 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
         arg !== "--file" &&
         arg !== "--port" &&
         arg !== "--timeout-ms" &&
+        arg !== "--target-url" &&
+        arg !== "--confirm-target" &&
         prev !== "--file" &&
         prev !== "--port" &&
-        prev !== "--timeout-ms"
+        prev !== "--timeout-ms" &&
+        prev !== "--target-url"
       );
     }).join(" ").trim();
     if (!prompt) throw new Error("ask-pro requires a prompt");
@@ -292,6 +300,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       const consult = await sendChatGptPrompt({
         port: Number(readFlag(rest, "--port") ?? "9333"),
         prompt: bundle.text,
+        targetUrl: normalizedTargetUrl,
         timeoutMs: Number(readFlag(rest, "--timeout-ms") ?? "90000")
       });
       const task = await store.createTask({
@@ -358,7 +367,7 @@ Commands:
   gptprouse pro ask [--file path] "prompt"  # dry-run preview
   gptprouse pro browser login
   gptprouse pro browser check|smoke
-  gptprouse pro browser ask [--file path] "prompt"  # explicit visible-browser send
+  gptprouse pro browser ask [--target-url url --confirm-target] [--file path] "prompt"  # explicit visible-browser send
   gptprouse pro latest|list|show <task-id|latest>
   gptprouse pro browser open|status
   gptprouse chatgpt open|status|smoke  # low-level alias

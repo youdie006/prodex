@@ -52,7 +52,7 @@
 - [x] Guard `.bridge` record reads/writes against traversal IDs, symlinked record files, and symlinked storage dirs.
 - [x] Add package install smoke for packed tarball, installed bin, and stdio MCP catalog.
 - [x] Add dedicated ChatGPT Project HTTP MCP setup docs.
-- [ ] Add Project/thread selection only after manual confirmation.
+- [x] Add Project/thread target URL sends only after manual `--confirm-target` confirmation.
 - [ ] Add optional tunnel helper for remote ChatGPT clients only after local auth/token expiry warnings are implemented.
 
 ## Safety Checklist

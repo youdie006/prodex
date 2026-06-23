@@ -88,7 +88,7 @@ describe("runCli", () => {
 
     const text = out.join("\n");
     expect(text).toContain('gptprouse pro ask [--file path] "prompt"  # dry-run preview');
-    expect(text).toContain('gptprouse pro browser ask [--file path] "prompt"  # explicit visible-browser send');
+    expect(text).toContain('gptprouse pro browser ask [--target-url url --confirm-target] [--file path] "prompt"  # explicit visible-browser send');
   });
 
   it("requires explicit browser namespace for browser product checks", async () => {
@@ -145,6 +145,18 @@ describe("runCli", () => {
         stderr: () => {}
       })
     ).rejects.toThrow(/pro browser/);
+  });
+
+  it("requires explicit confirmation before using a ChatGPT target URL", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+
+    await expect(
+      runCli(["pro", "browser", "ask", "--target-url", "https://chatgpt.com/c/abc", "Review this"], {
+        cwd,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.toThrow(/--confirm-target/);
   });
 
   it("prints a product check instead of failing when setup pieces are missing", async () => {

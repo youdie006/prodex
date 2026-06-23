@@ -111,6 +111,14 @@ node dist/cli.js pro latest
 
 This uses the currently available ChatGPT web session and model selection. It is not a hidden API client, and it does not read cookies, tokens, localStorage, or sessionStorage.
 
+To send into a specific visible Project or thread, open that ChatGPT URL in the dedicated browser first, confirm it is the right destination, then pass the same URL:
+
+```bash
+node dist/cli.js pro browser ask --target-url "https://chatgpt.com/c/..." --confirm-target --file README.md "Review this in this thread"
+```
+
+`gptprouse` does not silently switch Projects or threads. If the visible ChatGPT tab is not already on the confirmed URL, the send is refused.
+
 For optional ChatGPT Project -> local handoff, start the HTTP MCP bridge:
 
 ```bash

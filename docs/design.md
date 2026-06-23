@@ -16,6 +16,7 @@ gptprouse pro ask --file src/server.ts --file docs/design.md "Find risks"
 gptprouse pro browser login
 gptprouse pro browser check
 gptprouse pro browser ask --file src/server.ts --file docs/design.md "Find risks"
+gptprouse pro browser ask --target-url "https://chatgpt.com/c/..." --confirm-target --file docs/design.md "Continue in this confirmed thread"
 gptprouse pro latest
 gptprouse tasks list
 gptprouse tasks claim <task-id>
@@ -105,6 +106,7 @@ Phase 2:
 
 - Optional visible browser backend for Codex -> ChatGPT Pro consults through `pro browser login/check/ask`.
 - Explicit blocker handling and resumable sessions.
+- Confirmed target URLs for specific ChatGPT Project/thread sends: the visible tab must already be on the user-confirmed ChatGPT URL, otherwise the send is refused.
 
 Phase 3:
 
