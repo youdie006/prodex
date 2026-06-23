@@ -36,6 +36,8 @@ For Codex/Claude/ChatGPT -> local:
 - `bridge_list_tasks`
 - `bridge_get_task`
 - `bridge_claim_task`
+- `bridge_complete_task`
+- `bridge_block_task`
 - `bridge_list_results`
 - `bridge_fetch_result`
 - `bridge_fetch_result_artifact`
@@ -133,6 +135,7 @@ Phase 3:
 
 - MCP endpoint for ChatGPT Project -> local task creation/result fetch.
 - Repo read/search with gpt-repo-mcp-style path sandbox.
+- Task completion/blocking over MCP writes only `.bridge` result records and reuses the same receipt path as CLI task finalization.
 
 Phase 4:
 

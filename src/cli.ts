@@ -25,6 +25,8 @@ const CLI_VERSION = packageJson.version ?? "0.0.0";
 
 const DOCTOR_REQUIRED_MCP_TOOLS = [
   "bridge_create_task",
+  "bridge_complete_task",
+  "bridge_block_task",
   "bridge_list_sessions",
   "bridge_get_session",
   "bridge_fetch_result_artifact",

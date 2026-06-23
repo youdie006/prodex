@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { startHttpMcpServer, type RunningHttpMcpServer } from "../src/http-mcp.js";
+import { BridgeStore } from "../src/store.js";
 
 describe("HTTP MCP server", () => {
   let running: RunningHttpMcpServer | undefined;
@@ -25,6 +26,8 @@ describe("HTTP MCP server", () => {
     await client.close();
 
     expect(tools.tools.map((tool) => tool.name)).toContain("bridge_create_task");
+    expect(tools.tools.map((tool) => tool.name)).toContain("bridge_complete_task");
+    expect(tools.tools.map((tool) => tool.name)).toContain("bridge_block_task");
     expect(tools.tools.map((tool) => tool.name)).toContain("bridge_list_sessions");
     expect(tools.tools.map((tool) => tool.name)).toContain("bridge_get_session");
     expect(tools.tools.map((tool) => tool.name)).toContain("bridge_fetch_result_artifact");
@@ -34,6 +37,71 @@ describe("HTTP MCP server", () => {
     expect(tools.tools.map((tool) => tool.name)).toContain("repo_write_file_dry_run");
     expect(tools.tools.map((tool) => tool.name)).toContain("repo_write_file_apply");
     expect(tools.tools.map((tool) => tool.name)).toContain("repo_stage_reviewed_paths");
+  });
+
+  it("completes and blocks tasks through real Streamable HTTP MCP tool calls", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-http-mcp-"));
+    running = await startHttpMcpServer({ cwd, host: "127.0.0.1", port: 0, token: "test-token" });
+    const client = new Client({ name: "gptprouse-test", version: "0.1.0" });
+
+    await client.connect(new StreamableHTTPClientTransport(new URL(`${running.url}/mcp?gptprouse_token=test-token`)));
+    try {
+      const createdDone = await callJsonTool<{ task: { id: string } }>(client, "bridge_create_task", {
+        title: "HTTP done",
+        prompt: "Finish this task"
+      });
+      const completed = await callJsonTool<{ result: { task_id: string; status: string; summary: string; commands: string[] } }>(
+        client,
+        "bridge_complete_task",
+        {
+          task_id: createdDone.task.id,
+          summary: "Completed over HTTP MCP",
+          commands: ["http mcp complete smoke"]
+        }
+      );
+      const createdBlocked = await callJsonTool<{ task: { id: string } }>(client, "bridge_create_task", {
+        title: "HTTP blocked",
+        prompt: "Block this task"
+      });
+      const blocked = await callJsonTool<{ result: { task_id: string; status: string; blocker: { code: string; retryable: boolean } } }>(
+        client,
+        "bridge_block_task",
+        {
+          task_id: createdBlocked.task.id,
+          summary: "Blocked over HTTP MCP",
+          code: "http_mcp_blocker",
+          retryable: true,
+          next_step: "Inspect the blocker."
+        }
+      );
+
+      expect(completed.result).toEqual(
+        expect.objectContaining({
+          task_id: createdDone.task.id,
+          status: "done",
+          summary: "Completed over HTTP MCP",
+          commands: ["http mcp complete smoke"]
+        })
+      );
+      expect(blocked.result).toEqual(
+        expect.objectContaining({
+          task_id: createdBlocked.task.id,
+          status: "blocked",
+          blocker: expect.objectContaining({ code: "http_mcp_blocker", retryable: true })
+        })
+      );
+
+      const store = new BridgeStore(cwd);
+      await expect(store.getTask(createdDone.task.id)).resolves.toEqual(expect.objectContaining({ status: "done" }));
+      await expect(store.getResult(createdBlocked.task.id)).resolves.toEqual(
+        expect.objectContaining({
+          status: "blocked",
+          blocker: expect.objectContaining({ code: "http_mcp_blocker", next_step: "Inspect the blocker." })
+        })
+      );
+    } finally {
+      await client.close();
+    }
   });
 
   it("rejects requests that omit the configured URL token", async () => {
@@ -147,6 +215,13 @@ describe("HTTP MCP server", () => {
     expect(response.status).toBe(401);
   });
 });
+
+async function callJsonTool<T>(client: Client, name: string, args: Record<string, unknown>): Promise<T> {
+  const result = await client.callTool({ name, arguments: args });
+  const text = result.content.find((item) => item.type === "text")?.text;
+  if (!text) throw new Error(`Tool ${name} did not return text content`);
+  return JSON.parse(text) as T;
+}
 
 function postChunked(url: string, chunks: string[]): Promise<{ status: number; body: Record<string, unknown> }> {
   return new Promise((resolve, reject) => {

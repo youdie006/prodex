@@ -49,7 +49,7 @@ Implemented:
 - `pro ask` and `pro latest` for Codex-first consult previews and review receipts.
 - `sessions list` and `sessions show` for inspecting dry-run, running, done, or blocked consult sessions.
 - `receipts list` and `receipts show` for inspecting the local action ledger without exposing legacy inline write payloads.
-- Read-only MCP tools for listing/fetching task, result, session, and receipt records from Claude or ChatGPT Projects.
+- Ledger MCP tools for creating, claiming, completing, blocking, and inspecting task/result/session/receipt records from Claude or ChatGPT Projects.
 - Read-only result artifact fetch for Pro consult artifacts explicitly listed on a result record.
 - `ask-pro --dry-run` and `ask-pro --send` as explicit lower-level aliases.
 - `pro browser login/check/smoke/ask` for the optional visible browser adapter.

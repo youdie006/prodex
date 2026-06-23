@@ -1,10 +1,11 @@
 import { BridgeStore, type ListReceiptsInput } from "./store.js";
 import { readRepoFile, searchRepo } from "./repo.js";
 import { applyRepoWriteDryRun, createRepoWriteDryRun, stageReviewedPaths } from "./repo-write.js";
-import type { SourceSchema } from "./schema.js";
+import type { BridgeFile, SourceSchema } from "./schema.js";
 import type { z } from "zod";
 
 type BridgeSource = z.infer<typeof SourceSchema>;
+type McpBridgeFileInput = { path: string; role?: BridgeFile["role"]; bytes?: number };
 
 export interface McpToolContext {
   cwd: string;
@@ -21,7 +22,7 @@ export function createMcpToolHandlers(context: McpToolContext) {
       title: string;
       prompt: string;
       repo_id?: string;
-      files?: Array<{ path: string; role?: "context" | "artifact" | "result"; bytes?: number }>;
+      files?: McpBridgeFileInput[];
     }) {
       const task = await store.createTask({
         source,
@@ -44,6 +45,45 @@ export function createMcpToolHandlers(context: McpToolContext) {
 
     async bridge_claim_task(input: { task_id: string; claimed_by?: string }) {
       return { task: await store.claimTask(input.task_id, input.claimed_by ?? claimedBy) };
+    },
+
+    async bridge_complete_task(input: { task_id: string; summary: string; artifacts?: McpBridgeFileInput[]; commands?: string[]; warnings?: string[] }) {
+      const result = await store.completeTask(input.task_id, {
+        status: "done",
+        summary: input.summary,
+        artifacts: normalizeResultArtifacts(input.artifacts),
+        commands: input.commands,
+        warnings: input.warnings,
+        provenance: { adapter: "mcp" }
+      });
+      return { result };
+    },
+
+    async bridge_block_task(input: {
+      task_id: string;
+      summary: string;
+      code?: string;
+      next_step?: string;
+      retryable?: boolean;
+      artifacts?: McpBridgeFileInput[];
+      commands?: string[];
+      warnings?: string[];
+    }) {
+      const result = await store.completeTask(input.task_id, {
+        status: "blocked",
+        summary: input.summary,
+        artifacts: normalizeResultArtifacts(input.artifacts),
+        commands: input.commands,
+        warnings: input.warnings,
+        blocker: {
+          code: input.code ?? "manual_blocker",
+          message: input.summary,
+          retryable: input.retryable === true,
+          next_step: input.next_step
+        },
+        provenance: { adapter: "mcp" }
+      });
+      return { result };
     },
 
     async bridge_list_results() {
@@ -100,3 +140,7 @@ export function createMcpToolHandlers(context: McpToolContext) {
 }
 
 export type McpToolHandlers = ReturnType<typeof createMcpToolHandlers>;
+
+function normalizeResultArtifacts(files: McpBridgeFileInput[] | undefined): BridgeFile[] | undefined {
+  return files?.map((file) => ({ ...file, role: "result" }));
+}

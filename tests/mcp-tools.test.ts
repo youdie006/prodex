@@ -35,6 +35,85 @@ describe("MCP tool handlers", () => {
     expect(listed.tasks.map((task) => task.title)).toContain("From Claude");
   });
 
+  it("completes and blocks bridge tasks through MCP handlers", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    const handlers = createMcpToolHandlers({ cwd });
+    const doneTask = await handlers.bridge_create_task({
+      title: "Done through MCP",
+      prompt: "Finish this task"
+    });
+    const blockedTask = await handlers.bridge_create_task({
+      title: "Blocked through MCP",
+      prompt: "Report why this cannot continue"
+    });
+
+    const completed = await handlers.bridge_complete_task({
+      task_id: doneTask.task.id,
+      summary: "Finished from MCP",
+      commands: ["npm test -- tests/mcp-tools.test.ts"]
+    });
+    const blocked = await handlers.bridge_block_task({
+      task_id: blockedTask.task.id,
+      summary: "Needs local browser login",
+      code: "browser_login_required",
+      next_step: "Run gptprouse pro browser login.",
+      retryable: true,
+      commands: ["gptprouse pro browser check"]
+    });
+
+    const store = new BridgeStore(cwd);
+    await expect(store.getTask(doneTask.task.id)).resolves.toEqual(expect.objectContaining({ status: "done" }));
+    await expect(store.getTask(blockedTask.task.id)).resolves.toEqual(
+      expect.objectContaining({
+        status: "blocked",
+        blocker: expect.objectContaining({ code: "browser_login_required", retryable: true })
+      })
+    );
+    expect(completed.result).toEqual(
+      expect.objectContaining({
+        task_id: doneTask.task.id,
+        status: "done",
+        summary: "Finished from MCP",
+        commands: ["npm test -- tests/mcp-tools.test.ts"]
+      })
+    );
+    expect(blocked.result).toEqual(
+      expect.objectContaining({
+        task_id: blockedTask.task.id,
+        status: "blocked",
+        summary: "Needs local browser login",
+        commands: ["gptprouse pro browser check"],
+        blocker: {
+          code: "browser_login_required",
+          message: "Needs local browser login",
+          retryable: true,
+          next_step: "Run gptprouse pro browser login."
+        }
+      })
+    );
+  });
+
+  it("normalizes MCP completion artifacts to fetchable result artifacts", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    const store = new BridgeStore(cwd);
+    const handlers = createMcpToolHandlers({ cwd });
+    const task = await handlers.bridge_create_task({
+      title: "Artifact role",
+      prompt: "Attach an answer artifact"
+    });
+    const artifactPath = await store.writeArtifactText(".bridge/artifacts/pro-consults/mcp-answer.md", "answer\n");
+
+    const completed = await handlers.bridge_complete_task({
+      task_id: task.task.id,
+      summary: "See answer artifact.",
+      artifacts: [{ path: artifactPath, role: "context", bytes: "answer\n".length }]
+    });
+    const fetched = await handlers.bridge_fetch_result_artifact({ task_id: task.task.id });
+
+    expect(completed.result.artifacts).toEqual([expect.objectContaining({ path: artifactPath, role: "result" })]);
+    expect(fetched.content).toBe("answer\n");
+  });
+
   it("lists and fetches consult sessions through bridge handlers", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
     const store = new BridgeStore(cwd);

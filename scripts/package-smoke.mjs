@@ -17,6 +17,8 @@ const REQUIRED_MCP_TOOLS = [
   "bridge_list_tasks",
   "bridge_get_task",
   "bridge_claim_task",
+  "bridge_complete_task",
+  "bridge_block_task",
   "bridge_list_results",
   "bridge_fetch_result",
   "bridge_fetch_result_artifact",

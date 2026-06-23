@@ -103,6 +103,8 @@ The HTTP server exposes the same tool catalog as stdio MCP:
 - `bridge_list_tasks`
 - `bridge_get_task`
 - `bridge_claim_task`
+- `bridge_complete_task`
+- `bridge_block_task`
 - `bridge_list_results`
 - `bridge_fetch_result`
 - `bridge_fetch_result_artifact`
@@ -116,7 +118,7 @@ The HTTP server exposes the same tool catalog as stdio MCP:
 - `repo_write_file_apply`
 - `repo_stage_reviewed_paths`
 
-`bridge_fetch_result_artifact` only returns text artifacts that are listed on a result record and stored under `.bridge/artifacts/pro-consults/`; it does not expose arbitrary `.bridge/artifacts` files.
+`bridge_complete_task` and `bridge_block_task` close tasks by writing durable `.bridge/results` records; they do not modify repo files. `bridge_fetch_result_artifact` only returns text artifacts that are listed on a result record and stored under `.bridge/artifacts/pro-consults/`; it does not expose arbitrary `.bridge/artifacts` files.
 
 ## Write Flow
 

@@ -46,6 +46,7 @@
 ## Phase 4 - Optional Inbound MCP
 
 - [x] Implement MCP server exposing task creation and result fetch.
+- [x] Add MCP task completion/blocking tools for ledger handoff clients.
 - [x] Expose session list/fetch over stdio and HTTP MCP.
 - [x] Add repo read/search with path sandbox.
 - [x] Add Streamable HTTP MCP endpoint for ChatGPT Developer Mode-style clients.

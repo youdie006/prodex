@@ -6,6 +6,11 @@ import { ReceiptKindSchema, type SourceSchema } from "./schema.js";
 import type { z as zod } from "zod";
 
 type BridgeSource = zod.infer<typeof SourceSchema>;
+const BridgeFileInputSchema = z.object({
+  path: z.string(),
+  role: z.enum(["context", "artifact", "result"]).optional(),
+  bytes: z.number().int().nonnegative().optional()
+});
 
 export interface CreateMcpServerOptions {
   source?: BridgeSource;
@@ -66,6 +71,39 @@ export function createServer(cwd = process.cwd(), options: CreateMcpServerOption
       inputSchema: { task_id: z.string(), claimed_by: z.string().optional() }
     },
     async (input) => asText(await handlers.bridge_claim_task(input))
+  );
+
+  server.registerTool(
+    "bridge_complete_task",
+    {
+      description: "Complete a bridge task with a durable result record.",
+      inputSchema: {
+        task_id: z.string(),
+        summary: z.string().min(1),
+        artifacts: z.array(BridgeFileInputSchema).optional(),
+        commands: z.array(z.string()).optional(),
+        warnings: z.array(z.string()).optional()
+      }
+    },
+    async (input) => asText(await handlers.bridge_complete_task(input))
+  );
+
+  server.registerTool(
+    "bridge_block_task",
+    {
+      description: "Close a bridge task as blocked with durable blocker metadata.",
+      inputSchema: {
+        task_id: z.string(),
+        summary: z.string().min(1),
+        code: z.string().optional(),
+        next_step: z.string().optional(),
+        retryable: z.boolean().optional(),
+        artifacts: z.array(BridgeFileInputSchema).optional(),
+        commands: z.array(z.string()).optional(),
+        warnings: z.array(z.string()).optional()
+      }
+    },
+    async (input) => asText(await handlers.bridge_block_task(input))
   );
 
   server.registerTool(

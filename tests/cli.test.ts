@@ -1128,6 +1128,8 @@ describe("runCli", () => {
     expect(text).toContain("staged=notes.md");
     expect(text).toContain("http_mcp_smoke: ok");
     expect(text).toContain("bridge_create_task");
+    expect(text).toContain("bridge_complete_task");
+    expect(text).toContain("bridge_block_task");
     expect(text).toContain("bridge_list_sessions");
     expect(text).toContain("bridge_get_session");
     expect(text).toContain("bridge_fetch_result_artifact");
