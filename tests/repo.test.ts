@@ -113,6 +113,17 @@ describe("repo path policy", () => {
     await expect(searchRepo(root, "needle", "packages/a/dist/**")).rejects.toThrow(/sensitive/);
   });
 
+  it("blocks nested bridge paths from repo reads and searches", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-repo-"));
+    await mkdir(path.join(root, "services", "api", ".bridge"), { recursive: true });
+    await writeFile(path.join(root, "services", "api", ".bridge", "config.local.json"), "SECRET=needle\n", "utf8");
+    await writeFile(path.join(root, "services", "api", "README.md"), "needle docs\n", "utf8");
+
+    await expect(readRepoFile(root, "services/api/.bridge/config.local.json")).rejects.toThrow(/sensitive/);
+    await expect(searchRepo(root, "SECRET")).resolves.toEqual([]);
+    await expect(searchRepo(root, "SECRET", "services/api/.bridge/**")).rejects.toThrow(/sensitive/);
+  });
+
   it("rejects large files before reading them into the response", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "gptprouse-repo-"));
     await writeFile(path.join(root, "large.txt"), "x".repeat(1_100_000), "utf8");

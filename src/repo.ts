@@ -88,6 +88,8 @@ export async function searchRepo(root: string, query: string, glob?: string): Pr
     "--glob",
     "!.bridge/**",
     "--glob",
+    "!**/.bridge/**",
+    "--glob",
     "!.git/**",
     "--glob",
     "!**/.git/**",
@@ -132,15 +134,13 @@ export async function searchRepo(root: string, query: string, glob?: string): Pr
 
 function assertNotSensitiveRepoPath(normalizedPath: string): void {
   const segments = normalizedPath.split("/");
-  const firstSegment = segments[0];
   if (segments.some((segment) => segment === ".env" || segment.startsWith(".env."))) {
     throw new Error(`Path ${normalizedPath} is sensitive and cannot be read through repo tools`);
   }
-  if (segments.some((segment) => segment === ".git" || segment === "node_modules" || segment === "dist")) {
-    throw new Error(`Path ${normalizedPath} is sensitive and cannot be read through repo tools`);
-  }
   if (
-    firstSegment === ".bridge"
+    segments.some(
+      (segment) => segment === ".bridge" || segment === ".git" || segment === "node_modules" || segment === "dist"
+    )
   ) {
     throw new Error(`Path ${normalizedPath} is sensitive and cannot be read through repo tools`);
   }
@@ -166,6 +166,7 @@ function assertNoSensitiveLiteralGlobSegment(normalizedGlob: string): void {
     literalSegments.some(
       (segment) =>
         segment === ".git" ||
+        segment === ".bridge" ||
         segment === "node_modules" ||
         segment === "dist" ||
         segment === ".env" ||

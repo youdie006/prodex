@@ -246,6 +246,23 @@ describe("MCP tool handlers", () => {
     ).rejects.toThrow(/sensitive/);
   });
 
+  it("rejects write dry-runs for nested bridge paths", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    await writeFile(path.join(cwd, "notes.md"), "old\n", "utf8");
+    const head = await initGitRepo(cwd);
+    await mkdir(path.join(cwd, "services", "api", ".bridge"), { recursive: true });
+    await writeFile(path.join(cwd, "services", "api", ".bridge", "config.local.json"), "old\n", "utf8");
+    const handlers = createMcpToolHandlers({ cwd });
+
+    await expect(
+      handlers.repo_write_file_dry_run({
+        path: "services/api/.bridge/config.local.json",
+        content: "new\n",
+        expected_head: head
+      })
+    ).rejects.toThrow(/sensitive/);
+  });
+
   it("rejects forged write receipts reached through receipt id traversal", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
     await writeFile(path.join(cwd, "notes.md"), "old\n", "utf8");
