@@ -263,6 +263,31 @@ describe("BridgeStore", () => {
     await expect(store.listSessions()).resolves.toMatchObject([{ id: second.id }, { id: first.id }]);
   });
 
+  it("uses result task ids as a deterministic latest tie-breaker", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
+    const store = new BridgeStore(root);
+    await store.ensure();
+    const first = {
+      schema_version: 1,
+      task_id: "task_20990101_000000_z-first",
+      status: "done",
+      summary: "First",
+      artifacts: [],
+      commands: [],
+      warnings: [],
+      created_at: "2099-01-01T00:00:00.000Z"
+    };
+    const second = {
+      ...first,
+      task_id: "task_20990101_000000_a-second",
+      summary: "Second"
+    };
+    await writeFile(path.join(root, ".bridge", "results", `${first.task_id}.json`), `${JSON.stringify(first, null, 2)}\n`, "utf8");
+    await writeFile(path.join(root, ".bridge", "results", `${second.task_id}.json`), `${JSON.stringify(second, null, 2)}\n`, "utf8");
+
+    await expect(store.listResults()).resolves.toMatchObject([{ task_id: second.task_id }, { task_id: first.task_id }]);
+  });
+
   it("rejects record writes when the storage directory is swapped to a symlink before open", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
     const outside = await mkdtemp(path.join(tmpdir(), "gptprouse-outside-"));

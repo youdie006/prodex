@@ -272,6 +272,58 @@ describe("runCli", () => {
     expect(out.join("\n")).toContain("Use receipt-gated writes next.");
   });
 
+  it("prints result artifact content only from result records", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const store = new BridgeStore(cwd);
+    const task = await store.createTask({
+      source: "codex",
+      title: "GPT Pro consult",
+      prompt: "Ask Pro",
+      provenance: { adapter: "cli", warnings: [] }
+    });
+    const artifactPath = await store.writeArtifactText(".bridge/artifacts/pro-consults/answer.md", "artifact answer");
+    await store.completeTask(task.id, {
+      status: "done",
+      summary: "See artifact.",
+      artifacts: [{ path: artifactPath, role: "result", bytes: "artifact answer".length }]
+    });
+    const out: string[] = [];
+
+    await runCli(["results", "artifact", task.id], {
+      cwd,
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    expect(out).toEqual(["artifact answer"]);
+  });
+
+  it("prints the latest result artifact content", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const store = new BridgeStore(cwd);
+    const task = await store.createTask({
+      source: "codex",
+      title: "GPT Pro consult",
+      prompt: "Ask Pro",
+      provenance: { adapter: "cli", warnings: [] }
+    });
+    const artifactPath = await store.writeArtifactText(".bridge/artifacts/pro-consults/latest-answer.md", "latest artifact answer");
+    await store.completeTask(task.id, {
+      status: "done",
+      summary: "See artifact.",
+      artifacts: [{ path: artifactPath, role: "result", bytes: "latest artifact answer".length }]
+    });
+    const out: string[] = [];
+
+    await runCli(["results", "artifact", "latest"], {
+      cwd,
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    expect(out).toEqual(["latest artifact answer"]);
+  });
+
   it("keeps pro ask as a dry-run preview unless browser send is explicit", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
     await writeFile(path.join(cwd, "notes.md"), "manual bridge first\n", "utf8");
@@ -317,6 +369,19 @@ describe("runCli", () => {
     const text = out.join("\n");
     expect(text).toContain("gptprouse sessions list [--status preview|running|done|blocked]");
     expect(text).toContain("gptprouse sessions show <session-id|latest>");
+  });
+
+  it("lists result artifact inspection commands in help", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const out: string[] = [];
+
+    await runCli(["help"], {
+      cwd,
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    expect(out.join("\n")).toContain("gptprouse results artifact <task-id|latest> [artifact-path]");
   });
 
   it("describes token TTL as an explicit help placeholder", async () => {
@@ -699,6 +764,7 @@ describe("runCli", () => {
     expect(text).toContain("bridge_create_task");
     expect(text).toContain("bridge_list_sessions");
     expect(text).toContain("bridge_get_session");
+    expect(text).toContain("bridge_fetch_result_artifact");
     expect(text).toContain("repo_stage_reviewed_paths");
   });
 

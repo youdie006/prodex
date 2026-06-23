@@ -66,6 +66,7 @@ The server currently exposes ledger-first tools:
 - `bridge_claim_task`
 - `bridge_list_results`
 - `bridge_fetch_result`
+- `bridge_fetch_result_artifact`
 - `bridge_list_sessions`
 - `bridge_get_session`
 - `repo_read_file`

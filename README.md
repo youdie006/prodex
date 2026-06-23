@@ -49,6 +49,7 @@ Implemented:
 - `pro ask` and `pro latest` for Codex-first consult previews and review receipts.
 - `sessions list` and `sessions show` for inspecting dry-run, running, done, or blocked consult sessions.
 - Read-only MCP tools for listing/fetching task, result, and session records from Claude or ChatGPT Projects.
+- Read-only result artifact fetch for artifacts explicitly listed on a result record.
 - `ask-pro --dry-run` and `ask-pro --send` as explicit lower-level aliases.
 - `pro browser login/check/smoke/ask` for the optional visible browser adapter.
 - Claude-compatible stdio MCP server through `gptprouse mcp`.
@@ -122,6 +123,7 @@ Actual explicit visible-browser consult:
 ```bash
 gptprouse pro browser ask --file README.md "Review the project positioning"
 gptprouse pro latest
+gptprouse results artifact latest
 gptprouse sessions show latest
 ```
 

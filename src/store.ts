@@ -183,11 +183,29 @@ export class BridgeStore {
 
   async listResults(): Promise<Result[]> {
     await this.ensure();
-    return (await this.readAll("results", ResultSchema)).sort((a, b) => a.created_at.localeCompare(b.created_at));
+    return (await this.readAll("results", ResultSchema)).sort(
+      (a, b) => a.created_at.localeCompare(b.created_at) || a.task_id.localeCompare(b.task_id)
+    );
   }
 
   async getResult(taskId: string): Promise<Result> {
     return ResultSchema.parse(await this.readRecordJson("results", taskId));
+  }
+
+  async readResultArtifactText(taskId: string, artifactPath?: string): Promise<{ artifact: BridgeFile; content: string }> {
+    const result = await this.getResult(taskId);
+    const artifacts = result.artifacts.filter((artifact) => artifact.role === "result");
+    const artifact = artifactPath ? artifacts.find((item) => item.path === artifactPath) : artifacts.length === 1 ? artifacts[0] : undefined;
+    if (!artifact) {
+      if (artifactPath) throw new Error(`Result artifact not found for ${taskId}: ${artifactPath}`);
+      if (artifacts.length === 0) throw new Error(`Result ${taskId} has no result artifacts`);
+      throw new Error(`Result ${taskId} has multiple result artifacts; pass an artifact path`);
+    }
+    const normalizedArtifactPath = path.posix.normalize(artifact.path.replaceAll("\\", "/"));
+    if (!normalizedArtifactPath.startsWith(".bridge/artifacts/pro-consults/") || normalizedArtifactPath !== artifact.path) {
+      throw new Error(`Artifact is not a fetchable result artifact for ${taskId}: ${artifact.path}`);
+    }
+    return { artifact, content: await this.readArtifactText(artifact.path) };
   }
 
   async writeSession(input: WriteSessionInput): Promise<Session> {

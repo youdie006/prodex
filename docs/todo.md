@@ -20,6 +20,7 @@
 - [x] Define task/result JSON schemas.
 - [x] Implement `tasks list`, `tasks claim`, `results show`.
 - [x] Add receipt files for every consult and local action.
+- [x] Add safe result artifact fetch for artifacts explicitly listed on result records.
 - [x] Reject `.bridge` task/result/receipt ID traversal plus symlinked record files/storage directories.
 
 ## Phase 3 - Codex-First Consult

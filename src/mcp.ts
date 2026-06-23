@@ -87,6 +87,15 @@ export function createServer(cwd = process.cwd(), options: CreateMcpServerOption
   );
 
   server.registerTool(
+    "bridge_fetch_result_artifact",
+    {
+      description: "Fetch text content for a result-listed artifact. Arbitrary .bridge artifacts are not exposed.",
+      inputSchema: { task_id: z.string(), path: z.string().optional() }
+    },
+    async (input) => asText(await handlers.bridge_fetch_result_artifact(input))
+  );
+
+  server.registerTool(
     "bridge_list_sessions",
     {
       description: "List durable consult/session records.",

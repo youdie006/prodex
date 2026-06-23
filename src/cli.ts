@@ -26,6 +26,7 @@ const DOCTOR_REQUIRED_MCP_TOOLS = [
   "bridge_create_task",
   "bridge_list_sessions",
   "bridge_get_session",
+  "bridge_fetch_result_artifact",
   "repo_read_file",
   "repo_search",
   "repo_write_file_dry_run",
@@ -244,6 +245,14 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       const taskId = resultArgs[0];
       if (!taskId) throw new Error("results show requires <task-id>");
       io.stdout(JSON.stringify(await store.getResult(taskId), null, 2));
+      return 0;
+    }
+    if (subcommand === "artifact") {
+      const taskId = resultArgs[0];
+      if (!taskId) throw new Error("results artifact requires <task-id> [artifact-path]");
+      const resolvedTaskId = taskId === "latest" ? await latestResultTaskId(store) : taskId;
+      const artifact = await store.readResultArtifactText(resolvedTaskId, resultArgs[1]);
+      io.stdout(artifact.content);
       return 0;
     }
   }
@@ -566,6 +575,7 @@ Commands:
   gptprouse tasks claim <task-id> [--by codex]
   gptprouse tasks complete <task-id> --summary "Summary" [--command "npm test"]
   gptprouse results show <task-id>
+  gptprouse results artifact <task-id|latest> [artifact-path]
   gptprouse sessions list [--status preview|running|done|blocked]
   gptprouse sessions show <session-id|latest>
   gptprouse mcp`);
@@ -759,6 +769,12 @@ async function listConsults(store: BridgeStore): Promise<ConsultRecord[]> {
     })
     .filter((record): record is ConsultRecord => Boolean(record && isConsultRecord(record)))
     .sort((a, b) => b.result.created_at.localeCompare(a.result.created_at));
+}
+
+async function latestResultTaskId(store: BridgeStore): Promise<string> {
+  const result = (await store.listResults()).at(-1);
+  if (!result) throw new Error("No results found");
+  return result.task_id;
 }
 
 async function getConsult(store: BridgeStore, taskId: string): Promise<ConsultRecord | undefined> {
