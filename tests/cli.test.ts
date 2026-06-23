@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -165,6 +165,100 @@ describe("runCli", () => {
     expect(text).toContain("gptprouse pro browser smoke");
     expect(text).not.toContain("node dist/cli.js");
     expect(text).toContain("You can close this Chrome window after login");
+  });
+
+  it("fails browser login cleanly before printing the guide when Chrome cannot be launched", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const out: string[] = [];
+    const previousChrome = process.env.GPTPROUSE_CHROME;
+    process.env.GPTPROUSE_CHROME = "/definitely/not/present";
+    try {
+      await expect(
+        runCli(["pro", "browser", "login"], {
+          cwd,
+          stdout: (line) => out.push(line),
+          stderr: () => {}
+        })
+      ).rejects.toThrow(/GPTPROUSE_CHROME|Chrome|Chromium/i);
+    } finally {
+      if (previousChrome === undefined) delete process.env.GPTPROUSE_CHROME;
+      else process.env.GPTPROUSE_CHROME = previousChrome;
+    }
+
+    expect(out.join("\n")).not.toContain("ChatGPT Pro browser login");
+  });
+
+  it("rejects a browser command path that points to a directory", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const out: string[] = [];
+    const previousChrome = process.env.GPTPROUSE_CHROME;
+    process.env.GPTPROUSE_CHROME = tmpdir();
+    try {
+      await expect(
+        runCli(["pro", "browser", "login"], {
+          cwd,
+          stdout: (line) => out.push(line),
+          stderr: () => {}
+        })
+      ).rejects.toThrow(/executable browser/i);
+    } finally {
+      if (previousChrome === undefined) delete process.env.GPTPROUSE_CHROME;
+      else process.env.GPTPROUSE_CHROME = previousChrome;
+    }
+
+    expect(out.join("\n")).not.toContain("ChatGPT Pro browser login");
+  });
+
+  it("rejects an executable browser command that is not Chrome-compatible", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const out: string[] = [];
+    const previousChrome = process.env.GPTPROUSE_CHROME;
+    process.env.GPTPROUSE_CHROME = "/bin/true";
+    try {
+      await expect(
+        runCli(["pro", "browser", "login"], {
+          cwd,
+          stdout: (line) => out.push(line),
+          stderr: () => {}
+        })
+      ).rejects.toThrow(/Chrome|Chromium/i);
+    } finally {
+      if (previousChrome === undefined) delete process.env.GPTPROUSE_CHROME;
+      else process.env.GPTPROUSE_CHROME = previousChrome;
+    }
+
+    expect(out.join("\n")).not.toContain("ChatGPT Pro browser login");
+  });
+
+  it("rejects fake Chrome-compatible commands found on PATH", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const binDir = await mkdtemp(path.join(tmpdir(), "gptprouse-fake-browser-"));
+    const out: string[] = [];
+    const previousPath = process.env.PATH;
+    const previousChrome = process.env.GPTPROUSE_CHROME;
+    for (const command of ["google-chrome", "chromium", "chromium-browser", "microsoft-edge", "brave-browser"]) {
+      const fake = path.join(binDir, command);
+      await writeFile(fake, "#!/bin/sh\nexit 0\n", "utf8");
+      await chmod(fake, 0o755);
+    }
+    process.env.PATH = `${binDir}${path.delimiter}${previousPath ?? ""}`;
+    delete process.env.GPTPROUSE_CHROME;
+    try {
+      await expect(
+        runCli(["pro", "browser", "login"], {
+          cwd,
+          stdout: (line) => out.push(line),
+          stderr: () => {}
+        })
+      ).rejects.toThrow(/Chrome|Chromium/i);
+    } finally {
+      if (previousPath === undefined) delete process.env.PATH;
+      else process.env.PATH = previousPath;
+      if (previousChrome === undefined) delete process.env.GPTPROUSE_CHROME;
+      else process.env.GPTPROUSE_CHROME = previousChrome;
+    }
+
+    expect(out.join("\n")).not.toContain("ChatGPT Pro browser login");
   });
 
   it("points unreachable browser checks at the login flow", async () => {

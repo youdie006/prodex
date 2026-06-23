@@ -1,4 +1,5 @@
 import { spawn, spawnSync } from "node:child_process";
+import { accessSync, constants, statSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
 
@@ -623,12 +624,56 @@ function enterKeyEvent(type: "keyDown" | "keyUp"): Record<string, unknown> {
 
 function resolveChromeCommand(): string {
   const fromEnv = process.env.GPTPROUSE_CHROME;
-  if (fromEnv) return fromEnv;
+  if (fromEnv) {
+    assertChromeCommandAvailable(fromEnv, "GPTPROUSE_CHROME");
+    return fromEnv;
+  }
   for (const command of ["google-chrome", "chromium", "chromium-browser", "microsoft-edge", "brave-browser"]) {
-    const result = spawnSync("which", [command], { stdio: "ignore" });
-    if (result.status === 0) return command;
+    if (isCommandOnPath(command) && hasChromeLikeVersion(command)) return command;
   }
   throw new Error("Could not find Chrome/Chromium. Set GPTPROUSE_CHROME to the browser executable.");
+}
+
+function assertChromeCommandAvailable(command: string, label: string): void {
+  if (isPathLikeCommand(command)) {
+    try {
+      if (!statSync(command).isFile()) {
+        throw new Error("not a file");
+      }
+      accessSync(command, constants.X_OK);
+    } catch {
+      throw new Error(`${label} does not point to an executable browser: ${command}`);
+    }
+  } else if (!isCommandOnPath(command)) {
+    throw new Error(`${label} browser command was not found on PATH: ${command}`);
+  }
+  assertChromeLikeVersion(command, label);
+}
+
+function isPathLikeCommand(command: string): boolean {
+  return path.isAbsolute(command) || command.includes("/") || command.includes("\\");
+}
+
+function isCommandOnPath(command: string): boolean {
+  const lookup = process.platform === "win32" ? "where" : "which";
+  const result = spawnSync(lookup, [command], { stdio: "ignore" });
+  return result.status === 0;
+}
+
+function assertChromeLikeVersion(command: string, label: string): void {
+  if (!hasChromeLikeVersion(command)) {
+    throw new Error(`${label} must point to a Chrome/Chromium-compatible browser executable: ${command}`);
+  }
+}
+
+function hasChromeLikeVersion(command: string): boolean {
+  const result = spawnSync(command, ["--version"], {
+    encoding: "utf8",
+    timeout: 3000,
+    maxBuffer: 1024 * 1024
+  });
+  const output = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
+  return !result.error && result.status === 0 && /Chrome|Chromium|Brave|Microsoft Edge/i.test(output);
 }
 
 function sleep(ms: number): Promise<void> {
