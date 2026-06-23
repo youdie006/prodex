@@ -109,6 +109,21 @@ describe("runCli", () => {
     expect(text).toContain('gptprouse pro browser ask [--target-url url --confirm-target] [--file path] "prompt"  # explicit visible-browser send');
   });
 
+  it("describes token TTL as an explicit help placeholder", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const out: string[] = [];
+
+    await runCli(["help"], {
+      cwd,
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    const text = out.join("\n");
+    expect(text).toContain("gptprouse setup [--host 127.0.0.1] [--port 8787] [--token-ttl-hours <hours>]");
+    expect(text).not.toContain("[--token-ttl-hours 24]");
+  });
+
   it("requires explicit browser namespace for browser product checks", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
     const out: string[] = [];

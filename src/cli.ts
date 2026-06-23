@@ -430,7 +430,7 @@ Commands:
   gptprouse --version
   gptprouse init
   gptprouse doctor
-  gptprouse setup [--host 127.0.0.1] [--port 8787] [--token-ttl-hours 24]
+  gptprouse setup [--host 127.0.0.1] [--port 8787] [--token-ttl-hours <hours>]
   gptprouse start
   gptprouse status [--show-token] [--url-only]
   gptprouse tunnel url --public-url https://... [--show-token] [--url-only]
