@@ -92,6 +92,8 @@ export async function searchRepo(root: string, query: string, glob?: string): Pr
     "--glob",
     "!.env*",
     "--glob",
+    "!**/.env*",
+    "--glob",
     "!node_modules/**",
     "--glob",
     "!dist/**",
@@ -123,14 +125,16 @@ export async function searchRepo(root: string, query: string, glob?: string): Pr
 }
 
 function assertNotSensitiveRepoPath(normalizedPath: string): void {
-  const firstSegment = normalizedPath.split("/")[0];
+  const segments = normalizedPath.split("/");
+  const firstSegment = segments[0];
+  if (segments.some((segment) => segment === ".env" || segment.startsWith(".env."))) {
+    throw new Error(`Path ${normalizedPath} is sensitive and cannot be read through repo tools`);
+  }
   if (
     firstSegment === ".bridge" ||
     firstSegment === ".git" ||
     firstSegment === "node_modules" ||
-    firstSegment === "dist" ||
-    normalizedPath === ".env" ||
-    normalizedPath.startsWith(".env.")
+    firstSegment === "dist"
   ) {
     throw new Error(`Path ${normalizedPath} is sensitive and cannot be read through repo tools`);
   }

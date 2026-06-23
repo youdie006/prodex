@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, readFile, writeFile } from "node:fs/promises";
 import { randomBytes } from "node:crypto";
 import path from "node:path";
 import { z } from "zod";
@@ -32,6 +32,7 @@ export function makeServerUrl(host: string, port: number, token: string): string
 
 export async function writeLocalConfig(cwd: string, input: WriteLocalConfigInput = {}): Promise<LocalConfig> {
   await ensureBridgeLocalFiles(cwd);
+  await assertLocalConfigTargetSafe(cwd);
   const now = new Date().toISOString();
   const host = input.host ?? "127.0.0.1";
   const port = input.port ?? 8787;
@@ -46,12 +47,16 @@ export async function writeLocalConfig(cwd: string, input: WriteLocalConfigInput
     created_at: existing?.created_at ?? now,
     updated_at: now
   });
-  await writeFile(localConfigPath(cwd), `${JSON.stringify(config, null, 2)}\n`, "utf8");
+  await writeFile(localConfigPath(cwd), `${JSON.stringify(config, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+  await chmod(localConfigPath(cwd), 0o600);
   return config;
 }
 
 export async function loadLocalConfig(cwd: string): Promise<LocalConfig> {
-  return LocalConfigSchema.parse(JSON.parse(await readFile(localConfigPath(cwd), "utf8")));
+  await assertLocalConfigTargetSafe(cwd, { allowMissing: false });
+  const config = LocalConfigSchema.parse(JSON.parse(await readFile(localConfigPath(cwd), "utf8")));
+  await chmod(localConfigPath(cwd), 0o600);
+  return config;
 }
 
 async function readExistingConfig(cwd: string): Promise<LocalConfig | undefined> {
@@ -65,6 +70,7 @@ async function readExistingConfig(cwd: string): Promise<LocalConfig | undefined>
 async function ensureBridgeLocalFiles(cwd: string): Promise<void> {
   const bridgeDir = path.join(cwd, ".bridge");
   await mkdir(bridgeDir, { recursive: true });
+  await assertRealBridgeDirectory(cwd);
   const ignorePath = path.join(bridgeDir, ".gitignore");
   let current = "";
   try {
@@ -84,4 +90,35 @@ async function ensureBridgeLocalFiles(cwd: string): Promise<void> {
   const lines = new Set(current.split(/\r?\n/).filter(Boolean));
   for (const line of required) lines.add(line);
   await writeFile(ignorePath, `${Array.from(lines).join("\n")}\n`, "utf8");
+}
+
+async function assertLocalConfigTargetSafe(cwd: string, options: { allowMissing?: boolean } = { allowMissing: true }): Promise<void> {
+  await assertRealBridgeDirectory(cwd);
+  try {
+    const stat = await lstat(localConfigPath(cwd));
+    if (stat.isSymbolicLink()) {
+      throw new Error(".bridge/config.local.json must not be a symlink");
+    }
+    if (!stat.isFile()) {
+      throw new Error(".bridge/config.local.json must be a regular file");
+    }
+  } catch (error) {
+    if (isMissingFileError(error) && options.allowMissing !== false) return;
+    throw error;
+  }
+}
+
+async function assertRealBridgeDirectory(cwd: string): Promise<void> {
+  const bridgeDir = path.join(cwd, ".bridge");
+  const stat = await lstat(bridgeDir);
+  if (stat.isSymbolicLink()) {
+    throw new Error(".bridge must be a real directory, not a symlink");
+  }
+  if (!stat.isDirectory()) {
+    throw new Error(".bridge must be a real directory");
+  }
+}
+
+function isMissingFileError(error: unknown): boolean {
+  return typeof error === "object" && error !== null && "code" in error && (error as { code?: unknown }).code === "ENOENT";
 }

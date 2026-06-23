@@ -1,8 +1,8 @@
-import { mkdtemp, readFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { loadLocalConfig, writeLocalConfig } from "../src/config.js";
+import { loadLocalConfig, localConfigPath, writeLocalConfig } from "../src/config.js";
 
 describe("local bridge config", () => {
   it("stores ChatGPT Developer Mode HTTP settings in an ignored local file", async () => {
@@ -15,5 +15,48 @@ describe("local bridge config", () => {
     expect(config.server_url).toBe("http://127.0.0.1:9797/mcp?gptprouse_token=test-token");
     expect(loaded).toEqual(config);
     expect(bridgeIgnore).toContain("config.local.json");
+  });
+
+  it("writes local MCP config with owner-only permissions", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-config-"));
+
+    await writeLocalConfig(cwd, { port: 9797, token: "test-token" });
+
+    if (process.platform !== "win32") {
+      expect((await stat(localConfigPath(cwd))).mode & 0o777).toBe(0o600);
+    }
+  });
+
+  it("repairs existing local MCP config permissions on load", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-config-"));
+    await writeLocalConfig(cwd, { port: 9797, token: "test-token" });
+
+    if (process.platform !== "win32") {
+      await chmod(localConfigPath(cwd), 0o666);
+      await loadLocalConfig(cwd);
+      expect((await stat(localConfigPath(cwd))).mode & 0o777).toBe(0o600);
+    }
+  });
+
+  it("rejects symlinked bridge config storage", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-config-"));
+    const outside = await mkdtemp(path.join(tmpdir(), "gptprouse-config-outside-"));
+    await mkdir(outside, { recursive: true });
+    await symlink(outside, path.join(cwd, ".bridge"), "dir");
+
+    await expect(writeLocalConfig(cwd, { port: 9797, token: "test-token" })).rejects.toThrow(/symlink|real directory/);
+    await expect(loadLocalConfig(cwd)).rejects.toThrow(/symlink|real directory/);
+    await expect(readFile(path.join(outside, "config.local.json"), "utf8")).rejects.toThrow();
+  });
+
+  it("rejects symlinked config files", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-config-"));
+    const outside = await mkdtemp(path.join(tmpdir(), "gptprouse-config-outside-"));
+    await mkdir(path.join(cwd, ".bridge"), { recursive: true });
+    await writeFile(path.join(outside, "config.local.json"), "{}\n", "utf8");
+    await symlink(path.join(outside, "config.local.json"), localConfigPath(cwd));
+
+    await expect(writeLocalConfig(cwd, { port: 9797, token: "test-token" })).rejects.toThrow(/symlink/);
+    await expect(loadLocalConfig(cwd)).rejects.toThrow(/symlink/);
   });
 });
