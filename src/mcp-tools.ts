@@ -1,0 +1,69 @@
+import { BridgeStore } from "./store.js";
+import { readRepoFile, searchRepo } from "./repo.js";
+import type { SourceSchema } from "./schema.js";
+import type { z } from "zod";
+
+type BridgeSource = z.infer<typeof SourceSchema>;
+
+export interface McpToolContext {
+  cwd: string;
+  source?: BridgeSource;
+  claimedBy?: string;
+}
+
+export function createMcpToolHandlers(context: McpToolContext) {
+  const store = new BridgeStore(context.cwd);
+  const source = context.source ?? "claude";
+  const claimedBy = context.claimedBy ?? source;
+  return {
+    async bridge_create_task(input: {
+      title: string;
+      prompt: string;
+      repo_id?: string;
+      files?: Array<{ path: string; role?: "context" | "artifact" | "result"; bytes?: number }>;
+    }) {
+      const task = await store.createTask({
+        source,
+        title: input.title,
+        prompt: input.prompt,
+        repo_id: input.repo_id ?? "default",
+        files: (input.files ?? []).map((file) => ({ ...file, role: file.role ?? "context" })),
+        provenance: { adapter: "mcp", warnings: [] }
+      });
+      return { task };
+    },
+
+    async bridge_list_tasks(input: { status?: "new" | "claimed" | "done" | "blocked" }) {
+      return { tasks: await store.listTasks(input.status) };
+    },
+
+    async bridge_get_task(input: { task_id: string }) {
+      return { task: await store.getTask(input.task_id) };
+    },
+
+    async bridge_claim_task(input: { task_id: string; claimed_by?: string }) {
+      return { task: await store.claimTask(input.task_id, input.claimed_by ?? claimedBy) };
+    },
+
+    async bridge_list_results() {
+      return { results: await store.listResults() };
+    },
+
+    async bridge_fetch_result(input: { task_id: string }) {
+      return { result: await store.getResult(input.task_id) };
+    },
+
+    async repo_read_file(input: { path: string; start_line?: number; max_lines?: number }) {
+      return readRepoFile(context.cwd, input.path, {
+        startLine: input.start_line,
+        maxLines: input.max_lines
+      });
+    },
+
+    async repo_search(input: { query: string; glob?: string }) {
+      return { matches: await searchRepo(context.cwd, input.query, input.glob) };
+    }
+  };
+}
+
+export type McpToolHandlers = ReturnType<typeof createMcpToolHandlers>;
