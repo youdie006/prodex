@@ -98,14 +98,17 @@ async function smokeInstalledHttpOnboarding(binPath, cwd) {
   const token = "package-smoke-token";
   const expectedUrl = `http://127.0.0.1:${port}/mcp?gptprouse_token=${token}`;
 
-  const setup = await run(binPath, ["setup", "--port", String(port), "--token", token], { cwd });
+  const setup = await run(binPath, ["setup", "--port", String(port), "--token", token, "--token-ttl-hours", "1"], { cwd });
   const setupOutput = `${setup.stdout}\n${setup.stderr}`;
   assertIncludes(setupOutput, "gptprouse_token=***", "installed setup output");
+  assertIncludes(setupOutput, "Token expires:", "installed setup output");
   assertNotIncludes(setupOutput, token, "installed setup output");
 
   const status = await run(binPath, ["status"], { cwd });
   const statusOutput = `${status.stdout}\n${status.stderr}`;
   assertIncludes(statusOutput, "gptprouse_token=***", "installed status output");
+  assertIncludes(statusOutput, '"token_status": "valid"', "installed status output");
+  assertIncludes(statusOutput, '"token_expires_at":', "installed status output");
   assertNotIncludes(statusOutput, token, "installed status output");
 
   const pasteReady = await run(binPath, ["status", "--show-token", "--url-only"], { cwd });
@@ -132,6 +135,7 @@ async function smokeInstalledHttpOnboarding(binPath, cwd) {
   }
   const startOutput = `${stdout}\n${stderr}`;
   assertIncludes(startOutput, "gptprouse_token=***", "installed start output");
+  assertIncludes(startOutput, "Token expires:", "installed start output");
   assertNotIncludes(startOutput, token, "installed start output");
 }
 

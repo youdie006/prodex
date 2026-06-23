@@ -94,7 +94,7 @@ Session:
 
 Use a small TypeScript Node CLI/MCP server. Keep Codex CLI commands as the primary UX. Keep stdio MCP for Claude and Streamable HTTP MCP for optional ChatGPT Developer Mode-style inbound handoff.
 
-`gptprouse doctor` is the local product-health check. It verifies `.bridge` setup, reports local MCP config with tokens redacted, runs the receipt-backed write/apply/stage flow in an isolated temp git repo, and starts a loopback HTTP MCP server to confirm the expected tool catalog is reachable through the actual protocol.
+`gptprouse doctor` is the local product-health check. It verifies `.bridge` setup, reports local MCP config with tokens redacted, fails on expired HTTP MCP tokens, runs the receipt-backed write/apply/stage flow in an isolated temp git repo, and starts a loopback HTTP MCP server to confirm the expected tool catalog is reachable through the actual protocol.
 
 Phase 1:
 
@@ -116,4 +116,5 @@ Phase 3:
 Phase 4:
 
 - Optional tunnel helper for ChatGPT clients that cannot reach `127.0.0.1`.
+- Tunnel-facing configs should use `setup --token-ttl-hours <hours>` so pasted MCP URLs can expire and be rotated.
 - Broader write tools only after dry-run, expected-head checks, and receipt gates exist.

@@ -38,4 +38,19 @@ describe("HTTP MCP server", () => {
 
     expect(response.status).toBe(401);
   });
+
+  it("rejects requests that use an expired configured URL token", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-http-mcp-"));
+    running = await startHttpMcpServer({
+      cwd,
+      host: "127.0.0.1",
+      port: 0,
+      token: "test-token",
+      tokenExpiresAt: new Date(Date.now() - 1000).toISOString()
+    });
+
+    const response = await fetch(`${running.url}/mcp?gptprouse_token=test-token`, { method: "POST", body: "{}" });
+
+    expect(response.status).toBe(401);
+  });
 });

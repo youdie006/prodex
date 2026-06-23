@@ -253,6 +253,77 @@ describe("runCli", () => {
     expect(out).toEqual(["http://127.0.0.1:8789/mcp?gptprouse_token=super-secret-token"]);
   });
 
+  it("prints token expiry status when setup uses a TTL", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    await runCli(["setup", "--port", "8789", "--token", "super-secret-token", "--token-ttl-hours", "1"], {
+      cwd,
+      stdout: () => {},
+      stderr: () => {}
+    });
+    const out: string[] = [];
+
+    await runCli(["status"], {
+      cwd,
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    const status = JSON.parse(out.join("\n")) as { token_status?: string; token_expires_at?: string; server_url?: string };
+    expect(status.token_status).toBe("valid");
+    expect(Date.parse(status.token_expires_at ?? "")).toBeGreaterThan(Date.now());
+    expect(status.server_url).toContain("gptprouse_token=***");
+    expect(out.join("\n")).not.toContain("super-secret-token");
+  });
+
+  it("keeps status url-only output limited to the MCP URL when token expiry exists", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    await runCli(["setup", "--port", "8789", "--token", "super-secret-token", "--token-ttl-hours", "1"], {
+      cwd,
+      stdout: () => {},
+      stderr: () => {}
+    });
+    const out: string[] = [];
+
+    await runCli(["status", "--show-token", "--url-only"], {
+      cwd,
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    expect(out).toEqual(["http://127.0.0.1:8789/mcp?gptprouse_token=super-secret-token"]);
+  });
+
+  it("refuses to start with an expired configured token", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    await writeExpiredLocalConfig(cwd);
+
+    const start = runCli(["start"], {
+      cwd,
+      stdout: () => {},
+      stderr: () => {}
+    });
+    const stop = setTimeout(() => process.emit("SIGTERM"), 50);
+
+    await expect(start).rejects.toThrow(/token expired/i);
+    clearTimeout(stop);
+  });
+
+  it("does not replace corrupt local MCP config when starting", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    await mkdir(path.join(cwd, ".bridge"), { recursive: true });
+    await writeFile(path.join(cwd, ".bridge", "config.local.json"), "{not json", "utf8");
+
+    const start = runCli(["start"], {
+      cwd,
+      stdout: () => {},
+      stderr: () => {}
+    });
+    const stop = setTimeout(() => process.emit("SIGTERM"), 50);
+
+    await expect(start).rejects.toThrow();
+    clearTimeout(stop);
+  });
+
   it("runs a local doctor smoke for bridge storage and MCP writes", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
     const out: string[] = [];
@@ -314,4 +385,44 @@ describe("runCli", () => {
     expect(text).not.toContain("config: missing");
     expect(text).toContain("mcp_write_smoke: ok");
   });
+
+  it("reports expired local MCP config as a doctor failure", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    await writeExpiredLocalConfig(cwd);
+    const out: string[] = [];
+
+    const code = await runCli(["doctor"], {
+      cwd,
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    const text = out.join("\n");
+    expect(code).toBe(1);
+    expect(text).toContain("config: failed token expired");
+    expect(text).not.toContain("expired-secret-token");
+    expect(text).toContain("mcp_write_smoke: ok");
+  });
 });
+
+async function writeExpiredLocalConfig(cwd: string): Promise<void> {
+  await mkdir(path.join(cwd, ".bridge"), { recursive: true });
+  await writeFile(
+    path.join(cwd, ".bridge", "config.local.json"),
+    `${JSON.stringify(
+      {
+        schema_version: 1,
+        host: "127.0.0.1",
+        port: 8789,
+        token: "expired-secret-token",
+        server_url: "http://127.0.0.1:8789/mcp?gptprouse_token=expired-secret-token",
+        token_expires_at: new Date(Date.now() - 1000).toISOString(),
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      },
+      null,
+      2
+    )}\n`,
+    "utf8"
+  );
+}

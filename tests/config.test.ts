@@ -17,6 +17,53 @@ describe("local bridge config", () => {
     expect(bridgeIgnore).toContain("config.local.json");
   });
 
+  it("stores an optional token expiry when a TTL is requested", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-config-"));
+    const before = Date.now();
+
+    const config = await writeLocalConfig(cwd, { port: 9797, token: "test-token", tokenTtlHours: 2 });
+    const loaded = await loadLocalConfig(cwd);
+    const expiryMs = Date.parse(config.token_expires_at ?? "");
+
+    expect(config.token_expires_at).toBeDefined();
+    expect(loaded.token_expires_at).toBe(config.token_expires_at);
+    expect(expiryMs).toBeGreaterThanOrEqual(before + 2 * 60 * 60 * 1000 - 1000);
+    expect(expiryMs).toBeLessThanOrEqual(Date.now() + 2 * 60 * 60 * 1000 + 1000);
+  });
+
+  it("loads legacy local MCP config files without token expiry", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-config-"));
+    await mkdir(path.join(cwd, ".bridge"), { recursive: true });
+    await writeFile(
+      localConfigPath(cwd),
+      `${JSON.stringify(
+        {
+          schema_version: 1,
+          host: "127.0.0.1",
+          port: 9797,
+          token: "test-token",
+          server_url: "http://127.0.0.1:9797/mcp?gptprouse_token=test-token",
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+
+    const loaded = await loadLocalConfig(cwd);
+
+    expect(loaded.token).toBe("test-token");
+    expect(loaded.token_expires_at).toBeUndefined();
+  });
+
+  it("rejects non-positive token TTL values", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-config-"));
+
+    await expect(writeLocalConfig(cwd, { port: 9797, token: "test-token", tokenTtlHours: 0 })).rejects.toThrow(/token ttl/i);
+  });
+
   it("writes local MCP config with owner-only permissions", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-config-"));
 

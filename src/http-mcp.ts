@@ -9,6 +9,7 @@ export interface StartHttpMcpServerOptions {
   host?: string;
   port?: number;
   token?: string;
+  tokenExpiresAt?: string;
 }
 
 export interface RunningHttpMcpServer {
@@ -39,7 +40,7 @@ export async function startHttpMcpServer(options: StartHttpMcpServerOptions): Pr
         writeJson(res, 404, { error: "not_found" });
         return;
       }
-      if (!isAuthorized(req, requestUrl, token)) {
+      if (!isAuthorized(req, requestUrl, token, options.tokenExpiresAt)) {
         writeJson(res, 401, { error: "unauthorized" });
         return;
       }
@@ -148,11 +149,17 @@ async function readJsonBody(req: IncomingMessage): Promise<unknown> {
   return JSON.parse(text);
 }
 
-function isAuthorized(req: IncomingMessage, url: URL, token?: string): boolean {
+function isAuthorized(req: IncomingMessage, url: URL, token?: string, tokenExpiresAt?: string): boolean {
   if (!token) return true;
+  if (tokenExpiresAt && isExpired(tokenExpiresAt)) return false;
   if (url.searchParams.get("gptprouse_token") === token) return true;
   const authorization = headerValue(req.headers.authorization);
   return authorization === `Bearer ${token}`;
+}
+
+function isExpired(tokenExpiresAt: string): boolean {
+  const expiresAtMs = Date.parse(tokenExpiresAt);
+  return !Number.isFinite(expiresAtMs) || expiresAtMs <= Date.now();
 }
 
 function headerValue(value: string | string[] | undefined): string | undefined {

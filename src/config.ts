@@ -10,16 +10,22 @@ const LocalConfigSchema = z.object({
   port: z.number().int().positive(),
   token: z.string().min(1),
   server_url: z.string().url(),
+  token_expires_at: z.string().datetime().optional(),
   created_at: z.string().datetime(),
   updated_at: z.string().datetime()
 });
 
 export type LocalConfig = z.infer<typeof LocalConfigSchema>;
+export type TokenExpiryStatus =
+  | { status: "none"; token_expires_at?: undefined; warning: string }
+  | { status: "valid"; token_expires_at: string; warning?: undefined }
+  | { status: "expired"; token_expires_at: string; warning: string };
 
 export interface WriteLocalConfigInput {
   host?: string;
   port?: number;
   token?: string;
+  tokenTtlHours?: number;
 }
 
 export function localConfigPath(cwd: string): string {
@@ -37,6 +43,7 @@ export async function writeLocalConfig(cwd: string, input: WriteLocalConfigInput
   const host = input.host ?? "127.0.0.1";
   const port = input.port ?? 8787;
   const token = input.token ?? randomBytes(24).toString("hex");
+  const tokenExpiresAt = computeTokenExpiresAt(input.tokenTtlHours, now);
   const existing = await readExistingConfig(cwd);
   const config = LocalConfigSchema.parse({
     schema_version: SCHEMA_VERSION,
@@ -44,6 +51,7 @@ export async function writeLocalConfig(cwd: string, input: WriteLocalConfigInput
     port,
     token,
     server_url: makeServerUrl(host, port, token),
+    ...(tokenExpiresAt ? { token_expires_at: tokenExpiresAt } : {}),
     created_at: existing?.created_at ?? now,
     updated_at: now
   });
@@ -57,6 +65,46 @@ export async function loadLocalConfig(cwd: string): Promise<LocalConfig> {
   const config = LocalConfigSchema.parse(JSON.parse(await readFile(localConfigPath(cwd), "utf8")));
   await chmod(localConfigPath(cwd), 0o600);
   return config;
+}
+
+export function getTokenExpiryStatus(config: Pick<LocalConfig, "token_expires_at">, now: Date = new Date()): TokenExpiryStatus {
+  if (!config.token_expires_at) {
+    return {
+      status: "none",
+      warning: "Token has no expiry. Keep this local-only, or rerun `gptprouse setup --token-ttl-hours <hours>` before using a tunnel."
+    };
+  }
+  return isTokenExpired(config.token_expires_at, now)
+    ? {
+        status: "expired",
+        token_expires_at: config.token_expires_at,
+        warning: `Token expired at ${config.token_expires_at}. Run \`gptprouse setup\` to create a new URL.`
+      }
+    : { status: "valid", token_expires_at: config.token_expires_at };
+}
+
+export function assertTokenNotExpired(config: Pick<LocalConfig, "token_expires_at">, now: Date = new Date()): void {
+  const status = getTokenExpiryStatus(config, now);
+  if (status.status === "expired") {
+    throw new Error(status.warning.toLowerCase());
+  }
+}
+
+function computeTokenExpiresAt(tokenTtlHours: number | undefined, nowIso: string): string | undefined {
+  if (tokenTtlHours === undefined) return undefined;
+  if (!Number.isFinite(tokenTtlHours) || tokenTtlHours <= 0) {
+    throw new Error("token ttl must be a positive number of hours");
+  }
+  const expiresAtMs = Date.parse(nowIso) + tokenTtlHours * 60 * 60 * 1000;
+  if (!Number.isFinite(expiresAtMs)) {
+    throw new Error("token ttl produced an invalid expiry time");
+  }
+  return new Date(expiresAtMs).toISOString();
+}
+
+function isTokenExpired(tokenExpiresAt: string, now: Date): boolean {
+  const expiresAtMs = Date.parse(tokenExpiresAt);
+  return !Number.isFinite(expiresAtMs) || expiresAtMs <= now.getTime();
 }
 
 async function readExistingConfig(cwd: string): Promise<LocalConfig | undefined> {

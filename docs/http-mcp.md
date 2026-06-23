@@ -24,7 +24,7 @@ From the repo root:
 ```bash
 npm install
 npm run build
-node dist/cli.js setup
+node dist/cli.js setup --token-ttl-hours 24
 ```
 
 `setup` writes a local server profile to `.bridge/config.local.json`. The file is ignored by git.
@@ -34,6 +34,14 @@ By default, command output redacts the URL token:
 ```text
 gptprouse_token=***
 ```
+
+`--token-ttl-hours` is optional for strictly local use. If you omit it, `status` reports `token_status: "none"` and the token does not expire. Before exposing this server through any tunnel, rerun setup with a short TTL:
+
+```bash
+node dist/cli.js setup --token-ttl-hours 24
+```
+
+Expired tokens are rejected by `gptprouse start` and by the HTTP MCP server. Rerun `setup` to rotate the URL.
 
 ## Start The Local Server
 
@@ -61,10 +69,10 @@ node dist/cli.js status --show-token --url-only
 
 Use it as a remote Streamable HTTP MCP server URL. Keep `node dist/cli.js start` running.
 
-If the ChatGPT app runtime cannot reach `127.0.0.1`, this project intentionally does not create a tunnel automatically. Put your own explicit tunnel in front of the local server only after you understand the token exposure risk, and rotate the token if it may have leaked:
+If the ChatGPT app runtime cannot reach `127.0.0.1`, this project intentionally does not create a tunnel automatically. Put your own explicit tunnel in front of the local server only after you understand the token exposure risk, and create a short-lived replacement URL first:
 
 ```bash
-node dist/cli.js setup
+node dist/cli.js setup --token-ttl-hours 24
 ```
 
 ## Available Tools
@@ -118,4 +126,4 @@ If ChatGPT cannot connect:
 - Confirm `node dist/cli.js start` is still running.
 - Confirm you pasted the full `status --show-token --url-only` URL.
 - Confirm the client can reach the host in that URL.
-- Run `node dist/cli.js setup` again to rotate the token and update the URL.
+- Run `node dist/cli.js status`; if the token is expired, run `node dist/cli.js setup --token-ttl-hours 24` again and update the URL.

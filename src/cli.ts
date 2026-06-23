@@ -10,7 +10,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { buildDryRunBundle } from "./bundle.js";
 import { defaultChatGptProfileDir, getChatGptBrowserStatus, normalizeChatGptTargetUrl, openChatGptBrowser, sendChatGptPrompt } from "./chatgpt-browser.js";
-import { loadLocalConfig, writeLocalConfig } from "./config.js";
+import { assertTokenNotExpired, getTokenExpiryStatus, loadLocalConfig, writeLocalConfig } from "./config.js";
 import { startHttpMcpServer } from "./http-mcp.js";
 import { createMcpToolHandlers } from "./mcp-tools.js";
 import { runMcpServer } from "./mcp.js";
@@ -53,23 +53,32 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
     const config = await writeLocalConfig(io.cwd, {
       host: readFlag(rest, "--host") ?? "127.0.0.1",
       port: Number(readFlag(rest, "--port") ?? "8787"),
-      token: readFlag(rest, "--token")
+      token: readFlag(rest, "--token"),
+      tokenTtlHours: readNumberFlag(rest, "--token-ttl-hours")
     });
     io.stdout("Saved local ChatGPT Developer Mode MCP profile.");
     io.stdout(`Server URL: ${redactServerUrl(config.server_url)}`);
+    io.stdout(formatTokenExpiryLine(config));
     io.stdout("Full URL is stored in .bridge/config.local.json.");
     return 0;
   }
 
   if (command === "start") {
-    const config = await loadLocalConfig(io.cwd).catch(async () => writeLocalConfig(io.cwd));
+    const config = await loadLocalConfig(io.cwd).catch(async (error) => {
+      if (isMissingFileError(error)) return writeLocalConfig(io.cwd);
+      throw error;
+    });
+    const overrideToken = readFlag(rest, "--token");
+    if (!overrideToken) assertTokenNotExpired(config);
     const running = await startHttpMcpServer({
       cwd: io.cwd,
       host: readFlag(rest, "--host") ?? config.host,
       port: Number(readFlag(rest, "--port") ?? String(config.port)),
-      token: readFlag(rest, "--token") ?? config.token
+      token: overrideToken ?? config.token,
+      tokenExpiresAt: overrideToken ? undefined : config.token_expires_at
     });
     io.stdout(`gptprouse HTTP MCP listening on ${redactServerUrl(running.mcp_url)}`);
+    io.stdout(formatTokenExpiryLine(overrideToken ? {} : config));
     await waitForShutdown(async () => running.close());
     return 0;
   }
@@ -82,7 +91,20 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       io.stdout(serverUrl);
       return 0;
     }
-    io.stdout(JSON.stringify({ server_url: serverUrl, config_path: ".bridge/config.local.json" }, null, 2));
+    const tokenStatus = getTokenExpiryStatus(config);
+    io.stdout(
+      JSON.stringify(
+        {
+          server_url: serverUrl,
+          config_path: ".bridge/config.local.json",
+          token_status: tokenStatus.status,
+          token_expires_at: tokenStatus.token_expires_at ?? null,
+          warnings: tokenStatus.warning ? [tokenStatus.warning] : []
+        },
+        null,
+        2
+      )
+    );
     return 0;
   }
 
@@ -360,7 +382,7 @@ function printHelp(stdout: (line: string) => void): void {
 Commands:
   gptprouse init
   gptprouse doctor
-  gptprouse setup [--host 127.0.0.1] [--port 8787]
+  gptprouse setup [--host 127.0.0.1] [--port 8787] [--token-ttl-hours 24]
   gptprouse start
   gptprouse status [--show-token] [--url-only]
   gptprouse ask-pro --dry-run|--send [--file path] "prompt"
@@ -393,7 +415,13 @@ async function runDoctor(store: BridgeStore, io: CliIO): Promise<number> {
 
   try {
     const config = await loadLocalConfig(io.cwd);
-    io.stdout(`config: ok ${redactServerUrl(config.server_url)}`);
+    const tokenStatus = getTokenExpiryStatus(config);
+    if (tokenStatus.status === "expired") {
+      ok = false;
+      io.stdout(`config: failed token expired at ${tokenStatus.token_expires_at} - run \`gptprouse setup\``);
+    } else {
+      io.stdout(`config: ok ${redactServerUrl(config.server_url)} token_status=${tokenStatus.status}`);
+    }
   } catch (error) {
     if (isMissingFileError(error)) {
       io.stdout("config: missing - run `gptprouse setup`");
@@ -514,7 +542,12 @@ async function printProductCheck(store: BridgeStore, io: CliIO, args: string[]):
 
   try {
     const config = await loadLocalConfig(io.cwd);
-    io.stdout(`config: ok ${redactServerUrl(config.server_url)}`);
+    const tokenStatus = getTokenExpiryStatus(config);
+    if (tokenStatus.status === "expired") {
+      io.stdout(`config: expired - run \`gptprouse setup\``);
+    } else {
+      io.stdout(`config: ok ${redactServerUrl(config.server_url)} token_status=${tokenStatus.status}`);
+    }
   } catch {
     io.stdout("config: missing - run `gptprouse setup`");
   }
@@ -632,6 +665,14 @@ function readFlag(args: string[], flag: string): string | undefined {
   return args[index + 1];
 }
 
+function readNumberFlag(args: string[], flag: string): number | undefined {
+  const raw = readFlag(args, flag);
+  if (raw === undefined) return undefined;
+  const value = Number(raw);
+  if (!Number.isFinite(value)) throw new Error(`${flag} requires a finite number`);
+  return value;
+}
+
 function readRepeatedFlag(args: string[], flag: string): string[] {
   const values: string[] = [];
   for (let index = 0; index < args.length; index += 1) {
@@ -641,6 +682,13 @@ function readRepeatedFlag(args: string[], flag: string): string[] {
     }
   }
   return values;
+}
+
+function formatTokenExpiryLine(config: { token_expires_at?: string }): string {
+  const tokenStatus = getTokenExpiryStatus(config);
+  if (tokenStatus.status === "valid") return `Token expires: ${tokenStatus.token_expires_at}`;
+  if (tokenStatus.status === "expired") return `Token expired: ${tokenStatus.token_expires_at}`;
+  return "Token expires: never (local-only; use --token-ttl-hours before exposing through a tunnel).";
 }
 
 async function ensureBridgeGitignore(cwd: string): Promise<void> {
