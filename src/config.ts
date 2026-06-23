@@ -1,4 +1,4 @@
-import { chmod, lstat, mkdir, readFile, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir } from "node:fs/promises";
 import { randomBytes } from "node:crypto";
 import path from "node:path";
 import { z } from "zod";
@@ -130,9 +130,9 @@ async function ensureBridgeLocalFiles(cwd: string): Promise<void> {
   const ignorePath = path.join(bridgeDir, ".gitignore");
   let current = "";
   try {
-    current = await readFile(ignorePath, "utf8");
-  } catch {
-    // Missing .bridge/.gitignore is fine on first setup.
+    current = await readVerifiedUtf8File(ignorePath, () => assertBridgeGitignoreTargetSafe(cwd));
+  } catch (error) {
+    if (!isMissingFileError(error)) throw error;
   }
   const required = [
     "tasks/*.json",
@@ -145,7 +145,9 @@ async function ensureBridgeLocalFiles(cwd: string): Promise<void> {
   ];
   const lines = new Set(current.split(/\r?\n/).filter(Boolean));
   for (const line of required) lines.add(line);
-  await writeFile(ignorePath, `${Array.from(lines).join("\n")}\n`, "utf8");
+  await writeVerifiedUtf8File(ignorePath, `${Array.from(lines).join("\n")}\n`, () => assertBridgeGitignoreTargetSafe(cwd), {
+    create: true
+  });
 }
 
 async function assertLocalConfigTargetSafe(cwd: string, options: { allowMissing?: boolean } = { allowMissing: true }): Promise<void> {
@@ -157,6 +159,23 @@ async function assertLocalConfigTargetSafe(cwd: string, options: { allowMissing?
     }
     if (!stat.isFile()) {
       throw new Error(".bridge/config.local.json must be a regular file");
+    }
+  } catch (error) {
+    if (isMissingFileError(error) && options.allowMissing !== false) return;
+    throw error;
+  }
+}
+
+async function assertBridgeGitignoreTargetSafe(cwd: string, options: { allowMissing?: boolean } = { allowMissing: true }): Promise<void> {
+  await assertRealBridgeDirectory(cwd);
+  const ignorePath = path.join(cwd, ".bridge", ".gitignore");
+  try {
+    const stat = await lstat(ignorePath);
+    if (stat.isSymbolicLink()) {
+      throw new Error(".bridge/.gitignore must not be a symlink");
+    }
+    if (!stat.isFile()) {
+      throw new Error(".bridge/.gitignore must be a regular file");
     }
   } catch (error) {
     if (isMissingFileError(error) && options.allowMissing !== false) return;

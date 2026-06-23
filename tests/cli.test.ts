@@ -1,4 +1,4 @@
-import { chmod, mkdir, mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, readdir, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -221,6 +221,23 @@ describe("runCli", () => {
     const gitignore = await readFile(path.join(cwd, ".gitignore"), "utf8");
     expect(gitignore).toContain("node_modules/");
     expect(gitignore).toContain("dist/");
+  });
+
+  it("rejects init when the root gitignore is a symlink", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const outside = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-outside-"));
+    const outsideGitignore = path.join(outside, ".gitignore");
+    await writeFile(outsideGitignore, "outside\n", "utf8");
+    await symlink(outsideGitignore, path.join(cwd, ".gitignore"));
+
+    await expect(
+      runCli(["init"], {
+        cwd,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.toThrow(/gitignore|symlink/i);
+    expect(await readFile(outsideGitignore, "utf8")).toBe("outside\n");
   });
 
   it("prints ask-pro dry-run bundles", async () => {

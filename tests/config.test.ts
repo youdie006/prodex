@@ -112,6 +112,18 @@ describe("local bridge config", () => {
     await expect(loadLocalConfig(cwd)).rejects.toThrow(/symlink/);
   });
 
+  it("rejects symlinked bridge gitignore files", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-config-"));
+    const outside = await mkdtemp(path.join(tmpdir(), "gptprouse-config-outside-"));
+    const outsideGitignore = path.join(outside, ".gitignore");
+    await mkdir(path.join(cwd, ".bridge"), { recursive: true });
+    await writeFile(outsideGitignore, "outside\n", "utf8");
+    await symlink(outsideGitignore, path.join(cwd, ".bridge", ".gitignore"));
+
+    await expect(writeLocalConfig(cwd, { port: 9797, token: "test-token" })).rejects.toThrow(/gitignore|symlink/i);
+    expect(await readFile(outsideGitignore, "utf8")).toBe("outside\n");
+  });
+
   it("rejects config writes when the config path is swapped to a symlink before open", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-config-"));
     const outside = await mkdtemp(path.join(tmpdir(), "gptprouse-config-outside-"));

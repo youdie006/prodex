@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { execFile } from "node:child_process";
 import { realpathSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -15,6 +15,7 @@ import { assertTokenNotExpired, getTokenExpiryStatus, loadLocalConfig, writeLoca
 import { startHttpMcpServer } from "./http-mcp.js";
 import { createMcpToolHandlers } from "./mcp-tools.js";
 import { runMcpServer } from "./mcp.js";
+import { readVerifiedUtf8File, writeVerifiedUtf8File } from "./safe-file.js";
 import { ReceiptKindSchema, TaskStatusSchema } from "./schema.js";
 import { BridgeStore, type ListReceiptsInput } from "./store.js";
 
@@ -1376,22 +1377,39 @@ function formatTokenExpiryLine(config: { token_expires_at?: string }): string {
 async function ensureBridgeGitignore(cwd: string): Promise<void> {
   const bridgeIgnorePath = path.join(cwd, ".bridge", ".gitignore");
   await mkdir(path.dirname(bridgeIgnorePath), { recursive: true });
-  await writeFile(
+  await writeVerifiedUtf8File(
     bridgeIgnorePath,
     ["tasks/*.json", "results/*.json", "sessions/*.json", "receipts/*.json", "artifacts/*", "config.local.json", "!.gitignore", ""].join("\n"),
-    "utf8"
+    () => assertGitignoreTargetSafe(bridgeIgnorePath),
+    { create: true }
   );
   const rootIgnorePath = path.join(cwd, ".gitignore");
   let current = "";
   try {
-    current = await readFile(rootIgnorePath, "utf8");
-  } catch {
-    // ignore missing .gitignore
+    current = await readVerifiedUtf8File(rootIgnorePath, () => assertGitignoreTargetSafe(rootIgnorePath));
+  } catch (error) {
+    if (!isMissingFileError(error)) throw error;
   }
   const ignored = new Set(current.split(/\r?\n/).filter(Boolean));
   const additions = ["node_modules/", "dist/"].filter((line) => !ignored.has(line));
   if (additions.length > 0) {
-    await writeFile(rootIgnorePath, `${current}${current && !current.endsWith("\n") ? "\n" : ""}${additions.join("\n")}\n`, "utf8");
+    await writeVerifiedUtf8File(
+      rootIgnorePath,
+      `${current}${current && !current.endsWith("\n") ? "\n" : ""}${additions.join("\n")}\n`,
+      () => assertGitignoreTargetSafe(rootIgnorePath),
+      { create: true }
+    );
+  }
+}
+
+async function assertGitignoreTargetSafe(filePath: string): Promise<void> {
+  try {
+    const stat = await lstat(filePath);
+    if (stat.isSymbolicLink()) throw new Error(`${filePath} must not be a symlink`);
+    if (!stat.isFile()) throw new Error(`${filePath} must be a regular file`);
+  } catch (error) {
+    if (isMissingFileError(error)) return;
+    throw error;
   }
 }
 

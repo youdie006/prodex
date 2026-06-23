@@ -67,6 +67,8 @@ try {
   const doctor = await run(binPath, ["doctor"], { cwd: consumerDir, timeout: 60_000 });
   assertIncludes(doctor.stdout, "mcp_write_smoke: ok", "installed doctor output");
   assertIncludes(doctor.stdout, "http_mcp_smoke: ok", "installed doctor output");
+  assertIncludes(doctor.stdout, "task_flow=ok", "installed doctor output");
+  assertIncludes(doctor.stdout, "finalizers=ok", "installed doctor output");
 
   await smokeInstalledHttpOnboarding(binPath, consumerDir);
   await assertInstalledDocsArePortable(consumerDir);
