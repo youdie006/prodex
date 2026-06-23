@@ -28,13 +28,16 @@
 - [x] Add Streamable HTTP MCP endpoint for ChatGPT Developer Mode-style clients.
 - [x] Add local setup/start/status commands and ignored `.bridge/config.local.json`.
 - [ ] Add write tools only after dry-run and expected-head checks exist.
+  - [ ] `repo_write_file_dry_run`: create a diff receipt without modifying files.
+  - [ ] `repo_write_file_apply`: require path sandbox, expected git HEAD, prior diff receipt id, and preimage hash.
+  - [ ] `repo_stage_reviewed_paths`: only stage paths with matching reviewed receipts.
 
 ## Phase 4 - ChatGPT Project Control
 
 - [x] Add visible-browser blocker handling.
 - [x] Add one-shot Codex -> ChatGPT Pro consult path through `ask-pro --send`.
 - [ ] Add Project/thread selection only after manual confirmation.
-- [ ] Add optional tunnel helper for remote ChatGPT clients.
+- [ ] Add optional tunnel helper for remote ChatGPT clients only after local auth/token expiry warnings are implemented.
 
 ## Safety Checklist
 

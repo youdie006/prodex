@@ -81,6 +81,28 @@ export function buildChromeLaunchArgs(options: Required<ChatGptBrowserOptions>):
   ];
 }
 
+export function inferLoggedInLikely(text: string, visibleButtonLabels: string[] = []): boolean {
+  const hasLoginPrompt =
+    text.includes("Sign up for free") ||
+    text.includes("Log in") ||
+    text.includes("로그인") ||
+    text.includes("무료로 가입");
+  const hasNewChat = text.includes("New chat") || text.includes("새 채팅");
+  const hasProjectNav = text.includes("Projects") || text.includes("프로젝트");
+  const hasProfileButton = visibleButtonLabels.some((label) => /profile|account|프로필|계정/i.test(label));
+  const hasPlanHint = /\bPro\b|Plus|Team|Enterprise|매우 높음|Extra High/i.test(text);
+  return !hasLoginPrompt && hasNewChat && (hasProfileButton || hasProjectNav || hasPlanHint);
+}
+
+export function isUsableChatGptAnswer(answer: string): boolean {
+  const normalized = answer.trim();
+  if (!normalized) return false;
+  if (/^(생각 중|thinking|thought for|thought about)/i.test(normalized.replace(/\.+$/, ""))) {
+    return normalized.split(/\r?\n/).filter(Boolean).length > 1;
+  }
+  return true;
+}
+
 export function openChatGptBrowser(options: ChatGptBrowserOptions = {}): { command: string; args: string[]; profileDir: string; port: number } {
   const command = resolveChromeCommand();
   const port = options.port ?? 9333;
@@ -174,10 +196,10 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
   while (Date.now() - started < timeoutMs) {
     await sleep(1000);
     finalState = await evaluateOnPage<ChatGptAnswerState>(page, answerExpression());
-    if (finalState.answer.trim() && !finalState.generating) break;
+    if (isUsableChatGptAnswer(finalState.answer) && !finalState.generating) break;
   }
   const completed = finalState;
-  if (!completed?.answer.trim()) {
+  if (!completed || !isUsableChatGptAnswer(completed.answer)) {
     throw new Error("Timed out waiting for ChatGPT response.");
   }
   return {
@@ -260,12 +282,21 @@ function statusExpression(): string {
   return `(() => {
     const text = document.body?.innerText || "";
     const lines = text.split(String.fromCharCode(10)).map((line) => line.trim()).filter(Boolean);
+    const visibleButtonLabels = [...document.querySelectorAll('button,a,[role="button"]')]
+      .filter((el) => !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length))
+      .map((el) => (el.innerText || el.getAttribute("aria-label") || el.getAttribute("data-testid") || "").trim())
+      .filter(Boolean);
     const hasComposer = [...document.querySelectorAll('div[role="textbox"], textarea, [contenteditable="true"]')]
       .some((el) => !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length));
+    const hasLoginPrompt = text.includes("Sign up for free") || text.includes("Log in") || text.includes("로그인") || text.includes("무료로 가입");
+    const hasNewChat = text.includes("New chat") || text.includes("새 채팅");
+    const hasProjectNav = text.includes("Projects") || text.includes("프로젝트");
+    const hasProfileButton = visibleButtonLabels.some((label) => /profile|account|프로필|계정/i.test(label));
+    const hasPlanHint = /\\bPro\\b|Plus|Team|Enterprise|매우 높음|Extra High/i.test(text);
     return {
       title: document.title,
       url: location.href,
-      loggedInLikely: !text.includes("Sign up for free") && !text.includes("Log in") && text.includes("New chat"),
+      loggedInLikely: !hasLoginPrompt && hasNewChat && (hasProfileButton || hasProjectNav || hasPlanHint),
       hasComposer,
       modelHints: lines.filter((line) => /GPT|Pro|Thinking|ChatGPT|Extra High|Auto/i.test(line)).slice(0, 30)
     };
@@ -306,11 +337,13 @@ function answerExpression(): string {
     const buttons = [...document.querySelectorAll('button,[role="button"]')]
       .map((node) => (node.innerText || node.getAttribute("aria-label") || node.getAttribute("data-testid") || "").trim())
       .filter(Boolean);
+    const answer = assistant?.text || "";
+    const placeholder = /^(생각 중|thinking|thought for|thought about)/i.test(answer.trim().replace(/\\.+$/, ""));
     return {
       title: document.title,
       url: location.href,
-      answer: assistant?.text || text.slice(-4000),
-      generating: buttons.some((label) => /stop|cancel/i.test(label)),
+      answer: answer || text.slice(-4000),
+      generating: placeholder || buttons.some((label) => /stop|cancel|중지|취소|응답 중지/i.test(label)),
       modelHints: lines.filter((line) => /GPT|Pro|Thinking|ChatGPT|Extra High|Auto/i.test(line)).slice(0, 30)
     };
   })()`;
