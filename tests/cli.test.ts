@@ -1079,6 +1079,18 @@ describe("runCli", () => {
     expect(out).toEqual(["http://127.0.0.1:8789/mcp?gptprouse_token=super-secret-token"]);
   });
 
+  it("prints a setup hint instead of a raw missing-file error before status", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+
+    await expect(
+      runCli(["status"], {
+        cwd,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.toThrow("status requires local MCP setup. Run `gptprouse setup --token-ttl-hours <hours>` first.");
+  });
+
   it("refuses to start with an expired configured token", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
     await writeExpiredLocalConfig(cwd);

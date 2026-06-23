@@ -87,12 +87,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
   }
 
   if (command === "start") {
-    const config = await loadLocalConfig(io.cwd).catch(async (error) => {
-      if (isMissingFileError(error)) {
-        throw new Error("start requires local MCP setup. Run `gptprouse setup --token-ttl-hours <hours>` first.");
-      }
-      throw error;
-    });
+    const config = await loadLocalConfigForCommand(io.cwd, "start");
     const overrideToken = readFlag(rest, "--token");
     if (!overrideToken) assertTokenNotExpired(config);
     const running = await startHttpMcpServer({
@@ -109,7 +104,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
   }
 
   if (command === "status") {
-    const config = await loadLocalConfig(io.cwd);
+    const config = await loadLocalConfigForCommand(io.cwd, "status");
     const showToken = rest.includes("--show-token");
     const serverUrl = showToken ? config.server_url : redactServerUrl(config.server_url);
     if (rest.includes("--url-only")) {
@@ -1242,6 +1237,15 @@ function errorMessage(error: unknown): string {
 
 function isMissingFileError(error: unknown): boolean {
   return typeof error === "object" && error !== null && "code" in error && (error as { code?: unknown }).code === "ENOENT";
+}
+
+async function loadLocalConfigForCommand(cwd: string, command: "start" | "status") {
+  return loadLocalConfig(cwd).catch(async (error) => {
+    if (isMissingFileError(error)) {
+      throw new Error(`${command} requires local MCP setup. Run \`gptprouse setup --token-ttl-hours <hours>\` first.`);
+    }
+    throw error;
+  });
 }
 
 function redactServerUrl(value: string): string {

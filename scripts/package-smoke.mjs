@@ -80,7 +80,7 @@ try {
   }
   await smokeInstalledStdioTaskFinalizers(binPath, consumerDir);
 
-  console.log(`package_smoke: ok tarball=${path.basename(packed.filename)} http_onboarding=ok tunnel_url=ok package_boundary=ok stdio_task_flow=ok stdio_task_finalizers=ok tools=${REQUIRED_MCP_TOOLS.join(",")}`);
+  console.log(`package_smoke: ok tarball=${path.basename(packed.filename)} http_onboarding=ok configured_doctor=ok tunnel_url=ok package_boundary=ok stdio_task_flow=ok stdio_task_finalizers=ok tools=${REQUIRED_MCP_TOOLS.join(",")}`);
 } finally {
   await rm(tmp, { recursive: true, force: true });
 }
@@ -124,6 +124,7 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertIncludes(readme, "For an installed package", "installed README");
   assertIncludes(readme, "gptprouse init", "installed README");
   assertIncludes(readme, "CLI-only", "installed README");
+  assertIncludes(readme, "configured `doctor`", "installed README");
   assertIncludes(httpMcpDoc, "For an installed package", "installed HTTP MCP docs");
   assertIncludes(httpMcpDoc, "gptprouse setup --token-ttl-hours 24", "installed HTTP MCP docs");
   assertIncludes(httpMcpDoc, "Keep `gptprouse start` running", "installed HTTP MCP docs");
@@ -327,6 +328,12 @@ async function smokeInstalledHttpOnboarding(binPath, cwd) {
   assertIncludes(statusOutput, '"token_status": "valid"', "installed status output");
   assertIncludes(statusOutput, '"token_expires_at":', "installed status output");
   assertNotIncludes(statusOutput, token, "installed status output");
+
+  const configuredDoctor = await run(binPath, ["doctor"], { cwd, timeout: 60_000 });
+  assertIncludes(configuredDoctor.stdout, "config: ok", "installed configured doctor output");
+  assertIncludes(configuredDoctor.stdout, "token_status=valid", "installed configured doctor output");
+  assertIncludes(configuredDoctor.stdout, "gptprouse_token=***", "installed configured doctor output");
+  assertNotIncludes(configuredDoctor.stdout, token, "installed configured doctor output");
 
   const pasteReady = await run(binPath, ["status", "--show-token", "--url-only"], { cwd });
   if (pasteReady.stdout.trim() !== expectedUrl) {
