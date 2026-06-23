@@ -75,6 +75,8 @@ node dist/cli.js doctor
 node dist/cli.js pro ask --file README.md "Review the project positioning"
 ```
 
+`init` creates the local `.bridge/` ledger directories and ignore rules. On a source checkout it may also add `node_modules/` and `dist/` to the repo root `.gitignore` so local dependencies and build output stay out of git.
+
 `pro ask` is a dry-run/manual preview by default. It does not drive a logged-in browser unless you explicitly choose the browser adapter.
 
 ## First Pro Login
@@ -125,7 +127,7 @@ node dist/cli.js setup --token-ttl-hours 24
 node dist/cli.js start
 ```
 
-`setup`, `start`, and `status` redact the URL token by default. When you are ready to paste the MCP URL into ChatGPT Developer Mode / Apps, run:
+`setup` writes `.bridge/config.local.json` and ensures `.bridge/.gitignore` covers local task/result/session/receipt/artifact/config files. `setup`, `start`, and `status` redact the URL token by default. When you are ready to paste the MCP URL into ChatGPT Developer Mode / Apps, run:
 
 ```bash
 node dist/cli.js status --show-token --url-only

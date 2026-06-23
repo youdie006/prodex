@@ -31,6 +31,7 @@ node dist/cli.js setup --token-ttl-hours 24
 ```
 
 `setup` writes a local server profile to `.bridge/config.local.json`. The file is ignored by git.
+It also ensures `.bridge/.gitignore` covers local task, result, session, receipt, artifact, and config files.
 
 By default, command output redacts the URL token:
 
