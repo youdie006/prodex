@@ -85,6 +85,7 @@ export async function searchRepo(root: string, query: string, glob?: string): Pr
     "--no-heading",
     "--color",
     "never",
+    ...(glob ? ["--glob", glob] : []),
     "--glob",
     "!.bridge/**",
     "--glob",
@@ -107,9 +108,6 @@ export async function searchRepo(root: string, query: string, glob?: string): Pr
     "!**/dist/**",
     query
   ];
-  if (glob) {
-    args.push("--glob", glob);
-  }
   args.push(".");
   try {
     const { stdout } = await execFileAsync("rg", args, {

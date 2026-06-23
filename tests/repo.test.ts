@@ -93,6 +93,18 @@ describe("repo path policy", () => {
     await expect(searchRepo(root, "SECRET", "services/api/.env.local")).rejects.toThrow(/sensitive/);
   });
 
+  it("does not let wildcard search globs re-include env files", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-repo-"));
+    await mkdir(path.join(root, "services", "api"), { recursive: true });
+    await writeFile(path.join(root, ".env"), "SECRET=root-needle\n", "utf8");
+    await writeFile(path.join(root, "services", "api", ".env.local"), "SECRET=nested-needle\n", "utf8");
+    await writeFile(path.join(root, "README.md"), "SECRET=public-needle\n", "utf8");
+
+    await expect(searchRepo(root, "SECRET", "*.env*")).resolves.toEqual([]);
+    await expect(searchRepo(root, "SECRET", "**/.env*")).resolves.toEqual([]);
+    await expect(searchRepo(root, "SECRET", "**/*")).resolves.toEqual([{ path: "README.md", line: 1, text: "SECRET=public-needle" }]);
+  });
+
   it("blocks nested git, dependency, and build output paths from repo reads and searches", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "gptprouse-repo-"));
     await mkdir(path.join(root, "services", "api", ".git"), { recursive: true });
