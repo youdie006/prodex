@@ -15,6 +15,8 @@ import {
   type Result,
   ResultSchema,
   SCHEMA_VERSION,
+  type Session,
+  SessionSchema,
   type SourceSchema,
   type Task,
   TaskSchema
@@ -51,6 +53,18 @@ export interface CompleteTaskInput {
 export type WriteReceiptInput = Omit<Receipt, "schema_version" | "id" | "created_at" | "metadata"> & {
   metadata?: Record<string, unknown>;
 };
+
+export interface WriteSessionInput {
+  id?: string;
+  direction: Session["direction"];
+  backend: Session["backend"];
+  project?: string;
+  thread?: string;
+  task_id?: string;
+  status?: Session["status"];
+  blocker?: Blocker;
+  warnings?: string[];
+}
 
 export class BridgeStore {
   readonly root: string;
@@ -174,6 +188,33 @@ export class BridgeStore {
 
   async getResult(taskId: string): Promise<Result> {
     return ResultSchema.parse(await this.readRecordJson("results", taskId));
+  }
+
+  async writeSession(input: WriteSessionInput): Promise<Session> {
+    await this.ensure();
+    const id = input.id ?? (await this.uniqueId("sess", input.task_id ?? input.direction, "sessions"));
+    const existing = await this.getSession(id).catch(() => undefined);
+    const timestamp = nowIso();
+    const session = SessionSchema.parse({
+      schema_version: SCHEMA_VERSION,
+      id,
+      direction: input.direction,
+      backend: input.backend,
+      project: input.project,
+      thread: input.thread,
+      task_id: input.task_id,
+      status: input.status ?? "preview",
+      blocker: input.blocker,
+      warnings: input.warnings ?? [],
+      created_at: existing?.created_at ?? timestamp,
+      last_used_at: timestamp
+    });
+    await this.writeRecordJson("sessions", id, session);
+    return session;
+  }
+
+  async getSession(sessionId: string): Promise<Session> {
+    return SessionSchema.parse(await this.readRecordJson("sessions", sessionId));
   }
 
   async getReceipt(receiptId: string): Promise<Receipt> {

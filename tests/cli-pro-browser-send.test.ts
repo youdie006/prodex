@@ -52,8 +52,21 @@ describe("pro browser ask persistence", () => {
     expect(taskId).toBeDefined();
     const task = JSON.parse(await readFile(path.join(cwd, ".bridge", "tasks", `${taskId}.json`), "utf8")) as {
       status: string;
+      provenance: { session_id: string };
     };
     expect(task.status).toBe("blocked");
+    const session = JSON.parse(await readFile(path.join(cwd, ".bridge", "sessions", `${task.provenance.session_id}.json`), "utf8")) as {
+      status: string;
+      task_id?: string;
+      blocker?: { code: string };
+    };
+    expect(session).toEqual(
+      expect.objectContaining({
+        status: "blocked",
+        task_id: taskId,
+        blocker: expect.objectContaining({ code: "browser_send_failed" })
+      })
+    );
     const result = JSON.parse(await readFile(path.join(cwd, ".bridge", "results", `${taskId}.json`), "utf8")) as {
       blocker?: { code: string; retryable: boolean; next_step?: string };
     };
@@ -84,9 +97,23 @@ describe("pro browser ask persistence", () => {
 
     const taskId = out[0].split("\t")[0];
     const task = JSON.parse(await readFile(path.join(cwd, ".bridge", "tasks", `${taskId}.json`), "utf8")) as {
-      provenance: { thread?: string };
+      provenance: { session_id: string; thread?: string };
     };
     expect(task.provenance.thread).toBe("https://chatgpt.com/c/abc");
+    const session = JSON.parse(await readFile(path.join(cwd, ".bridge", "sessions", `${task.provenance.session_id}.json`), "utf8")) as {
+      status: string;
+      task_id?: string;
+      thread?: string;
+      warnings: string[];
+    };
+    expect(session).toEqual(
+      expect.objectContaining({
+        status: "done",
+        task_id: taskId,
+        thread: "https://chatgpt.com/c/abc",
+        warnings: ["model hint observed"]
+      })
+    );
     const result = JSON.parse(await readFile(path.join(cwd, ".bridge", "results", `${taskId}.json`), "utf8")) as {
       artifacts: Array<{ path: string; role: string }>;
     };
@@ -159,5 +186,38 @@ describe("pro browser ask persistence", () => {
     expect(result.status).toBe("done");
     expect(result.summary).toContain("The answer was already received.");
     expect(result.artifacts).toContainEqual(expect.objectContaining({ role: "result" }));
+  });
+
+  it("completes the browser consult when optional session writes fail", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-pro-send-"));
+    sendChatGptPromptMock.mockResolvedValueOnce({
+      url: "https://chatgpt.com/c/abc",
+      title: "ChatGPT",
+      answer: "Session recording can fail without losing the answer.",
+      modelHints: [],
+      warnings: []
+    });
+    setSafeFileTestHooks({
+      beforeOpen: (filePath, operation) => {
+        if (operation === "write" && filePath.includes(`${path.sep}.sess_`)) {
+          throw new Error("forced session write failure");
+        }
+      }
+    });
+    const out: string[] = [];
+    const err: string[] = [];
+
+    await runCli(["pro", "browser", "ask", "Review this"], {
+      cwd,
+      stdout: (line) => out.push(line),
+      stderr: (line) => err.push(line)
+    });
+
+    const taskId = out[0].split("\t")[0];
+    expect(out[0]).toContain("\tdone\t");
+    await expect(readFile(path.join(cwd, ".bridge", "results", `${taskId}.json`), "utf8")).resolves.toContain(
+      "Session recording can fail without losing the answer."
+    );
+    expect(err.join("\n")).toContain("session_record_warning");
   });
 });

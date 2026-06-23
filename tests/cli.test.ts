@@ -1,10 +1,15 @@
-import { chmod, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { runCli } from "../src/cli.js";
+import { setSafeFileTestHooks } from "../src/safe-file.js";
 
 describe("runCli", () => {
+  afterEach(() => {
+    setSafeFileTestHooks({});
+  });
+
   it("prints the package version from version commands and help", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
     const packageJson = JSON.parse(await readFile(path.resolve(import.meta.dirname, "..", "package.json"), "utf8")) as {
@@ -61,6 +66,60 @@ describe("runCli", () => {
 
     expect(out.join("\n")).toContain("DRY RUN");
     expect(out.join("\n")).toContain("## File: notes.md");
+  });
+
+  it("records ask-pro dry-run previews as consult sessions", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const out: string[] = [];
+
+    await runCli(["ask-pro", "--dry-run", "Check this"], {
+      cwd,
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    const sessionId = out[0].match(/DRY RUN (sess_[^\s]+)/)?.[1];
+    expect(sessionId).toBeDefined();
+    const session = JSON.parse(await readFile(path.join(cwd, ".bridge", "sessions", `${sessionId}.json`), "utf8")) as {
+      status: string;
+      direction: string;
+      backend: string;
+    };
+    expect(session).toEqual(
+      expect.objectContaining({
+        status: "preview",
+        direction: "codex_to_chatgpt",
+        backend: "manual"
+      })
+    );
+  });
+
+  it("prints ask-pro dry-run bundles when optional session recording fails", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    setSafeFileTestHooks({
+      beforeOpen: (filePath, operation) => {
+        if (operation === "write" && filePath.includes(`${path.sep}.sess_`)) {
+          throw new Error("forced session write failure");
+        }
+      }
+    });
+    const out: string[] = [];
+    const err: string[] = [];
+
+    await runCli(["ask-pro", "--dry-run", "Check this"], {
+      cwd,
+      stdout: (line) => out.push(line),
+      stderr: (line) => err.push(line)
+    });
+
+    expect(out.join("\n")).toContain("DRY RUN");
+    expect(out.join("\n")).toContain("This preview was not sent anywhere.");
+    expect(err.join("\n")).toContain("session_record_warning");
+    const receiptFiles = await readdir(path.join(cwd, ".bridge", "receipts"));
+    const receipts = await Promise.all(
+      receiptFiles.map(async (file) => JSON.parse(await readFile(path.join(cwd, ".bridge", "receipts", file), "utf8")) as { kind: string })
+    );
+    expect(receipts).toContainEqual(expect.objectContaining({ kind: "consult_preview" }));
   });
 
   it("lists and shows GPT Pro answers with the short pro command", async () => {

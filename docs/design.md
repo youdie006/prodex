@@ -105,7 +105,7 @@ Phase 1:
 Phase 2:
 
 - Optional visible browser backend for Codex -> ChatGPT Pro consults through `pro browser login/check/ask`.
-- Explicit blocker handling, write-ahead task records, blocked consult results on browser failure, and answer artifacts before result finalization.
+- Explicit blocker handling, write-ahead task/session records, blocked consult results on browser failure, and answer artifacts before result finalization.
 - Confirmed target URLs for specific ChatGPT Project/thread sends: the visible tab must already be on the user-confirmed ChatGPT URL, otherwise the send is refused.
 
 Phase 3:

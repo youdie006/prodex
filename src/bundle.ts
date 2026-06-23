@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { makeBridgeId, nowIso, SCHEMA_VERSION, type BridgeFile } from "./schema.js";
 import { readRepoFile } from "./repo.js";
 
@@ -34,7 +35,7 @@ export async function buildDryRunBundle(root: string, input: DryRunBundleInput):
   }
   return {
     schema_version: SCHEMA_VERSION,
-    id: makeBridgeId("sess", input.prompt),
+    id: makeBridgeId("sess", `${randomUUID().slice(0, 8)}-${input.prompt}`),
     mode: "manual_copy",
     prompt: input.prompt,
     files,

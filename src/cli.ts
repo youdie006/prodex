@@ -382,6 +382,19 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
         }
       });
       await store.claimTask(task.id, "chatgpt-pro");
+      await writeSessionBestEffort(
+        store,
+        {
+          id: bundle.id,
+          direction: "codex_to_chatgpt",
+          backend: "chatgpt-control",
+          task_id: task.id,
+          thread: normalizedTargetUrl,
+          status: "running",
+          warnings: []
+        },
+        io
+      );
       let consult: Awaited<ReturnType<typeof sendChatGptPrompt>>;
       try {
         consult = await sendChatGptPrompt({
@@ -404,6 +417,25 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
               next_step: "Resolve the visible browser issue manually, then rerun the consult if needed."
             }
           });
+          await writeSessionBestEffort(
+            store,
+            {
+              id: bundle.id,
+              direction: "codex_to_chatgpt",
+              backend: "chatgpt-control",
+              task_id: task.id,
+              thread: normalizedTargetUrl,
+              status: "blocked",
+              blocker: {
+                code: "browser_send_failed",
+                message,
+                retryable: true,
+                next_step: "Resolve the visible browser issue manually, then rerun the consult if needed."
+              },
+              warnings: []
+            },
+            io
+          );
         } catch (recordError) {
           throw new Error(`${message} (also failed to record blocked consult: ${errorMessage(recordError)})`);
         }
@@ -433,10 +465,34 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
           warnings: consult.warnings
         }
       });
+      await writeSessionBestEffort(
+        store,
+        {
+          id: bundle.id,
+          direction: "codex_to_chatgpt",
+          backend: "chatgpt-control",
+          task_id: task.id,
+          thread: consult.url,
+          status: "done",
+          warnings: consult.warnings
+        },
+        io
+      );
       io.stdout(`${result.task_id}\t${result.status}\t${consult.url}`);
       io.stdout("");
       io.stdout(result.summary);
     } else {
+      await writeSessionBestEffort(
+        store,
+        {
+          id: bundle.id,
+          direction: "codex_to_chatgpt",
+          backend: "manual",
+          status: "preview",
+          warnings: []
+        },
+        io
+      );
       await store.writeReceipt({
         kind: "consult_preview",
         session_id: bundle.id,
@@ -737,6 +793,18 @@ function formatProConsultArtifact(consult: Awaited<ReturnType<typeof sendChatGpt
   }
   lines.push("## Answer", "", consult.answer.trim(), "");
   return lines.join("\n");
+}
+
+async function writeSessionBestEffort(
+  store: BridgeStore,
+  input: Parameters<BridgeStore["writeSession"]>[0],
+  io: CliIO
+): Promise<void> {
+  try {
+    await store.writeSession(input);
+  } catch (error) {
+    io.stderr(`session_record_warning: ${errorMessage(error)}`);
+  }
 }
 
 function firstLine(value: string): string {
