@@ -105,8 +105,13 @@ async function handlePost(
 ): Promise<void> {
   const body = await readJsonBody(req, requestBodyLimitBytes);
   const sessionId = headerValue(req.headers["mcp-session-id"]);
-  if (sessionId && transports.has(sessionId)) {
-    await transports.get(sessionId)!.transport.handleRequest(req, res, body);
+  if (sessionId) {
+    const entry = transports.get(sessionId);
+    if (!entry) {
+      writeJson(res, 404, { error: "session_not_found" });
+      return;
+    }
+    await entry.transport.handleRequest(req, res, body);
     return;
   }
   if (!sessionId && isInitializeRequest(body)) {
@@ -141,8 +146,12 @@ async function handleSessionRequest(
   transports: Map<string, TransportEntry>
 ): Promise<void> {
   const sessionId = headerValue(req.headers["mcp-session-id"]);
-  if (!sessionId || !transports.has(sessionId)) {
+  if (!sessionId) {
     writeJson(res, 400, { error: "invalid_or_missing_session" });
+    return;
+  }
+  if (!transports.has(sessionId)) {
+    writeJson(res, 404, { error: "session_not_found" });
     return;
   }
   await transports.get(sessionId)!.transport.handleRequest(req, res);

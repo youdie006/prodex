@@ -202,6 +202,14 @@ export function selectChatGptPage(pages: DevtoolsPage[], targetUrl?: string): De
   return chatGptPages.find((page) => chatGptUrlsReferToSameTarget(page.url, targetUrl));
 }
 
+export function assertVisibleChatGptTab(visibilityState: string, url: string, targetUrl?: string): void {
+  if (visibilityState === "visible") return;
+  if (targetUrl) {
+    throw new Error(`Confirmed ChatGPT target is open but not the active visible tab. Select ${targetUrl} in the dedicated browser and retry.`);
+  }
+  throw new Error(`Selected ChatGPT tab is not the active visible tab. Select ${url} in the dedicated browser or pass --target-url with --confirm-target.`);
+}
+
 export function openChatGptBrowser(options: ChatGptBrowserOptions = {}): { command: string; args: string[]; profileDir: string; port: number } {
   const command = resolveChromeCommand();
   const port = options.port ?? 9333;
@@ -291,9 +299,7 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
       `ChatGPT tab is not at the confirmed target URL. Open ${normalizedTargetUrl} in the visible browser and retry. Current: ${status.url}`
     );
   }
-  if (normalizedTargetUrl && status.visibilityState !== "visible") {
-    throw new Error(`Confirmed ChatGPT target is open but not the active visible tab. Select ${normalizedTargetUrl} in the dedicated browser and retry.`);
-  }
+  assertVisibleChatGptTab(status.visibilityState, status.url, normalizedTargetUrl);
   const beforeSubmit = await evaluateOnPage<ChatGptAnswerState>(page, answerExpression());
   const cdp = await connectCdp(page.webSocketDebuggerUrl);
   try {

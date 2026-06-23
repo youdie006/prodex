@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildChromeLaunchArgs,
+  assertVisibleChatGptTab,
   chatGptUrlsReferToSameTarget,
   computePromptAcceptanceDeadline,
   detectChatGptBlocker,
@@ -112,6 +113,11 @@ describe("ChatGPT browser adapter", () => {
 
     expect(selectChatGptPage(pages, "https://chatgpt.com/c/target")?.url).toBe("https://chatgpt.com/c/target?model=gpt-5");
     expect(selectChatGptPage(pages)?.url).toBe("https://chatgpt.com/c/first");
+  });
+
+  it("requires a visible ChatGPT tab before sending prompts", () => {
+    expect(() => assertVisibleChatGptTab("hidden", "https://chatgpt.com/c/background")).toThrow(/active visible tab/i);
+    expect(() => assertVisibleChatGptTab("visible", "https://chatgpt.com/c/current")).not.toThrow();
   });
 });
 

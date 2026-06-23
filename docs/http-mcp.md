@@ -22,13 +22,21 @@ HTTP MCP requests are bounded: malformed JSON returns `400`, and request bodies 
 
 Requires Node.js 20 or newer and `git` on PATH.
 
-From the repo root:
+For an installed package:
+
+```bash
+gptprouse setup --token-ttl-hours 24
+```
+
+For a source checkout:
 
 ```bash
 npm install
 npm run build
 node dist/cli.js setup --token-ttl-hours 24
 ```
+
+The examples below use the installed `gptprouse` binary. In a source checkout, replace `gptprouse` with `node dist/cli.js` after building.
 
 `setup` writes a local server profile to `.bridge/config.local.json`. The file is ignored by git.
 It also ensures `.bridge/.gitignore` covers local task, result, session, receipt, artifact, and config files.
@@ -42,7 +50,7 @@ gptprouse_token=***
 `--token-ttl-hours` is optional for strictly local use. If you omit it, `status` reports `token_status: "none"` and the token does not expire. Before exposing this server through any tunnel, rerun setup with a short TTL:
 
 ```bash
-node dist/cli.js setup --token-ttl-hours 24
+gptprouse setup --token-ttl-hours 24
 ```
 
 Expired tokens are rejected by `gptprouse start` and by the HTTP MCP server. Rerun `setup` to rotate the URL.
@@ -52,13 +60,13 @@ Expired tokens are rejected by `gptprouse start` and by the HTTP MCP server. Rer
 Run this in a terminal and keep it running while ChatGPT is using the bridge:
 
 ```bash
-node dist/cli.js start
+gptprouse start
 ```
 
 In another terminal, get the paste-ready MCP URL:
 
 ```bash
-node dist/cli.js status --show-token --url-only
+gptprouse status --show-token --url-only
 ```
 
 Only use `--show-token` when you are ready to paste the URL into your own trusted private MCP client configuration.
@@ -68,21 +76,21 @@ Only use `--show-token` when you are ready to paste the URL into your own truste
 In your ChatGPT Project MCP or Developer Mode setup, add the URL from:
 
 ```bash
-node dist/cli.js status --show-token --url-only
+gptprouse status --show-token --url-only
 ```
 
-Use it as a remote Streamable HTTP MCP server URL. Keep `node dist/cli.js start` running. Treat the token-bearing URL like a password and rotate it with `setup` when you no longer need that URL.
+Use it as a remote Streamable HTTP MCP server URL. Keep `gptprouse start` running. Treat the token-bearing URL like a password and rotate it with `setup` when you no longer need that URL.
 
 If the ChatGPT app runtime cannot reach `127.0.0.1`, this project intentionally does not create a tunnel automatically. Put your own explicit tunnel in front of the local server only after you understand the token exposure risk, and create a short-lived replacement URL first:
 
 ```bash
-node dist/cli.js setup --token-ttl-hours 24
+gptprouse setup --token-ttl-hours 24
 ```
 
 After you create your own tunnel, ask `gptprouse` to format the public MCP URL. This command only rewrites the URL; it does not start or manage any tunnel process:
 
 ```bash
-node dist/cli.js tunnel url --public-url "https://your-tunnel.example" --show-token --url-only
+gptprouse tunnel url --public-url "https://your-tunnel.example" --show-token --url-only
 ```
 
 `tunnel url` refuses non-expiring or expired tokens. By default it redacts the token; use `--show-token` only when you are ready to paste the URL into a trusted private MCP client.
@@ -128,14 +136,14 @@ There is no direct ungated write tool and no shell execution tool.
 Run the local health check:
 
 ```bash
-node dist/cli.js doctor
+gptprouse doctor
 ```
 
 `doctor` stays local. It verifies `.bridge`, redacted config loading, receipt-gated write/apply/stage behavior in a temporary git repo, and the real HTTP MCP tool catalog.
 
 If ChatGPT cannot connect:
 
-- Confirm `node dist/cli.js start` is still running.
+- Confirm `gptprouse start` is still running.
 - Confirm you pasted the full `status --show-token --url-only` URL.
 - Confirm the client can reach the host in that URL.
-- Run `node dist/cli.js status`; if the token is expired, run `node dist/cli.js setup --token-ttl-hours 24` again and update the URL.
+- Run `gptprouse status`; if the token is expired, run `gptprouse setup --token-ttl-hours 24` again and update the URL.

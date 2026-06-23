@@ -101,9 +101,16 @@ function assertPackageFileScope(files) {
 async function assertInstalledDocsArePortable(consumerDir) {
   const packageDir = path.join(consumerDir, "node_modules", "gptprouse");
   const readme = await readFile(path.join(packageDir, "README.md"), "utf8");
+  const httpMcpDoc = await readFile(path.join(packageDir, "docs", "http-mcp.md"), "utf8");
   const claudeDoc = await readFile(path.join(packageDir, "docs", "claude.md"), "utf8");
   assertNotIncludes(readme, "/absolute/path/to/project", "installed README");
+  assertNotIncludes(httpMcpDoc, "/absolute/path/to/project", "installed HTTP MCP docs");
   assertNotIncludes(claudeDoc, "/absolute/path/to/project", "installed Claude docs");
+  assertIncludes(readme, "For an installed package", "installed README");
+  assertIncludes(readme, "gptprouse init", "installed README");
+  assertIncludes(httpMcpDoc, "For an installed package", "installed HTTP MCP docs");
+  assertIncludes(httpMcpDoc, "gptprouse setup --token-ttl-hours 24", "installed HTTP MCP docs");
+  assertIncludes(httpMcpDoc, "Keep `gptprouse start` running", "installed HTTP MCP docs");
 }
 
 async function smokeStdioMcp(binPath, cwd) {

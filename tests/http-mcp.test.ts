@@ -104,6 +104,29 @@ describe("HTTP MCP server", () => {
     expect(body.error.message).toContain("no valid MCP session");
   });
 
+  it("returns not found for stale MCP session ids so clients can reinitialize", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-http-mcp-"));
+    running = await startHttpMcpServer({ cwd, host: "127.0.0.1", port: 0, token: "test-token" });
+
+    const post = await fetch(`${running.url}/mcp?gptprouse_token=test-token`, {
+      method: "POST",
+      headers: { "mcp-session-id": "stale-session" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} })
+    });
+    const get = await fetch(`${running.url}/mcp?gptprouse_token=test-token`, {
+      method: "GET",
+      headers: { "mcp-session-id": "stale-session" }
+    });
+    const del = await fetch(`${running.url}/mcp?gptprouse_token=test-token`, {
+      method: "DELETE",
+      headers: { "mcp-session-id": "stale-session" }
+    });
+
+    expect(post.status).toBe(404);
+    expect(get.status).toBe(404);
+    expect(del.status).toBe(404);
+  });
+
   it("rejects requests that use an expired configured URL token", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-http-mcp-"));
     running = await startHttpMcpServer({

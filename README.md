@@ -67,6 +67,16 @@ Not implemented:
 
 Requires Node.js 20 or newer and `git` on PATH. The optional visible-browser adapter also needs a Chromium-family browser (`google-chrome`, `chromium`, `chromium-browser`, `microsoft-edge`, `brave-browser`) or `GPTPROUSE_CHROME=/path/to/browser`.
 
+For an installed package:
+
+```bash
+gptprouse init
+gptprouse doctor
+gptprouse pro ask --file README.md "Review the project positioning"
+```
+
+For a source checkout:
+
 ```bash
 npm install
 npm run build
@@ -74,6 +84,8 @@ node dist/cli.js init
 node dist/cli.js doctor
 node dist/cli.js pro ask --file README.md "Review the project positioning"
 ```
+
+The examples below use the installed `gptprouse` binary. In a source checkout, replace `gptprouse` with `node dist/cli.js` after building.
 
 `init` creates the local `.bridge/` ledger directories and ignore rules. On a source checkout it may also add `node_modules/` and `dist/` to the repo root `.gitignore` so local dependencies and build output stay out of git.
 
@@ -84,9 +96,9 @@ node dist/cli.js pro ask --file README.md "Review the project positioning"
 Use this only when you explicitly want to use your logged-in ChatGPT Pro web session.
 
 ```bash
-node dist/cli.js pro browser login
-node dist/cli.js pro browser check
-node dist/cli.js pro browser smoke
+gptprouse pro browser login
+gptprouse pro browser check
+gptprouse pro browser smoke
 ```
 
 What happens:
@@ -106,8 +118,8 @@ You can close that Chrome window after login. The next time you need it, run `pr
 Actual explicit visible-browser consult:
 
 ```bash
-node dist/cli.js pro browser ask --file README.md "Review the project positioning"
-node dist/cli.js pro latest
+gptprouse pro browser ask --file README.md "Review the project positioning"
+gptprouse pro latest
 ```
 
 This uses the currently available ChatGPT web session and model selection. It is not a hidden API client, and it does not read cookies, tokens, localStorage, or sessionStorage.
@@ -115,7 +127,7 @@ This uses the currently available ChatGPT web session and model selection. It is
 To send into a specific visible Project or thread, open that ChatGPT URL in the dedicated browser first, confirm it is the right destination, then pass the same URL:
 
 ```bash
-node dist/cli.js pro browser ask --target-url "https://chatgpt.com/c/..." --confirm-target --file README.md "Review this in this thread"
+gptprouse pro browser ask --target-url "https://chatgpt.com/c/..." --confirm-target --file README.md "Review this in this thread"
 ```
 
 `gptprouse` does not silently switch Projects or threads. If the visible ChatGPT tab is not already on the confirmed URL, the send is refused.
@@ -123,14 +135,14 @@ node dist/cli.js pro browser ask --target-url "https://chatgpt.com/c/..." --conf
 For optional ChatGPT Project -> local handoff, start the HTTP MCP bridge:
 
 ```bash
-node dist/cli.js setup --token-ttl-hours 24
-node dist/cli.js start
+gptprouse setup --token-ttl-hours 24
+gptprouse start
 ```
 
 `setup` writes `.bridge/config.local.json` and ensures `.bridge/.gitignore` covers local task/result/session/receipt/artifact/config files. `setup`, `start`, and `status` redact the URL token by default. When you are ready to paste the MCP URL into ChatGPT Developer Mode / Apps, run:
 
 ```bash
-node dist/cli.js status --show-token --url-only
+gptprouse status --show-token --url-only
 ```
 
 The URL token is stored only in `.bridge/config.local.json`, which is ignored by git. Treat the full `--show-token` URL like a password: paste it only into your own private ChatGPT Project/App configuration, then rotate it with `setup` when you no longer need that URL. If you omit `--token-ttl-hours`, the token does not expire; keep that local-only and rerun `setup --token-ttl-hours <hours>` before putting any tunnel in front of it.
@@ -138,7 +150,7 @@ The URL token is stored only in `.bridge/config.local.json`, which is ignored by
 If ChatGPT cannot reach `127.0.0.1` from its app runtime, keep `gptprouse start` local and put your own tunnel in front of it only after creating a short-lived token. `gptprouse` does not create the tunnel for you, but it can format the public MCP URL safely:
 
 ```bash
-node dist/cli.js tunnel url --public-url "https://your-tunnel.example" --show-token --url-only
+gptprouse tunnel url --public-url "https://your-tunnel.example" --show-token --url-only
 ```
 
 See [docs/http-mcp.md](docs/http-mcp.md) for the full ChatGPT Project HTTP MCP setup flow and safety notes.
@@ -154,10 +166,10 @@ The MCP write path is intentionally narrow:
 For local task-bus smoke tests:
 
 ```bash
-node dist/cli.js doctor
-node dist/cli.js tasks create --title "Review plan" --prompt "Review this architecture"
-node dist/cli.js tasks list
-node dist/cli.js pro ask --dry-run --file README.md "Review the project positioning"
+gptprouse doctor
+gptprouse tasks create --title "Review plan" --prompt "Review this architecture"
+gptprouse tasks list
+gptprouse pro ask --dry-run --file README.md "Review the project positioning"
 ```
 
 `doctor` stays local: it does not open ChatGPT or a browser. It creates an isolated temp git repo for the write/apply/stage smoke, then starts a loopback HTTP MCP server on a random port and confirms the expected bridge/repo tools are visible over the MCP protocol.
