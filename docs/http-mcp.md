@@ -105,6 +105,8 @@ The HTTP server exposes the same tool catalog as stdio MCP:
 - `bridge_claim_task`
 - `bridge_list_results`
 - `bridge_fetch_result`
+- `bridge_list_sessions`
+- `bridge_get_session`
 - `repo_read_file`
 - `repo_search`
 - `repo_write_file_dry_run`

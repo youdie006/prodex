@@ -35,6 +35,24 @@ describe("MCP tool handlers", () => {
     expect(listed.tasks.map((task) => task.title)).toContain("From Claude");
   });
 
+  it("lists and fetches consult sessions through bridge handlers", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    const store = new BridgeStore(cwd);
+    const session = await store.writeSession({
+      id: "sess_20990101_000000_mcp-session",
+      direction: "codex_to_chatgpt",
+      backend: "manual",
+      status: "preview"
+    });
+    const handlers = createMcpToolHandlers({ cwd });
+
+    const listed = await handlers.bridge_list_sessions({ status: "preview" });
+    const fetched = await handlers.bridge_get_session({ session_id: session.id });
+
+    expect(listed.sessions.map((item) => item.id)).toEqual([session.id]);
+    expect(fetched.session).toEqual(expect.objectContaining({ id: session.id, status: "preview" }));
+  });
+
   it("exposes read-only repo file access", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
     await writeFile(path.join(cwd, "README.md"), "alpha\nbeta\n", "utf8");

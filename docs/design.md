@@ -31,12 +31,18 @@ gptprouse start
 For Codex/Claude/ChatGPT -> local:
 
 - `bridge_create_task`
+- `bridge_list_tasks`
 - `bridge_get_task`
+- `bridge_claim_task`
 - `bridge_list_results`
 - `bridge_fetch_result`
+- `bridge_list_sessions`
+- `bridge_get_session`
 - `repo_read_file`
 - `repo_search`
-- `repo_git_review`
+- `repo_write_file_dry_run`
+- `repo_write_file_apply`
+- `repo_stage_reviewed_paths`
 
 Mutating tools should be opt-in and receipt-based:
 

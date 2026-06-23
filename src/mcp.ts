@@ -87,6 +87,24 @@ export function createServer(cwd = process.cwd(), options: CreateMcpServerOption
   );
 
   server.registerTool(
+    "bridge_list_sessions",
+    {
+      description: "List durable consult/session records.",
+      inputSchema: { status: z.enum(["preview", "running", "done", "blocked"]).optional() }
+    },
+    async (input) => asText(await handlers.bridge_list_sessions(input))
+  );
+
+  server.registerTool(
+    "bridge_get_session",
+    {
+      description: "Fetch one consult/session record by id.",
+      inputSchema: { session_id: z.string() }
+    },
+    async (input) => asText(await handlers.bridge_get_session(input))
+  );
+
+  server.registerTool(
     "repo_read_file",
     {
       description: "Read a repo-relative text file with line bounds. Absolute paths and traversal are rejected.",

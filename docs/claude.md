@@ -1,6 +1,6 @@
 # Claude Setup
 
-`gptprouse` exposes a stdio MCP server so Claude can create bridge tasks, inspect task/results, read/search the current repo, and request receipt-gated text-file edits.
+`gptprouse` exposes a stdio MCP server so Claude can create bridge tasks, inspect task/result/session records, read/search the current repo, and request receipt-gated text-file edits.
 
 ## Build
 
@@ -66,6 +66,8 @@ The server currently exposes ledger-first tools:
 - `bridge_claim_task`
 - `bridge_list_results`
 - `bridge_fetch_result`
+- `bridge_list_sessions`
+- `bridge_get_session`
 - `repo_read_file`
 - `repo_search`
 - `repo_write_file_dry_run`

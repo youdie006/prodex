@@ -25,6 +25,8 @@ describe("HTTP MCP server", () => {
     await client.close();
 
     expect(tools.tools.map((tool) => tool.name)).toContain("bridge_create_task");
+    expect(tools.tools.map((tool) => tool.name)).toContain("bridge_list_sessions");
+    expect(tools.tools.map((tool) => tool.name)).toContain("bridge_get_session");
     expect(tools.tools.map((tool) => tool.name)).toContain("repo_search");
     expect(tools.tools.map((tool) => tool.name)).toContain("repo_write_file_dry_run");
     expect(tools.tools.map((tool) => tool.name)).toContain("repo_write_file_apply");

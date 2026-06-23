@@ -44,6 +44,7 @@
 ## Phase 4 - Optional Inbound MCP
 
 - [x] Implement MCP server exposing task creation and result fetch.
+- [x] Expose session list/fetch over stdio and HTTP MCP.
 - [x] Add repo read/search with path sandbox.
 - [x] Add Streamable HTTP MCP endpoint for ChatGPT Developer Mode-style clients.
 - [x] Verify Streamable HTTP MCP tool catalog from `doctor`.

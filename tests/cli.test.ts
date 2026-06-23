@@ -697,6 +697,8 @@ describe("runCli", () => {
     expect(text).toContain("staged=notes.md");
     expect(text).toContain("http_mcp_smoke: ok");
     expect(text).toContain("bridge_create_task");
+    expect(text).toContain("bridge_list_sessions");
+    expect(text).toContain("bridge_get_session");
     expect(text).toContain("repo_stage_reviewed_paths");
   });
 

@@ -54,6 +54,14 @@ export function createMcpToolHandlers(context: McpToolContext) {
       return { result: await store.getResult(input.task_id) };
     },
 
+    async bridge_list_sessions(input: { status?: "preview" | "running" | "done" | "blocked" }) {
+      return { sessions: await store.listSessions(input.status) };
+    },
+
+    async bridge_get_session(input: { session_id: string }) {
+      return { session: await store.getSession(input.session_id) };
+    },
+
     async repo_read_file(input: { path: string; start_line?: number; max_lines?: number }) {
       return readRepoFile(context.cwd, input.path, {
         startLine: input.start_line,
