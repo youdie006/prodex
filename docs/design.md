@@ -42,7 +42,7 @@ Mutating tools should be opt-in and receipt-based:
 - `repo_write_file_apply`
 - `repo_stage_reviewed_paths`
 
-Current implementation exposes `repo_write_file_dry_run` and `repo_write_file_apply` for existing text-file replacement only. It requires a matching git HEAD and preimage hash before apply. `repo_stage_reviewed_paths` stages only paths backed by matching applied write receipts.
+Current implementation exposes `repo_write_file_dry_run` and `repo_write_file_apply` for existing text-file replacement only. It requires a matching git HEAD and preimage hash before apply. Dry-run receipts keep hashes and diff in metadata while replacement text is stored under `.bridge/artifacts/repo-writes/`. `repo_stage_reviewed_paths` stages only paths backed by matching applied write receipts.
 
 ## Data Model
 

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -5,6 +6,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
 import { createMcpToolHandlers } from "../src/mcp-tools.js";
+import { BridgeStore } from "../src/store.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -62,6 +64,78 @@ describe("MCP tool handlers", () => {
 
     expect(applied.receipt.kind).toBe("repo_write_applied");
     expect(await readFile(path.join(cwd, "notes.md"), "utf8")).toBe("new\n");
+  });
+
+  it("stores write dry-run replacement content as an artifact instead of receipt metadata", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    await writeFile(path.join(cwd, "notes.md"), "old\n", "utf8");
+    const head = await initGitRepo(cwd);
+    const handlers = createMcpToolHandlers({ cwd });
+
+    const dryRun = await handlers.repo_write_file_dry_run({
+      path: "notes.md",
+      content: "new\n",
+      expected_head: head
+    });
+    const storedReceipt = JSON.parse(
+      await readFile(path.join(cwd, ".bridge", "receipts", `${dryRun.receipt.id}.json`), "utf8")
+    );
+
+    expect(storedReceipt.metadata.new_content).toBeUndefined();
+    expect(storedReceipt.metadata.new_content_artifact).toMatch(/^\.bridge\/artifacts\/repo-writes\/[a-f0-9]{64}\.txt$/);
+    expect(await readFile(path.join(cwd, storedReceipt.metadata.new_content_artifact), "utf8")).toBe("new\n");
+  });
+
+  it("rejects write apply when the stored payload artifact was changed", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    await writeFile(path.join(cwd, "notes.md"), "old\n", "utf8");
+    const head = await initGitRepo(cwd);
+    const handlers = createMcpToolHandlers({ cwd });
+    const dryRun = await handlers.repo_write_file_dry_run({
+      path: "notes.md",
+      content: "new\n",
+      expected_head: head
+    });
+    const storedReceipt = JSON.parse(
+      await readFile(path.join(cwd, ".bridge", "receipts", `${dryRun.receipt.id}.json`), "utf8")
+    );
+    await writeFile(path.join(cwd, storedReceipt.metadata.new_content_artifact), "tampered\n", "utf8");
+
+    await expect(
+      handlers.repo_write_file_apply({
+        receipt_id: dryRun.receipt.id,
+        expected_head: head,
+        preimage_sha256: dryRun.preimage_sha256
+      })
+    ).rejects.toThrow(/artifact content/);
+  });
+
+  it("applies legacy dry-run receipts that stored replacement content inline", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    await writeFile(path.join(cwd, "notes.md"), "old\n", "utf8");
+    const head = await initGitRepo(cwd);
+    const store = new BridgeStore(cwd);
+    const legacyReceipt = await store.writeReceipt({
+      kind: "repo_write_dry_run",
+      summary: "Legacy dry-run write for notes.md",
+      metadata: {
+        path: "notes.md",
+        expected_head: head,
+        preimage_sha256: sha256("old\n"),
+        new_sha256: sha256("legacy\n"),
+        diff: "--- a/notes.md\n+++ b/notes.md\n-old\n+legacy",
+        new_content: "legacy\n"
+      }
+    });
+    const handlers = createMcpToolHandlers({ cwd });
+
+    await handlers.repo_write_file_apply({
+      receipt_id: legacyReceipt.id,
+      expected_head: head,
+      preimage_sha256: sha256("old\n")
+    });
+
+    expect(await readFile(path.join(cwd, "notes.md"), "utf8")).toBe("legacy\n");
   });
 
   it("rejects write apply when the file preimage changed after dry-run", async () => {
@@ -202,4 +276,8 @@ async function initGitRepo(cwd: string): Promise<string> {
   await execFileAsync("git", ["commit", "-m", "initial"], { cwd });
   const { stdout } = await execFileAsync("git", ["rev-parse", "HEAD"], { cwd });
   return stdout.trim();
+}
+
+function sha256(value: string): string {
+  return createHash("sha256").update(value, "utf8").digest("hex");
 }

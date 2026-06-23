@@ -35,7 +35,7 @@
   - [x] `repo_write_file_dry_run`: create a diff receipt without modifying files.
   - [x] `repo_write_file_apply`: require path sandbox, expected git HEAD, prior diff receipt id, and preimage hash.
   - [x] `repo_stage_reviewed_paths`: only stage paths with matching reviewed receipts.
-  - [ ] Move large write payloads from receipt metadata into `.bridge/artifacts` if 1 MB text receipts become noisy.
+  - [x] Move write payloads from receipt metadata into `.bridge/artifacts` so receipts stay reviewable.
 
 ## Phase 4 - Optional Inbound MCP
 

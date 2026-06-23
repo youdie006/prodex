@@ -1,4 +1,4 @@
-import { mkdtemp, readFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readFile, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -38,5 +38,91 @@ describe("BridgeStore", () => {
       await readFile(path.join(root, ".bridge", "tasks", `${task.id}.json`), "utf8")
     );
     expect(stored.schema_version).toBe(1);
+  });
+
+  it("stores artifacts only under the local artifacts directory", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
+    const store = new BridgeStore(root);
+
+    const relativePath = await store.writeArtifactText(".bridge/artifacts/repo-writes/example.txt", "payload\n");
+
+    expect(relativePath).toBe(".bridge/artifacts/repo-writes/example.txt");
+    expect(await store.readArtifactText(relativePath)).toBe("payload\n");
+    await expect(store.writeArtifactText(".bridge/receipts/not-artifact.txt", "bad\n")).rejects.toThrow(/artifacts/);
+    await expect(store.writeArtifactText(".bridge/artifacts/../receipts/bad.txt", "bad\n")).rejects.toThrow(/artifacts/);
+  });
+
+  it("rejects artifact writes through symlink escapes", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
+    const outside = await mkdtemp(path.join(tmpdir(), "gptprouse-outside-"));
+    await mkdir(path.join(root, ".bridge", "artifacts", "repo-writes"), { recursive: true });
+    await symlink(outside, path.join(root, ".bridge", "artifacts", "repo-writes", "outside"));
+    const store = new BridgeStore(root);
+
+    await expect(
+      store.writeArtifactText(".bridge/artifacts/repo-writes/outside/payload.txt", "payload\n")
+    ).rejects.toThrow(/artifacts/);
+  });
+
+  it("does not create directories through symlinked artifact ancestors before rejecting", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
+    const outside = await mkdtemp(path.join(tmpdir(), "gptprouse-outside-"));
+    await mkdir(path.join(root, ".bridge", "artifacts"), { recursive: true });
+    await symlink(outside, path.join(root, ".bridge", "artifacts", "repo-writes"));
+    const store = new BridgeStore(root);
+
+    await expect(
+      store.writeArtifactText(".bridge/artifacts/repo-writes/nested/payload.txt", "payload\n")
+    ).rejects.toThrow(/artifacts/);
+    await expect(lstat(path.join(outside, "nested"))).rejects.toThrow();
+  });
+
+  it("rejects artifact writes when the artifacts directory itself is a symlink", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
+    const outside = await mkdtemp(path.join(tmpdir(), "gptprouse-outside-"));
+    await mkdir(path.join(root, ".bridge"), { recursive: true });
+    await symlink(outside, path.join(root, ".bridge", "artifacts"));
+    const store = new BridgeStore(root);
+
+    await expect(
+      store.writeArtifactText(".bridge/artifacts/repo-writes/payload.txt", "payload\n")
+    ).rejects.toThrow(/artifacts/);
+  });
+
+  it("rejects bridge storage when the bridge directory itself is a symlink", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
+    const outside = await mkdtemp(path.join(tmpdir(), "gptprouse-outside-"));
+    await symlink(outside, path.join(root, ".bridge"));
+    const store = new BridgeStore(root);
+
+    await expect(
+      store.writeArtifactText(".bridge/artifacts/repo-writes/payload.txt", "payload\n")
+    ).rejects.toThrow(/Bridge directory/);
+  });
+
+  it("rejects artifact reads when the bridge directory itself is a symlink", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
+    const outside = await mkdtemp(path.join(tmpdir(), "gptprouse-outside-"));
+    await mkdir(path.join(outside, "artifacts", "repo-writes"), { recursive: true });
+    await symlink(outside, path.join(root, ".bridge"));
+    const store = new BridgeStore(root);
+
+    await expect(
+      store.readArtifactText(".bridge/artifacts/repo-writes/payload.txt")
+    ).rejects.toThrow(/Bridge directory/);
+  });
+
+  it("rejects artifact reads through symlinked ancestors even when they point inside artifacts", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
+    const store = new BridgeStore(root);
+    await store.writeArtifactText(".bridge/artifacts/real-dir/payload.txt", "payload\n");
+    await symlink(
+      path.join(root, ".bridge", "artifacts", "real-dir"),
+      path.join(root, ".bridge", "artifacts", "linked-dir")
+    );
+
+    await expect(
+      store.readArtifactText(".bridge/artifacts/linked-dir/payload.txt")
+    ).rejects.toThrow(/artifacts/);
   });
 });

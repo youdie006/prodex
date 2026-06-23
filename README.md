@@ -126,7 +126,7 @@ If ChatGPT cannot reach `127.0.0.1` from its app runtime, keep `gptprouse start`
 
 The MCP write path is intentionally narrow:
 
-- `repo_write_file_dry_run` previews an existing repo-relative text-file replacement and stores a receipt.
+- `repo_write_file_dry_run` previews an existing repo-relative text-file replacement, stores hashes/diff in a receipt, and stores replacement text under `.bridge/artifacts/repo-writes/`.
 - `repo_write_file_apply` applies that receipt only when the current git HEAD and file preimage hash still match.
 - `repo_stage_reviewed_paths` stages only files whose applied write receipts still match the current git HEAD and file content.
 - Sensitive local paths such as `.bridge`, `.git`, `.env*`, `node_modules`, and `dist` are rejected.

@@ -1,4 +1,4 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readFile, realpath, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
   type BridgeFile,
@@ -49,6 +49,8 @@ export class BridgeStore {
   }
 
   async ensure(): Promise<void> {
+    await mkdir(this.bridgeDir, { recursive: true });
+    await this.assertBridgeDirIsRealDirectory();
     await Promise.all([
       mkdir(this.dir("tasks"), { recursive: true }),
       mkdir(this.dir("results"), { recursive: true }),
@@ -161,6 +163,26 @@ export class BridgeStore {
     return ReceiptSchema.parse(await this.readJson(this.pathFor("receipts", receiptId)));
   }
 
+  async writeArtifactText(relativePath: string, content: string): Promise<string> {
+    await this.ensure();
+    await this.assertBridgeDirIsRealDirectory();
+    await this.assertArtifactsDirIsRealDirectory();
+    const artifactPath = this.resolveArtifactPath(relativePath);
+    await this.ensureArtifactParentDirectory(path.dirname(artifactPath));
+    await this.assertArtifactTargetInsideIfExists(artifactPath);
+    await writeFile(artifactPath, content, "utf8");
+    return this.relativeToRoot(artifactPath);
+  }
+
+  async readArtifactText(relativePath: string): Promise<string> {
+    await this.assertBridgeDirIsRealDirectory();
+    await this.assertArtifactsDirIsRealDirectory();
+    const artifactPath = this.resolveArtifactPath(relativePath);
+    await this.assertArtifactParentDirectory(path.dirname(artifactPath));
+    await this.assertArtifactTargetInside(artifactPath);
+    return readFile(artifactPath, "utf8");
+  }
+
   async writeReceipt(input: WriteReceiptInput): Promise<Receipt> {
     await this.ensure();
     const receipt = ReceiptSchema.parse({
@@ -207,6 +229,111 @@ export class BridgeStore {
     const tmp = `${filePath}.${process.pid}.${Date.now()}.tmp`;
     await writeFile(tmp, `${JSON.stringify(value, null, 2)}\n`, "utf8");
     await rename(tmp, filePath);
+  }
+
+  private resolveArtifactPath(relativePath: string): string {
+    const normalized = relativePath.replaceAll("\\", "/");
+    if (!normalized.startsWith(".bridge/artifacts/")) {
+      throw new Error("Artifact path must be under .bridge/artifacts");
+    }
+    const resolved = path.resolve(this.root, normalized);
+    const relative = path.relative(this.dir("artifacts"), resolved);
+    if (relative.startsWith("..") || path.isAbsolute(relative)) {
+      throw new Error("Artifact path must stay under .bridge/artifacts");
+    }
+    return resolved;
+  }
+
+  private relativeToRoot(filePath: string): string {
+    return path.relative(this.root, filePath).replaceAll(path.sep, "/");
+  }
+
+  private async assertArtifactTargetInside(filePath: string): Promise<void> {
+    const stat = await lstat(filePath);
+    if (stat.isSymbolicLink()) {
+      throw new Error("Artifact path must not be a symlink");
+    }
+    await this.assertRealPathInsideArtifacts(filePath);
+  }
+
+  private async assertArtifactsDirIsRealDirectory(): Promise<void> {
+    const stat = await lstat(this.dir("artifacts"));
+    if (stat.isSymbolicLink() || !stat.isDirectory()) {
+      throw new Error("Artifact path must stay under .bridge/artifacts");
+    }
+  }
+
+  private async ensureArtifactParentDirectory(parentPath: string): Promise<void> {
+    await this.walkArtifactParentDirectory(parentPath, true);
+  }
+
+  private async assertArtifactParentDirectory(parentPath: string): Promise<void> {
+    await this.walkArtifactParentDirectory(parentPath, false);
+  }
+
+  private async walkArtifactParentDirectory(parentPath: string, createMissing: boolean): Promise<void> {
+    const artifactsDir = this.dir("artifacts");
+    const relative = path.relative(artifactsDir, parentPath);
+    if (relative.startsWith("..") || path.isAbsolute(relative)) {
+      throw new Error("Artifact path must stay under .bridge/artifacts");
+    }
+    let current = artifactsDir;
+    for (const segment of relative.split(path.sep).filter(Boolean)) {
+      current = path.join(current, segment);
+      if (createMissing) {
+        await this.ensureRealDirectorySegment(current);
+      } else {
+        await this.assertRealDirectorySegment(current);
+      }
+    }
+  }
+
+  private async ensureRealDirectorySegment(dirPath: string): Promise<void> {
+    try {
+      const stat = await lstat(dirPath);
+      if (stat.isSymbolicLink() || !stat.isDirectory()) {
+        throw new Error("Artifact path must stay under .bridge/artifacts");
+      }
+    } catch (error) {
+      const maybe = error as { code?: string };
+      if (maybe.code !== "ENOENT") throw error;
+      await mkdir(dirPath);
+      const stat = await lstat(dirPath);
+      if (stat.isSymbolicLink() || !stat.isDirectory()) {
+        throw new Error("Artifact path must stay under .bridge/artifacts");
+      }
+    }
+  }
+
+  private async assertRealDirectorySegment(dirPath: string): Promise<void> {
+    const stat = await lstat(dirPath);
+    if (stat.isSymbolicLink() || !stat.isDirectory()) {
+      throw new Error("Artifact path must stay under .bridge/artifacts");
+    }
+  }
+
+  private async assertBridgeDirIsRealDirectory(): Promise<void> {
+    const stat = await lstat(this.bridgeDir);
+    if (stat.isSymbolicLink() || !stat.isDirectory()) {
+      throw new Error("Bridge directory must be a real directory");
+    }
+  }
+
+  private async assertArtifactTargetInsideIfExists(filePath: string): Promise<void> {
+    try {
+      await this.assertArtifactTargetInside(filePath);
+    } catch (error) {
+      const maybe = error as { code?: string };
+      if (maybe.code !== "ENOENT") throw error;
+    }
+  }
+
+  private async assertRealPathInsideArtifacts(filePath: string): Promise<void> {
+    const [realArtifacts, realTarget] = await Promise.all([realpath(this.dir("artifacts")), realpath(filePath)]);
+    const relative = path.relative(realArtifacts, realTarget);
+    if (relative.startsWith("..") || path.isAbsolute(relative)) {
+      throw new Error("Artifact path must stay under .bridge/artifacts");
+    }
   }
 }
 

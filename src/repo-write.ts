@@ -57,7 +57,8 @@ interface DryRunMetadata {
   preimage_sha256: string;
   new_sha256: string;
   diff: string;
-  new_content: string;
+  new_content_artifact?: string;
+  new_content?: string;
 }
 
 interface AppliedMetadata {
@@ -88,13 +89,14 @@ export async function createRepoWriteDryRun(
   const preimage = sha256(current.content);
   const newSha = sha256(input.content);
   const diff = buildSimpleDiff(input.path, current.content, input.content);
+  const artifactPath = await store.writeArtifactText(`.bridge/artifacts/repo-writes/${newSha}.txt`, input.content);
   const metadata: DryRunMetadata = {
     path: input.path,
     expected_head: head,
     preimage_sha256: preimage,
     new_sha256: newSha,
     diff,
-    new_content: input.content
+    new_content_artifact: artifactPath
   };
   const receipt = await store.writeReceipt({
     kind: "repo_write_dry_run",
@@ -139,7 +141,9 @@ export async function applyRepoWriteDryRun(
     throw new Error(`File preimage changed for ${metadata.path}`);
   }
 
-  await writeFile(current.resolved, metadata.new_content, "utf8");
+  const newContent = await readDryRunReplacementContent(store, metadata);
+
+  await writeFile(current.resolved, newContent, "utf8");
   const receipt = await store.writeReceipt({
     kind: "repo_write_applied",
     summary: `Applied write receipt ${input.receipt_id} to ${metadata.path}`,
@@ -240,12 +244,32 @@ async function assertRealPathInside(root: string, resolved: string, repoPath: st
 
 function parseDryRunMetadata(value: Record<string, unknown>): DryRunMetadata {
   const metadata = value as Partial<DryRunMetadata>;
-  for (const key of ["path", "expected_head", "preimage_sha256", "new_sha256", "diff", "new_content"] as const) {
+  for (const key of ["path", "expected_head", "preimage_sha256", "new_sha256", "diff"] as const) {
     if (typeof metadata[key] !== "string") {
       throw new Error(`Dry-run receipt metadata is missing ${key}`);
     }
   }
+  if (typeof metadata.new_content_artifact !== "string" && typeof metadata.new_content !== "string") {
+    throw new Error(`Dry-run receipt metadata is missing new_content_artifact`);
+  }
   return metadata as DryRunMetadata;
+}
+
+async function readDryRunReplacementContent(store: BridgeStore, metadata: DryRunMetadata): Promise<string> {
+  const newContent = metadata.new_content_artifact
+    ? await store.readArtifactText(metadata.new_content_artifact)
+    : metadata.new_content;
+  if (typeof newContent !== "string") {
+    throw new Error(`Dry-run receipt metadata is missing replacement content`);
+  }
+  if (sha256(newContent) !== metadata.new_sha256) {
+    throw new Error(
+      metadata.new_content_artifact
+        ? `Dry-run artifact content changed for ${metadata.path}`
+        : `Dry-run inline content does not match receipt hash for ${metadata.path}`
+    );
+  }
+  return newContent;
 }
 
 function parseAppliedMetadata(value: Record<string, unknown>): AppliedMetadata {
