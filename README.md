@@ -66,6 +66,8 @@ Not implemented:
 
 ## Quick Start
 
+Requires Node.js 20 or newer.
+
 ```bash
 npm install
 npm run build
@@ -150,6 +152,16 @@ During local development, you can run the TypeScript source directly:
 ```bash
 npm run dev -- tasks list
 ```
+
+## Release Smoke
+
+Before publishing or sharing a package tarball, run:
+
+```bash
+npm run smoke:package
+```
+
+This packs the project, installs the tarball into a temporary consumer project, runs the installed `gptprouse` binary, and verifies the installed stdio MCP server exposes the expected tool catalog.
 
 ## Claude MCP
 

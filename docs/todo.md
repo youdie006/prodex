@@ -49,6 +49,7 @@
 - [x] Redact local MCP URL tokens by default; require `status --show-token` for paste-ready URL.
 - [x] Block `.bridge`, `.git`, `.env*`, build outputs, and oversized files from repo read/search tools.
 - [x] Guard `.bridge` record reads/writes against traversal IDs, symlinked record files, and symlinked storage dirs.
+- [x] Add package install smoke for packed tarball, installed bin, and stdio MCP catalog.
 - [ ] Add Project/thread selection only after manual confirmation.
 - [ ] Add optional tunnel helper for remote ChatGPT clients only after local auth/token expiry warnings are implemented.
 
