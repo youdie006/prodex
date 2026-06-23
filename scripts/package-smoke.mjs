@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { execFile, spawn } from "node:child_process";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import net from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -29,12 +29,13 @@ const REQUIRED_MCP_TOOLS = [
 const tmp = await mkdtemp(path.join(tmpdir(), "gptprouse-package-smoke-"));
 
 try {
-  const tarball = await packPackage(tmp);
+  const packed = await packPackage(tmp);
+  await assertPackageFileScope(packed.files);
   const consumerDir = path.join(tmp, "consumer");
   await mkdir(consumerDir, { recursive: true });
   await writeFile(path.join(consumerDir, "package.json"), `${JSON.stringify({ private: true, type: "module" }, null, 2)}\n`);
 
-  await run(npmCommand, ["install", "--ignore-scripts", "--no-audit", "--no-fund", "--package-lock=false", tarball], {
+  await run(npmCommand, ["install", "--ignore-scripts", "--no-audit", "--no-fund", "--package-lock=false", packed.filename], {
     cwd: consumerDir,
     timeout: 120_000
   });
@@ -51,13 +52,14 @@ try {
   assertIncludes(doctor.stdout, "http_mcp_smoke: ok", "installed doctor output");
 
   await smokeInstalledHttpOnboarding(binPath, consumerDir);
+  await assertInstalledDocsArePortable(consumerDir);
 
   const tools = await smokeStdioMcp(binPath, consumerDir);
   for (const tool of REQUIRED_MCP_TOOLS) {
     if (!tools.includes(tool)) throw new Error(`Installed MCP catalog is missing ${tool}`);
   }
 
-  console.log(`package_smoke: ok tarball=${path.basename(tarball)} http_onboarding=ok tunnel_url=ok tools=${REQUIRED_MCP_TOOLS.join(",")}`);
+  console.log(`package_smoke: ok tarball=${path.basename(packed.filename)} http_onboarding=ok tunnel_url=ok tools=${REQUIRED_MCP_TOOLS.join(",")}`);
 } finally {
   await rm(tmp, { recursive: true, force: true });
 }
@@ -69,11 +71,32 @@ async function packPackage(destination) {
     maxBuffer: 20 * 1024 * 1024
   });
   const entries = JSON.parse(stdout);
-  const filename = entries?.[0]?.filename;
+  const entry = entries?.[0];
+  const filename = entry?.filename;
   if (typeof filename !== "string" || !filename.endsWith(".tgz")) {
     throw new Error(`Could not determine npm pack tarball from output: ${stdout}`);
   }
-  return path.join(destination, filename);
+  return { filename: path.join(destination, filename), files: entry.files ?? [] };
+}
+
+function assertPackageFileScope(files) {
+  const paths = files.map((file) => file.path);
+  assertArrayIncludes(paths, "README.md", "packed files");
+  assertArrayIncludes(paths, "docs/http-mcp.md", "packed files");
+  assertArrayIncludes(paths, "docs/claude.md", "packed files");
+  assertArrayNotIncludes(paths, "docs/research.md", "packed files");
+  assertArrayNotIncludes(paths, "docs/todo.md", "packed files");
+  if (paths.some((filePath) => filePath.startsWith("docs/superpowers/"))) {
+    throw new Error("packed files unexpectedly included internal superpowers plans");
+  }
+}
+
+async function assertInstalledDocsArePortable(consumerDir) {
+  const packageDir = path.join(consumerDir, "node_modules", "gptprouse");
+  const readme = await readFile(path.join(packageDir, "README.md"), "utf8");
+  const claudeDoc = await readFile(path.join(packageDir, "docs", "claude.md"), "utf8");
+  assertNotIncludes(readme, "/absolute/path/to/project", "installed README");
+  assertNotIncludes(claudeDoc, "/absolute/path/to/project", "installed Claude docs");
 }
 
 async function smokeStdioMcp(binPath, cwd) {
@@ -232,5 +255,17 @@ function assertIncludes(text, expected, label) {
 function assertNotIncludes(text, unexpected, label) {
   if (text.includes(unexpected)) {
     throw new Error(`${label} unexpectedly included ${unexpected}. Output was:\n${text.slice(0, 1000)}`);
+  }
+}
+
+function assertArrayIncludes(values, expected, label) {
+  if (!values.includes(expected)) {
+    throw new Error(`${label} did not include ${expected}. Values were:\n${values.slice(0, 80).join("\n")}`);
+  }
+}
+
+function assertArrayNotIncludes(values, unexpected, label) {
+  if (values.includes(unexpected)) {
+    throw new Error(`${label} unexpectedly included ${unexpected}`);
   }
 }

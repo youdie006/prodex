@@ -20,6 +20,8 @@ HTTP MCP requests are bounded: malformed JSON returns `400`, and request bodies 
 
 ## Build And Prepare
 
+Requires Node.js 20 or newer and `git` on PATH.
+
 From the repo root:
 
 ```bash
@@ -58,7 +60,7 @@ In another terminal, get the paste-ready MCP URL:
 node dist/cli.js status --show-token --url-only
 ```
 
-Only use `--show-token` when you need to paste the URL into a trusted local/private MCP client configuration.
+Only use `--show-token` when you are ready to paste the URL into your own trusted private MCP client configuration.
 
 ## Add It To ChatGPT
 
@@ -68,7 +70,7 @@ In your ChatGPT Project MCP or Developer Mode setup, add the URL from:
 node dist/cli.js status --show-token --url-only
 ```
 
-Use it as a remote Streamable HTTP MCP server URL. Keep `node dist/cli.js start` running.
+Use it as a remote Streamable HTTP MCP server URL. Keep `node dist/cli.js start` running. Treat the token-bearing URL like a password and rotate it with `setup` when you no longer need that URL.
 
 If the ChatGPT app runtime cannot reach `127.0.0.1`, this project intentionally does not create a tunnel automatically. Put your own explicit tunnel in front of the local server only after you understand the token exposure risk, and create a short-lived replacement URL first:
 

@@ -36,9 +36,8 @@ ChatGPT Pro              ChatGPT Projects / Claude
 
 ## Components
 
-- `docs/research.md`: repo and policy research summary.
-- `docs/design.md`: proposed architecture and commands.
-- `docs/todo.md`: implementation checklist.
+- `docs/http-mcp.md`: ChatGPT Project HTTP MCP setup and safety notes.
+- `docs/claude.md`: Claude stdio MCP setup and tool notes.
 - `.bridge/`: local task/result/session/artifact/receipt storage.
 
 ## v0.2 Status
@@ -66,7 +65,7 @@ Not implemented:
 
 ## Quick Start
 
-Requires Node.js 20 or newer.
+Requires Node.js 20 or newer and `git` on PATH. The optional visible-browser adapter also needs a Chromium-family browser (`google-chrome`, `chromium`, `chromium-browser`, `microsoft-edge`, `brave-browser`) or `GPTPROUSE_CHROME=/path/to/browser`.
 
 ```bash
 npm install
@@ -132,7 +131,7 @@ node dist/cli.js start
 node dist/cli.js status --show-token --url-only
 ```
 
-The URL token is stored only in `.bridge/config.local.json`, which is ignored by git. If you omit `--token-ttl-hours`, the token does not expire; keep that local-only and rerun `setup --token-ttl-hours <hours>` before putting any tunnel in front of it.
+The URL token is stored only in `.bridge/config.local.json`, which is ignored by git. Treat the full `--show-token` URL like a password: paste it only into your own private ChatGPT Project/App configuration, then rotate it with `setup` when you no longer need that URL. If you omit `--token-ttl-hours`, the token does not expire; keep that local-only and rerun `setup --token-ttl-hours <hours>` before putting any tunnel in front of it.
 
 If ChatGPT cannot reach `127.0.0.1` from its app runtime, keep `gptprouse start` local and put your own tunnel in front of it only after creating a short-lived token. `gptprouse` does not create the tunnel for you, but it can format the public MCP URL safely:
 
@@ -179,24 +178,18 @@ This packs the project, installs the tarball into a temporary consumer project, 
 
 ## Claude MCP
 
-Build first:
-
-```bash
-npm run build
-```
-
-Then point Claude at the stdio server:
+If `gptprouse` is installed and on your PATH, point Claude at the stdio server:
 
 ```json
 {
   "mcpServers": {
     "gptprouse": {
-      "command": "node",
-      "args": ["/absolute/path/to/project/gptprouse/dist/cli.js", "mcp"],
-      "cwd": "/absolute/path/to/project/gptprouse"
+      "command": "gptprouse",
+      "args": ["mcp"],
+      "cwd": "/absolute/path/to/your/repo"
     }
   }
 }
 ```
 
-See [docs/claude.md](docs/claude.md) for Claude Desktop and Claude Code notes.
+For a source checkout, first run `npm install && npm run build`, then use `node` with your own absolute path to `dist/cli.js`. See [docs/claude.md](docs/claude.md) for Claude Desktop and Claude Code notes.
