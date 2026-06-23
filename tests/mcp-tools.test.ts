@@ -53,6 +53,31 @@ describe("MCP tool handlers", () => {
     expect(fetched.session).toEqual(expect.objectContaining({ id: session.id, status: "preview" }));
   });
 
+  it("lists and fetches receipts with legacy inline write content redacted", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    const store = new BridgeStore(cwd);
+    const receipt = await store.writeReceipt({
+      kind: "repo_write_dry_run",
+      summary: "Legacy dry-run write",
+      metadata: {
+        path: "notes.md",
+        new_content: "sensitive replacement payload",
+        new_sha256: "abc123"
+      }
+    });
+    const handlers = createMcpToolHandlers({ cwd });
+
+    const listed = await handlers.bridge_list_receipts({ kind: "repo_write_dry_run" });
+    const fetched = await handlers.bridge_get_receipt({ receipt_id: receipt.id });
+
+    expect(listed.receipts.map((item) => item.id)).toEqual([receipt.id]);
+    expect(JSON.stringify(fetched)).not.toContain("sensitive replacement payload");
+    expect(fetched.receipt.metadata.new_content).toBeUndefined();
+    expect(fetched.receipt.metadata.new_content_redacted).toEqual(
+      expect.objectContaining({ reason: "legacy inline replacement content" })
+    );
+  });
+
   it("fetches only result-listed artifacts through bridge handlers", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
     const store = new BridgeStore(cwd);

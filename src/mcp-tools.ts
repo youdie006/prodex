@@ -1,4 +1,4 @@
-import { BridgeStore } from "./store.js";
+import { BridgeStore, type ListReceiptsInput } from "./store.js";
 import { readRepoFile, searchRepo } from "./repo.js";
 import { applyRepoWriteDryRun, createRepoWriteDryRun, stageReviewedPaths } from "./repo-write.js";
 import type { SourceSchema } from "./schema.js";
@@ -56,6 +56,14 @@ export function createMcpToolHandlers(context: McpToolContext) {
 
     async bridge_fetch_result_artifact(input: { task_id: string; path?: string }) {
       return store.readResultArtifactText(input.task_id, input.path);
+    },
+
+    async bridge_list_receipts(input: ListReceiptsInput) {
+      return { receipts: await store.listReceipts(input) };
+    },
+
+    async bridge_get_receipt(input: { receipt_id: string }) {
+      return { receipt: await store.getReceiptForDisplay(input.receipt_id) };
     },
 
     async bridge_list_sessions(input: { status?: "preview" | "running" | "done" | "blocked" }) {

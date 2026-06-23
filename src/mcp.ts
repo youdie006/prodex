@@ -2,7 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { createMcpToolHandlers } from "./mcp-tools.js";
-import type { SourceSchema } from "./schema.js";
+import { ReceiptKindSchema, type SourceSchema } from "./schema.js";
 import type { z as zod } from "zod";
 
 type BridgeSource = zod.infer<typeof SourceSchema>;
@@ -93,6 +93,24 @@ export function createServer(cwd = process.cwd(), options: CreateMcpServerOption
       inputSchema: { task_id: z.string(), path: z.string().optional() }
     },
     async (input) => asText(await handlers.bridge_fetch_result_artifact(input))
+  );
+
+  server.registerTool(
+    "bridge_list_receipts",
+    {
+      description: "List durable bridge receipts with legacy inline write payloads redacted.",
+      inputSchema: { kind: ReceiptKindSchema.optional(), task_id: z.string().optional() }
+    },
+    async (input) => asText(await handlers.bridge_list_receipts(input))
+  );
+
+  server.registerTool(
+    "bridge_get_receipt",
+    {
+      description: "Fetch one bridge receipt with legacy inline write payloads redacted.",
+      inputSchema: { receipt_id: z.string() }
+    },
+    async (input) => asText(await handlers.bridge_get_receipt(input))
   );
 
   server.registerTool(

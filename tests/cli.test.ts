@@ -146,6 +146,54 @@ describe("runCli", () => {
     );
   });
 
+  it("lists and shows receipts with legacy inline write content redacted", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const store = new BridgeStore(cwd);
+    const receipt = await store.writeReceipt({
+      kind: "repo_write_dry_run",
+      summary: "Legacy dry-run write",
+      metadata: {
+        path: "notes.md",
+        new_content: "sensitive replacement payload",
+        new_sha256: "abc123"
+      }
+    });
+    const listOut: string[] = [];
+    const showOut: string[] = [];
+
+    await runCli(["receipts", "list", "--kind", "repo_write_dry_run"], {
+      cwd,
+      stdout: (line) => listOut.push(line),
+      stderr: () => {}
+    });
+    await runCli(["receipts", "show", "latest"], {
+      cwd,
+      stdout: (line) => showOut.push(line),
+      stderr: () => {}
+    });
+
+    expect(listOut.join("\n")).toContain(`${receipt.id}\trepo_write_dry_run\tLegacy dry-run write`);
+    const shown = JSON.parse(showOut.join("\n")) as { id?: string; metadata?: Record<string, unknown> };
+    expect(shown.id).toBe(receipt.id);
+    expect(showOut.join("\n")).not.toContain("sensitive replacement payload");
+    expect(shown.metadata?.new_content).toBeUndefined();
+    expect(shown.metadata?.new_content_redacted).toEqual(
+      expect.objectContaining({ reason: "legacy inline replacement content" })
+    );
+  });
+
+  it("rejects invalid receipt kind filters", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+
+    await expect(
+      runCli(["receipts", "list", "--kind", "not_a_receipt"], {
+        cwd,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.toThrow("--kind must be one of");
+  });
+
   it("filters listed sessions by status", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
     const previewOut: string[] = [];
@@ -382,6 +430,21 @@ describe("runCli", () => {
     });
 
     expect(out.join("\n")).toContain("gptprouse results artifact <task-id|latest> [artifact-path]");
+  });
+
+  it("lists receipt inspection commands in help", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const out: string[] = [];
+
+    await runCli(["help"], {
+      cwd,
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    const text = out.join("\n");
+    expect(text).toContain("gptprouse receipts list [--kind kind] [--task-id task-id]");
+    expect(text).toContain("gptprouse receipts show <receipt-id|latest>");
   });
 
   it("describes token TTL as an explicit help placeholder", async () => {
@@ -765,6 +828,8 @@ describe("runCli", () => {
     expect(text).toContain("bridge_list_sessions");
     expect(text).toContain("bridge_get_session");
     expect(text).toContain("bridge_fetch_result_artifact");
+    expect(text).toContain("bridge_list_receipts");
+    expect(text).toContain("bridge_get_receipt");
     expect(text).toContain("repo_stage_reviewed_paths");
   });
 

@@ -66,6 +66,11 @@ export interface WriteSessionInput {
   warnings?: string[];
 }
 
+export interface ListReceiptsInput {
+  kind?: Receipt["kind"];
+  task_id?: string;
+}
+
 export class BridgeStore {
   readonly root: string;
   readonly bridgeDir: string;
@@ -247,6 +252,19 @@ export class BridgeStore {
     return ReceiptSchema.parse(await this.readRecordJson("receipts", receiptId));
   }
 
+  async listReceipts(input: ListReceiptsInput = {}): Promise<Receipt[]> {
+    await this.ensure();
+    return (await this.readAll("receipts", ReceiptSchema))
+      .filter((receipt) => (input.kind ? receipt.kind === input.kind : true))
+      .filter((receipt) => (input.task_id ? receipt.task_id === input.task_id : true))
+      .sort((a, b) => b.created_at.localeCompare(a.created_at) || b.id.localeCompare(a.id))
+      .map((receipt) => redactReceiptForDisplay(receipt));
+  }
+
+  async getReceiptForDisplay(receiptId: string): Promise<Receipt> {
+    return redactReceiptForDisplay(await this.getReceipt(receiptId));
+  }
+
   async writeArtifactText(relativePath: string, content: string): Promise<string> {
     await this.ensure();
     await this.assertBridgeDirIsRealDirectory();
@@ -300,7 +318,7 @@ export class BridgeStore {
     return path.join(this.dir(kind), `${id}.json`);
   }
 
-  private async readAll<T>(kind: "tasks" | "results" | "sessions", schema: { parse(value: unknown): T }): Promise<T[]> {
+  private async readAll<T>(kind: "tasks" | "results" | "sessions" | "receipts", schema: { parse(value: unknown): T }): Promise<T[]> {
     const dir = this.dir(kind);
     const entries = await readdir(dir, { withFileTypes: true });
     const items: T[] = [];
@@ -594,4 +612,17 @@ function assertBridgeRecordId(kind: BridgeRecordKind, id: string): void {
 function isBridgeRecordId(kind: BridgeRecordKind, id: string): boolean {
   const pattern = kind === "receipts" ? RECEIPT_ID_PATTERN : kind === "sessions" ? SESSION_ID_PATTERN : TASK_ID_PATTERN;
   return pattern.test(id);
+}
+
+function redactReceiptForDisplay(receipt: Receipt): Receipt {
+  const metadata: Record<string, unknown> = { ...receipt.metadata };
+  if (Object.hasOwn(metadata, "new_content")) {
+    const inlineContent = metadata.new_content;
+    delete metadata.new_content;
+    metadata.new_content_redacted = {
+      reason: "legacy inline replacement content",
+      ...(typeof inlineContent === "string" ? { bytes: Buffer.byteLength(inlineContent, "utf8") } : {})
+    };
+  }
+  return ReceiptSchema.parse({ ...receipt, metadata });
 }

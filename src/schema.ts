@@ -6,6 +6,16 @@ export const AdapterSchema = z.enum(["cli", "mcp", "manual", "oracle", "chatgpt-
 export const TaskStatusSchema = z.enum(["new", "claimed", "done", "blocked"]);
 export const ResultStatusSchema = z.enum(["done", "blocked"]);
 export const SourceSchema = z.enum(["chatgpt_project", "codex", "claude", "manual"]);
+export const ReceiptKindSchema = z.enum([
+  "task_created",
+  "task_claimed",
+  "task_completed",
+  "consult_preview",
+  "consult_answer_saved",
+  "repo_write_dry_run",
+  "repo_write_applied",
+  "repo_stage_reviewed_paths"
+]);
 
 export const ProvenanceSchema = z.object({
   adapter: AdapterSchema,
@@ -77,16 +87,7 @@ export const SessionSchema = z.object({
 export const ReceiptSchema = z.object({
   schema_version: z.literal(SCHEMA_VERSION),
   id: z.string(),
-  kind: z.enum([
-    "task_created",
-    "task_claimed",
-    "task_completed",
-    "consult_preview",
-    "consult_answer_saved",
-    "repo_write_dry_run",
-    "repo_write_applied",
-    "repo_stage_reviewed_paths"
-  ]),
+  kind: ReceiptKindSchema,
   task_id: z.string().optional(),
   session_id: z.string().optional(),
   summary: z.string(),

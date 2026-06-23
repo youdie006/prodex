@@ -15,7 +15,8 @@ import { assertTokenNotExpired, getTokenExpiryStatus, loadLocalConfig, writeLoca
 import { startHttpMcpServer } from "./http-mcp.js";
 import { createMcpToolHandlers } from "./mcp-tools.js";
 import { runMcpServer } from "./mcp.js";
-import { BridgeStore } from "./store.js";
+import { ReceiptKindSchema } from "./schema.js";
+import { BridgeStore, type ListReceiptsInput } from "./store.js";
 
 const execFileAsync = promisify(execFile);
 const requirePackageJson = createRequire(import.meta.url);
@@ -27,6 +28,8 @@ const DOCTOR_REQUIRED_MCP_TOOLS = [
   "bridge_list_sessions",
   "bridge_get_session",
   "bridge_fetch_result_artifact",
+  "bridge_list_receipts",
+  "bridge_get_receipt",
   "repo_read_file",
   "repo_search",
   "repo_write_file_dry_run",
@@ -253,6 +256,28 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       const resolvedTaskId = taskId === "latest" ? await latestResultTaskId(store) : taskId;
       const artifact = await store.readResultArtifactText(resolvedTaskId, resultArgs[1]);
       io.stdout(artifact.content);
+      return 0;
+    }
+  }
+
+  if (command === "receipts") {
+    const [subcommand, ...receiptArgs] = rest;
+    if (subcommand === "list") {
+      const receipts = await store.listReceipts({
+        kind: readReceiptKindFlag(receiptArgs),
+        task_id: readFlag(receiptArgs, "--task-id")
+      });
+      for (const receipt of receipts) {
+        io.stdout(`${receipt.id}\t${receipt.kind}\t${receipt.summary}`);
+      }
+      return 0;
+    }
+    if (subcommand === "show") {
+      const receiptId = receiptArgs[0];
+      if (!receiptId) throw new Error("receipts show requires <receipt-id|latest>");
+      const receipt = receiptId === "latest" ? (await store.listReceipts())[0] : await store.getReceiptForDisplay(receiptId);
+      if (!receipt) throw new Error(`Receipt not found: ${receiptId}`);
+      io.stdout(JSON.stringify(receipt, null, 2));
       return 0;
     }
   }
@@ -576,6 +601,8 @@ Commands:
   gptprouse tasks complete <task-id> --summary "Summary" [--command "npm test"]
   gptprouse results show <task-id>
   gptprouse results artifact <task-id|latest> [artifact-path]
+  gptprouse receipts list [--kind kind] [--task-id task-id]
+  gptprouse receipts show <receipt-id|latest>
   gptprouse sessions list [--status preview|running|done|blocked]
   gptprouse sessions show <session-id|latest>
   gptprouse mcp`);
@@ -942,6 +969,15 @@ function readSessionStatusFlag(args: string[]): Parameters<BridgeStore["listSess
   if (value === undefined) return undefined;
   if (value === "preview" || value === "running" || value === "done" || value === "blocked") return value;
   throw new Error("--status must be one of preview, running, done, blocked");
+}
+
+const RECEIPT_KINDS = ReceiptKindSchema.options satisfies readonly NonNullable<ListReceiptsInput["kind"]>[];
+
+function readReceiptKindFlag(args: string[]): ListReceiptsInput["kind"] {
+  const value = readFlag(args, "--kind");
+  if (value === undefined) return undefined;
+  if (ReceiptKindSchema.safeParse(value).success) return value as ListReceiptsInput["kind"];
+  throw new Error(`--kind must be one of ${RECEIPT_KINDS.join(", ")}`);
 }
 
 function formatTokenExpiryLine(config: { token_expires_at?: string }): string {
