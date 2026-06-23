@@ -4,23 +4,24 @@ Personal bridge for using ChatGPT Pro/Projects, Claude, and Codex together.
 
 `gptprouse` is a local receipt bus plus MCP bridge for coordinating Codex execution with ChatGPT Pro/Projects and Claude.
 
-The goal is not to turn ChatGPT Pro into a public API. The goal is to remove copy/paste friction in a private workflow while keeping durable receipts:
+The goal is not to turn ChatGPT Pro into a public API. The goal is to make Codex the main workbench while keeping durable receipts for every outside consult or handoff:
 
-- Let ChatGPT Projects hand structured tasks to Codex/local tools through an HTTP MCP bridge.
 - Ask ChatGPT Pro from Codex when a stronger planning/review pass is useful.
+- Let ChatGPT Projects hand structured tasks to Codex/local tools through an optional HTTP MCP bridge.
 - Let Claude create/fetch the same tasks through stdio MCP.
 - Keep durable records of what was asked, what was returned, and what Codex did with it.
 
 ## Core Shape
 
 ```text
-ChatGPT Pro / Project
-   | Developer Mode HTTP MCP
-   v
+Codex
+  | ask-pro / tasks / results
+  v
 gptprouse local bridge + .bridge receipts
-   ^                         |
-   | stdio MCP               | visible browser consult
-Claude / Codex <-------------+
+  |                         ^
+  | visible browser consult | optional HTTP/stdin MCP
+  v                         |
+ChatGPT Pro              ChatGPT Projects / Claude
 ```
 
 ## Operating Rules
@@ -45,12 +46,12 @@ Implemented:
 
 - Versioned `.bridge` ledger schemas for tasks, results, sessions, and receipts.
 - CLI commands for task creation/listing/claiming/completion and result display.
-- Claude-compatible stdio MCP server through `gptprouse mcp`.
-- ChatGPT Developer Mode-style Streamable HTTP MCP server through `gptprouse setup` and `gptprouse start`.
-- Read-only repo tools for bounded file reads and ripgrep search.
 - `ask-pro --dry-run` for manual-copy consult bundles.
 - `ask-pro --send` for visible-browser ChatGPT Pro consults when a logged-in local Chrome profile is available.
 - `chatgpt open/status/smoke` commands for the visible browser adapter.
+- Claude-compatible stdio MCP server through `gptprouse mcp`.
+- ChatGPT Developer Mode-style Streamable HTTP MCP server through `gptprouse setup` and `gptprouse start`.
+- Read-only repo tools for bounded file reads and ripgrep search.
 
 Not implemented:
 
@@ -66,6 +67,14 @@ Not implemented:
 npm install
 npm run build
 node dist/cli.js init
+node dist/cli.js chatgpt open
+node dist/cli.js chatgpt status
+node dist/cli.js ask-pro --send --file README.md "Review the project positioning"
+```
+
+For optional ChatGPT Project -> local handoff, start the HTTP MCP bridge:
+
+```bash
 node dist/cli.js setup
 node dist/cli.js start
 ```
@@ -74,20 +83,12 @@ Paste the printed Server URL into ChatGPT Developer Mode / Apps as the MCP serve
 
 If ChatGPT cannot reach `127.0.0.1` from its app runtime, keep `gptprouse start` local and put a tunnel in front of it. Tunnel setup is intentionally not automatic yet.
 
-In another terminal:
+For local task-bus smoke tests:
 
 ```bash
 node dist/cli.js tasks create --title "Review plan" --prompt "Review this architecture"
 node dist/cli.js tasks list
 node dist/cli.js ask-pro --dry-run --file README.md "Review the project positioning"
-```
-
-For Codex -> ChatGPT Pro consults, open and log into the dedicated visible browser profile once:
-
-```bash
-node dist/cli.js chatgpt open
-node dist/cli.js chatgpt status
-node dist/cli.js ask-pro --send --file README.md "Review the project positioning"
 ```
 
 During local development, you can run the TypeScript source directly:

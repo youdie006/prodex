@@ -4,25 +4,26 @@
 
 Create a local project that supports:
 
-1. `ChatGPT Project -> Codex/local` task handoff through HTTP MCP.
-2. `Codex -> ChatGPT Pro/Project` consult through a visible browser adapter.
-3. Durable logs, receipts, and session metadata.
+1. `Codex -> ChatGPT Pro/Project` consult through a visible browser adapter.
+2. Codex-centered task/result/receipt workflows under `.bridge`.
+3. Optional `ChatGPT Project -> Codex/local` task handoff through HTTP MCP.
+4. Durable logs, receipts, and session metadata.
 
 ## Proposed CLI
 
 ```bash
-gptprouse setup
-gptprouse start
 gptprouse chatgpt open
 gptprouse ask-pro --send --file src/server.ts --file docs/design.md "Find risks"
 gptprouse tasks list
 gptprouse tasks claim <task-id>
 gptprouse results show <task-id>
+gptprouse setup
+gptprouse start
 ```
 
 ## Proposed MCP Tools
 
-For ChatGPT -> local:
+For Codex/Claude/ChatGPT -> local:
 
 - `bridge_create_task`
 - `bridge_get_task`
@@ -84,7 +85,7 @@ Session:
 
 ## Implementation Preference
 
-Use a small TypeScript Node CLI/MCP server. Keep stdio MCP for Claude/Codex clients and Streamable HTTP MCP for ChatGPT Developer Mode-style clients.
+Use a small TypeScript Node CLI/MCP server. Keep Codex CLI commands as the primary UX. Keep stdio MCP for Claude and Streamable HTTP MCP for optional ChatGPT Developer Mode-style inbound handoff.
 
 Phase 1:
 
@@ -94,13 +95,13 @@ Phase 1:
 
 Phase 2:
 
-- MCP endpoint for ChatGPT Project -> local task creation/result fetch.
-- Repo read/search with gpt-repo-mcp-style path sandbox.
+- Visible browser backend for Codex -> ChatGPT Pro consults.
+- Explicit blocker handling and resumable sessions.
 
 Phase 3:
 
-- Visible browser backend for Codex -> ChatGPT Pro consults.
-- Explicit blocker handling and resumable sessions.
+- MCP endpoint for ChatGPT Project -> local task creation/result fetch.
+- Repo read/search with gpt-repo-mcp-style path sandbox.
 
 Phase 4:
 
