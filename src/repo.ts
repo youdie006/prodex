@@ -4,7 +4,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
-
+const MAX_REPO_READ_BYTES = 1_000_000;
 export interface ReadRepoFileOptions {
   startLine?: number;
   maxLines?: number;
@@ -35,6 +35,7 @@ export function assertRepoRelativePath(repoPath: string): void {
   if (normalized === "." || normalized.startsWith("../") || normalized === "..") {
     throw new Error("Path must stay inside the repo-relative root");
   }
+  assertNotSensitiveRepoPath(normalized);
 }
 
 export function resolveRepoPath(root: string, repoPath: string): string {
@@ -53,6 +54,9 @@ export async function readRepoFile(root: string, repoPath: string, options: Read
   const stat = await lstat(resolved);
   if (!stat.isFile()) {
     throw new Error(`Path ${repoPath} is not a regular file`);
+  }
+  if (stat.size > MAX_REPO_READ_BYTES) {
+    throw new Error(`Path ${repoPath} is too large to read through repo tools (${stat.size} bytes)`);
   }
   const text = await readFile(resolved, "utf8");
   const lines = text.replace(/\r\n/g, "\n").split("\n");
@@ -73,13 +77,34 @@ export async function searchRepo(root: string, query: string, glob?: string): Pr
   if (!query.trim()) {
     throw new Error("Search query must not be empty");
   }
-  const args = ["--line-number", "--no-heading", "--color", "never", query];
+  if (glob) {
+    assertRepoRelativeGlob(glob);
+  }
+  const args = [
+    "--line-number",
+    "--no-heading",
+    "--color",
+    "never",
+    "--glob",
+    "!.bridge/**",
+    "--glob",
+    "!.git/**",
+    "--glob",
+    "!.env*",
+    "--glob",
+    "!node_modules/**",
+    "--glob",
+    "!dist/**",
+    query
+  ];
   if (glob) {
     args.push("--glob", glob);
   }
+  args.push(".");
   try {
     const { stdout } = await execFileAsync("rg", args, {
       cwd: root,
+      timeout: 10_000,
       maxBuffer: 1024 * 1024
     });
     return stdout
@@ -88,12 +113,37 @@ export async function searchRepo(root: string, query: string, glob?: string): Pr
       .slice(0, 100)
       .map((line) => {
         const [file, lineNo, ...rest] = line.split(":");
-        return { path: file, line: Number(lineNo), text: rest.join(":") };
+        return { path: file.replace(/^\.\//, ""), line: Number(lineNo), text: rest.join(":") };
       });
   } catch (error) {
     const maybe = error as { code?: number; stdout?: string };
     if (maybe.code === 1) return [];
     throw error;
+  }
+}
+
+function assertNotSensitiveRepoPath(normalizedPath: string): void {
+  const firstSegment = normalizedPath.split("/")[0];
+  if (
+    firstSegment === ".bridge" ||
+    firstSegment === ".git" ||
+    firstSegment === "node_modules" ||
+    firstSegment === "dist" ||
+    normalizedPath === ".env" ||
+    normalizedPath.startsWith(".env.")
+  ) {
+    throw new Error(`Path ${normalizedPath} is sensitive and cannot be read through repo tools`);
+  }
+}
+
+function assertRepoRelativeGlob(glob: string): void {
+  const normalized = path.posix.normalize(glob.replaceAll("\\", "/").replace(/^!/, ""));
+  if (normalized.startsWith("../") || normalized === ".." || path.isAbsolute(normalized)) {
+    throw new Error("Glob must stay inside the repo-relative root");
+  }
+  const concretePrefix = normalized.replace(/[*?[{].*$/, "").replace(/\/+$/, "");
+  if (concretePrefix) {
+    assertNotSensitiveRepoPath(concretePrefix);
   }
 }
 

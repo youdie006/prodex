@@ -24,10 +24,12 @@
 ## Phase 3 - Codex-First Consult
 
 - [x] Add visible-browser blocker handling.
-- [x] Add one-shot Codex -> ChatGPT Pro consult path through `pro ask`.
+- [x] Keep `pro ask` as a dry-run/manual consult preview by default.
+- [x] Add explicit one-shot Codex -> ChatGPT Pro browser consult path through `pro browser ask`.
 - [x] Fix Korean ChatGPT UI detection and thinking-placeholder handling.
 - [x] Add `pro list/latest/show` for Codex-first consult review.
-- [x] Add `pro check` for local product health checks.
+- [x] Add `pro browser check` for local browser-adapter health checks.
+- [x] Demote browser automation from the primary CLI path.
 - [ ] Add write tools only after dry-run and expected-head checks exist.
   - [ ] `repo_write_file_dry_run`: create a diff receipt without modifying files.
   - [ ] `repo_write_file_apply`: require path sandbox, expected git HEAD, prior diff receipt id, and preimage hash.
@@ -39,6 +41,8 @@
 - [x] Add repo read/search with path sandbox.
 - [x] Add Streamable HTTP MCP endpoint for ChatGPT Developer Mode-style clients.
 - [x] Add local setup/start/status commands and ignored `.bridge/config.local.json`.
+- [x] Redact local MCP URL tokens by default; require `status --show-token` for paste-ready URL.
+- [x] Block `.bridge`, `.git`, `.env*`, build outputs, and oversized files from repo read/search tools.
 - [ ] Add Project/thread selection only after manual confirmation.
 - [ ] Add optional tunnel helper for remote ChatGPT clients only after local auth/token expiry warnings are implemented.
 

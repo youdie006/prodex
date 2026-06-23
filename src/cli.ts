@@ -37,8 +37,8 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       token: readFlag(rest, "--token")
     });
     io.stdout("Saved local ChatGPT Developer Mode MCP profile.");
-    io.stdout(`Server URL: ${config.server_url}`);
-    io.stdout("Paste this URL into ChatGPT Settings -> Apps -> Advanced settings -> Create app.");
+    io.stdout(`Server URL: ${redactServerUrl(config.server_url)}`);
+    io.stdout("Full URL is stored in .bridge/config.local.json.");
     return 0;
   }
 
@@ -50,14 +50,15 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       port: Number(readFlag(rest, "--port") ?? String(config.port)),
       token: readFlag(rest, "--token") ?? config.token
     });
-    io.stdout(`gptprouse HTTP MCP listening on ${running.mcp_url}`);
+    io.stdout(`gptprouse HTTP MCP listening on ${redactServerUrl(running.mcp_url)}`);
     await waitForShutdown(async () => running.close());
     return 0;
   }
 
   if (command === "status") {
     const config = await loadLocalConfig(io.cwd);
-    io.stdout(JSON.stringify({ server_url: config.server_url, config_path: ".bridge/config.local.json" }, null, 2));
+    const showToken = rest.includes("--show-token");
+    io.stdout(JSON.stringify({ server_url: showToken ? config.server_url : redactServerUrl(config.server_url), config_path: ".bridge/config.local.json" }, null, 2));
     return 0;
   }
 
@@ -150,14 +151,25 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
     const [subcommand, ...proArgs] = rest;
     if (subcommand === "ask") {
       const hasMode = proArgs.includes("--send") || proArgs.includes("--dry-run");
-      return runCli(["ask-pro", ...(hasMode ? [] : ["--send"]), ...proArgs], io);
+      return runCli(["ask-pro", ...(hasMode ? [] : ["--dry-run"]), ...proArgs], io);
     }
-    if (subcommand === "open" || subcommand === "status" || subcommand === "smoke") {
-      return runCli(["chatgpt", subcommand, ...proArgs], io);
+    if (subcommand === "browser") {
+      const [browserSubcommand, ...browserArgs] = proArgs;
+      if (browserSubcommand === "ask") {
+        const hasMode = browserArgs.includes("--send") || browserArgs.includes("--dry-run");
+        return runCli(["ask-pro", ...(hasMode ? [] : ["--send"]), ...browserArgs], io);
+      }
+      if (browserSubcommand === "open" || browserSubcommand === "status" || browserSubcommand === "smoke") {
+        return runCli(["chatgpt", browserSubcommand, ...browserArgs], io);
+      }
+      if (browserSubcommand === "check" || browserSubcommand === "doctor") {
+        await printProductCheck(store, io, browserArgs);
+        return 0;
+      }
+      throw new Error("pro browser requires ask|open|status|smoke|check");
     }
-    if (subcommand === "check" || subcommand === "doctor") {
-      await printProductCheck(store, io, proArgs);
-      return 0;
+    if (subcommand === "open" || subcommand === "status" || subcommand === "smoke" || subcommand === "check" || subcommand === "doctor") {
+      throw new Error(`Use \`gptprouse pro browser ${subcommand === "doctor" ? "check" : subcommand}\` for explicit browser automation.`);
     }
     if (subcommand === "list") {
       const consults = await listConsults(store);
@@ -291,11 +303,12 @@ Commands:
   gptprouse init
   gptprouse setup [--host 127.0.0.1] [--port 8787]
   gptprouse start
-  gptprouse status
+  gptprouse status [--show-token]
   gptprouse ask-pro --dry-run|--send [--file path] "prompt"
   gptprouse pro ask [--file path] "prompt"
+  gptprouse pro browser ask [--file path] "prompt"
   gptprouse pro latest|list|show <task-id|latest>
-  gptprouse pro open|status|smoke|check
+  gptprouse pro browser open|status|smoke|check
   gptprouse chatgpt open|status|smoke
   gptprouse tasks create --title "Title" --prompt "Prompt"
   gptprouse tasks list [--status new|claimed|done|blocked]

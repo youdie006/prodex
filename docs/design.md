@@ -4,16 +4,16 @@
 
 Create a local project that supports:
 
-1. `Codex -> ChatGPT Pro/Project` consult through a visible browser adapter.
-2. Codex-centered task/result/receipt workflows under `.bridge`.
+1. Codex-centered task/result/receipt workflows under `.bridge`.
+2. `Codex -> ChatGPT Pro/Project` consult previews that can be copied or run through an explicit optional browser adapter.
 3. Optional `ChatGPT Project -> Codex/local` task handoff through HTTP MCP.
 4. Durable logs, receipts, and session metadata.
 
 ## Proposed CLI
 
 ```bash
-gptprouse pro open
 gptprouse pro ask --file src/server.ts --file docs/design.md "Find risks"
+gptprouse pro browser ask --file src/server.ts --file docs/design.md "Find risks"
 gptprouse pro latest
 gptprouse tasks list
 gptprouse tasks claim <task-id>
@@ -91,12 +91,12 @@ Use a small TypeScript Node CLI/MCP server. Keep Codex CLI commands as the prima
 Phase 1:
 
 - Local task/result files.
-- `pro ask` wrapper around Oracle-style consult.
+- `pro ask` wrapper around Oracle-style dry-run/manual consult.
 - Safety gates and dry-run preview.
 
 Phase 2:
 
-- Visible browser backend for Codex -> ChatGPT Pro consults through `pro ask`.
+- Optional visible browser backend for Codex -> ChatGPT Pro consults through `pro browser ask`.
 - Explicit blocker handling and resumable sessions.
 
 Phase 3:

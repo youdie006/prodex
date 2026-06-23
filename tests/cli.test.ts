@@ -59,11 +59,53 @@ describe("runCli", () => {
     expect(out.join("\n")).toContain("Use receipt-gated writes next.");
   });
 
+  it("keeps pro ask as a dry-run preview unless browser send is explicit", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    await writeFile(path.join(cwd, "notes.md"), "manual bridge first\n", "utf8");
+    const out: string[] = [];
+
+    await runCli(["pro", "ask", "--file", "notes.md", "Review this"], {
+      cwd,
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    const text = out.join("\n");
+    expect(text).toContain("DRY RUN");
+    expect(text).toContain("## File: notes.md");
+    expect(text).toContain("manual bridge first");
+  });
+
+  it("requires explicit browser namespace for browser product checks", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const out: string[] = [];
+
+    await runCli(["pro", "browser", "check", "--port", "65534", "--timeout-ms", "10"], {
+      cwd,
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    expect(out.join("\n")).toContain("chatgpt: browser_unreachable");
+  });
+
+  it("does not keep old pro browser aliases at the top level", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+
+    await expect(
+      runCli(["pro", "status", "--port", "65534", "--timeout-ms", "10"], {
+        cwd,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.toThrow(/pro browser/);
+  });
+
   it("prints a product check instead of failing when setup pieces are missing", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
     const out: string[] = [];
 
-    await runCli(["pro", "check", "--port", "65534", "--timeout-ms", "10"], {
+    await runCli(["pro", "browser", "check", "--port", "65534", "--timeout-ms", "10"], {
       cwd,
       stdout: (line) => out.push(line),
       stderr: () => {}
@@ -85,7 +127,7 @@ describe("runCli", () => {
     });
     const out: string[] = [];
 
-    await runCli(["pro", "check", "--port", "65534", "--timeout-ms", "10"], {
+    await runCli(["pro", "browser", "check", "--port", "65534", "--timeout-ms", "10"], {
       cwd,
       stdout: (line) => out.push(line),
       stderr: () => {}
@@ -94,5 +136,44 @@ describe("runCli", () => {
     const text = out.join("\n");
     expect(text).toContain("gptprouse_token=***");
     expect(text).not.toContain("super-secret-token");
+  });
+
+  it("redacts local MCP tokens from setup, start, and status output by default", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const setupOut: string[] = [];
+
+    await runCli(["setup", "--port", "8789", "--token", "super-secret-token"], {
+      cwd,
+      stdout: (line) => setupOut.push(line),
+      stderr: () => {}
+    });
+    const statusOut: string[] = [];
+    await runCli(["status"], {
+      cwd,
+      stdout: (line) => statusOut.push(line),
+      stderr: () => {}
+    });
+
+    const text = [...setupOut, ...statusOut].join("\n");
+    expect(text).toContain("gptprouse_token=***");
+    expect(text).not.toContain("super-secret-token");
+  });
+
+  it("prints the local MCP URL token only when explicitly requested", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    await runCli(["setup", "--port", "8789", "--token", "super-secret-token"], {
+      cwd,
+      stdout: () => {},
+      stderr: () => {}
+    });
+    const out: string[] = [];
+
+    await runCli(["status", "--show-token"], {
+      cwd,
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    expect(out.join("\n")).toContain("super-secret-token");
   });
 });

@@ -15,11 +15,12 @@ The goal is not to turn ChatGPT Pro into a public API. The goal is to make Codex
 
 ```text
 Codex
-  | pro ask / pro latest / tasks
+  | pro ask preview / tasks / mcp
   v
 gptprouse local bridge + .bridge receipts
   |                         ^
-  | visible browser consult | optional HTTP/stdin MCP
+  | optional explicit       | optional HTTP/stdin MCP
+  | pro browser consult     |
   v                         |
 ChatGPT Pro              ChatGPT Projects / Claude
 ```
@@ -27,7 +28,7 @@ ChatGPT Pro              ChatGPT Projects / Claude
 ## Operating Rules
 
 - Manual-first: each ChatGPT Pro consult should be user-initiated or clearly tied to the current task.
-- Visible browser: use the real logged-in browser session when browser control is needed.
+- Browser automation is optional and explicit: use it only through `pro browser ...`, with a real visible logged-in browser session.
 - Stop on blockers: login, captcha, rate limit, Cloudflare, permission, and model-limit states stop the workflow.
 - No bypass: no hidden API, cookie extraction, stealth automation, proxies, or captcha solving.
 - Low volume: no batch prompting or recurring loops that make ChatGPT Pro behave like an API server.
@@ -46,9 +47,9 @@ Implemented:
 
 - Versioned `.bridge` ledger schemas for tasks, results, sessions, and receipts.
 - CLI commands for task creation/listing/claiming/completion and result display.
-- `pro ask` and `pro latest` for Codex-first ChatGPT Pro consults.
+- `pro ask` and `pro latest` for Codex-first consult previews and review receipts.
 - `ask-pro --dry-run` and `ask-pro --send` as explicit lower-level aliases.
-- `pro open/status/smoke/check` for the visible browser adapter and product health checks.
+- `pro browser open/status/smoke/check/ask` for the optional visible browser adapter.
 - Claude-compatible stdio MCP server through `gptprouse mcp`.
 - ChatGPT Developer Mode-style Streamable HTTP MCP server through `gptprouse setup` and `gptprouse start`.
 - Read-only repo tools for bounded file reads and ripgrep search.
@@ -67,10 +68,17 @@ Not implemented:
 npm install
 npm run build
 node dist/cli.js init
-node dist/cli.js pro open
-node dist/cli.js pro check
-node dist/cli.js pro status
 node dist/cli.js pro ask --file README.md "Review the project positioning"
+```
+
+`pro ask` is a dry-run/manual preview by default. It does not drive a logged-in browser unless you explicitly choose the browser adapter.
+
+Optional, explicit visible-browser consult:
+
+```bash
+node dist/cli.js pro browser open
+node dist/cli.js pro browser check
+node dist/cli.js pro browser ask --file README.md "Review the project positioning"
 node dist/cli.js pro latest
 ```
 
@@ -81,7 +89,13 @@ node dist/cli.js setup
 node dist/cli.js start
 ```
 
-Paste the printed Server URL into ChatGPT Developer Mode / Apps as the MCP server URL. The URL token is stored only in `.bridge/config.local.json`, which is ignored by git.
+`setup`, `start`, and `status` redact the URL token by default. When you are ready to paste the MCP URL into ChatGPT Developer Mode / Apps, run:
+
+```bash
+node dist/cli.js status --show-token
+```
+
+The URL token is stored only in `.bridge/config.local.json`, which is ignored by git.
 
 If ChatGPT cannot reach `127.0.0.1` from its app runtime, keep `gptprouse start` local and put a tunnel in front of it. Tunnel setup is intentionally not automatic yet.
 
