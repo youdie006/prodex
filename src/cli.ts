@@ -778,8 +778,10 @@ async function ensureBridgeGitignore(cwd: string): Promise<void> {
   } catch {
     // ignore missing .gitignore
   }
-  if (!current.includes("node_modules/")) {
-    await writeFile(rootIgnorePath, `${current}${current && !current.endsWith("\n") ? "\n" : ""}node_modules/\ndist/\n`, "utf8");
+  const ignored = new Set(current.split(/\r?\n/).filter(Boolean));
+  const additions = ["node_modules/", "dist/"].filter((line) => !ignored.has(line));
+  if (additions.length > 0) {
+    await writeFile(rootIgnorePath, `${current}${current && !current.endsWith("\n") ? "\n" : ""}${additions.join("\n")}\n`, "utf8");
   }
 }
 

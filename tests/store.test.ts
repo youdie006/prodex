@@ -92,6 +92,32 @@ describe("BridgeStore", () => {
     expect(await readFile(outsideFile, "utf8")).toBe("outside\n");
   });
 
+  it("rejects artifact writes without touching outside files when the parent directory is swapped before open", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
+    const outside = await mkdtemp(path.join(tmpdir(), "gptprouse-outside-"));
+    const swapDir = path.join(root, ".bridge", "artifacts", "subdir");
+    const artifactPath = path.join(swapDir, "payload.txt");
+    const outsideFile = path.join(outside, "payload.txt");
+    await mkdir(swapDir, { recursive: true });
+    await writeFile(outsideFile, "outside\n", "utf8");
+    const store = new BridgeStore(root);
+    let swapped = false;
+    setSafeFileTestHooks({
+      beforeOpen: async (filePath, operation) => {
+        if (!swapped && operation === "write" && filePath === artifactPath) {
+          swapped = true;
+          await rm(swapDir, { recursive: true, force: true });
+          await symlink(outside, swapDir);
+        }
+      }
+    });
+
+    await expect(store.writeArtifactText(".bridge/artifacts/subdir/payload.txt", "payload\n")).rejects.toThrow(
+      /symlink|changed|artifacts/i
+    );
+    expect(await readFile(outsideFile, "utf8")).toBe("outside\n");
+  });
+
   it("does not create directories through symlinked artifact ancestors before rejecting", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
     const outside = await mkdtemp(path.join(tmpdir(), "gptprouse-outside-"));

@@ -38,6 +38,17 @@ describe("runCli", () => {
     expect(out.join("\n")).toContain("Review");
   });
 
+  it("adds missing build output ignores even when dependencies are already ignored", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    await writeFile(path.join(cwd, ".gitignore"), "node_modules/\n", "utf8");
+
+    await runCli(["init"], { cwd, stdout: () => {}, stderr: () => {} });
+
+    const gitignore = await readFile(path.join(cwd, ".gitignore"), "utf8");
+    expect(gitignore).toContain("node_modules/");
+    expect(gitignore).toContain("dist/");
+  });
+
   it("prints ask-pro dry-run bundles", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
     await writeFile(path.join(cwd, "notes.md"), "hello\n", "utf8");

@@ -3,6 +3,7 @@ import { randomBytes } from "node:crypto";
 import path from "node:path";
 import { z } from "zod";
 import { SCHEMA_VERSION } from "./schema.js";
+import { readVerifiedUtf8File, writeVerifiedUtf8File } from "./safe-file.js";
 
 const LocalConfigSchema = z.object({
   schema_version: z.literal(SCHEMA_VERSION),
@@ -55,14 +56,19 @@ export async function writeLocalConfig(cwd: string, input: WriteLocalConfigInput
     created_at: existing?.created_at ?? now,
     updated_at: now
   });
-  await writeFile(localConfigPath(cwd), `${JSON.stringify(config, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+  await writeVerifiedUtf8File(localConfigPath(cwd), `${JSON.stringify(config, null, 2)}\n`, () => assertLocalConfigTargetSafe(cwd), {
+    create: true,
+    mode: 0o600
+  });
   await chmod(localConfigPath(cwd), 0o600);
   return config;
 }
 
 export async function loadLocalConfig(cwd: string): Promise<LocalConfig> {
   await assertLocalConfigTargetSafe(cwd, { allowMissing: false });
-  const config = LocalConfigSchema.parse(JSON.parse(await readFile(localConfigPath(cwd), "utf8")));
+  const config = LocalConfigSchema.parse(
+    JSON.parse(await readVerifiedUtf8File(localConfigPath(cwd), () => assertLocalConfigTargetSafe(cwd, { allowMissing: false })))
+  );
   await chmod(localConfigPath(cwd), 0o600);
   return config;
 }
@@ -109,7 +115,9 @@ function isTokenExpired(tokenExpiresAt: string, now: Date): boolean {
 
 async function readExistingConfig(cwd: string): Promise<LocalConfig | undefined> {
   try {
-    return LocalConfigSchema.parse(JSON.parse(await readFile(localConfigPath(cwd), "utf8")));
+    return LocalConfigSchema.parse(
+      JSON.parse(await readVerifiedUtf8File(localConfigPath(cwd), () => assertLocalConfigTargetSafe(cwd, { allowMissing: false })))
+    );
   } catch {
     return undefined;
   }

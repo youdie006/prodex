@@ -1,10 +1,15 @@
-import { chmod, mkdir, mkdtemp, readFile, stat, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { loadLocalConfig, localConfigPath, writeLocalConfig } from "../src/config.js";
+import { setSafeFileTestHooks } from "../src/safe-file.js";
 
 describe("local bridge config", () => {
+  afterEach(() => {
+    setSafeFileTestHooks({});
+  });
+
   it("stores ChatGPT Developer Mode HTTP settings in an ignored local file", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-config-"));
 
@@ -105,5 +110,60 @@ describe("local bridge config", () => {
 
     await expect(writeLocalConfig(cwd, { port: 9797, token: "test-token" })).rejects.toThrow(/symlink/);
     await expect(loadLocalConfig(cwd)).rejects.toThrow(/symlink/);
+  });
+
+  it("rejects config writes when the config path is swapped to a symlink before open", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-config-"));
+    const outside = await mkdtemp(path.join(tmpdir(), "gptprouse-config-outside-"));
+    const outsideConfig = path.join(outside, "config.local.json");
+    await writeFile(outsideConfig, "outside\n", "utf8");
+    let swapped = false;
+    setSafeFileTestHooks({
+      beforeOpen: async (filePath, operation) => {
+        if (!swapped && operation === "write" && filePath === localConfigPath(cwd)) {
+          swapped = true;
+          await symlink(outsideConfig, localConfigPath(cwd));
+        }
+      }
+    });
+
+    await expect(writeLocalConfig(cwd, { port: 9797, token: "test-token" })).rejects.toThrow(/symlink|changed/i);
+    expect(await readFile(outsideConfig, "utf8")).toBe("outside\n");
+  });
+
+  it("rejects config reads when the config path is swapped to a symlink before open", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-config-"));
+    const outside = await mkdtemp(path.join(tmpdir(), "gptprouse-config-outside-"));
+    const outsideConfig = path.join(outside, "config.local.json");
+    await writeLocalConfig(cwd, { port: 9797, token: "inside-token" });
+    await writeFile(
+      outsideConfig,
+      `${JSON.stringify(
+        {
+          schema_version: 1,
+          host: "127.0.0.1",
+          port: 9797,
+          token: "outside-token",
+          server_url: "http://127.0.0.1:9797/mcp?gptprouse_token=outside-token",
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+    let swapped = false;
+    setSafeFileTestHooks({
+      beforeOpen: async (filePath, operation) => {
+        if (!swapped && operation === "read" && filePath === localConfigPath(cwd)) {
+          swapped = true;
+          await rm(localConfigPath(cwd));
+          await symlink(outsideConfig, localConfigPath(cwd));
+        }
+      }
+    });
+
+    await expect(loadLocalConfig(cwd)).rejects.toThrow(/symlink|changed/i);
   });
 });
