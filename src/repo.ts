@@ -6,6 +6,9 @@ import { readVerifiedUtf8File } from "./safe-file.js";
 
 const execFileAsync = promisify(execFile);
 const MAX_REPO_READ_BYTES = 1_000_000;
+const MAX_GLOB_BRACE_EXPANSIONS = 64;
+const MAX_GLOB_BRACE_DEPTH = 8;
+const ENV_LIKE_GLOB_PROBES = [".env", ".envrc", ".env.local", ".envoy"];
 export interface ReadRepoFileOptions {
   startLine?: number;
   maxLines?: number;
@@ -132,7 +135,7 @@ export async function searchRepo(root: string, query: string, glob?: string): Pr
 
 function assertNotSensitiveRepoPath(normalizedPath: string): void {
   const segments = normalizedPath.split("/");
-  if (segments.some((segment) => segment === ".env" || segment.startsWith(".env."))) {
+  if (segments.some(isEnvLikeSegment)) {
     throw new Error(`Path ${normalizedPath} is sensitive and cannot be read through repo tools`);
   }
   if (
@@ -149,30 +152,160 @@ function assertRepoRelativeGlob(glob: string): void {
   if (normalized.startsWith("../") || normalized === ".." || path.isAbsolute(normalized)) {
     throw new Error("Glob must stay inside the repo-relative root");
   }
-  assertNoSensitiveLiteralGlobSegment(normalized);
+  assertNoSensitiveGlobSegment(normalized);
   const concretePrefix = normalized.replace(/[*?[{].*$/, "").replace(/\/+$/, "");
   if (concretePrefix) {
     assertNotSensitiveRepoPath(concretePrefix);
   }
 }
 
-function assertNoSensitiveLiteralGlobSegment(normalizedGlob: string): void {
-  const literalSegments = normalizedGlob
-    .split("/")
-    .filter((segment) => segment && !/[*?[{]/.test(segment));
+function assertNoSensitiveGlobSegment(normalizedGlob: string): void {
+  const segments = normalizedGlob.split("/").filter(Boolean);
   if (
-    literalSegments.some(
+    segments.some(
       (segment) =>
         segment === ".git" ||
         segment === ".bridge" ||
         segment === "node_modules" ||
         segment === "dist" ||
-        segment === ".env" ||
-        segment.startsWith(".env.")
+        isEnvLikeGlobSegment(segment)
     )
   ) {
     throw new Error(`Glob ${normalizedGlob} is sensitive and cannot be used through repo tools`);
   }
+}
+
+function isEnvLikeSegment(segment: string): boolean {
+  return segment.startsWith(".env");
+}
+
+function isEnvLikeGlobSegment(segment: string): boolean {
+  const variants = expandBraceGlobSegment(segment);
+  if (variants === null) return true;
+  return variants.some(isEnvLikeGlobVariant);
+}
+
+function isEnvLikeGlobVariant(segment: string): boolean {
+  if (isBroadWildcardOnlyGlobVariant(segment)) return false;
+  return ENV_LIKE_GLOB_PROBES.some((probe) => globSegmentMatches(segment, probe));
+}
+
+function isBroadWildcardOnlyGlobVariant(segment: string): boolean {
+  return /^[*?]+$/.test(segment);
+}
+
+function globSegmentMatches(pattern: string, value: string): boolean {
+  const regexSource = globSegmentToRegexSource(pattern);
+  if (regexSource === null) return true;
+  try {
+    return new RegExp(`^${regexSource}$`, "u").test(value);
+  } catch {
+    return true;
+  }
+}
+
+function globSegmentToRegexSource(pattern: string): string | null {
+  let source = "";
+  for (let index = 0; index < pattern.length; index += 1) {
+    const char = pattern[index];
+    if (char === "*") {
+      source += ".*";
+      continue;
+    }
+    if (char === "?") {
+      source += ".";
+      continue;
+    }
+    if (char === "[") {
+      const charClass = readGlobCharClass(pattern, index);
+      if (charClass === null) return null;
+      source += charClass.source;
+      index = charClass.end;
+      continue;
+    }
+    source += escapeRegexLiteral(char);
+  }
+  return source;
+}
+
+function readGlobCharClass(pattern: string, start: number): { source: string; end: number } | null {
+  let end = start + 1;
+  if (pattern[end] === "]") end += 1;
+  while (end < pattern.length && pattern[end] !== "]") {
+    end += 1;
+  }
+  if (end >= pattern.length) return null;
+  let content = pattern.slice(start + 1, end);
+  let negated = "";
+  if (content.startsWith("!") || content.startsWith("^")) {
+    negated = "^";
+    content = content.slice(1);
+  }
+  if (!content) return null;
+  const escaped = content.replaceAll("\\", "\\\\").replaceAll("]", "\\]");
+  return { source: `[${negated}${escaped}]`, end };
+}
+
+function escapeRegexLiteral(char: string): string {
+  return char.replace(/[\\^$.*+?()[\]{}|]/g, "\\$&");
+}
+
+function expandBraceGlobSegment(segment: string, depth = 0): string[] | null {
+  if (depth > MAX_GLOB_BRACE_DEPTH) return null;
+  const open = segment.indexOf("{");
+  if (open === -1) return [segment];
+  const close = findMatchingBrace(segment, open);
+  if (close === -1) return [segment];
+  const before = segment.slice(0, open);
+  const after = segment.slice(close + 1);
+  const alternatives = splitBraceAlternatives(segment.slice(open + 1, close));
+  const variants: string[] = [];
+  for (const alternative of alternatives) {
+    const expanded = expandBraceGlobSegment(`${before}${alternative}${after}`, depth + 1);
+    if (expanded === null) return null;
+    variants.push(...expanded);
+    if (variants.length > MAX_GLOB_BRACE_EXPANSIONS) return null;
+  }
+  return variants;
+}
+
+function findMatchingBrace(input: string, open: number): number {
+  let depth = 0;
+  for (let index = open; index < input.length; index += 1) {
+    const char = input[index];
+    if (char === "{") depth += 1;
+    if (char === "}") {
+      depth -= 1;
+      if (depth === 0) return index;
+    }
+  }
+  return -1;
+}
+
+function splitBraceAlternatives(input: string): string[] {
+  const alternatives: string[] = [];
+  let depth = 0;
+  let current = "";
+  for (const char of input) {
+    if (char === "{") {
+      depth += 1;
+      current += char;
+      continue;
+    }
+    if (char === "}") {
+      depth = Math.max(0, depth - 1);
+      current += char;
+      continue;
+    }
+    if (char === "," && depth === 0) {
+      alternatives.push(current);
+      current = "";
+      continue;
+    }
+    current += char;
+  }
+  alternatives.push(current);
+  return alternatives;
 }
 
 async function assertRealPathInside(root: string, resolved: string, repoPath: string): Promise<void> {

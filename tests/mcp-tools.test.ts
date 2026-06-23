@@ -490,6 +490,22 @@ describe("MCP tool handlers", () => {
     ).rejects.toThrow(/sensitive/);
   });
 
+  it("rejects write dry-runs for env-like files", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    await writeFile(path.join(cwd, "notes.md"), "old\n", "utf8");
+    await writeFile(path.join(cwd, ".envrc"), "old\n", "utf8");
+    const head = await initGitRepo(cwd);
+    const handlers = createMcpToolHandlers({ cwd });
+
+    await expect(
+      handlers.repo_write_file_dry_run({
+        path: ".envrc",
+        content: "new\n",
+        expected_head: head
+      })
+    ).rejects.toThrow(/sensitive/);
+  });
+
   it("rejects write dry-runs for nested git metadata paths", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
     await writeFile(path.join(cwd, "notes.md"), "old\n", "utf8");

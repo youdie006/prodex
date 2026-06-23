@@ -85,12 +85,17 @@ describe("repo path policy", () => {
     await mkdir(path.join(root, "services", "api"), { recursive: true });
     await writeFile(path.join(root, "services", "api", ".env"), "SECRET=needle\n", "utf8");
     await writeFile(path.join(root, "services", "api", ".env.local"), "SECRET=needle\n", "utf8");
+    await writeFile(path.join(root, "services", "api", ".envrc"), "SECRET=needle\n", "utf8");
+    await writeFile(path.join(root, "services", "api", ".envrc.local"), "SECRET=needle\n", "utf8");
     await writeFile(path.join(root, "services", "api", "README.md"), "needle\n", "utf8");
 
     await expect(readRepoFile(root, "services/api/.env")).rejects.toThrow(/sensitive/);
     await expect(readRepoFile(root, "services/api/.env.local")).rejects.toThrow(/sensitive/);
+    await expect(readRepoFile(root, "services/api/.envrc")).rejects.toThrow(/sensitive/);
+    await expect(readRepoFile(root, "services/api/.envrc.local")).rejects.toThrow(/sensitive/);
     await expect(searchRepo(root, "SECRET")).resolves.toEqual([]);
     await expect(searchRepo(root, "SECRET", "services/api/.env.local")).rejects.toThrow(/sensitive/);
+    await expect(searchRepo(root, "SECRET", "services/api/.envrc")).rejects.toThrow(/sensitive/);
   });
 
   it("does not let wildcard search globs re-include env files", async () => {
@@ -98,10 +103,19 @@ describe("repo path policy", () => {
     await mkdir(path.join(root, "services", "api"), { recursive: true });
     await writeFile(path.join(root, ".env"), "SECRET=root-needle\n", "utf8");
     await writeFile(path.join(root, "services", "api", ".env.local"), "SECRET=nested-needle\n", "utf8");
+    await writeFile(path.join(root, "services", "api", ".envrc"), "SECRET=envrc-needle\n", "utf8");
+    await writeFile(path.join(root, "services", "api", ".envoy"), "SECRET=envoy-needle\n", "utf8");
     await writeFile(path.join(root, "README.md"), "SECRET=public-needle\n", "utf8");
 
-    await expect(searchRepo(root, "SECRET", "*.env*")).resolves.toEqual([]);
-    await expect(searchRepo(root, "SECRET", "**/.env*")).resolves.toEqual([]);
+    await expect(searchRepo(root, "SECRET", "*.env*")).rejects.toThrow(/sensitive/);
+    await expect(searchRepo(root, "SECRET", "**/.env*")).rejects.toThrow(/sensitive/);
+    await expect(searchRepo(root, "SECRET", "**/.envrc*")).rejects.toThrow(/sensitive/);
+    await expect(searchRepo(root, "SECRET", "services/api/{README.md,.envrc}")).rejects.toThrow(/sensitive/);
+    await expect(searchRepo(root, "SECRET", "services/api/.envoy")).rejects.toThrow(/sensitive/);
+    await expect(searchRepo(root, "SECRET", "**/.[e]nv*")).rejects.toThrow(/sensitive/);
+    await expect(searchRepo(root, "SECRET", "**/[.]env*")).rejects.toThrow(/sensitive/);
+    await expect(searchRepo(root, "SECRET", "**/?env*")).rejects.toThrow(/sensitive/);
+    await expect(searchRepo(root, "SECRET", "**/.e?v*")).rejects.toThrow(/sensitive/);
     await expect(searchRepo(root, "SECRET", "**/*")).resolves.toEqual([{ path: "README.md", line: 1, text: "SECRET=public-needle" }]);
   });
 

@@ -20,6 +20,13 @@ describe("buildDryRunBundle", () => {
     expect(bundle.mode).toBe("manual_copy");
   });
 
+  it("rejects env-like files as consult bundle context", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-bundle-"));
+    await writeFile(path.join(root, ".envrc"), "SECRET=leak\n", "utf8");
+
+    await expect(buildDryRunBundle(root, { prompt: "Review this file.", files: [".envrc"] })).rejects.toThrow(/sensitive/);
+  });
+
   it("uses unique session ids for repeated bundles created in the same second", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "gptprouse-bundle-"));
     vi.useFakeTimers();
