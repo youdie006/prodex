@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { execFile } from "node:child_process";
 import { realpathSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -25,13 +25,18 @@ const CLI_VERSION = packageJson.version ?? "0.0.0";
 
 const DOCTOR_REQUIRED_MCP_TOOLS = [
   "bridge_create_task",
+  "bridge_list_tasks",
+  "bridge_get_task",
+  "bridge_claim_task",
   "bridge_complete_task",
   "bridge_block_task",
-  "bridge_list_sessions",
-  "bridge_get_session",
+  "bridge_list_results",
+  "bridge_fetch_result",
   "bridge_fetch_result_artifact",
   "bridge_list_receipts",
   "bridge_get_receipt",
+  "bridge_list_sessions",
+  "bridge_get_session",
   "repo_read_file",
   "repo_search",
   "repo_write_file_dry_run",
@@ -664,8 +669,8 @@ async function runDoctor(store: BridgeStore, io: CliIO): Promise<number> {
   }
 
   try {
-    const smoke = await runHttpMcpCatalogSmoke(io.cwd);
-    io.stdout(`http_mcp_smoke: ok tools=${smoke.tools.join(",")}`);
+    const smoke = await runHttpMcpCatalogSmoke();
+    io.stdout(`http_mcp_smoke: ok task_flow=${smoke.taskFlow} finalizers=${smoke.finalizers} tools=${smoke.tools.join(",")}`);
   } catch (error) {
     ok = false;
     io.stdout(`http_mcp_smoke: failed ${errorMessage(error)}`);
@@ -674,70 +679,381 @@ async function runDoctor(store: BridgeStore, io: CliIO): Promise<number> {
   return ok ? 0 : 1;
 }
 
-async function runHttpMcpCatalogSmoke(cwd: string): Promise<{ tools: string[] }> {
-  const running = await startHttpMcpServer({
-    cwd,
-    host: "127.0.0.1",
-    port: 0,
-    token: "doctor-token"
-  });
+async function runHttpMcpCatalogSmoke(): Promise<{ tools: string[]; taskFlow: "ok"; finalizers: "ok" }> {
+  const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-http-doctor-"));
+  let running: Awaited<ReturnType<typeof startHttpMcpServer>> | undefined;
   let client: Client | undefined;
+  let smokeFailed = false;
   try {
+    running = await startHttpMcpServer({
+      cwd,
+      host: "127.0.0.1",
+      port: 0,
+      token: "doctor-token"
+    });
     client = new Client({ name: "gptprouse-doctor", version: "0.2.0" });
-    await client.connect(new StreamableHTTPClientTransport(new URL(running.mcp_url)));
-    const result = await client.listTools();
+    await withTimeout(
+      client.connect(new StreamableHTTPClientTransport(new URL(running.mcp_url))),
+      20_000,
+      "timed out connecting to HTTP MCP server"
+    );
+    const result = await withTimeout(client.listTools(), 20_000, "timed out listing HTTP MCP tools");
     const names = result.tools.map((tool) => tool.name);
     const missing = DOCTOR_REQUIRED_MCP_TOOLS.filter((tool) => !names.includes(tool));
     if (missing.length > 0) throw new Error(`missing MCP tools: ${missing.join(",")}`);
-    return { tools: [...DOCTOR_REQUIRED_MCP_TOOLS] };
+    await runHttpMcpFinalizerSmoke(client);
+    return { tools: [...DOCTOR_REQUIRED_MCP_TOOLS], taskFlow: "ok", finalizers: "ok" };
+  } catch (error) {
+    smokeFailed = true;
+    throw error;
   } finally {
-    await client?.close().catch(() => undefined);
-    await running.close();
+    const cleanupErrors: string[] = [];
+    if (client) {
+      try {
+        await withTimeout(client.close(), 10_000, "timed out closing HTTP MCP client");
+      } catch (error) {
+        cleanupErrors.push(errorMessage(error));
+      }
+    }
+    if (running) {
+      try {
+        await running.close({ forceAfterMs: 1_000, timeoutMs: 10_000 });
+      } catch (error) {
+        cleanupErrors.push(errorMessage(error));
+      }
+    }
+    try {
+      await rm(cwd, { recursive: true, force: true });
+    } catch (error) {
+      cleanupErrors.push(errorMessage(error));
+    }
+    if (cleanupErrors.length > 0 && !smokeFailed) {
+      throw new Error(`HTTP MCP smoke cleanup failed: ${cleanupErrors.join("; ")}`);
+    }
   }
+}
+
+async function runHttpMcpFinalizerSmoke(client: Client): Promise<void> {
+  const doneTask = await callHttpMcpJsonTool<{ task: { id: string } }>(client, "bridge_create_task", {
+    title: "Doctor HTTP complete smoke",
+    prompt: "Complete this task over HTTP MCP"
+  });
+  assertDoctorMcpTask(doneTask.task, {
+    taskId: doneTask.task.id,
+    status: "new",
+    title: "Doctor HTTP complete smoke"
+  });
+  const fetchedTask = await callHttpMcpJsonTool<{ task: DoctorMcpTask }>(client, "bridge_get_task", {
+    task_id: doneTask.task.id
+  });
+  const newTasks = await callHttpMcpJsonTool<{ tasks: DoctorMcpTask[] }>(client, "bridge_list_tasks", {
+    status: "new"
+  });
+  assertDoctorMcpTask(fetchedTask.task, {
+    taskId: doneTask.task.id,
+    status: "new",
+    title: "Doctor HTTP complete smoke"
+  });
+  assertDoctorMcpTaskInList(newTasks.tasks, {
+    taskId: doneTask.task.id,
+    status: "new"
+  });
+  const claimedTask = await callHttpMcpJsonTool<{ task: DoctorMcpTask }>(client, "bridge_claim_task", {
+    task_id: doneTask.task.id,
+    claimed_by: "doctor-http-smoke"
+  });
+  const claimedTasks = await callHttpMcpJsonTool<{ tasks: DoctorMcpTask[] }>(client, "bridge_list_tasks", {
+    status: "claimed"
+  });
+  assertDoctorMcpTask(claimedTask.task, {
+    taskId: doneTask.task.id,
+    status: "claimed",
+    title: "Doctor HTTP complete smoke",
+    claimedBy: "doctor-http-smoke"
+  });
+  assertDoctorMcpTaskInList(claimedTasks.tasks, {
+    taskId: doneTask.task.id,
+    status: "claimed"
+  });
+  const completed = await callHttpMcpJsonTool<{ result: DoctorMcpResult }>(client, "bridge_complete_task", {
+    task_id: doneTask.task.id,
+    summary: "Completed by doctor HTTP MCP",
+    commands: ["doctor http finalizer smoke"]
+  });
+  const blockedTask = await callHttpMcpJsonTool<{ task: { id: string } }>(client, "bridge_create_task", {
+    title: "Doctor HTTP block smoke",
+    prompt: "Block this task over HTTP MCP"
+  });
+  const blocked = await callHttpMcpJsonTool<{ result: DoctorMcpResult }>(client, "bridge_block_task", {
+    task_id: blockedTask.task.id,
+    summary: "Blocked by doctor HTTP MCP",
+    code: "doctor_http_blocker",
+    retryable: true,
+    next_step: "Inspect doctor output."
+  });
+  const fetchedDone = await callHttpMcpJsonTool<{ result: DoctorMcpResult }>(client, "bridge_fetch_result", {
+    task_id: doneTask.task.id
+  });
+  const fetchedBlocked = await callHttpMcpJsonTool<{ result: DoctorMcpResult }>(client, "bridge_fetch_result", {
+    task_id: blockedTask.task.id
+  });
+  const doneTasks = await callHttpMcpJsonTool<{ tasks: DoctorMcpTask[] }>(client, "bridge_list_tasks", {
+    status: "done"
+  });
+  const blockedTasks = await callHttpMcpJsonTool<{ tasks: DoctorMcpTask[] }>(client, "bridge_list_tasks", {
+    status: "blocked"
+  });
+  const results = await callHttpMcpJsonTool<{ results: DoctorMcpResult[] }>(client, "bridge_list_results", {});
+
+  assertDoctorMcpResult(completed.result, {
+    taskId: doneTask.task.id,
+    status: "done",
+    summary: "Completed by doctor HTTP MCP",
+    commands: ["doctor http finalizer smoke"]
+  });
+  assertDoctorMcpResult(fetchedDone.result, {
+    taskId: doneTask.task.id,
+    status: "done",
+    summary: "Completed by doctor HTTP MCP",
+    commands: ["doctor http finalizer smoke"]
+  });
+  assertDoctorMcpResult(blocked.result, {
+    taskId: blockedTask.task.id,
+    status: "blocked",
+    summary: "Blocked by doctor HTTP MCP",
+    blockerCode: "doctor_http_blocker",
+    retryable: true,
+    nextStep: "Inspect doctor output."
+  });
+  assertDoctorMcpResult(fetchedBlocked.result, {
+    taskId: blockedTask.task.id,
+    status: "blocked",
+    summary: "Blocked by doctor HTTP MCP",
+    blockerCode: "doctor_http_blocker",
+    retryable: true,
+    nextStep: "Inspect doctor output."
+  });
+  assertDoctorMcpTaskInList(doneTasks.tasks, {
+    taskId: doneTask.task.id,
+    status: "done"
+  });
+  assertDoctorMcpTaskInList(blockedTasks.tasks, {
+    taskId: blockedTask.task.id,
+    status: "blocked"
+  });
+  assertDoctorMcpResultInList(results.results, {
+    taskId: doneTask.task.id,
+    status: "done",
+    summary: "Completed by doctor HTTP MCP"
+  });
+  assertDoctorMcpResultInList(results.results, {
+    taskId: blockedTask.task.id,
+    status: "blocked",
+    summary: "Blocked by doctor HTTP MCP"
+  });
+}
+
+type DoctorMcpTask = {
+  id?: unknown;
+  status?: unknown;
+  title?: unknown;
+  claimed_by?: unknown;
+};
+
+type DoctorMcpResult = {
+  task_id?: unknown;
+  status?: unknown;
+  summary?: unknown;
+  commands?: unknown;
+  blocker?: {
+    code?: unknown;
+    retryable?: unknown;
+    next_step?: unknown;
+  };
+};
+
+async function callHttpMcpJsonTool<T>(client: Client, name: string, args: Record<string, unknown>): Promise<T> {
+  const result = await withTimeout(
+    client.callTool({ name, arguments: args }),
+    20_000,
+    `timed out calling HTTP MCP tool ${name}`
+  );
+  const content = (result as { content?: unknown }).content;
+  if (Array.isArray(content)) {
+    for (const item of content) {
+      if (isMcpTextContent(item)) return JSON.parse(item.text) as T;
+    }
+  }
+  throw new Error(`HTTP MCP tool ${name} did not return text content`);
+}
+
+function isMcpTextContent(item: unknown): item is { type: "text"; text: string } {
+  return (
+    typeof item === "object" &&
+    item !== null &&
+    "type" in item &&
+    "text" in item &&
+    item.type === "text" &&
+    typeof item.text === "string"
+  );
+}
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(() => reject(new Error(message)), timeoutMs);
+      })
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
+
+function assertDoctorMcpResult(
+  result: DoctorMcpResult,
+  expected: {
+    taskId: string;
+    status: "done" | "blocked";
+    summary: string;
+    commands?: string[];
+    blockerCode?: string;
+    retryable?: boolean;
+    nextStep?: string;
+  }
+): void {
+  if (result.task_id !== expected.taskId || result.status !== expected.status || result.summary !== expected.summary) {
+    throw new Error(`unexpected HTTP MCP result: ${JSON.stringify(result)} expected ${JSON.stringify(expected)}`);
+  }
+  if (expected.commands && JSON.stringify(result.commands) !== JSON.stringify(expected.commands)) {
+    throw new Error(`unexpected HTTP MCP result commands: ${JSON.stringify(result.commands)} expected ${JSON.stringify(expected.commands)}`);
+  }
+  if (expected.blockerCode && result.blocker?.code !== expected.blockerCode) {
+    throw new Error(`unexpected HTTP MCP blocker: ${JSON.stringify(result.blocker)} expected code ${expected.blockerCode}`);
+  }
+  if (expected.retryable !== undefined && result.blocker?.retryable !== expected.retryable) {
+    throw new Error(`unexpected HTTP MCP blocker retryable: ${JSON.stringify(result.blocker)} expected ${expected.retryable}`);
+  }
+  if (expected.nextStep !== undefined && result.blocker?.next_step !== expected.nextStep) {
+    throw new Error(`unexpected HTTP MCP blocker next_step: ${JSON.stringify(result.blocker)} expected ${expected.nextStep}`);
+  }
+}
+
+function assertDoctorMcpTask(
+  task: DoctorMcpTask,
+  expected: {
+    taskId: string;
+    status: "new" | "claimed" | "done" | "blocked";
+    title?: string;
+    claimedBy?: string;
+  }
+): void {
+  if (task.id !== expected.taskId || task.status !== expected.status) {
+    throw new Error(`unexpected HTTP MCP task: ${JSON.stringify(task)} expected ${JSON.stringify(expected)}`);
+  }
+  if (expected.title !== undefined && task.title !== expected.title) {
+    throw new Error(`unexpected HTTP MCP task title: ${JSON.stringify(task)} expected ${expected.title}`);
+  }
+  if (expected.claimedBy !== undefined && task.claimed_by !== expected.claimedBy) {
+    throw new Error(`unexpected HTTP MCP task claimer: ${JSON.stringify(task)} expected ${expected.claimedBy}`);
+  }
+}
+
+function assertDoctorMcpTaskInList(
+  tasks: unknown,
+  expected: {
+    taskId: string;
+    status: "new" | "claimed" | "done" | "blocked";
+  }
+): void {
+  if (!Array.isArray(tasks)) {
+    throw new Error(`unexpected HTTP MCP task list: ${JSON.stringify(tasks)}`);
+  }
+  if (!tasks.some((task) => isDoctorMcpTask(task) && task.id === expected.taskId && task.status === expected.status)) {
+    throw new Error(`missing HTTP MCP task in list: ${JSON.stringify(expected)} from ${JSON.stringify(tasks)}`);
+  }
+}
+
+function assertDoctorMcpResultInList(
+  results: unknown,
+  expected: {
+    taskId: string;
+    status: "done" | "blocked";
+    summary: string;
+  }
+): void {
+  if (!Array.isArray(results)) {
+    throw new Error(`unexpected HTTP MCP result list: ${JSON.stringify(results)}`);
+  }
+  if (!results.some((result) => isDoctorMcpResult(result) && result.task_id === expected.taskId && result.status === expected.status && result.summary === expected.summary)) {
+    throw new Error(`missing HTTP MCP result in list: ${JSON.stringify(expected)} from ${JSON.stringify(results)}`);
+  }
+}
+
+function isDoctorMcpTask(task: unknown): task is DoctorMcpTask {
+  return typeof task === "object" && task !== null;
+}
+
+function isDoctorMcpResult(result: unknown): result is DoctorMcpResult {
+  return typeof result === "object" && result !== null;
 }
 
 async function runMcpWriteSmoke(): Promise<{ path: string; receipt_payload: "artifact"; staged: string }> {
   const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-doctor-"));
-  await writeFile(path.join(cwd, "notes.md"), "old\n", "utf8");
-  await execFileAsync("git", ["init"], { cwd });
-  await execFileAsync("git", ["config", "user.email", "doctor@example.com"], { cwd });
-  await execFileAsync("git", ["config", "user.name", "GPTProUse Doctor"], { cwd });
-  await execFileAsync("git", ["add", "notes.md"], { cwd });
-  await execFileAsync("git", ["commit", "-m", "initial"], { cwd });
-  const { stdout: headOut } = await execFileAsync("git", ["rev-parse", "HEAD"], { cwd });
-  const head = headOut.trim();
-  const handlers = createMcpToolHandlers({ cwd });
+  let smokeFailed = false;
+  try {
+    await writeFile(path.join(cwd, "notes.md"), "old\n", "utf8");
+    await execFileAsync("git", ["init"], { cwd });
+    await execFileAsync("git", ["config", "user.email", "doctor@example.com"], { cwd });
+    await execFileAsync("git", ["config", "user.name", "GPTProUse Doctor"], { cwd });
+    await execFileAsync("git", ["add", "notes.md"], { cwd });
+    await execFileAsync("git", ["commit", "-m", "initial"], { cwd });
+    const { stdout: headOut } = await execFileAsync("git", ["rev-parse", "HEAD"], { cwd });
+    const head = headOut.trim();
+    const handlers = createMcpToolHandlers({ cwd });
 
-  const dryRun = await handlers.repo_write_file_dry_run({
-    path: "notes.md",
-    content: "new\n",
-    expected_head: head
-  });
-  const receipt = JSON.parse(await readFile(path.join(cwd, ".bridge", "receipts", `${dryRun.receipt.id}.json`), "utf8")) as {
-    metadata?: { new_content?: unknown; new_content_artifact?: unknown };
-  };
-  if (Object.hasOwn(receipt.metadata ?? {}, "new_content")) {
-    throw new Error("dry-run receipt contains inline write payload");
-  }
-  if (typeof receipt.metadata?.new_content_artifact !== "string") {
-    throw new Error("dry-run receipt is missing write payload artifact");
-  }
+    const dryRun = await handlers.repo_write_file_dry_run({
+      path: "notes.md",
+      content: "new\n",
+      expected_head: head
+    });
+    const receipt = JSON.parse(await readFile(path.join(cwd, ".bridge", "receipts", `${dryRun.receipt.id}.json`), "utf8")) as {
+      metadata?: { new_content?: unknown; new_content_artifact?: unknown };
+    };
+    if (Object.hasOwn(receipt.metadata ?? {}, "new_content")) {
+      throw new Error("dry-run receipt contains inline write payload");
+    }
+    if (typeof receipt.metadata?.new_content_artifact !== "string") {
+      throw new Error("dry-run receipt is missing write payload artifact");
+    }
 
-  const applied = await handlers.repo_write_file_apply({
-    receipt_id: dryRun.receipt.id,
-    expected_head: head,
-    preimage_sha256: dryRun.preimage_sha256
-  });
-  const staged = await handlers.repo_stage_reviewed_paths({
-    receipt_ids: [applied.receipt.id],
-    expected_head: head
-  });
-  const { stdout: stagedOut } = await execFileAsync("git", ["diff", "--cached", "--name-only"], { cwd });
-  const stagedName = stagedOut.trim();
-  if (stagedName !== "notes.md" || staged.paths.join(",") !== "notes.md") {
-    throw new Error(`unexpected staged paths: ${stagedName || "<none>"}`);
+    const applied = await handlers.repo_write_file_apply({
+      receipt_id: dryRun.receipt.id,
+      expected_head: head,
+      preimage_sha256: dryRun.preimage_sha256
+    });
+    const staged = await handlers.repo_stage_reviewed_paths({
+      receipt_ids: [applied.receipt.id],
+      expected_head: head
+    });
+    const { stdout: stagedOut } = await execFileAsync("git", ["diff", "--cached", "--name-only"], { cwd });
+    const stagedName = stagedOut.trim();
+    if (stagedName !== "notes.md" || staged.paths.join(",") !== "notes.md") {
+      throw new Error(`unexpected staged paths: ${stagedName || "<none>"}`);
+    }
+    return { path: "notes.md", receipt_payload: "artifact", staged: stagedName };
+  } catch (error) {
+    smokeFailed = true;
+    throw error;
+  } finally {
+    try {
+      await rm(cwd, { recursive: true, force: true });
+    } catch (error) {
+      if (!smokeFailed) throw error;
+    }
   }
-  return { path: "notes.md", receipt_payload: "artifact", staged: stagedName };
 }
 
 function printBrowserLoginGuide(

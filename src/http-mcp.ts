@@ -18,7 +18,12 @@ export interface RunningHttpMcpServer {
   port: number;
   url: string;
   mcp_url: string;
-  close: () => Promise<void>;
+  close: (options?: CloseHttpMcpServerOptions) => Promise<void>;
+}
+
+export interface CloseHttpMcpServerOptions {
+  forceAfterMs?: number;
+  timeoutMs?: number;
 }
 
 interface TransportEntry {
@@ -26,6 +31,7 @@ interface TransportEntry {
 }
 
 const DEFAULT_REQUEST_BODY_LIMIT_BYTES = 1_048_576;
+const TRANSPORT_CLOSE_TIMEOUT_MS = 5_000;
 
 export async function startHttpMcpServer(options: StartHttpMcpServerOptions): Promise<RunningHttpMcpServer> {
   const host = options.host ?? "127.0.0.1";
@@ -87,13 +93,59 @@ export async function startHttpMcpServer(options: StartHttpMcpServerOptions): Pr
     port,
     url,
     mcp_url: token ? `${url}/mcp?gptprouse_token=${encodeURIComponent(token)}` : `${url}/mcp`,
-    close: async () => {
-      await Promise.all(Array.from(transports.values()).map((entry) => entry.transport.close().catch(() => undefined)));
-      await new Promise<void>((resolve, reject) => {
-        server.close((error) => (error ? reject(error) : resolve()));
-      });
+    close: async (closeOptions = {}) => {
+      await Promise.all(
+        Array.from(transports.values()).map((entry) =>
+          withTimeout(entry.transport.close(), TRANSPORT_CLOSE_TIMEOUT_MS, "timed out closing HTTP MCP transport").catch(() => undefined)
+        )
+      );
+      transports.clear();
+      await closeHttpServer(server, closeOptions);
     }
   };
+}
+
+async function closeHttpServer(server: http.Server, options: CloseHttpMcpServerOptions): Promise<void> {
+  let forceTimer: ReturnType<typeof setTimeout> | undefined;
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await new Promise<void>((resolve, reject) => {
+      if (options.forceAfterMs !== undefined) {
+        forceTimer = setTimeout(() => {
+          forceCloseHttpConnections(server);
+        }, options.forceAfterMs);
+      }
+      if (options.timeoutMs !== undefined) {
+        timeout = setTimeout(() => {
+          forceCloseHttpConnections(server);
+          reject(new Error("timed out closing HTTP MCP server"));
+        }, options.timeoutMs);
+      }
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+  } finally {
+    if (forceTimer) clearTimeout(forceTimer);
+    if (timeout) clearTimeout(timeout);
+  }
+}
+
+function forceCloseHttpConnections(server: http.Server): void {
+  server.closeIdleConnections?.();
+  server.closeAllConnections?.();
+}
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(() => reject(new Error(message)), timeoutMs);
+      })
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
 }
 
 async function handlePost(

@@ -77,7 +77,7 @@ try {
   }
   await smokeInstalledStdioTaskFinalizers(binPath, consumerDir);
 
-  console.log(`package_smoke: ok tarball=${path.basename(packed.filename)} http_onboarding=ok tunnel_url=ok stdio_task_finalizers=ok tools=${REQUIRED_MCP_TOOLS.join(",")}`);
+  console.log(`package_smoke: ok tarball=${path.basename(packed.filename)} http_onboarding=ok tunnel_url=ok stdio_task_flow=ok stdio_task_finalizers=ok tools=${REQUIRED_MCP_TOOLS.join(",")}`);
 } finally {
   await rm(tmp, { recursive: true, force: true });
 }
@@ -138,7 +138,7 @@ async function smokeStdioMcp(binPath, cwd) {
     const result = await withTimeout(client.listTools(), 20_000, "Timed out listing installed stdio MCP tools");
     return result.tools.map((tool) => tool.name);
   } finally {
-    await client.close();
+    await closeStdioClient(client, transport, "installed stdio MCP client");
   }
 }
 
@@ -155,6 +155,43 @@ async function smokeInstalledStdioTaskFinalizers(binPath, cwd) {
     const doneTask = await callJsonTool(client, "bridge_create_task", {
       title: "Package stdio complete smoke",
       prompt: "Complete this task over installed stdio MCP"
+    });
+    assertTask(doneTask.task, {
+      taskId: doneTask.task.id,
+      status: "new",
+      title: "Package stdio complete smoke"
+    });
+    const fetchedTask = await callJsonTool(client, "bridge_get_task", {
+      task_id: doneTask.task.id
+    });
+    const newTasks = await callJsonTool(client, "bridge_list_tasks", {
+      status: "new"
+    });
+    assertTask(fetchedTask.task, {
+      taskId: doneTask.task.id,
+      status: "new",
+      title: "Package stdio complete smoke"
+    });
+    assertTaskInList(newTasks.tasks, {
+      taskId: doneTask.task.id,
+      status: "new"
+    });
+    const claimedTask = await callJsonTool(client, "bridge_claim_task", {
+      task_id: doneTask.task.id,
+      claimed_by: "package-stdio-smoke"
+    });
+    const claimedTasks = await callJsonTool(client, "bridge_list_tasks", {
+      status: "claimed"
+    });
+    assertTask(claimedTask.task, {
+      taskId: doneTask.task.id,
+      status: "claimed",
+      title: "Package stdio complete smoke",
+      claimedBy: "package-stdio-smoke"
+    });
+    assertTaskInList(claimedTasks.tasks, {
+      taskId: doneTask.task.id,
+      status: "claimed"
     });
     const completed = await callJsonTool(client, "bridge_complete_task", {
       task_id: doneTask.task.id,
@@ -174,6 +211,9 @@ async function smokeInstalledStdioTaskFinalizers(binPath, cwd) {
     });
     const fetchedDone = await callJsonTool(client, "bridge_fetch_result", { task_id: doneTask.task.id });
     const fetchedBlocked = await callJsonTool(client, "bridge_fetch_result", { task_id: blockedTask.task.id });
+    const doneTasks = await callJsonTool(client, "bridge_list_tasks", { status: "done" });
+    const blockedTasks = await callJsonTool(client, "bridge_list_tasks", { status: "blocked" });
+    const results = await callJsonTool(client, "bridge_list_results", {});
 
     assertResult(completed.result, {
       taskId: doneTask.task.id,
@@ -203,8 +243,26 @@ async function smokeInstalledStdioTaskFinalizers(binPath, cwd) {
       retryable: true,
       nextStep: "Inspect package smoke output."
     });
+    assertTaskInList(doneTasks.tasks, {
+      taskId: doneTask.task.id,
+      status: "done"
+    });
+    assertTaskInList(blockedTasks.tasks, {
+      taskId: blockedTask.task.id,
+      status: "blocked"
+    });
+    assertResultInList(results.results, {
+      taskId: doneTask.task.id,
+      status: "done",
+      summary: "Completed by installed stdio MCP"
+    });
+    assertResultInList(results.results, {
+      taskId: blockedTask.task.id,
+      status: "blocked",
+      summary: "Blocked by installed stdio MCP"
+    });
   } finally {
-    await client.close();
+    await closeStdioClient(client, transport, "installed stdio MCP client for task finalizer smoke");
   }
 }
 
@@ -349,6 +407,41 @@ async function callJsonTool(client, name, args) {
   return JSON.parse(text);
 }
 
+async function closeStdioClient(client, transport, label) {
+  const closePromise = client.close();
+  closePromise.catch(() => undefined);
+  try {
+    await withTimeout(closePromise, 10_000, `Timed out closing ${label}`);
+  } catch (error) {
+    forceKillStdioTransport(transport);
+    await waitForStdioTransportExit(transport, 2_000).catch(() => undefined);
+    throw error;
+  }
+}
+
+function forceKillStdioTransport(transport) {
+  const child = transport._process;
+  if (child && child.exitCode === null && child.signalCode === null) {
+    child.kill("SIGKILL");
+  } else if (transport.pid) {
+    try {
+      process.kill(transport.pid, "SIGKILL");
+    } catch {
+      // Process already exited.
+    }
+  }
+}
+
+async function waitForStdioTransportExit(transport, timeoutMs) {
+  const child = transport._process;
+  if (!child || child.exitCode !== null || child.signalCode !== null) return;
+  await withTimeout(
+    new Promise((resolve) => child.once("exit", resolve)),
+    timeoutMs,
+    "Timed out waiting for killed stdio MCP process"
+  );
+}
+
 function assertResult(result, expected) {
   if (result?.task_id !== expected.taskId || result?.status !== expected.status || result?.summary !== expected.summary) {
     throw new Error(`Unexpected result record: ${JSON.stringify(result)} expected ${JSON.stringify(expected)}`);
@@ -364,6 +457,36 @@ function assertResult(result, expected) {
   }
   if (expected.nextStep !== undefined && result?.blocker?.next_step !== expected.nextStep) {
     throw new Error(`Unexpected result blocker next_step: ${JSON.stringify(result?.blocker)} expected ${expected.nextStep}`);
+  }
+}
+
+function assertTask(task, expected) {
+  if (task?.id !== expected.taskId || task?.status !== expected.status) {
+    throw new Error(`Unexpected task record: ${JSON.stringify(task)} expected ${JSON.stringify(expected)}`);
+  }
+  if (expected.title !== undefined && task?.title !== expected.title) {
+    throw new Error(`Unexpected task title: ${JSON.stringify(task)} expected ${expected.title}`);
+  }
+  if (expected.claimedBy !== undefined && task?.claimed_by !== expected.claimedBy) {
+    throw new Error(`Unexpected task claimer: ${JSON.stringify(task)} expected ${expected.claimedBy}`);
+  }
+}
+
+function assertTaskInList(tasks, expected) {
+  if (!Array.isArray(tasks)) {
+    throw new Error(`Unexpected task list: ${JSON.stringify(tasks)}`);
+  }
+  if (!tasks.some((task) => task?.id === expected.taskId && task?.status === expected.status)) {
+    throw new Error(`Missing task in list: ${JSON.stringify(expected)} from ${JSON.stringify(tasks)}`);
+  }
+}
+
+function assertResultInList(results, expected) {
+  if (!Array.isArray(results)) {
+    throw new Error(`Unexpected result list: ${JSON.stringify(results)}`);
+  }
+  if (!results.some((result) => result?.task_id === expected.taskId && result?.status === expected.status && result?.summary === expected.summary)) {
+    throw new Error(`Missing result in list: ${JSON.stringify(expected)} from ${JSON.stringify(results)}`);
   }
 }
 

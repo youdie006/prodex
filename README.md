@@ -185,7 +185,7 @@ gptprouse pro ask --dry-run --file README.md "Review the project positioning"
 gptprouse sessions list
 ```
 
-`doctor` stays local: it does not open ChatGPT or a browser. It creates an isolated temp git repo for the write/apply/stage smoke, then starts a loopback HTTP MCP server on a random port and confirms the expected bridge/repo tools are visible over the MCP protocol.
+`doctor` stays local: it does not open ChatGPT or a browser. It creates isolated temp workspaces for the write/apply/stage smoke and HTTP MCP smoke, then confirms the expected bridge/repo tools are visible and that task create/list/get/claim/complete/block/fetch/list-results works over the MCP protocol.
 
 During local development, you can run the TypeScript source directly:
 

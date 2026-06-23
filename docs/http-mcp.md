@@ -148,7 +148,7 @@ Run the local health check:
 gptprouse doctor
 ```
 
-`doctor` stays local. It verifies `.bridge`, redacted config loading, receipt-gated write/apply/stage behavior in a temporary git repo, and the real HTTP MCP tool catalog.
+`doctor` stays local. It verifies `.bridge`, redacted config loading, receipt-gated write/apply/stage behavior in a temporary git repo, and the real HTTP MCP tool catalog plus task create/list/get/claim/complete/block/fetch/list-results calls.
 
 If ChatGPT cannot connect:
 
