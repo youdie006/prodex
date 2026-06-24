@@ -267,6 +267,13 @@ describe("runCli", () => {
       })
     ).rejects.toThrow("Unknown option for start: --porrt");
     await expect(
+      runCli(["start", "--token", "runtime-token"], {
+        cwd,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.toThrow("Unknown option for start: --token");
+    await expect(
       runCli(["status", "--show-tokn", "--url-only"], {
         cwd,
         stdout: () => {},
@@ -2057,7 +2064,7 @@ describe("runCli", () => {
     expect(text).not.toContain("super-secret-token");
   });
 
-  it("refuses non-loopback HTTP MCP hosts in setup and start", async () => {
+  it("refuses non-loopback HTTP MCP hosts in setup", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
 
     await expect(
@@ -2068,6 +2075,11 @@ describe("runCli", () => {
       })
     ).rejects.toThrow(/loopback|local/i);
     await expect(readFile(path.join(cwd, ".bridge", "config.local.json"), "utf8")).rejects.toThrow();
+  });
+
+  it("refuses runtime HTTP MCP overrides in start so status URLs stay config-backed", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const out: string[] = [];
 
     await runCli(["setup", "--port", "8789", "--token", "super-secret-token", "--token-ttl-hours", "1"], {
       cwd,
@@ -2075,13 +2087,16 @@ describe("runCli", () => {
       stderr: () => {}
     });
 
-    await expect(
-      runCli(["start", "--host", "0.0.0.0", "--port", "0"], {
-        cwd,
-        stdout: () => {},
-        stderr: () => {}
-      })
-    ).rejects.toThrow(/loopback|local/i);
+    const start = runCli(["start", "--port", "0"], {
+      cwd,
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+    const stop = setTimeout(() => process.emit("SIGTERM"), 50);
+
+    await expect(start).rejects.toThrow("Unknown option for start: --port");
+    clearTimeout(stop);
+    expect(out).toEqual([]);
   });
 
   it("uses an explicit --cwd target for local HTTP MCP setup, status, and tunnel URLs", async () => {
@@ -2119,14 +2134,15 @@ describe("runCli", () => {
   it("uses an explicit --cwd target for local HTTP MCP start", async () => {
     const launcherCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-launcher-"));
     const targetCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-target-"));
-    await runCli(["setup", "--cwd", targetCwd, "--port", "8789", "--token", "super-secret-token", "--token-ttl-hours", "1"], {
+    const port = await getFreeHttpPort();
+    await runCli(["setup", "--cwd", targetCwd, "--port", String(port), "--token", "super-secret-token", "--token-ttl-hours", "1"], {
       cwd: launcherCwd,
       stdout: () => {},
       stderr: () => {}
     });
     const out: string[] = [];
 
-    const start = runCli(["start", "--cwd", targetCwd, "--port", "0"], {
+    const start = runCli(["start", "--cwd", targetCwd], {
       cwd: launcherCwd,
       stdout: (line) => out.push(line),
       stderr: () => {}
@@ -2135,6 +2151,7 @@ describe("runCli", () => {
 
     await expect(start).resolves.toBe(0);
     clearTimeout(stop);
+    expect(out.join("\n")).toContain(`http://127.0.0.1:${port}/mcp?gptprouse_token=***`);
     expect(out.join("\n")).toContain("gptprouse_token=***");
     expect(out.join("\n")).not.toContain("super-secret-token");
   });
@@ -2706,6 +2723,21 @@ async function callMcpJsonTool(client: Client, name: string, args: Record<string
   const text = result.content.find((item) => item.type === "text")?.text;
   if (!text) throw new Error(`Tool ${name} did not return text content`);
   return JSON.parse(text);
+}
+
+async function getFreeHttpPort(): Promise<number> {
+  const server = createServer();
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  const address = server.address();
+  await new Promise<void>((resolve, reject) => {
+    server.close((error) => (error ? reject(error) : resolve()));
+  });
+  const port = typeof address === "object" && address ? (address as AddressInfo).port : undefined;
+  if (!port) throw new Error("Could not allocate a free loopback port");
+  return port;
 }
 
 async function closeStdioClient(client: Client, transport: StdioClientTransport): Promise<void> {

@@ -100,20 +100,19 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
   }
 
   if (command === "start") {
-    assertOnlyOptions(rest, "start", ["--cwd", "--host", "--port", "--token"]);
+    assertOnlyOptions(rest, "start", ["--cwd"]);
     const targetCwd = resolveCwdFlag(io.cwd, rest);
     const config = await loadLocalConfigForCommand(targetCwd, "start");
-    const overrideToken = readFlag(rest, "--token");
-    if (!overrideToken) assertTokenNotExpired(config);
+    assertTokenNotExpired(config);
     const running = await startHttpMcpServer({
       cwd: targetCwd,
-      host: readFlag(rest, "--host") ?? config.host,
-      port: readNumberFlag(rest, "--port") ?? config.port,
-      token: overrideToken ?? config.token,
-      tokenExpiresAt: overrideToken ? undefined : config.token_expires_at
+      host: config.host,
+      port: config.port,
+      token: config.token,
+      tokenExpiresAt: config.token_expires_at
     });
     io.stdout(`gptprouse HTTP MCP listening on ${redactServerUrl(running.mcp_url)}`);
-    io.stdout(formatTokenExpiryLine(overrideToken ? {} : config));
+    io.stdout(formatTokenExpiryLine(config));
     await waitForShutdown(async () => running.close());
     return 0;
   }

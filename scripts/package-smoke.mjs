@@ -101,6 +101,7 @@ try {
   assertIncludes(onboard.stdout, `gptprouse init --cwd ${consumerDir}`, "installed onboard output");
   assertIncludes(onboard.stdout, `gptprouse doctor --cwd ${consumerDir}`, "installed onboard output");
   assertIncludes(onboard.stdout, `gptprouse claude config --cwd ${consumerDir}`, "installed onboard output");
+  assertIncludes(onboard.stdout, `gptprouse claude prompt --cwd ${consumerDir}`, "installed onboard output");
   assertIncludes(onboard.stdout, `gptprouse setup --cwd ${consumerDir} --token-ttl-hours 24`, "installed onboard output");
   assertIncludes(onboard.stdout, `gptprouse project prompt --cwd ${consumerDir}`, "installed onboard output");
   assertAppearsBefore(
@@ -118,11 +119,15 @@ try {
   const projectPrompt = await run(binPath, ["project", "prompt", "--cwd", consumerDir], { cwd: path.dirname(consumerDir) });
   assertIncludes(projectPrompt.stdout, "ChatGPT Project MCP verification prompt", "installed project prompt output");
   assertIncludes(projectPrompt.stdout, "bridge_create_task", "installed project prompt output");
+  assertIncludes(projectPrompt.stdout, "bridge_list_tasks", "installed project prompt output");
+  assertIncludes(projectPrompt.stdout, "bridge_get_task", "installed project prompt output");
   assertIncludes(projectPrompt.stdout, "gptprouse tasks list --status new", "installed project prompt output");
   assertNotIncludes(projectPrompt.stdout, "gptprouse_token=", "installed project prompt output");
   const claudePrompt = await run(binPath, ["claude", "prompt", "--cwd", consumerDir], { cwd: path.dirname(consumerDir) });
   assertIncludes(claudePrompt.stdout, "Claude MCP verification prompt", "installed Claude prompt output");
   assertIncludes(claudePrompt.stdout, "bridge_create_task", "installed Claude prompt output");
+  assertIncludes(claudePrompt.stdout, "bridge_list_tasks", "installed Claude prompt output");
+  assertIncludes(claudePrompt.stdout, "bridge_get_task", "installed Claude prompt output");
   assertIncludes(claudePrompt.stdout, "gptprouse tasks list --status new", "installed Claude prompt output");
   assertNotIncludes(claudePrompt.stdout, "gptprouse_token=", "installed Claude prompt output");
   const claudeConfig = await run(binPath, ["claude", "config", "--cwd", consumerDir], { cwd: path.dirname(consumerDir) });
@@ -233,6 +238,7 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertIncludes(readme, "npm run release:verify", "installed README");
   assertIncludes(readme, "regular file", "installed README");
   assertIncludes(readme, "loopback-only", "installed README");
+  assertIncludes(readme, "`start` reads the saved setup profile exactly", "installed README");
   assertIncludes(readme, "private: true", "installed README");
   assertIncludes(readme, "configured `doctor`", "installed README");
   assertIncludes(readme, ".bridge/artifacts/results/", "installed README");
@@ -243,6 +249,7 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertIncludes(readme, "connects to the installed `/mcp` endpoint", "installed README");
   assertIncludes(readme, "verifies explicit `--cwd` task storage", "installed README");
   assertNotIncludes(readme, "ask-pro --send", "installed README");
+  assertNotIncludes(readme, "start --host", "installed README");
   assertNotIncludes(readme, "Read-only result artifact fetch for Pro consult artifacts explicitly listed", "installed README");
   assertAppearsBefore(
     readme,
@@ -264,8 +271,10 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertIncludes(httpMcpDoc, "Verify In ChatGPT", "installed HTTP MCP docs");
   assertIncludes(httpMcpDoc, "Keep `gptprouse start` running", "installed HTTP MCP docs");
   assertIncludes(httpMcpDoc, "loopback-only", "installed HTTP MCP docs");
+  assertIncludes(httpMcpDoc, "`start` reads the saved setup profile exactly", "installed HTTP MCP docs");
   assertIncludes(httpMcpDoc, "CLI-only", "installed HTTP MCP docs");
   assertIncludes(httpMcpDoc, ".bridge/artifacts/results/", "installed HTTP MCP docs");
+  assertNotIncludes(httpMcpDoc, "start --host", "installed HTTP MCP docs");
   assertAppearsBefore(
     httpMcpDoc,
     "Token-bearing MCP URLs are secrets",
