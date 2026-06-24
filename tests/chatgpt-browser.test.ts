@@ -9,9 +9,11 @@ import {
   computePageDiscoveryTimeout,
   computePromptAcceptanceDeadline,
   detectChatGptBlocker,
+  detectChatGptPageBlocker,
   type DevtoolsPage,
   getChatGptBrowserStatus,
   hasFreshChatGptAnswer,
+  inferChatGptPageLoggedInLikely,
   inferLoggedInLikely,
   isLikelyChatGptSubmitButton,
   normalizeChatGptTargetUrl,
@@ -98,6 +100,41 @@ describe("ChatGPT browser adapter", () => {
     expect(detectChatGptBlocker("Please solve this captcha to continue", [])?.code).toBe("captcha_required");
     expect(detectChatGptBlocker("You've reached the GPT-5 message limit. Try again later.", [])?.code).toBe("usage_limit");
     expect(detectChatGptBlocker("Additional verification required", ["Continue"])?.code).toBe("permission_required");
+  });
+
+  it("does not treat old chat message text as a pre-send blocker", () => {
+    expect(
+      detectChatGptPageBlocker({
+        textSample: [
+          "New chat",
+          "Projects",
+          "How should I explain captcha challenges to users?",
+          "You've reached the GPT-5 message limit. Try again later."
+        ].join("\n"),
+        blockerTextSample: "New chat\nProjects\nChatGPT\nWhat can I help with?",
+        visibleButtonLabels: ["Send prompt", "Profile"]
+      })
+    ).toBeUndefined();
+  });
+
+  it("still reports real pre-send blockers outside old chat messages", () => {
+    expect(
+      detectChatGptPageBlocker({
+        textSample: "Old conversation says captcha and Log in\nNew chat\nProjects\nPlease solve this captcha to continue",
+        blockerTextSample: "New chat\nProjects\nPlease solve this captcha to continue",
+        visibleButtonLabels: ["Continue", "Profile"]
+      })?.code
+    ).toBe("captcha_required");
+  });
+
+  it("infers logged-in page status from message-excluded chrome text", () => {
+    expect(
+      inferChatGptPageLoggedInLikely({
+        textSample: "Old conversation says Log in and Sign up for free\nNew chat\nProjects",
+        blockerTextSample: "New chat\nProjects\nChatGPT\nPro",
+        visibleButtonLabels: ["Profile menu", "Send prompt"]
+      })
+    ).toBe(true);
   });
 
   it("reports blockers that appear while waiting for a submitted prompt", () => {

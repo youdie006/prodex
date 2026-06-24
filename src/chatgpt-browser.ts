@@ -53,14 +53,18 @@ interface ChatGptAnswerState {
   visibleButtonLabels: string[];
 }
 
-interface ChatGptPageStatus {
-  loggedInLikely: boolean;
+export interface ChatGptPageTextState {
+  textSample: string;
+  blockerTextSample?: string;
+  visibleButtonLabels: string[];
+}
+
+interface ChatGptPageStatus extends ChatGptPageTextState {
+  title: string;
   hasComposer: boolean;
   modelHints: string[];
   url: string;
   visibilityState: string;
-  textSample: string;
-  visibleButtonLabels: string[];
 }
 
 export const CHATGPT_RUNTIME_BLOCKER_TEXT_EXCLUDED_ANCESTORS =
@@ -187,6 +191,14 @@ export function detectChatGptBlocker(
   return undefined;
 }
 
+export function detectChatGptPageBlocker(state: ChatGptPageTextState): ChatGptBrowserStatus["blocker"] | undefined {
+  return detectChatGptBlocker(state.blockerTextSample ?? state.textSample, state.visibleButtonLabels);
+}
+
+export function inferChatGptPageLoggedInLikely(state: ChatGptPageTextState): boolean {
+  return inferLoggedInLikely(state.blockerTextSample ?? state.textSample, state.visibleButtonLabels);
+}
+
 function hasLikelyChatGptLoginPrompt(haystack: string): boolean {
   const hasSpecificSignup = /sign up for free|무료로 가입/i.test(haystack);
   const hasLogin = /\blog in\b|로그인/i.test(haystack);
@@ -200,7 +212,7 @@ export function chatGptBlockerErrorFromAnswerState(state: {
   blockerTextSample?: string;
   visibleButtonLabels: string[];
 }): string | undefined {
-  return formatBlockerError(detectChatGptBlocker(state.blockerTextSample ?? state.textSample, state.visibleButtonLabels));
+  return formatBlockerError(detectChatGptPageBlocker(state));
 }
 
 export function computePromptAcceptanceDeadline(timeoutMs: number, startedAt: number): number {
@@ -309,20 +321,12 @@ export async function getChatGptBrowserStatus(options: { port?: number; timeoutM
       }
     };
   }
-  const state = await evaluateOnPage<{
-    title: string;
-    url: string;
-    loggedInLikely: boolean;
-    hasComposer: boolean;
-    visibilityState: string;
-    modelHints: string[];
-    textSample: string;
-    visibleButtonLabels: string[];
-  }>(page.page, statusExpression());
-  const blocker = chatGptVisibilityBlocker(state.visibilityState, state.url) ?? detectChatGptBlocker(state.textSample, state.visibleButtonLabels);
+  const state = await evaluateOnPage<ChatGptPageStatus>(page.page, statusExpression());
+  const loggedInLikely = inferChatGptPageLoggedInLikely(state);
+  const blocker = chatGptVisibilityBlocker(state.visibilityState, state.url) ?? detectChatGptPageBlocker(state);
   return {
     reachable: true,
-    loggedInLikely: state.loggedInLikely,
+    loggedInLikely,
     hasComposer: state.hasComposer,
     visibilityState: state.visibilityState,
     url: state.url,
@@ -348,11 +352,11 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
   }
   const page = pageResult.page;
   const status = await evaluateOnPage<ChatGptPageStatus>(page, statusExpression());
-  const blocker = detectChatGptBlocker(status.textSample, status.visibleButtonLabels);
+  const blocker = detectChatGptPageBlocker(status);
   if (blocker) {
     throw new Error(`${blocker.message}${blocker.next_step ? ` Next: ${blocker.next_step}` : ""}`);
   }
-  if (!status.loggedInLikely || !status.hasComposer) {
+  if (!inferChatGptPageLoggedInLikely(status) || !status.hasComposer) {
     throw new Error("ChatGPT browser is reachable, but it is not logged in with an active composer.");
   }
   if (normalizedTargetUrl && !chatGptUrlsReferToSameTarget(status.url, normalizedTargetUrl)) {
@@ -563,27 +567,43 @@ async function connectCdp(webSocketUrl: string, timeoutMs?: number): Promise<{
 }
 
 function statusExpression(): string {
+  const excludedTextSelector = JSON.stringify(CHATGPT_RUNTIME_BLOCKER_TEXT_EXCLUDED_ANCESTORS);
   return `(() => {
     const text = document.body?.innerText || "";
+    const excludedTextSelector = ${excludedTextSelector};
+    const visibleTextOutsideMessages = () => {
+      if (!document.body) return "";
+      const parts = [];
+      const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+      while (walker.nextNode()) {
+        const node = walker.currentNode;
+        const parent = node.parentElement;
+        const value = node.nodeValue?.trim();
+        if (!parent || !value) continue;
+        if (parent.closest(excludedTextSelector)) continue;
+        const style = window.getComputedStyle(parent);
+        if (style.display === "none" || style.visibility === "hidden") continue;
+        if (!(parent.offsetWidth || parent.offsetHeight || parent.getClientRects().length)) continue;
+        parts.push(value);
+      }
+      return parts.join(String.fromCharCode(10));
+    };
+    const blockerText = visibleTextOutsideMessages();
     const lines = text.split(String.fromCharCode(10)).map((line) => line.trim()).filter(Boolean);
     const visibleButtonLabels = [...document.querySelectorAll('button,a,[role="button"]')]
       .filter((el) => !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length))
+      .filter((el) => !el.closest(excludedTextSelector))
       .map((el) => (el.innerText || el.getAttribute("aria-label") || el.getAttribute("data-testid") || "").trim())
       .filter(Boolean);
     const hasComposer = [...document.querySelectorAll('div[role="textbox"], textarea, [contenteditable="true"]')]
       .some((el) => !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length));
-    const hasLoginPrompt = text.includes("Sign up for free") || text.includes("Log in") || text.includes("로그인") || text.includes("무료로 가입");
-    const hasNewChat = text.includes("New chat") || text.includes("새 채팅");
-    const hasProjectNav = text.includes("Projects") || text.includes("프로젝트");
-    const hasProfileButton = visibleButtonLabels.some((label) => /profile|account|프로필|계정/i.test(label));
-    const hasPlanHint = /\\bPro\\b|Plus|Team|Enterprise|매우 높음|Extra High/i.test(text);
     return {
       title: document.title,
       url: location.href,
       visibilityState: document.visibilityState,
       textSample: text.slice(0, 12000),
+      blockerTextSample: blockerText.slice(0, 12000),
       visibleButtonLabels,
-      loggedInLikely: !hasLoginPrompt && hasNewChat && (hasProfileButton || hasProjectNav || hasPlanHint),
       hasComposer,
       modelHints: lines.filter((line) => /GPT|Pro|Thinking|ChatGPT|Extra High|Auto/i.test(line)).slice(0, 30)
     };
@@ -673,6 +693,7 @@ function answerExpression(): string {
     const assistant = assistantMessages.at(-1);
     const buttons = [...document.querySelectorAll('button,[role="button"]')]
       .filter((node) => !!(node.offsetWidth || node.offsetHeight || node.getClientRects().length))
+      .filter((node) => !node.closest(excludedTextSelector))
       .map((node) => (node.innerText || node.getAttribute("aria-label") || node.getAttribute("data-testid") || "").trim())
       .filter(Boolean);
     const answer = assistant?.text || "";
