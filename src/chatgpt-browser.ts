@@ -70,6 +70,8 @@ interface ChatGptPageStatus extends ChatGptPageTextState {
 
 export const CHATGPT_RUNTIME_BLOCKER_TEXT_EXCLUDED_ANCESTORS =
   '[data-message-author-role],script,style,noscript,[aria-hidden="true"],div[role="textbox"],textarea,[contenteditable="true"]';
+export const CHATGPT_COMPOSER_CANDIDATE_EXCLUDED_ANCESTORS = '[data-message-author-role],script,style,noscript,[aria-hidden="true"]';
+export const GPTPROUSE_ACTIVE_COMPOSER_ATTRIBUTE = "data-gptprouse-active-composer";
 
 export interface DevtoolsPage {
   type: string;
@@ -276,11 +278,31 @@ export function selectChatGptPage(
   visibilityByPage = new Map<string, string>()
 ): DevtoolsPage | undefined {
   const chatGptPages = pages.filter((page) => page.type === "page" && isChatGptPageUrl(page.url));
+  if (chatGptPageSelectionBlocker(pages, targetUrl, visibilityByPage)) return undefined;
   if (!targetUrl) {
     return chatGptPages.find((page) => visibilityByPage.get(page.webSocketDebuggerUrl) === "visible") ?? chatGptPages[0];
   }
   const targetMatches = chatGptPages.filter((page) => chatGptUrlsReferToSameTarget(page.url, targetUrl));
   return targetMatches.find((page) => visibilityByPage.get(page.webSocketDebuggerUrl) === "visible") ?? targetMatches[0];
+}
+
+export function chatGptPageSelectionBlocker(
+  pages: DevtoolsPage[],
+  targetUrl?: string,
+  visibilityByPage = new Map<string, string>()
+): ChatGptBrowserStatus["blocker"] | undefined {
+  if (targetUrl) return undefined;
+  const visibleChatGptPages = pages.filter(
+    (page) => page.type === "page" && isChatGptPageUrl(page.url) && visibilityByPage.get(page.webSocketDebuggerUrl) === "visible"
+  );
+  if (visibleChatGptPages.length <= 1) return undefined;
+  const urls = visibleChatGptPages.map((page) => page.url).slice(0, 5).join(", ");
+  return {
+    code: "ambiguous_chatgpt_tabs",
+    message: `Multiple visible ChatGPT tabs or windows are available: ${urls}.`,
+    retryable: true,
+    next_step: "Close extra ChatGPT windows, leave only the intended tab visible, or pass --target-url with --confirm-target."
+  };
 }
 
 export function assertVisibleChatGptTab(visibilityState: string, url: string, targetUrl?: string): void {
@@ -331,6 +353,15 @@ export async function getChatGptBrowserStatus(options: { port?: number; timeoutM
     };
   }
   if (!page.page) {
+    if (page.blocker) {
+      return {
+        reachable: true,
+        loggedInLikely: false,
+        hasComposer: false,
+        modelHints: [],
+        blocker: page.blocker
+      };
+    }
     return {
       reachable: true,
       loggedInLikely: false,
@@ -368,6 +399,9 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
     throw new Error(formatBlockerError(pageResult.blocker) ?? "ChatGPT browser page is not available");
   }
   if (!pageResult.page) {
+    if (pageResult.blocker) {
+      throw new Error(formatBlockerError(pageResult.blocker));
+    }
     if (normalizedTargetUrl) {
       throw new Error(`No open ChatGPT tab matches the confirmed target URL. Open ${normalizedTargetUrl} in the dedicated browser and retry.`);
     }
@@ -450,12 +484,14 @@ async function findChatGptPage(
   port: number,
   timeoutMs: number,
   targetUrl?: string
-): Promise<{ ok: true; page?: DevtoolsPage } | { ok: false; blocker: ChatGptBrowserStatus["blocker"] }> {
+): Promise<{ ok: true; page?: DevtoolsPage; blocker?: ChatGptBrowserStatus["blocker"] } | { ok: false; blocker: ChatGptBrowserStatus["blocker"] }> {
   try {
     const response = await fetch(`http://127.0.0.1:${port}/json/list`, { signal: AbortSignal.timeout(timeoutMs) });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const pages = (await response.json()) as DevtoolsPage[];
     const visibilityByPage = await getChatGptPageVisibility(pages);
+    const blocker = chatGptPageSelectionBlocker(pages, targetUrl, visibilityByPage);
+    if (blocker) return { ok: true, blocker };
     return { ok: true, page: selectChatGptPage(pages, targetUrl, visibilityByPage) };
   } catch (error) {
     return {
@@ -644,12 +680,14 @@ function statusExpression(): string {
   })()`;
 }
 
-function setComposerTextExpression(text: string): string {
+export function setComposerTextExpression(text: string): string {
   const serializedText = JSON.stringify(text);
   return `(() => {
-    const el = [...document.querySelectorAll('div[role="textbox"], textarea, [contenteditable="true"]')]
-      .find((node) => !!(node.offsetWidth || node.offsetHeight || node.getClientRects().length));
+    ${composerExpressionHelpers()}
+    const el = findChatGptComposerCandidate();
     if (!el) return { ok: false, reason: "No visible composer" };
+    const root = findChatGptComposerRoot(el);
+    if (root) markChatGptComposerRoot(root);
     el.focus();
     const text = ${serializedText};
     const dispatchInput = () => {
@@ -682,17 +720,53 @@ function setComposerTextExpression(text: string): string {
   })()`;
 }
 
-function submitExpression(): string {
+export function submitExpression(): string {
   return `(() => {
-    const button = [...document.querySelectorAll('button')].find((node) => {
-      const label = (node.innerText || node.getAttribute("aria-label") || node.getAttribute("data-testid") || "").toLowerCase();
-      const dataTestId = node.getAttribute("data-testid");
-      return !node.disabled && node.getAttribute("aria-disabled") !== "true" && (dataTestId === "send-button" || /\\b(send|submit)\\b|보내기|전송/.test(label));
-    });
+    ${composerExpressionHelpers()}
+    const markedRoot = findMarkedChatGptComposerRoot();
+    const composer = markedRoot ? undefined : findChatGptComposerCandidate();
+    const root = markedRoot || (composer ? findChatGptComposerRoot(composer) : undefined);
+    const button = root ? findChatGptSubmitButton(root) : undefined;
     if (!button) return { ok: false, reason: "No enabled submit button" };
     button.click();
     return { ok: true };
   })()`;
+}
+
+function composerExpressionHelpers(): string {
+  const excludedTextSelector = JSON.stringify(CHATGPT_COMPOSER_CANDIDATE_EXCLUDED_ANCESTORS);
+  const activeComposerAttribute = JSON.stringify(GPTPROUSE_ACTIVE_COMPOSER_ATTRIBUTE);
+  return `
+    const excludedTextSelector = ${excludedTextSelector};
+    const activeComposerAttribute = ${activeComposerAttribute};
+    const isVisible = (node) => !!(node.offsetWidth || node.offsetHeight || node.getClientRects().length);
+    const isEditableComposer = (node) => isVisible(node) && !node.closest(excludedTextSelector);
+    const findChatGptComposerRoot = (node) =>
+      node.closest('form') ||
+      node.closest('[data-testid*="composer"],[data-testid*="prompt"],[class*="composer"]') ||
+      node.parentElement;
+    const isChatGptSubmitLikeButton = (node) => {
+      const label = (node.innerText || node.getAttribute("aria-label") || node.getAttribute("data-testid") || "").toLowerCase();
+      const dataTestId = node.getAttribute("data-testid");
+      return isVisible(node) && (dataTestId === "send-button" || /\\b(send|submit)\\b|보내기|전송/.test(label));
+    };
+    const isEnabledButton = (node) => !node.disabled && node.getAttribute("aria-disabled") !== "true";
+    const findChatGptSubmitButton = (root, requireEnabled = true) =>
+      [...root.querySelectorAll('button')].find((node) => isChatGptSubmitLikeButton(node) && (!requireEnabled || isEnabledButton(node)));
+    const markChatGptComposerRoot = (root) => {
+      document.querySelectorAll('[' + activeComposerAttribute + '="true"]').forEach((node) => node.removeAttribute(activeComposerAttribute));
+      root.setAttribute(activeComposerAttribute, "true");
+    };
+    const findMarkedChatGptComposerRoot = () => document.querySelector('[' + activeComposerAttribute + '="true"]');
+    const findChatGptComposerCandidate = () => {
+      const candidates = [...document.querySelectorAll('textarea[data-testid="prompt-textarea"], div[role="textbox"], textarea, [contenteditable="true"]')]
+        .filter(isEditableComposer);
+      return candidates.find((node) => {
+        const root = findChatGptComposerRoot(node);
+        return root && findChatGptSubmitButton(root, false);
+      }) || candidates[0];
+    };
+  `;
 }
 
 function answerExpression(): string {

@@ -5,6 +5,9 @@ import {
   chatGptUrlsReferToSameTarget,
   chatGptBlockerErrorFromAnswerState,
   CHATGPT_RUNTIME_BLOCKER_TEXT_EXCLUDED_ANCESTORS,
+  CHATGPT_COMPOSER_CANDIDATE_EXCLUDED_ANCESTORS,
+  GPTPROUSE_ACTIVE_COMPOSER_ATTRIBUTE,
+  chatGptPageSelectionBlocker,
   chatGptVisibilityBlocker,
   chatGptBusyBlocker,
   computePageDiscoveryTimeout,
@@ -21,7 +24,9 @@ import {
   isLikelyChatGptSubmitButton,
   normalizeChatGptTargetUrl,
   selectChatGptPage,
+  setComposerTextExpression,
   sendChatGptPrompt,
+  submitExpression,
   isUsableChatGptAnswer
 } from "../src/chatgpt-browser.js";
 
@@ -305,6 +310,27 @@ describe("ChatGPT browser adapter", () => {
     expect(selectChatGptPage(pages)?.url).toBe("https://chatgpt.com/c/first");
   });
 
+  it("blocks no-target selection when multiple visible ChatGPT pages are available", () => {
+    const first = devtoolsPage("https://chatgpt.com/c/first");
+    const second = devtoolsPage("https://chatgpt.com/c/second");
+    const visibilityByPage = new Map([
+      [first.webSocketDebuggerUrl, "visible"],
+      [second.webSocketDebuggerUrl, "visible"]
+    ]);
+
+    const blocker = chatGptPageSelectionBlocker([first, second], undefined, visibilityByPage);
+
+    expect(blocker).toEqual(
+      expect.objectContaining({
+        code: "ambiguous_chatgpt_tabs",
+        retryable: true
+      })
+    );
+    expect(blocker?.next_step).toContain("--target-url");
+    expect(selectChatGptPage([first, second], undefined, visibilityByPage)).toBeUndefined();
+    expect(selectChatGptPage([first, second], "https://chatgpt.com/c/second", visibilityByPage)?.url).toBe("https://chatgpt.com/c/second");
+  });
+
   it("prefers the active visible ChatGPT page when no target is confirmed", () => {
     const hidden = devtoolsPage("https://chatgpt.com/c/hidden");
     const visible = devtoolsPage("https://chatgpt.com/c/visible");
@@ -343,6 +369,54 @@ describe("ChatGPT browser adapter", () => {
     expect(blocker?.message).toContain("not the active visible tab");
     expect(blocker?.next_step).toContain("Select https://chatgpt.com/c/background");
   });
+
+  it("scopes prompt insertion and submit to a ChatGPT composer root", () => {
+    const insertExpression = setComposerTextExpression("hello");
+    const submit = submitExpression();
+
+    expect(CHATGPT_COMPOSER_CANDIDATE_EXCLUDED_ANCESTORS).not.toContain("textarea");
+    expect(CHATGPT_COMPOSER_CANDIDATE_EXCLUDED_ANCESTORS).not.toContain("contenteditable");
+    expect(CHATGPT_COMPOSER_CANDIDATE_EXCLUDED_ANCESTORS).not.toContain('div[role="textbox"]');
+    expect(insertExpression).toContain("findChatGptComposerCandidate");
+    expect(insertExpression).toContain("findChatGptComposerRoot");
+    expect(insertExpression).toContain(GPTPROUSE_ACTIVE_COMPOSER_ATTRIBUTE);
+    expect(insertExpression).toContain("markChatGptComposerRoot(root)");
+    expect(insertExpression).not.toContain(".find((node) => !!(node.offsetWidth");
+    expect(submit).toContain("findChatGptComposerCandidate");
+    expect(submit).toContain("findMarkedChatGptComposerRoot()");
+    expect(submit.indexOf("findMarkedChatGptComposerRoot()")).toBeLessThan(submit.indexOf("findChatGptComposerCandidate()"));
+    expect(submit).toContain("root.querySelectorAll('button')");
+    expect(submit).not.toContain("document.querySelectorAll('button')].find");
+  });
+
+  it("submits through the composer root marked during prompt insertion", () => {
+    const wrongRoot = new FakeElement("form");
+    const wrongEditor = new FakeTextArea();
+    const wrongButton = new FakeButton("Save");
+    const chatRoot = new FakeElement("form");
+    const chatEditor = new FakeTextArea();
+    const chatButton = new FakeButton("Send prompt", "send-button");
+    chatButton.disabled = true;
+    wrongEditor.formRoot = wrongRoot;
+    chatEditor.formRoot = chatRoot;
+    wrongRoot.buttons = [wrongButton];
+    chatRoot.buttons = [chatButton];
+    chatEditor.onDispatch = (event) => {
+      if (event.type === "input") chatButton.disabled = false;
+    };
+    const document = new FakeDocument([wrongEditor, chatEditor], [wrongRoot, chatRoot]);
+    const globals = [document, {}, FakeInputEvent, FakeEvent, FakeTextArea, FakeInput] as const;
+
+    const inserted = evaluateBrowserExpression<{ ok: boolean }>(setComposerTextExpression("hello"), globals);
+    const submitted = evaluateBrowserExpression<{ ok: boolean }>(submitExpression(), globals);
+
+    expect(inserted.ok).toBe(true);
+    expect(submitted.ok).toBe(true);
+    expect(chatEditor.value).toBe("hello");
+    expect(chatRoot.getAttribute(GPTPROUSE_ACTIVE_COMPOSER_ATTRIBUTE)).toBe("true");
+    expect(chatButton.clicked).toBe(true);
+    expect(wrongButton.clicked).toBe(false);
+  });
 });
 
 function devtoolsPage(url: string): DevtoolsPage {
@@ -352,4 +426,123 @@ function devtoolsPage(url: string): DevtoolsPage {
     title: url,
     webSocketDebuggerUrl: `ws://127.0.0.1/devtools/page/${encodeURIComponent(url)}`
   };
+}
+
+function evaluateBrowserExpression<T>(
+  expression: string,
+  globals: readonly [FakeDocument, object, typeof FakeInputEvent, typeof FakeEvent, typeof FakeTextArea, typeof FakeInput]
+): T {
+  const run = new Function("document", "window", "InputEvent", "Event", "HTMLTextAreaElement", "HTMLInputElement", `return ${expression};`);
+  return run(...globals) as T;
+}
+
+class FakeEvent {
+  constructor(
+    readonly type: string,
+    readonly options: Record<string, unknown> = {}
+  ) {}
+}
+
+class FakeInputEvent extends FakeEvent {}
+
+class FakeElement {
+  offsetWidth = 100;
+  offsetHeight = 24;
+  innerText = "";
+  textContent = "";
+  parentElement?: FakeElement;
+  formRoot?: FakeElement;
+  buttons: FakeButton[] = [];
+  onDispatch?: (event: FakeEvent) => void;
+  private attributes = new Map<string, string>();
+
+  constructor(readonly tagName = "div") {}
+
+  getClientRects(): unknown[] {
+    return [this];
+  }
+
+  focus(): void {}
+
+  dispatchEvent(event: FakeEvent): void {
+    this.onDispatch?.(event);
+  }
+
+  closest(selector: string): FakeElement | undefined {
+    if (selector.includes("[data-message-author-role]")) return undefined;
+    if (selector === "form") return this.formRoot ?? (this.tagName === "form" ? this : undefined);
+    if (selector.includes("data-testid") || selector.includes("class")) return this.formRoot;
+    return undefined;
+  }
+
+  querySelectorAll(selector: string): FakeElement[] {
+    if (selector === "button") return this.buttons;
+    return [];
+  }
+
+  getAttribute(name: string): string | null {
+    return this.attributes.get(name) ?? null;
+  }
+
+  setAttribute(name: string, value: string): void {
+    this.attributes.set(name, value);
+  }
+
+  removeAttribute(name: string): void {
+    this.attributes.delete(name);
+  }
+}
+
+class FakeTextArea extends FakeElement {
+  private storedValue = "";
+
+  constructor() {
+    super("textarea");
+  }
+
+  get value(): string {
+    return this.storedValue;
+  }
+
+  set value(value: string) {
+    this.storedValue = value;
+    this.textContent = value;
+    this.innerText = value;
+  }
+}
+
+class FakeInput extends FakeTextArea {}
+
+class FakeButton extends FakeElement {
+  clicked = false;
+  disabled = false;
+
+  constructor(label: string, dataTestId?: string) {
+    super("button");
+    this.innerText = label;
+    if (dataTestId) this.setAttribute("data-testid", dataTestId);
+  }
+
+  click(): void {
+    this.clicked = true;
+  }
+}
+
+class FakeDocument {
+  constructor(
+    private readonly editors: FakeTextArea[],
+    private readonly roots: FakeElement[]
+  ) {}
+
+  querySelectorAll(selector: string): FakeElement[] {
+    if (selector.includes("textarea") || selector.includes("[contenteditable")) return this.editors;
+    if (selector.includes(GPTPROUSE_ACTIVE_COMPOSER_ATTRIBUTE)) {
+      return this.roots.filter((root) => root.getAttribute(GPTPROUSE_ACTIVE_COMPOSER_ATTRIBUTE) === "true");
+    }
+    return [];
+  }
+
+  querySelector(selector: string): FakeElement | undefined {
+    return this.querySelectorAll(selector)[0];
+  }
 }

@@ -151,6 +151,7 @@ gptprouse pro browser ask --target-url "https://chatgpt.com/c/..." --confirm-tar
 ```
 
 `gptprouse` does not silently switch Projects or threads. If the visible ChatGPT tab is not already on the confirmed URL, the send is refused.
+If more than one ChatGPT tab or window is visible, an untargeted browser send is also refused; close the extra visible ChatGPT windows or use `--target-url ... --confirm-target`.
 
 For optional ChatGPT Project -> local handoff, start the HTTP MCP bridge:
 
