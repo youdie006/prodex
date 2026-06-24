@@ -1069,6 +1069,77 @@ describe("runCli", () => {
     expect(text).not.toContain("[--token-ttl-hours 24]");
   });
 
+  it("lists the release status command in help", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const out: string[] = [];
+
+    await runCli(["help"], {
+      cwd,
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    expect(out.join("\n")).toContain("gptprouse release status [--cwd /absolute/path/to/repo]");
+  });
+
+  it("release status reports the missing public license blocker", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-release-"));
+    await writeFile(
+      path.join(cwd, "package.json"),
+      `${JSON.stringify({ name: "demo", version: "1.0.0", private: false }, null, 2)}\n`,
+      "utf8"
+    );
+    const out: string[] = [];
+
+    await runCli(["release", "status", "--cwd", cwd], {
+      cwd: "/tmp",
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    const text = out.join("\n");
+    expect(text).toContain("gptprouse release status");
+    expect(text).toContain("package: demo@1.0.0");
+    expect(text).toContain("metadata: blocked");
+    expect(text).toContain("package.json must include an explicit license");
+    expect(text).toContain("next: choose a license, add LICENSE, then run `npm run release:check`");
+    expect(text).not.toContain("metadata: ok");
+  });
+
+  it("release status reports publish metadata readiness when license files are explicit", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-release-"));
+    await writeFile(
+      path.join(cwd, "package.json"),
+      `${JSON.stringify({ name: "demo", version: "1.0.0", license: "MIT" }, null, 2)}\n`,
+      "utf8"
+    );
+    await writeFile(path.join(cwd, "LICENSE"), "MIT License\n", "utf8");
+    const out: string[] = [];
+
+    await runCli(["release", "status", "--cwd", cwd], {
+      cwd: "/tmp",
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    const text = out.join("\n");
+    expect(text).toContain("package: demo@1.0.0");
+    expect(text).toContain("metadata: ok license=MIT license_file=present");
+    expect(text).toContain("next: run `npm run release:check` before publishing");
+  });
+
+  it("release status rejects unknown release helper subcommands", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+
+    await expect(
+      runCli(["release", "publish"], {
+        cwd,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.toThrow("release requires status");
+  });
+
   it("requires explicit browser namespace for browser product checks", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
     const out: string[] = [];

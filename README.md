@@ -238,6 +238,12 @@ npm run release:verify
 
 This runs tests, typecheck, build, package smoke, and `doctor` without weakening the publish guard.
 
+To see the current publish blocker and next step from the CLI:
+
+```bash
+gptprouse release status
+```
+
 Before publishing to npm, choose an explicit license and add the matching `LICENSE` file. `npm publish` is intentionally guarded by `prepublishOnly`; it runs:
 
 ```bash

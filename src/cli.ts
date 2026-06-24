@@ -183,6 +183,15 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
     return runDoctor(new BridgeStore(targetCwd), { ...io, cwd: targetCwd });
   }
 
+  if (command === "release") {
+    const [subcommand, ...releaseArgs] = rest;
+    if (subcommand !== "status") throw new Error("release requires status");
+    assertOnlyOptions(releaseArgs, "release status", ["--cwd"]);
+    const targetCwd = resolveCwdFlag(io.cwd, releaseArgs);
+    io.stdout(await formatReleaseStatus(targetCwd));
+    return 0;
+  }
+
   if (command === "project") {
     const [subcommand, ...projectArgs] = rest;
     if (subcommand !== "prompt") throw new Error("project requires prompt");
@@ -647,6 +656,7 @@ Commands:
   gptprouse start [--cwd /absolute/path/to/repo]
   gptprouse status [--cwd /absolute/path/to/repo] [--show-token] [--url-only]
   gptprouse tunnel url [--cwd /absolute/path/to/repo] --public-url https://... [--show-token] [--url-only]
+  gptprouse release status [--cwd /absolute/path/to/repo]
   gptprouse project prompt [--cwd /absolute/path/to/repo]
   gptprouse ask-pro --dry-run|--send [--file path] "prompt"
   gptprouse pro ask [--file path] "prompt"  # dry-run preview
@@ -703,6 +713,56 @@ gptprouse tasks show <task-id>`;
 
 function shellQuote(value: string): string {
   return /^[A-Za-z0-9_./:@=-]+$/.test(value) ? value : `'${value.replaceAll("'", "'\\''")}'`;
+}
+
+async function formatReleaseStatus(cwd: string): Promise<string> {
+  const packageJsonPath = path.join(cwd, "package.json");
+  const raw = await readFile(packageJsonPath, "utf8");
+  const packageJson = JSON.parse(raw) as { name?: unknown; version?: unknown; license?: unknown; private?: unknown };
+  const name = typeof packageJson.name === "string" && packageJson.name.trim() ? packageJson.name : "<unnamed>";
+  const version = typeof packageJson.version === "string" && packageJson.version.trim() ? packageJson.version : "<unversioned>";
+  const lines = ["gptprouse release status", `package: ${name}@${version}`];
+  const license = typeof packageJson.license === "string" ? packageJson.license.trim() : "";
+
+  if (!license) {
+    lines.push("metadata: blocked package.json must include an explicit license before publishing");
+    lines.push("next: choose a license, add LICENSE, then run `npm run release:check`");
+    lines.push("verification: run `npm run release:verify` anytime without weakening the publish guard");
+    return lines.join("\n");
+  }
+
+  if (license === "UNLICENSED") {
+    if (packageJson.private === true) {
+      lines.push('metadata: ok private package license=UNLICENSED');
+      lines.push("next: keep this package private, or choose a public license before publishing");
+    } else {
+      lines.push('metadata: blocked license "UNLICENSED" requires "private": true to prevent public publishing');
+      lines.push("next: set `private: true`, or choose a public license and add LICENSE");
+    }
+    lines.push("verification: run `npm run release:verify` anytime without weakening the publish guard");
+    return lines.join("\n");
+  }
+
+  const hasLicenseFile = await fileExists(path.join(cwd, "LICENSE"));
+  if (!hasLicenseFile) {
+    lines.push(`metadata: blocked license=${license} license_file=missing`);
+    lines.push("next: add LICENSE, then run `npm run release:check`");
+  } else {
+    lines.push(`metadata: ok license=${license} license_file=present`);
+    lines.push("next: run `npm run release:check` before publishing");
+  }
+  lines.push("verification: run `npm run release:verify` anytime without weakening the publish guard");
+  return lines.join("\n");
+}
+
+async function fileExists(filePath: string): Promise<boolean> {
+  try {
+    await lstat(filePath);
+    return true;
+  } catch (error) {
+    if (isMissingFileError(error)) return false;
+    throw error;
+  }
 }
 
 async function runDoctor(store: BridgeStore, io: CliIO): Promise<number> {

@@ -55,8 +55,14 @@ try {
   }
   const help = await run(binPath, ["help"], { cwd: consumerDir });
   assertIncludes(help.stdout, "gptprouse doctor", "installed help output");
+  assertIncludes(help.stdout, "gptprouse release status", "installed help output");
   assertIncludes(help.stdout, "gptprouse project prompt", "installed help output");
   assertIncludes(help.stdout, `gptprouse v${installedPackageJson.version}`, "installed help output");
+  const installedPackageDir = path.join(consumerDir, "node_modules", "gptprouse");
+  const releaseStatus = await run(binPath, ["release", "status", "--cwd", installedPackageDir], { cwd: consumerDir });
+  assertIncludes(releaseStatus.stdout, "gptprouse release status", "installed release status output");
+  assertIncludes(releaseStatus.stdout, "metadata: blocked", "installed release status output");
+  assertIncludes(releaseStatus.stdout, "explicit license", "installed release status output");
   const projectPrompt = await run(binPath, ["project", "prompt", "--cwd", consumerDir], { cwd: path.dirname(consumerDir) });
   assertIncludes(projectPrompt.stdout, "ChatGPT Project MCP verification prompt", "installed project prompt output");
   assertIncludes(projectPrompt.stdout, "bridge_create_task", "installed project prompt output");
@@ -137,6 +143,7 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertIncludes(readme, "setup --cwd", "installed README");
   assertIncludes(readme, "mcp --cwd", "installed README");
   assertIncludes(readme, "gptprouse project prompt", "installed README");
+  assertIncludes(readme, "gptprouse release status", "installed README");
   assertIncludes(readme, "npm run release:verify", "installed README");
   assertIncludes(readme, "configured `doctor`", "installed README");
   assertIncludes(httpMcpDoc, "For an installed package", "installed HTTP MCP docs");
