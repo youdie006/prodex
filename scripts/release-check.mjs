@@ -31,7 +31,7 @@ try {
 
 async function checkReleaseMetadata(rootDir) {
   const packageJsonPath = path.join(rootDir, "package.json");
-  const packageJson = JSON.parse(await readRequiredPackageJson(packageJsonPath));
+  const packageJson = parseReleasePackageJson(await readRequiredPackageJson(packageJsonPath), packageJsonPath);
   if (packageJson.private === true) {
     throw new Error("release metadata failed: package.json private: true prevents npm publish");
   }
@@ -42,6 +42,14 @@ async function checkReleaseMetadata(rootDir) {
     throw new Error('release metadata failed: license "UNLICENSED" is not publishable');
   }
   await assertRegularLicenseFile(rootDir);
+}
+
+function parseReleasePackageJson(raw, packageJsonPath) {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    throw new Error(`release metadata failed: package.json is not valid JSON at ${packageJsonPath}`);
+  }
 }
 
 async function assertRegularLicenseFile(rootDir) {

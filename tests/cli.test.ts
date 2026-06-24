@@ -1279,6 +1279,26 @@ describe("runCli", () => {
     expect(text).not.toContain("ENOENT");
   });
 
+  it("release status reports malformed package.json as a release blocker", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-release-malformed-"));
+    await writeFile(path.join(cwd, "package.json"), "{ broken json\n", "utf8");
+    const out: string[] = [];
+
+    await runCli(["release", "status", "--cwd", cwd], {
+      cwd: "/tmp",
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    const text = out.join("\n");
+    expect(text).toContain("gptprouse release status");
+    expect(text).toContain("package: <invalid package.json>");
+    expect(text).toContain("metadata: blocked package.json is not valid JSON");
+    expect(text).toContain("next: fix package.json syntax, then run `npm run release:check`");
+    expect(text).not.toContain("SyntaxError");
+    expect(text).not.toContain("metadata: ok");
+  });
+
   it("release status reports publish metadata readiness when license files are explicit", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-release-"));
     await writeFile(
@@ -1477,6 +1497,37 @@ describe("runCli", () => {
     });
 
     expect(out.join("\n")).toContain(`git: ok branch=${branch} commit=${commit} remote=origin`);
+  });
+
+  it("release status blocks detached HEAD checkouts", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-release-"));
+    await writeFile(
+      path.join(cwd, "package.json"),
+      `${JSON.stringify({ name: "demo", version: "1.0.0", license: "MIT" }, null, 2)}\n`,
+      "utf8"
+    );
+    await writeFile(path.join(cwd, "LICENSE"), "MIT License\n", "utf8");
+    await execFileAsync("git", ["init"], { cwd });
+    await execFileAsync("git", ["config", "user.email", "release@example.com"], { cwd });
+    await execFileAsync("git", ["config", "user.name", "Release Test"], { cwd });
+    await execFileAsync("git", ["add", "package.json", "LICENSE"], { cwd });
+    await execFileAsync("git", ["commit", "-m", "initial"], { cwd });
+    await execFileAsync("git", ["remote", "add", "origin", "https://example.com/demo.git"], { cwd });
+    const commit = (await execFileAsync("git", ["rev-parse", "--short", "HEAD"], { cwd })).stdout.trim();
+    await execFileAsync("git", ["checkout", "--detach", "HEAD"], { cwd });
+    const out: string[] = [];
+
+    await runCli(["release", "status", "--cwd", cwd], {
+      cwd: "/tmp",
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    const text = out.join("\n");
+    expect(text).toContain("metadata: ok license=MIT license_file=present");
+    expect(text).toContain(`git: blocked detached HEAD commit=${commit} remote=origin`);
+    expect(text).toContain("git_next: check out a release branch before public release");
+    expect(text).not.toContain("git: ok");
   });
 
   it("release status rejects unknown release helper subcommands", async () => {

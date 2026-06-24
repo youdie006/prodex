@@ -878,7 +878,19 @@ async function formatReleaseStatus(cwd: string): Promise<string> {
     lines.push("verification: run `npm run release:verify` anytime without weakening the publish guard");
     return lines.join("\n");
   }
-  const packageJson = JSON.parse(raw) as { name?: unknown; version?: unknown; license?: unknown; private?: unknown };
+  let packageJson: { name?: unknown; version?: unknown; license?: unknown; private?: unknown };
+  try {
+    packageJson = JSON.parse(raw) as { name?: unknown; version?: unknown; license?: unknown; private?: unknown };
+  } catch {
+    const lines = ["gptprouse release status", "package: <invalid package.json>"];
+    lines.push(`metadata: blocked package.json is not valid JSON at ${packageJsonPath}`);
+    const gitStatus = await readReleaseGitStatus(cwd);
+    lines.push(gitStatus.line);
+    if (gitStatus.next) lines.push(`git_next: ${gitStatus.next}`);
+    lines.push("next: fix package.json syntax, then run `npm run release:check`");
+    lines.push("verification: run `npm run release:verify` anytime without weakening the publish guard");
+    return lines.join("\n");
+  }
   const name = typeof packageJson.name === "string" && packageJson.name.trim() ? packageJson.name : "<unnamed>";
   const version = typeof packageJson.version === "string" && packageJson.version.trim() ? packageJson.version : "<unversioned>";
   const lines = ["gptprouse release status", `package: ${name}@${version}`];
@@ -954,6 +966,13 @@ async function readReleaseGitStatus(cwd: string): Promise<ReleaseGitStatus> {
     return {
       line: `git: blocked worktree has uncommitted changes files=${dirtyCount} ${gitContext} remote=${remoteText}`,
       next: "commit or stash local changes before release"
+    };
+  }
+
+  if (branch === "HEAD") {
+    return {
+      line: `git: blocked detached HEAD commit=${commit} remote=${remoteText}`,
+      next: "check out a release branch before public release"
     };
   }
 

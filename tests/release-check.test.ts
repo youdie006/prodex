@@ -30,6 +30,20 @@ describe("release-check", () => {
     expect(`${result.stdout}\n${result.stderr}`).toMatch(/license/i);
   });
 
+  it("fails release metadata with a friendly message when package.json is malformed", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-release-check-malformed-"));
+    await writeFile(path.join(root, "package.json"), "{ broken json\n", "utf8");
+
+    const result = await runReleaseCheck(root);
+
+    const output = `${result.stdout}\n${result.stderr}`;
+    expect(result.code).toBe(1);
+    expect(output).toContain("release metadata failed");
+    expect(output).toContain("package.json is not valid JSON");
+    expect(output).not.toContain("SyntaxError");
+    expect(result.stdout).not.toContain("release_metadata=ok");
+  });
+
   it("passes release metadata when package license and LICENSE file are explicit", async () => {
     const root = await copyPackageJsonToTemp();
     const packageJson = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
