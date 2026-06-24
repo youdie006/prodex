@@ -3,6 +3,7 @@ import http, { type IncomingMessage, type ServerResponse } from "node:http";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { createServer as createMcpServer } from "./mcp.js";
+import { normalizeLoopbackHttpHost } from "./config.js";
 
 export interface StartHttpMcpServerOptions {
   cwd: string;
@@ -34,7 +35,7 @@ const DEFAULT_REQUEST_BODY_LIMIT_BYTES = 1_048_576;
 const TRANSPORT_CLOSE_TIMEOUT_MS = 5_000;
 
 export async function startHttpMcpServer(options: StartHttpMcpServerOptions): Promise<RunningHttpMcpServer> {
-  const host = options.host ?? "127.0.0.1";
+  const host = normalizeLoopbackHttpHost(options.host ?? "127.0.0.1");
   const token = options.token;
   const requestBodyLimitBytes = options.requestBodyLimitBytes ?? DEFAULT_REQUEST_BODY_LIMIT_BYTES;
   const transports = new Map<string, TransportEntry>();

@@ -72,6 +72,8 @@ Run this in a terminal and keep it running while ChatGPT is using the bridge:
 gptprouse start
 ```
 
+The HTTP MCP listener is loopback-only. `setup --host` and `start --host` accept local loopback hosts such as `127.0.0.1` or `localhost`; they reject public interfaces like `0.0.0.0`. If you need ChatGPT to reach it from outside the machine, keep `gptprouse start` local and put your own explicit tunnel in front of it.
+
 From outside the repo:
 
 ```bash

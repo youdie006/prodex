@@ -39,6 +39,17 @@ describe("HTTP MCP server", () => {
     expect(tools.tools.map((tool) => tool.name)).toContain("repo_stage_reviewed_paths");
   });
 
+  it("refuses to bind the HTTP MCP server to non-loopback hosts", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-http-mcp-"));
+
+    await expect(
+      startHttpMcpServer({ cwd, host: "0.0.0.0", port: 0, token: "test-token" }).then((server) => {
+        running = server;
+        return server;
+      })
+    ).rejects.toThrow(/loopback|local/i);
+  });
+
   it("completes and blocks tasks through real Streamable HTTP MCP tool calls", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-http-mcp-"));
     running = await startHttpMcpServer({ cwd, host: "127.0.0.1", port: 0, token: "test-token" });

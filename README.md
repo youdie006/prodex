@@ -161,6 +161,7 @@ gptprouse start
 ```
 
 `setup` writes `.bridge/config.local.json` and ensures `.bridge/.gitignore` covers local task/result/session/receipt/artifact/config files. `setup`, `start`, and `status` redact the URL token by default.
+The HTTP MCP listener is loopback-only: `setup --host` and `start --host` accept local loopback hosts such as `127.0.0.1` or `localhost`, not public interfaces like `0.0.0.0`.
 
 Run these commands from the repo root, or add `--cwd /absolute/path/to/your/repo` to `setup`, `start`, `status`, `doctor`, and `tunnel url`. For example:
 

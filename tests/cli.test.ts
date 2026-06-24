@@ -1874,6 +1874,33 @@ describe("runCli", () => {
     expect(text).not.toContain("super-secret-token");
   });
 
+  it("refuses non-loopback HTTP MCP hosts in setup and start", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+
+    await expect(
+      runCli(["setup", "--host", "0.0.0.0", "--port", "8789", "--token", "super-secret-token"], {
+        cwd,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.toThrow(/loopback|local/i);
+    await expect(readFile(path.join(cwd, ".bridge", "config.local.json"), "utf8")).rejects.toThrow();
+
+    await runCli(["setup", "--port", "8789", "--token", "super-secret-token", "--token-ttl-hours", "1"], {
+      cwd,
+      stdout: () => {},
+      stderr: () => {}
+    });
+
+    await expect(
+      runCli(["start", "--host", "0.0.0.0", "--port", "0"], {
+        cwd,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.toThrow(/loopback|local/i);
+  });
+
   it("uses an explicit --cwd target for local HTTP MCP setup, status, and tunnel URLs", async () => {
     const launcherCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-launcher-"));
     const targetCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-target-"));

@@ -63,6 +63,37 @@ describe("local bridge config", () => {
     expect(loaded.token_expires_at).toBeUndefined();
   });
 
+  it("rejects non-loopback hosts when writing local MCP config", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-config-"));
+
+    await expect(writeLocalConfig(cwd, { host: "0.0.0.0", port: 9797, token: "test-token" })).rejects.toThrow(/loopback|local/i);
+    await expect(readFile(localConfigPath(cwd), "utf8")).rejects.toThrow();
+  });
+
+  it("rejects legacy local MCP config files with non-loopback hosts", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-config-"));
+    await mkdir(path.join(cwd, ".bridge"), { recursive: true });
+    await writeFile(
+      localConfigPath(cwd),
+      `${JSON.stringify(
+        {
+          schema_version: 1,
+          host: "0.0.0.0",
+          port: 9797,
+          token: "test-token",
+          server_url: "http://0.0.0.0:9797/mcp?gptprouse_token=test-token",
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+
+    await expect(loadLocalConfig(cwd)).rejects.toThrow(/loopback|local/i);
+  });
+
   it("rejects non-positive token TTL values", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-config-"));
 

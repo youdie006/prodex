@@ -211,6 +211,7 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertIncludes(readme, "gptprouse claude config", "installed README");
   assertIncludes(readme, "gptprouse release status", "installed README");
   assertIncludes(readme, "npm run release:verify", "installed README");
+  assertIncludes(readme, "loopback-only", "installed README");
   assertIncludes(readme, "private: true", "installed README");
   assertIncludes(readme, "configured `doctor`", "installed README");
   assertIncludes(readme, ".bridge/artifacts/results/", "installed README");
@@ -238,6 +239,7 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertIncludes(httpMcpDoc, "gptprouse project prompt", "installed HTTP MCP docs");
   assertIncludes(httpMcpDoc, "Verify In ChatGPT", "installed HTTP MCP docs");
   assertIncludes(httpMcpDoc, "Keep `gptprouse start` running", "installed HTTP MCP docs");
+  assertIncludes(httpMcpDoc, "loopback-only", "installed HTTP MCP docs");
   assertIncludes(httpMcpDoc, "CLI-only", "installed HTTP MCP docs");
   assertIncludes(httpMcpDoc, ".bridge/artifacts/results/", "installed HTTP MCP docs");
   assertAppearsBefore(

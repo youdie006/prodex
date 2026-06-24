@@ -1,6 +1,7 @@
 import { constants } from "node:fs";
 import { lstat, mkdir, open, type FileHandle } from "node:fs/promises";
 import { randomBytes } from "node:crypto";
+import { isIP } from "node:net";
 import path from "node:path";
 import { z } from "zod";
 import { SCHEMA_VERSION } from "./schema.js";
@@ -40,11 +41,25 @@ export function makeServerUrl(host: string, port: number, token: string): string
   return `http://${host}:${port}/mcp?gptprouse_token=${encodeURIComponent(token)}`;
 }
 
+export function normalizeLoopbackHttpHost(host: string): string {
+  const normalized = host.trim().toLowerCase();
+  const isLocalhost = normalized === "localhost";
+  const isIpv4Loopback = isIP(normalized) === 4 && normalized.startsWith("127.");
+  if (isLocalhost || isIpv4Loopback) return normalized;
+  throw new Error(
+    "HTTP MCP host must be loopback-only, such as 127.0.0.1 or localhost. Keep gptprouse local and put your own tunnel in front of it when needed."
+  );
+}
+
+export function assertLoopbackHttpHost(host: string): void {
+  normalizeLoopbackHttpHost(host);
+}
+
 export async function writeLocalConfig(cwd: string, input: WriteLocalConfigInput = {}): Promise<LocalConfig> {
   await ensureBridgeLocalFiles(cwd);
   await assertLocalConfigTargetSafe(cwd);
   const now = new Date().toISOString();
-  const host = input.host ?? "127.0.0.1";
+  const host = normalizeLoopbackHttpHost(input.host ?? "127.0.0.1");
   const port = input.port ?? 8787;
   const token = input.token ?? randomBytes(24).toString("hex");
   const tokenExpiresAt = computeTokenExpiresAt(input.tokenTtlHours, now);
@@ -76,6 +91,8 @@ export async function loadLocalConfig(cwd: string): Promise<LocalConfig> {
       })
     )
   );
+  assertLoopbackHttpHost(config.host);
+  assertLoopbackHttpHost(new URL(config.server_url).hostname);
   return config;
 }
 
