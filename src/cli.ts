@@ -563,17 +563,13 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
         });
       } catch (error) {
         const message = errorMessage(error);
+        const blocker = browserSendBlockerFromError(error);
         try {
           await store.completeTask(task.id, {
             status: "blocked",
             summary: message,
             commands: ["visible ChatGPT browser consult"],
-            blocker: {
-              code: "browser_send_failed",
-              message,
-              retryable: true,
-              next_step: "Resolve the visible browser issue manually, then rerun the consult if needed."
-            }
+            blocker
           });
           await writeSessionBestEffort(
             store,
@@ -584,12 +580,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
               task_id: task.id,
               thread: normalizedTargetUrl,
               status: "blocked",
-              blocker: {
-                code: "browser_send_failed",
-                message,
-                retryable: true,
-                next_step: "Resolve the visible browser issue manually, then rerun the consult if needed."
-              },
+              blocker,
               warnings: []
             },
             io
@@ -785,6 +776,7 @@ repo: ${cwd}
    Note: HTTP MCP uses a short-lived token. Paste token-bearing URLs only into your own trusted private MCP client.
    gptprouse setup --cwd ${quotedCwd} --token-ttl-hours 24
    gptprouse start --cwd ${quotedCwd}
+   Keep this terminal open while ChatGPT uses the bridge; run the next commands in a second terminal.
    gptprouse status --cwd ${quotedCwd} --show-token --url-only
    gptprouse project prompt --cwd ${quotedCwd}
 
@@ -865,9 +857,9 @@ async function formatReleaseStatus(cwd: string): Promise<string> {
     lines.push("verification: run `npm run release:verify` anytime without weakening the publish guard");
     return lines.join("\n");
   }
-  let packageJson: { name?: unknown; version?: unknown; license?: unknown; private?: unknown };
+  let packageJson: { name?: unknown; version?: unknown; license?: unknown; private?: unknown; bin?: unknown };
   try {
-    packageJson = JSON.parse(raw) as { name?: unknown; version?: unknown; license?: unknown; private?: unknown };
+    packageJson = JSON.parse(raw) as { name?: unknown; version?: unknown; license?: unknown; private?: unknown; bin?: unknown };
   } catch {
     const lines = ["gptprouse release status", "package: <invalid package.json>"];
     lines.push(`metadata: blocked package.json is not valid JSON at ${packageJsonPath}`);
@@ -883,6 +875,7 @@ async function formatReleaseStatus(cwd: string): Promise<string> {
   const lines = ["gptprouse release status", `package: ${name}@${version}`];
   const license = typeof packageJson.license === "string" ? packageJson.license.trim() : "";
   let metadataNext = "run `npm run release:check` before publishing";
+  let metadataReady = false;
 
   if (packageJson.private === true) {
     lines.push("metadata: blocked package.json private: true prevents npm publish");
@@ -903,7 +896,13 @@ async function formatReleaseStatus(cwd: string): Promise<string> {
       metadataNext = "replace LICENSE with a regular file, then run `npm run release:check`";
     } else {
       lines.push(`metadata: ok license=${license} license_file=present`);
+      metadataReady = true;
     }
+  }
+  if (metadataReady) {
+    const packStatus = await readReleasePackStatus(cwd, packageJson);
+    lines.push(packStatus.line);
+    if (packStatus.next) metadataNext = packStatus.next;
   }
   const gitStatus = await readReleaseGitStatus(cwd);
   lines.push(gitStatus.line);
@@ -921,6 +920,104 @@ type ReleaseGitStatus = {
   line: string;
   next?: string;
 };
+
+type ReleasePackStatus = {
+  line: string;
+  next?: string;
+};
+
+async function readReleasePackStatus(cwd: string, packageJson: { bin?: unknown }): Promise<ReleasePackStatus> {
+  try {
+    const { stdout } = await execFileAsync(commandForPlatform("npm"), ["pack", "--json", "--dry-run", "--ignore-scripts"], {
+      cwd,
+      timeout: 120_000,
+      maxBuffer: 20 * 1024 * 1024
+    });
+    const files = parsePackedFiles(stdout);
+    const invalid = findExecutableNonBinPackedFiles(files, packageJson);
+    if (invalid.length > 0) {
+      return {
+        line: `pack: blocked packed files have unexpected executable modes outside package bin entries: ${formatPathList(invalid)}`,
+        next: "fix file modes or publish from a filesystem that preserves executable bits, then run `npm run release:check`"
+      };
+    }
+    return { line: "pack: ok file_modes=ok" };
+  } catch (error) {
+    return {
+      line: `pack: blocked npm pack dry-run failed: ${firstErrorLine(error)}`,
+      next: "fix npm pack dry-run, then run `npm run release:check`"
+    };
+  }
+}
+
+type PackedFile = {
+  path: string;
+  mode: number;
+};
+
+function parsePackedFiles(stdout: string): PackedFile[] {
+  const entries = JSON.parse(stdout) as Array<{ files?: unknown }>;
+  const files = entries?.[0]?.files;
+  if (!Array.isArray(files)) return [];
+  return files.filter(isPackedFile);
+}
+
+function isPackedFile(value: unknown): value is PackedFile {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "path" in value &&
+    "mode" in value &&
+    typeof value.path === "string" &&
+    typeof value.mode === "number"
+  );
+}
+
+function findExecutableNonBinPackedFiles(files: PackedFile[], packageJson: { bin?: unknown }): string[] {
+  const binPaths = packageBinPaths(packageJson.bin);
+  return files
+    .filter((file) => (file.mode & 0o111) !== 0)
+    .map((file) => normalizePackagePath(file.path))
+    .filter((filePath) => !binPaths.has(filePath));
+}
+
+function packageBinPaths(bin: unknown): Set<string> {
+  const paths = new Set<string>();
+  if (typeof bin === "string") {
+    paths.add(normalizePackagePath(bin));
+  } else if (typeof bin === "object" && bin !== null) {
+    for (const value of Object.values(bin)) {
+      if (typeof value === "string") paths.add(normalizePackagePath(value));
+    }
+  }
+  return paths;
+}
+
+function normalizePackagePath(value: string): string {
+  return value.replaceAll("\\", "/").replace(/^\.\/+/, "");
+}
+
+function formatPathList(paths: string[]): string {
+  const shown = paths.slice(0, 8).join(", ");
+  return paths.length > 8 ? `${shown}, ... (${paths.length} files)` : shown;
+}
+
+function commandForPlatform(command: string): string {
+  return process.platform === "win32" && command === "npm" ? "npm.cmd" : command;
+}
+
+function firstErrorLine(error: unknown): string {
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "stderr" in error &&
+    typeof (error as { stderr?: unknown }).stderr === "string" &&
+    (error as { stderr: string }).stderr.trim()
+  ) {
+    return (error as { stderr: string }).stderr.trim().split(/\r?\n/)[0];
+  }
+  return errorMessage(error).split(/\r?\n/)[0];
+}
 
 async function readReleaseGitStatus(cwd: string): Promise<ReleaseGitStatus> {
   try {
@@ -1546,7 +1643,9 @@ async function printProductCheck(store: BridgeStore, io: CliIO, args: string[]):
     io.stdout(`chatgpt: ${browserStatus.blocker?.code ?? "unreachable"} - ${browserStatus.blocker?.message ?? "browser is not reachable"}`);
     if (browserStatus.blocker?.next_step) io.stdout(`next: ${browserStatus.blocker.next_step}`);
   } else if (browserStatus.blocker) {
-    io.stdout(`chatgpt: blocked ${browserStatus.blocker.code} - ${browserStatus.blocker.message}`);
+    const visibilityText =
+      browserStatus.blocker.code === "tab_not_visible" ? ` visibility=${browserStatus.visibilityState ?? "unknown"}` : "";
+    io.stdout(`chatgpt: blocked ${browserStatus.blocker.code}${visibilityText} - ${browserStatus.blocker.message}`);
     if (browserStatus.blocker.next_step) io.stdout(`next: ${browserStatus.blocker.next_step}`);
   } else if (visibilityBlocker) {
     io.stdout(`chatgpt: blocked ${visibilityBlocker.code} visibility=${browserStatus.visibilityState ?? "unknown"} - ${visibilityBlocker.message}`);
@@ -1719,6 +1818,34 @@ function firstLine(value: string): string {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function browserSendBlockerFromError(error: unknown): { code: string; message: string; retryable: boolean; next_step?: string } {
+  const blocker = typeof error === "object" && error !== null && "blocker" in error ? (error as { blocker?: unknown }).blocker : undefined;
+  if (
+    typeof blocker === "object" &&
+    blocker !== null &&
+    "code" in blocker &&
+    "message" in blocker &&
+    "retryable" in blocker &&
+    typeof blocker.code === "string" &&
+    typeof blocker.message === "string" &&
+    typeof blocker.retryable === "boolean"
+  ) {
+    return {
+      code: blocker.code,
+      message: blocker.message,
+      retryable: blocker.retryable,
+      ...("next_step" in blocker && typeof blocker.next_step === "string" ? { next_step: blocker.next_step } : {})
+    };
+  }
+  const message = errorMessage(error);
+  return {
+    code: "browser_send_failed",
+    message,
+    retryable: true,
+    next_step: "Resolve the visible browser issue manually, then rerun the consult if needed."
+  };
 }
 
 function isMissingFileError(error: unknown): boolean {

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { constants } from "node:fs";
+import { constants, existsSync } from "node:fs";
 import { link, lstat, mkdir, open, readFile, readdir, realpath, rename, rm } from "node:fs/promises";
 import type { FileHandle } from "node:fs/promises";
 import path from "node:path";
@@ -31,6 +31,7 @@ type BridgeRecordKind = Exclude<BridgeStorageKind, "artifacts">;
 export type BridgeStoreTestHooks = {
   beforeRecordTempCleanup?: (kind: BridgeRecordKind, filePath: string) => Promise<void> | void;
   beforeRecordRename?: (kind: BridgeRecordKind, filePath: string) => Promise<void> | void;
+  disableDirectoryFdPaths?: boolean;
 };
 
 let storeTestHooks: BridgeStoreTestHooks = {};
@@ -490,29 +491,18 @@ export class BridgeStore {
   }
 
   private async writeTextByRename(kind: BridgeRecordKind, filePath: string, content: string): Promise<void> {
-    if (process.platform === "linux") {
+    if (hasStableDirectoryFdPaths()) {
       await this.writeTextByStableStorageRename(kind, filePath, content);
       return;
     }
-    await this.writeTextByCheckedPathRename(kind, filePath, content);
+    throw new Error("Bridge record writes require stable directory file descriptor paths on this platform.");
   }
 
   private async writeTextByCreateExclusive(kind: BridgeRecordKind, filePath: string, content: string): Promise<boolean> {
-    if (process.platform === "linux") {
+    if (hasStableDirectoryFdPaths()) {
       return await this.writeTextByStableStorageLinkIfAbsent(kind, filePath, content);
     }
-    try {
-      await writeVerifiedUtf8File(filePath, content, () => this.assertStorageDirIsRealDirectory(kind), {
-        create: true,
-        exclusive: true,
-        mode: BRIDGE_FILE_MODE
-      });
-    } catch (error) {
-      if (isErrorCode(error, "EEXIST")) return false;
-      throw error;
-    }
-    await this.assertStorageDirIsRealDirectory(kind);
-    return true;
+    throw new Error("Bridge record writes require stable directory file descriptor paths on this platform.");
   }
 
   private async writeTextByStableStorageRename(kind: BridgeRecordKind, filePath: string, content: string): Promise<void> {
@@ -524,12 +514,12 @@ export class BridgeStore {
     const bridgeHandle = await openNoFollowDirectory(this.bridgeDir, "Bridge directory");
     try {
       const storageHandle = await openNoFollowDirectory(
-        path.join(procFdPath(bridgeHandle.fd), kind),
+        path.join(directoryFdPath(bridgeHandle.fd), kind),
         `Bridge storage directory .bridge/${kind}`
       );
       try {
         await this.assertStorageDirIsRealDirectory(kind);
-        const storageFdPath = procFdPath(storageHandle.fd);
+        const storageFdPath = directoryFdPath(storageHandle.fd);
         const targetPath = path.join(storageFdPath, fileName);
         await assertRegularFileIfExists(targetPath, `Bridge record path for .bridge/${kind}`);
         const tmpPath = path.join(storageFdPath, `.${fileName}.${process.pid}.${Date.now()}.${randomUUID()}.tmp`);
@@ -538,6 +528,7 @@ export class BridgeStore {
             create: true,
             mode: BRIDGE_FILE_MODE
           });
+          await storeTestHooks.beforeRecordRename?.(kind, filePath);
           await rename(tmpPath, targetPath);
           await assertRegularFileIfExists(targetPath, `Bridge record path for .bridge/${kind}`);
           await this.assertStorageDirIsRealDirectory(kind);
@@ -562,12 +553,12 @@ export class BridgeStore {
     const bridgeHandle = await openNoFollowDirectory(this.bridgeDir, "Bridge directory");
     try {
       const storageHandle = await openNoFollowDirectory(
-        path.join(procFdPath(bridgeHandle.fd), kind),
+        path.join(directoryFdPath(bridgeHandle.fd), kind),
         `Bridge storage directory .bridge/${kind}`
       );
       try {
         await this.assertStorageDirIsRealDirectory(kind);
-        const storageFdPath = procFdPath(storageHandle.fd);
+        const storageFdPath = directoryFdPath(storageHandle.fd);
         const targetPath = path.join(storageFdPath, fileName);
         const tmpPath = path.join(storageFdPath, `.${fileName}.${process.pid}.${Date.now()}.${randomUUID()}.tmp`);
         let linked = false;
@@ -578,6 +569,7 @@ export class BridgeStore {
             mode: BRIDGE_FILE_MODE
           });
           try {
+            await storeTestHooks.beforeRecordRename?.(kind, filePath);
             await link(tmpPath, targetPath);
           } catch (error) {
             if (isErrorCode(error, "EEXIST")) {
@@ -603,50 +595,6 @@ export class BridgeStore {
     return true;
   }
 
-  private async writeTextByCheckedPathRename(kind: BridgeRecordKind, filePath: string, content: string): Promise<void> {
-    const fileName = path.basename(filePath);
-    const expectedDir = this.dir(kind);
-    if (path.dirname(filePath) !== expectedDir) {
-      throw new Error(`Bridge record path must stay under .bridge/${kind}`);
-    }
-    const storageRealPath = await realpath(expectedDir);
-    const assertStableStorage = async () => {
-      await this.assertStorageDirIsRealDirectory(kind);
-      if ((await realpath(expectedDir)) !== storageRealPath) {
-        throw new Error(`Bridge storage directory .bridge/${kind} changed during record write`);
-      }
-    };
-    const tmp = path.join(expectedDir, `.${fileName}.${process.pid}.${Date.now()}.${randomUUID()}.tmp`);
-    const cleanupTmpIfStorageStable = async () => {
-      try {
-        await assertStableStorage();
-        await rm(tmp, { force: true });
-      } catch {
-        // If storage moved or was swapped, do not follow the now-unstable path for cleanup.
-      }
-    };
-    try {
-      await writeVerifiedUtf8File(
-        tmp,
-        content,
-        async () => {
-          await assertStableStorage();
-          await this.assertRecordTargetInsideIfExists(kind, filePath);
-        },
-        { create: true, exclusive: true, mode: BRIDGE_FILE_MODE }
-      );
-      await storeTestHooks.beforeRecordRename?.(kind, filePath);
-      await assertStableStorage();
-      await this.assertRecordTargetInsideIfExists(kind, filePath);
-      await rename(tmp, filePath);
-      await assertStableStorage();
-      await this.assertRecordTargetInside(kind, filePath);
-    } catch (error) {
-      await cleanupTmpIfStorageStable();
-      throw error;
-    }
-  }
-
   private async cleanupRecordTempHardLinks(kind: BridgeRecordKind, filePath: string): Promise<void> {
     const fileName = path.basename(filePath);
     const expectedDir = this.dir(kind);
@@ -656,11 +604,11 @@ export class BridgeStore {
     const bridgeHandle = await openNoFollowDirectory(this.bridgeDir, "Bridge directory");
     try {
       const storageHandle = await openNoFollowDirectory(
-        path.join(procFdPath(bridgeHandle.fd), kind),
+        path.join(directoryFdPath(bridgeHandle.fd), kind),
         `Bridge storage directory .bridge/${kind}`
       );
       try {
-        const storageFdPath = procFdPath(storageHandle.fd);
+        const storageFdPath = directoryFdPath(storageHandle.fd);
         const targetPath = path.join(storageFdPath, fileName);
         let targetStat;
         try {
@@ -942,8 +890,23 @@ async function assertRegularFileIfExists(filePath: string, label: string): Promi
   }
 }
 
-function procFdPath(fd: number): string {
-  return `/proc/self/fd/${fd}`;
+function hasStableDirectoryFdPaths(): boolean {
+  return directoryFdPathBase() !== undefined;
+}
+
+function directoryFdPath(fd: number): string {
+  const base = directoryFdPathBase();
+  if (!base) {
+    throw new Error("Bridge record writes require stable directory file descriptor paths on this platform.");
+  }
+  return `${base}/${fd}`;
+}
+
+function directoryFdPathBase(): string | undefined {
+  if (storeTestHooks.disableDirectoryFdPaths) return undefined;
+  if (existsSync("/proc/self/fd")) return "/proc/self/fd";
+  if (existsSync("/dev/fd")) return "/dev/fd";
+  return undefined;
 }
 
 function assertBridgeRecordId(kind: BridgeRecordKind, id: string): void {

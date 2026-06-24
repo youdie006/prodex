@@ -1304,6 +1304,7 @@ describe("runCli", () => {
     expect(text).toContain(`gptprouse claude prompt --cwd ${targetCwd}`);
     expect(text).toContain(`gptprouse setup --cwd ${targetCwd} --token-ttl-hours 24`);
     expect(text).toContain(`gptprouse start --cwd ${targetCwd}`);
+    expect(text).toContain("Keep this terminal open while ChatGPT uses the bridge; run the next commands in a second terminal.");
     expect(text).toContain(`gptprouse status --cwd ${targetCwd} --show-token --url-only`);
     expect(text).toContain(`gptprouse project prompt --cwd ${targetCwd}`);
     expect(text.indexOf("HTTP MCP uses a short-lived token")).toBeLessThan(
@@ -1452,6 +1453,32 @@ describe("runCli", () => {
     expect(text).toContain("package: demo@1.0.0");
     expect(text).toContain("metadata: ok license=MIT license_file=present");
     expect(text).toContain("next: run `npm run release:check` before publishing");
+  });
+
+  it("release status reports executable packed non-bin files as a release blocker", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-release-"));
+    await writeFile(
+      path.join(cwd, "package.json"),
+      `${JSON.stringify({ name: "demo", version: "1.0.0", license: "MIT", files: ["README.md"] }, null, 2)}\n`,
+      "utf8"
+    );
+    await writeFile(path.join(cwd, "LICENSE"), "MIT License\n", "utf8");
+    await writeFile(path.join(cwd, "README.md"), "# Demo\n", "utf8");
+    await chmod(path.join(cwd, "README.md"), 0o755);
+    const out: string[] = [];
+
+    const code = await runCli(["release", "status", "--cwd", cwd], {
+      cwd: "/tmp",
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    const text = out.join("\n");
+    expect(code).toBe(0);
+    expect(text).toContain("metadata: ok license=MIT license_file=present");
+    expect(text).toContain("pack: blocked packed files have unexpected executable modes");
+    expect(text).toContain("README.md");
+    expect(text).not.toContain("pack: ok");
   });
 
   it("release status reports non-regular license paths as release blockers", async () => {

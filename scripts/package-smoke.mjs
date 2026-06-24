@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { createHash } from "node:crypto";
 import { execFile, spawn } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import net from "node:net";
@@ -105,6 +106,11 @@ try {
   assertIncludes(onboard.stdout, `gptprouse claude config --cwd ${consumerDir}`, "installed onboard output");
   assertIncludes(onboard.stdout, `gptprouse claude prompt --cwd ${consumerDir}`, "installed onboard output");
   assertIncludes(onboard.stdout, `gptprouse setup --cwd ${consumerDir} --token-ttl-hours 24`, "installed onboard output");
+  assertIncludes(
+    onboard.stdout,
+    "Keep this terminal open while ChatGPT uses the bridge; run the next commands in a second terminal.",
+    "installed onboard output"
+  );
   assertIncludes(onboard.stdout, `gptprouse project prompt --cwd ${consumerDir}`, "installed onboard output");
   assertAppearsBefore(
     onboard.stdout,
@@ -210,13 +216,15 @@ try {
   await assertInstalledDocsArePortable(consumerDir);
   await assertInstalledPackageImportBoundary(consumerDir, packed.files);
 
-  const tools = await smokeStdioMcp(binPath, consumerDir);
+  const stdioRepoDir = path.join(tmp, "stdio-repo");
+  await mkdir(stdioRepoDir, { recursive: true });
+  const tools = await smokeStdioMcp(binPath, stdioRepoDir);
   for (const tool of REQUIRED_MCP_TOOLS) {
     if (!tools.includes(tool)) throw new Error(`Installed MCP catalog is missing ${tool}`);
   }
   await smokeInstalledStdioTaskFinalizers(binPath, consumerDir);
 
-  console.log(`package_smoke: ok tarball=${path.basename(packed.filename)} http_onboarding=ok installed_http_mcp=ok configured_doctor=ok tunnel_url=ok package_boundary=ok stdio_task_flow=ok stdio_task_finalizers=ok tools=${REQUIRED_MCP_TOOLS.join(",")}`);
+  console.log(`package_smoke: ok tarball=${path.basename(packed.filename)} http_onboarding=ok installed_http_mcp=ok configured_doctor=ok tunnel_url=ok package_boundary=ok stdio_write_flow=ok stdio_task_flow=ok stdio_task_finalizers=ok tools=${REQUIRED_MCP_TOOLS.join(",")}`);
 } finally {
   await rm(tmp, { recursive: true, force: true });
 }
@@ -278,6 +286,9 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertIncludes(readme, "gptprouse release status", "installed README");
   assertIncludes(readme, "npm run release:verify", "installed README");
   assertIncludes(readme, "regular file", "installed README");
+  assertIncludes(readme, "unexpected executable modes", "installed README");
+  assertIncludes(readme, "WSL/Windows mount", "installed README");
+  assertIncludes(readme, "installed stdio repo write dry-run/apply/stage flow", "installed README");
   assertIncludes(readme, "loopback-only", "installed README");
   assertIncludes(readme, "`start` reads the saved setup profile when the server process starts", "installed README");
   assertIncludes(readme, "restart `gptprouse start` so the running server uses the new profile", "installed README");
@@ -469,6 +480,8 @@ async function createReleaseGitFixture(cwd, options) {
 
 async function smokeStdioMcp(binPath, cwd) {
   await writeFile(path.join(cwd, "search-smoke.txt"), "before\n--package-rg-literal ok\nafter\n", "utf8");
+  await writeFile(path.join(cwd, "notes.md"), "old\n", "utf8");
+  const head = await initPackageSmokeGitRepo(cwd, ["search-smoke.txt", "notes.md"]);
   const client = new Client({ name: "gptprouse-package-smoke", version: "0.2.0" });
   const transport = new StdioClientTransport({
     command: binPath,
@@ -487,10 +500,60 @@ async function smokeStdioMcp(binPath, cwd) {
       line: 2,
       text: "--package-rg-literal ok"
     });
+    const dryRun = await callJsonTool(client, "repo_write_file_dry_run", {
+      path: "notes.md",
+      content: "new\n",
+      expected_head: head
+    });
+    if (dryRun.receipt?.kind !== "repo_write_dry_run") {
+      throw new Error(`Installed stdio write dry-run returned unexpected receipt: ${JSON.stringify(dryRun.receipt)}`);
+    }
+    if (dryRun.preimage_sha256 !== sha256("old\n")) {
+      throw new Error(`Installed stdio write dry-run returned unexpected preimage hash: ${dryRun.preimage_sha256}`);
+    }
+    assertIncludes(dryRun.diff, "-old", "installed stdio write dry-run diff");
+    assertIncludes(dryRun.diff, "+new", "installed stdio write dry-run diff");
+    const applied = await callJsonTool(client, "repo_write_file_apply", {
+      receipt_id: dryRun.receipt.id,
+      expected_head: head,
+      preimage_sha256: dryRun.preimage_sha256
+    });
+    if (applied.receipt?.kind !== "repo_write_applied") {
+      throw new Error(`Installed stdio write apply returned unexpected receipt: ${JSON.stringify(applied.receipt)}`);
+    }
+    assertIncludes(await readFile(path.join(cwd, "notes.md"), "utf8"), "new\n", "installed stdio write apply file");
+    const staged = await callJsonTool(client, "repo_stage_reviewed_paths", {
+      receipt_ids: [applied.receipt.id],
+      expected_head: head
+    });
+    if (staged.receipt?.kind !== "repo_stage_reviewed_paths") {
+      throw new Error(`Installed stdio stage returned unexpected receipt: ${JSON.stringify(staged.receipt)}`);
+    }
+    if (!Array.isArray(staged.paths) || staged.paths.join(",") !== "notes.md") {
+      throw new Error(`Installed stdio stage returned unexpected paths: ${JSON.stringify(staged.paths)}`);
+    }
+    const { stdout: stagedNames } = await execFileAsync("git", ["diff", "--cached", "--name-only"], { cwd });
+    if (stagedNames.trim() !== "notes.md") {
+      throw new Error(`Installed stdio stage did not stage notes.md, got: ${stagedNames.trim()}`);
+    }
     return result.tools.map((tool) => tool.name);
   } finally {
     await closeStdioClient(client, transport, "installed stdio MCP client");
   }
+}
+
+async function initPackageSmokeGitRepo(cwd, files) {
+  await execFileAsync("git", ["init"], { cwd });
+  await execFileAsync("git", ["config", "user.email", "package-smoke@example.com"], { cwd });
+  await execFileAsync("git", ["config", "user.name", "GPTProUse Package Smoke"], { cwd });
+  await execFileAsync("git", ["add", ...files], { cwd });
+  await execFileAsync("git", ["commit", "-m", "initial"], { cwd });
+  const { stdout } = await execFileAsync("git", ["rev-parse", "HEAD"], { cwd });
+  return stdout.trim();
+}
+
+function sha256(value) {
+  return createHash("sha256").update(value, "utf8").digest("hex");
 }
 
 async function smokeInstalledStdioTaskFinalizers(binPath, cwd) {

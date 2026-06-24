@@ -39,6 +39,16 @@ export interface ChatGptBrowserStatus {
   };
 }
 
+export class ChatGptBrowserBlockerError extends Error {
+  readonly blocker: NonNullable<ChatGptBrowserStatus["blocker"]>;
+
+  constructor(blocker: NonNullable<ChatGptBrowserStatus["blocker"]>) {
+    super(formatBlockerError(blocker) ?? blocker.message);
+    this.name = "ChatGptBrowserBlockerError";
+    this.blocker = blocker;
+  }
+}
+
 export interface SendChatGptPromptOptions {
   port?: number;
   prompt: string;
@@ -251,7 +261,15 @@ export function chatGptBlockerErrorFromAnswerState(state: {
   blockerTextSample?: string;
   visibleButtonLabels: string[];
 }): string | undefined {
-  return formatBlockerError(detectChatGptPageBlocker(state));
+  return formatBlockerError(chatGptBlockerFromAnswerState(state));
+}
+
+export function chatGptBlockerFromAnswerState(state: {
+  textSample: string;
+  blockerTextSample?: string;
+  visibleButtonLabels: string[];
+}): ChatGptBrowserStatus["blocker"] | undefined {
+  return detectChatGptPageBlocker(state);
 }
 
 export function computePromptAcceptanceDeadline(timeoutMs: number, startedAt: number): number {
@@ -459,11 +477,11 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
   const normalizedTargetUrl = options.targetUrl ? normalizeChatGptTargetUrl(options.targetUrl) : undefined;
   const pageResult = await findChatGptPage(port, computePageDiscoveryTimeout(timeoutMs), normalizedTargetUrl);
   if (!pageResult.ok) {
-    throw new Error(formatBlockerError(pageResult.blocker) ?? "ChatGPT browser page is not available");
+    throwBlockerOrError(pageResult.blocker, "ChatGPT browser page is not available");
   }
   if (!pageResult.page) {
     if (pageResult.blocker) {
-      throw new Error(formatBlockerError(pageResult.blocker));
+      throw new ChatGptBrowserBlockerError(pageResult.blocker);
     }
     if (normalizedTargetUrl) {
       throw new Error(`No open ChatGPT tab matches the confirmed target URL. Open ${normalizedTargetUrl} in the dedicated browser and retry.`);
@@ -474,7 +492,7 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
   const status = await evaluateOnPage<ChatGptPageStatus>(page, statusExpression());
   const blocker = detectChatGptPageBlocker(status);
   if (blocker) {
-    throw new Error(`${blocker.message}${blocker.next_step ? ` Next: ${blocker.next_step}` : ""}`);
+    throw new ChatGptBrowserBlockerError(blocker);
   }
   if (!inferChatGptPageLoggedInLikely(status) || !status.hasComposer) {
     throw new Error("ChatGPT browser is reachable, but it is not logged in with an active composer.");
@@ -487,7 +505,7 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
   assertVisibleChatGptTab(status.visibilityState, status.url, normalizedTargetUrl);
   const busyBlocker = chatGptBusyBlocker(status.generating);
   if (busyBlocker) {
-    throw new Error(formatBlockerError(busyBlocker));
+    throw new ChatGptBrowserBlockerError(busyBlocker);
   }
   const beforeSubmit = await evaluateOnPage<ChatGptAnswerState>(page, answerExpression());
   const cdp = await connectCdp(page.webSocketDebuggerUrl);
@@ -512,8 +530,8 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
   while (Date.now() < acceptDeadline) {
     await sleep(500);
     finalState = await evaluateOnPage<ChatGptAnswerState>(page, answerExpression());
-    const runtimeBlocker = chatGptBlockerErrorFromAnswerState(finalState);
-    if (runtimeBlocker) throw new Error(runtimeBlocker);
+    const runtimeBlocker = chatGptBlockerFromAnswerState(finalState);
+    if (runtimeBlocker) throw new ChatGptBrowserBlockerError(runtimeBlocker);
     if (hasChatGptPromptAcceptance(beforeSubmit, finalState)) {
       accepted = true;
       break;
@@ -526,8 +544,8 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
   while (Date.now() - started < timeoutMs) {
     await sleep(1000);
     finalState = await evaluateOnPage<ChatGptAnswerState>(page, answerExpression());
-    const runtimeBlocker = chatGptBlockerErrorFromAnswerState(finalState);
-    if (runtimeBlocker) throw new Error(runtimeBlocker);
+    const runtimeBlocker = chatGptBlockerFromAnswerState(finalState);
+    if (runtimeBlocker) throw new ChatGptBrowserBlockerError(runtimeBlocker);
     if (hasFreshChatGptAnswer(beforeSubmit.assistantMessageCount, finalState)) break;
   }
   const completed = finalState;
@@ -601,6 +619,11 @@ function isChatGptPageUrl(value: string): boolean {
 function formatBlockerError(blocker: ChatGptBrowserStatus["blocker"] | undefined): string | undefined {
   if (!blocker) return undefined;
   return `${blocker.message}${blocker.next_step ? ` Next: ${blocker.next_step}` : ""}`;
+}
+
+function throwBlockerOrError(blocker: ChatGptBrowserStatus["blocker"] | undefined, fallback: string): never {
+  if (blocker) throw new ChatGptBrowserBlockerError(blocker);
+  throw new Error(fallback);
 }
 
 async function evaluateOnPage<T>(page: DevtoolsPage, expression: string, options: { timeoutMs?: number } = {}): Promise<T> {

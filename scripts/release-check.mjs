@@ -42,6 +42,7 @@ async function checkReleaseMetadata(rootDir) {
     throw new Error('release metadata failed: license "UNLICENSED" is not publishable');
   }
   await assertRegularLicenseFile(rootDir);
+  await assertPackedFileModes(rootDir, packageJson);
 }
 
 function parseReleasePackageJson(raw, packageJsonPath) {
@@ -89,6 +90,69 @@ async function runFullReleaseVerification(rootDir) {
   for (const [command, commandArgs] of checks) {
     await run(commandForPlatform(command), commandArgs, rootDir);
   }
+}
+
+async function assertPackedFileModes(rootDir, packageJson) {
+  const packedFiles = await readPackedFiles(rootDir);
+  const invalid = findExecutableNonBinPackedFiles(packedFiles, packageJson);
+  if (invalid.length > 0) {
+    throw new Error(
+      `release metadata failed: packed files have unexpected executable modes outside package bin entries: ${formatPathList(invalid)}`
+    );
+  }
+}
+
+async function readPackedFiles(rootDir) {
+  let stdout;
+  try {
+    ({ stdout } = await execFileAsync(commandForPlatform("npm"), ["pack", "--json", "--dry-run", "--ignore-scripts"], {
+      cwd: rootDir,
+      timeout: 120_000,
+      maxBuffer: 20 * 1024 * 1024
+    }));
+  } catch (error) {
+    const failed = error;
+    const detail = typeof failed?.stderr === "string" && failed.stderr.trim() ? failed.stderr.trim().split(/\r?\n/)[0] : failed?.message ?? String(error);
+    throw new Error(`release metadata failed: npm pack dry-run failed: ${detail}`);
+  }
+  try {
+    const entries = JSON.parse(stdout);
+    const files = entries?.[0]?.files;
+    return Array.isArray(files) ? files : [];
+  } catch {
+    throw new Error("release metadata failed: npm pack dry-run did not return valid JSON");
+  }
+}
+
+function findExecutableNonBinPackedFiles(files, packageJson) {
+  const binPaths = packageBinPaths(packageJson);
+  return files
+    .filter((file) => typeof file?.path === "string" && typeof file?.mode === "number")
+    .filter((file) => (file.mode & 0o111) !== 0)
+    .map((file) => normalizePackagePath(file.path))
+    .filter((filePath) => !binPaths.has(filePath));
+}
+
+function packageBinPaths(packageJson) {
+  const paths = new Set();
+  const bin = packageJson?.bin;
+  if (typeof bin === "string") {
+    paths.add(normalizePackagePath(bin));
+  } else if (bin && typeof bin === "object") {
+    for (const value of Object.values(bin)) {
+      if (typeof value === "string") paths.add(normalizePackagePath(value));
+    }
+  }
+  return paths;
+}
+
+function normalizePackagePath(value) {
+  return value.replaceAll("\\", "/").replace(/^\.\/+/, "");
+}
+
+function formatPathList(paths) {
+  const shown = paths.slice(0, 8).join(", ");
+  return paths.length > 8 ? `${shown}, ... (${paths.length} files)` : shown;
 }
 
 async function run(command, commandArgs, cwd) {

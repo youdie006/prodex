@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   buildChromeLaunchArgs,
   assertVisibleChatGptTab,
+  ChatGptBrowserBlockerError,
   chatGptUrlsReferToSameTarget,
   chatGptBlockerErrorFromAnswerState,
+  chatGptBlockerFromAnswerState,
   CHATGPT_RUNTIME_BLOCKER_TEXT_EXCLUDED_ANCESTORS,
   CHATGPT_COMPOSER_CANDIDATE_EXCLUDED_ANCESTORS,
   GPTPROUSE_ACTIVE_COMPOSER_ATTRIBUTE,
@@ -202,6 +204,20 @@ describe("ChatGPT browser adapter", () => {
     expect(message).toContain("usage");
     expect(message).toContain("Next:");
     expect(message).toContain("Wait for the limit");
+  });
+
+  it("preserves blocker metadata in browser blocker errors", () => {
+    const blocker = chatGptBlockerFromAnswerState({
+      textSample: "Please solve this captcha to continue",
+      visibleButtonLabels: ["Continue"]
+    });
+
+    expect(blocker?.code).toBe("captcha_required");
+    const error = new ChatGptBrowserBlockerError(blocker!);
+
+    expect(error.message).toContain("captcha");
+    expect(error.message).toContain("Next:");
+    expect(error.blocker).toEqual(blocker);
   });
 
   it("does not treat submitted message text as a post-submit blocker", () => {

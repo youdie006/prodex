@@ -590,7 +590,7 @@ describe("BridgeStore", () => {
     expect(await readdir(outside)).toEqual([]);
   });
 
-  it("rejects new result writes without leaving outside files on the non-Linux fallback", async () => {
+  it("uses stable directory fd paths for new result writes even when process.platform is non-Linux", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
     const outside = await mkdtemp(path.join(tmpdir(), "gptprouse-outside-"));
     const movedResultsDir = path.join(root, ".bridge", "results-real");
@@ -617,10 +617,12 @@ describe("BridgeStore", () => {
     });
 
     try {
-      await expect(store.completeTask(task.id, { status: "done", summary: "Should not write outside." })).rejects.toThrow(
-        /changed|Bridge storage directory|symlink|ENOENT/i
+      await expect(store.completeTask(task.id, { status: "done", summary: "Should not write outside." })).resolves.toEqual(
+        expect.objectContaining({ status: "done", summary: "Should not write outside." })
       );
       expect(await readdir(outside)).toEqual([]);
+      expect(swapped).toBe(false);
+      await expect(readFile(path.join(root, ".bridge", "results", `${task.id}.json`), "utf8")).resolves.toContain("Should not write outside.");
     } finally {
       Object.defineProperty(process, "platform", { value: originalPlatform });
     }
@@ -649,6 +651,25 @@ describe("BridgeStore", () => {
         /changed|symlink|Bridge storage directory/i
       );
       expect(await readdir(outside)).toEqual([]);
+    } finally {
+      Object.defineProperty(process, "platform", { value: originalPlatform });
+      setBridgeStoreTestHooks({});
+    }
+  });
+
+  it("fails closed when stable directory fd paths are unavailable", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
+    const store = new BridgeStore(root);
+    await store.ensure();
+    const originalPlatform = process.platform;
+    Object.defineProperty(process, "platform", { value: "darwin" });
+    setBridgeStoreTestHooks({ disableDirectoryFdPaths: true });
+
+    try {
+      await expect(store.writeReceipt({ kind: "consult_preview", summary: "Should fail closed" })).rejects.toThrow(
+        /stable directory file descriptor paths/i
+      );
+      await expect(readdir(path.join(root, ".bridge", "receipts"))).resolves.toEqual([]);
     } finally {
       Object.defineProperty(process, "platform", { value: originalPlatform });
       setBridgeStoreTestHooks({});

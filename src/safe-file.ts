@@ -1,5 +1,6 @@
+import { randomUUID } from "node:crypto";
 import { constants } from "node:fs";
-import { open, realpath, type FileHandle } from "node:fs/promises";
+import { lstat, open, realpath, rename, rm, type FileHandle } from "node:fs/promises";
 import path from "node:path";
 
 type SafeFileOperation = "read" | "write";
@@ -7,7 +8,9 @@ type SafeFileOperation = "read" | "write";
 export type SafeFileTestHooks = {
   afterWrite?: (filePath: string, operation: SafeFileOperation) => Promise<void> | void;
   beforeOpen?: (filePath: string, operation: SafeFileOperation) => Promise<void> | void;
+  beforeRename?: (filePath: string, tmpPath: string) => Promise<void> | void;
   beforeReplace?: (filePath: string) => Promise<void> | void;
+  beforeWrite?: (filePath: string, operation: SafeFileOperation) => Promise<void> | void;
 };
 
 let testHooks: SafeFileTestHooks = {};
@@ -59,6 +62,10 @@ export async function writeVerifiedUtf8File(
   if (options.maxBytes !== undefined && Buffer.byteLength(content, "utf8") > options.maxBytes) {
     throw new Error(`New content is too large (${Buffer.byteLength(content, "utf8")} bytes)`);
   }
+  if (!options.exclusive) {
+    await replaceByVerifiedTempFile(filePath, content, validate, options);
+    return;
+  }
   await validate();
   const parentSnapshot = await captureParentSnapshot(filePath);
   await testHooks.beforeOpen?.(filePath, "write");
@@ -77,6 +84,7 @@ export async function writeVerifiedUtf8File(
       throw new Error(`Path ${filePath} is not a regular file`);
     }
     assertNotHardLinked(filePath, stat.nlink);
+    await testHooks.beforeWrite?.(filePath, "write");
     await writeHandleUtf8(handle, filePath, content);
     await testHooks.afterWrite?.(filePath, "write");
     if (options.mode !== undefined) {
@@ -108,23 +116,63 @@ export async function replaceVerifiedUtf8File(
     await testHooks.beforeReplace?.(filePath);
     const latestContent = await readHandleUtf8(handle, filePath, options.maxBytes);
     await verifyCurrentContent(latestContent);
-    const replacement = Buffer.from(content, "utf8");
-    await handle.truncate(0);
-    let offset = 0;
-    while (offset < replacement.length) {
-      const { bytesWritten } = await handle.write(replacement, offset, replacement.length - offset, offset);
-      if (bytesWritten === 0) {
-        throw new Error(`Could not write replacement content to ${filePath}`);
-      }
-      offset += bytesWritten;
-    }
-    await testHooks.afterWrite?.(filePath, "write");
-    if (options.mode !== undefined) {
-      await handle.chmod(options.mode);
-    }
-    await validate();
+    await testHooks.beforeWrite?.(filePath, "write");
+    await replaceByVerifiedTempFile(filePath, content, validate, options, {
+      beforeOpenAlreadyRan: true,
+      beforeWriteAlreadyRan: true,
+      parentSnapshot,
+      skipExistingTargetCheck: true
+    });
   } finally {
     await handle.close();
+  }
+}
+
+async function replaceByVerifiedTempFile(
+  filePath: string,
+  content: string,
+  validate: () => Promise<void>,
+  options: { create?: boolean; maxBytes?: number; mode?: number } = {},
+  hookState: {
+    beforeOpenAlreadyRan?: boolean;
+    beforeWriteAlreadyRan?: boolean;
+    parentSnapshot?: ParentSnapshot;
+    skipExistingTargetCheck?: boolean;
+  } = {}
+): Promise<void> {
+  await validate();
+  if (!hookState.skipExistingTargetCheck) {
+    await assertExistingTargetNotHardLinked(filePath);
+  }
+  const parentSnapshot = hookState.parentSnapshot ?? (await captureParentSnapshot(filePath));
+  if (!hookState.beforeOpenAlreadyRan) {
+    await testHooks.beforeOpen?.(filePath, "write");
+  }
+  await assertParentSnapshotStable(parentSnapshot);
+  const tmpPath = path.join(path.dirname(filePath), `.${path.basename(filePath)}.${process.pid}.${Date.now()}.${randomUUID()}.tmp`);
+  try {
+    const tmpHandle = await openStableNoFollow(tmpPath, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL, "write", parentSnapshot, options.mode);
+    try {
+      await writeHandleUtf8(tmpHandle, tmpPath, content);
+      if (options.mode !== undefined) {
+        await tmpHandle.chmod(options.mode);
+      }
+    } finally {
+      await tmpHandle.close();
+    }
+    if (!hookState.beforeWriteAlreadyRan) {
+      await testHooks.beforeWrite?.(filePath, "write");
+    }
+    await validate();
+    await assertParentSnapshotStable(parentSnapshot);
+    await testHooks.beforeRename?.(filePath, tmpPath);
+    await assertExistingTargetNotHardLinked(tmpPath);
+    await rename(tmpPath, filePath);
+    await validate();
+    await testHooks.afterWrite?.(filePath, "write");
+  } catch (error) {
+    await cleanupTempIfParentStable(tmpPath, parentSnapshot);
+    throw error;
   }
 }
 
@@ -152,6 +200,7 @@ async function readHandleUtf8(handle: FileHandle, filePath: string, maxBytes?: n
 
 async function writeHandleUtf8(handle: FileHandle, filePath: string, content: string): Promise<void> {
   const replacement = Buffer.from(content, "utf8");
+  await assertSafeOpenFile(handle, filePath);
   await handle.truncate(0);
   let offset = 0;
   while (offset < replacement.length) {
@@ -163,9 +212,49 @@ async function writeHandleUtf8(handle: FileHandle, filePath: string, content: st
   }
 }
 
+async function assertSafeOpenFile(handle: FileHandle, filePath: string): Promise<void> {
+  const stat = await handle.stat();
+  if (!stat.isFile()) {
+    throw new Error(`Path ${filePath} is not a regular file`);
+  }
+  assertNotHardLinked(filePath, stat.nlink);
+}
+
 function assertNotHardLinked(filePath: string, linkCount: number): void {
   if (linkCount > 1) {
     throw new Error(`Path ${filePath} is hard linked and cannot be used through safe file operations`);
+  }
+}
+
+async function assertExistingTargetNotHardLinked(filePath: string): Promise<void> {
+  try {
+    const stat = await lstat(filePath);
+    if (stat.isSymbolicLink()) {
+      throw new Error(`Path ${filePath} is a symlink and cannot be used through safe file operations`);
+    }
+    if (!stat.isFile()) {
+      throw new Error(`Path ${filePath} is not a regular file`);
+    }
+    assertNotHardLinked(filePath, stat.nlink);
+  } catch (error) {
+    if (isMissingFileError(error)) return;
+    throw error;
+  }
+}
+
+async function assertParentSnapshotStable(parentSnapshot: ParentSnapshot | undefined): Promise<void> {
+  if (!parentSnapshot) return;
+  if ((await realpath(parentSnapshot.path)) !== parentSnapshot.realPath) {
+    throw new Error(`Path ${parentSnapshot.path} changed during write file operation`);
+  }
+}
+
+async function cleanupTempIfParentStable(tmpPath: string, parentSnapshot: ParentSnapshot | undefined): Promise<void> {
+  try {
+    await assertParentSnapshotStable(parentSnapshot);
+    await rm(tmpPath, { force: true });
+  } catch {
+    // If the parent moved or was swapped, do not follow the unstable path for cleanup.
   }
 }
 
@@ -251,4 +340,8 @@ async function openNoFollow(filePath: string, flags: number, operation: SafeFile
 
 function procFdPath(fd: number): string {
   return `/proc/self/fd/${fd}`;
+}
+
+function isMissingFileError(error: unknown): boolean {
+  return typeof error === "object" && error !== null && "code" in error && (error as { code?: unknown }).code === "ENOENT";
 }

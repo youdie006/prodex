@@ -57,6 +57,45 @@ describe("release-check", () => {
     expect(result.stdout).toContain("release_metadata=ok");
   });
 
+  it("fails release metadata when packed non-bin files are executable", async () => {
+    const root = await createPackModeFixture({
+      packageJson: {
+        name: "demo-pack-mode",
+        version: "1.0.0",
+        license: "MIT",
+        files: ["README.md"]
+      },
+      executableReadme: true
+    });
+
+    const result = await runReleaseCheck(root);
+
+    const output = `${result.stdout}\n${result.stderr}`;
+    expect(result.code).toBe(1);
+    expect(output).toContain("release metadata failed");
+    expect(output).toContain("packed files have unexpected executable modes");
+    expect(output).toContain("README.md");
+    expect(result.stdout).not.toContain("release_metadata=ok");
+  });
+
+  it("allows executable package bin files in release metadata pack checks", async () => {
+    const root = await createPackModeFixture({
+      packageJson: {
+        name: "demo-pack-bin",
+        version: "1.0.0",
+        license: "MIT",
+        bin: { demo: "cli.js" },
+        files: ["cli.js", "README.md"]
+      },
+      executableBin: true
+    });
+
+    const result = await runReleaseCheck(root);
+
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("release_metadata=ok");
+  });
+
   it("fails release metadata when LICENSE is not a regular file", async () => {
     const root = await copyPackageJsonToTemp();
     const packageJson = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
@@ -135,6 +174,7 @@ describe("release-check", () => {
     expect(result.stdout).toContain("release_verification=ok");
     await expect(readFile(fakeCommands.logPath, "utf8")).resolves.toBe(
       [
+        `${npmCommand}\tpack --json --dry-run --ignore-scripts\t${root}`,
         `${npmCommand}\ttest\t${root}`,
         `${npmCommand}\trun typecheck\t${root}`,
         `${npmCommand}\trun build\t${root}`,
@@ -185,7 +225,7 @@ describe("release-check", () => {
     expect(result.stdout).not.toContain(`release_check: ${npmCommand} run build`);
     expect(result.stderr).toContain("fake release-check command failed");
     await expect(readFile(fakeCommands.logPath, "utf8")).resolves.toBe(
-      [`${npmCommand}\ttest\t${root}`, `${npmCommand}\trun typecheck\t${root}`, ""].join("\n")
+      [`${npmCommand}\tpack --json --dry-run --ignore-scripts\t${root}`, `${npmCommand}\ttest\t${root}`, `${npmCommand}\trun typecheck\t${root}`, ""].join("\n")
     );
   });
 });
@@ -194,6 +234,23 @@ async function copyPackageJsonToTemp(): Promise<string> {
   const root = await mkdtemp(path.join(tmpdir(), "gptprouse-release-check-"));
   await mkdir(root, { recursive: true });
   await writeFile(path.join(root, "package.json"), await readFile(path.join(repoRoot, "package.json"), "utf8"), "utf8");
+  return root;
+}
+
+async function createPackModeFixture(options: {
+  packageJson: Record<string, unknown>;
+  executableReadme?: boolean;
+  executableBin?: boolean;
+}): Promise<string> {
+  const root = await mkdtemp(path.join(tmpdir(), "gptprouse-release-check-pack-mode-"));
+  await writeFile(path.join(root, "package.json"), `${JSON.stringify(options.packageJson, null, 2)}\n`, "utf8");
+  await writeFile(path.join(root, "LICENSE"), "MIT License\n", "utf8");
+  await writeFile(path.join(root, "README.md"), "# Demo\n", "utf8");
+  await chmod(path.join(root, "README.md"), options.executableReadme ? 0o755 : 0o644);
+  if (options.packageJson.bin) {
+    await writeFile(path.join(root, "cli.js"), "#!/usr/bin/env node\nconsole.log('demo')\n", "utf8");
+    await chmod(path.join(root, "cli.js"), options.executableBin ? 0o755 : 0o644);
+  }
   return root;
 }
 
@@ -230,6 +287,9 @@ async function writeFakeCommand(filePath: string, command: string, logPath: stri
       `if (commandLine === ${JSON.stringify(failCommand ?? "")}) {`,
       `  console.error("fake release-check command failed: " + commandLine);`,
       "  process.exit(42);",
+      "}",
+      `if (${JSON.stringify(command === "npm" || command === "npm.cmd")} && process.argv[2] === "pack") {`,
+      '  console.log(JSON.stringify([{ files: [{ path: "package.json", mode: 420 }, { path: "LICENSE", mode: 420 }, { path: "dist/cli.js", mode: 493 }] }]));',
       "}"
     ].join("\n"),
     "utf8"

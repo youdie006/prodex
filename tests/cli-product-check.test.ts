@@ -89,6 +89,29 @@ describe("browser product check", () => {
     expect(text).not.toContain("chatgpt: ok");
   });
 
+  it("prints visibility detail when the browser adapter returns a hidden-tab blocker", async () => {
+    browserStatusFixture.status = {
+      reachable: true,
+      loggedInLikely: true,
+      hasComposer: true,
+      visibilityState: "hidden",
+      url: "https://chatgpt.com/c/background",
+      title: "ChatGPT",
+      modelHints: [],
+      blocker: {
+        code: "tab_not_visible",
+        message: "Selected ChatGPT tab is hidden, not the active visible tab.",
+        retryable: true,
+        next_step: "Select https://chatgpt.com/c/background in the dedicated browser, then retry."
+      }
+    };
+
+    const text = await runBrowserCheck();
+
+    expect(text).toContain("chatgpt: blocked tab_not_visible visibility=hidden");
+    expect(text).toContain("Selected ChatGPT tab is hidden");
+  });
+
   it("prints a concrete next step when ChatGPT is reachable but not ready", async () => {
     browserStatusFixture.status = {
       reachable: true,
