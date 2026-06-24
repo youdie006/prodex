@@ -139,6 +139,13 @@ try {
   const missingSetupStatus = await runExpectFailure(binPath, ["status"], { cwd: consumerDir });
   assertIncludes(missingSetupStatus.stderr, "Run `gptprouse setup` first.", "installed missing setup status output");
   assertNotIncludes(missingSetupStatus.stderr, "Run `gptprouse setup --token-ttl-hours <hours>` first.", "installed missing setup status output");
+  const missingSetupTunnel = await runExpectFailure(
+    binPath,
+    ["tunnel", "url", "--public-url", "https://gptprouse-package-smoke.example", "--show-token", "--url-only"],
+    { cwd: consumerDir }
+  );
+  assertIncludes(missingSetupTunnel.stderr, "tunnel url requires local MCP setup. Run `gptprouse setup` first.", "installed missing setup tunnel output");
+  assertNotIncludes(missingSetupTunnel.stderr, "ENOENT", "installed missing setup tunnel output");
   const projectPrompt = await run(binPath, ["project", "prompt", "--cwd", consumerDir], { cwd: path.dirname(consumerDir) });
   assertIncludes(projectPrompt.stdout, "ChatGPT Project MCP verification prompt", "installed project prompt output");
   assertIncludes(projectPrompt.stdout, "bridge_create_task", "installed project prompt output");

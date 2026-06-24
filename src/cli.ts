@@ -166,7 +166,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
     if (subcommand !== "url") throw new Error("tunnel requires url");
     assertOnlyOptions(tunnelArgs, "tunnel url", ["--cwd", "--public-url"], ["--show-token", "--url-only"]);
     const targetCwd = resolveCwdFlag(io.cwd, tunnelArgs);
-    const config = await loadLocalConfig(targetCwd);
+    const config = await loadLocalConfigForCommand(targetCwd, "tunnel url");
     const tokenStatus = getTokenExpiryStatus(config);
     if (tokenStatus.status === "non_expiring") {
       throw new Error("tunnel url requires a short-lived token. Run `gptprouse setup --token-ttl-hours <hours>` first.");
@@ -1951,7 +1951,7 @@ function isMissingFileError(error: unknown): boolean {
   return typeof error === "object" && error !== null && "code" in error && (error as { code?: unknown }).code === "ENOENT";
 }
 
-async function loadLocalConfigForCommand(cwd: string, command: "start" | "status") {
+async function loadLocalConfigForCommand(cwd: string, command: "start" | "status" | "tunnel url") {
   return loadLocalConfig(cwd).catch(async (error) => {
     if (isMissingFileError(error)) {
       throw new Error(

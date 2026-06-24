@@ -2725,7 +2725,7 @@ describe("runCli", () => {
     expect(out).toEqual(["http://127.0.0.1:8789/mcp?gptprouse_token=super-secret-token"]);
   });
 
-  it("prints a setup hint instead of a raw missing-file error before status", async () => {
+  it("prints a setup hint instead of a raw missing-file error before HTTP MCP commands", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
 
     await expect(
@@ -2742,6 +2742,13 @@ describe("runCli", () => {
         stderr: () => {}
       })
     ).rejects.toThrow("start requires local MCP setup. Run `gptprouse setup` first.");
+    await expect(
+      runCli(["tunnel", "url", "--public-url", "https://example.com", "--show-token", "--url-only"], {
+        cwd,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.toThrow("tunnel url requires local MCP setup. Run `gptprouse setup` first.");
   });
 
   it("refuses to start with an expired configured token", async () => {
