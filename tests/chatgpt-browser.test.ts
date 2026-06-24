@@ -129,6 +129,18 @@ describe("ChatGPT browser adapter", () => {
     ).toBeUndefined();
   });
 
+  it("reports label-only login overlays while waiting for a submitted prompt", () => {
+    const message = chatGptBlockerErrorFromAnswerState({
+      textSample: "Conversation ready",
+      blockerTextSample: "",
+      visibleButtonLabels: ["Log in", "Sign up"]
+    });
+
+    expect(message).toBeDefined();
+    expect(message ?? "").toContain("log in");
+    expect(message ?? "").toContain("Next:");
+  });
+
   it("does not report login from a lone post-submit button text", () => {
     expect(
       chatGptBlockerErrorFromAnswerState({
@@ -213,6 +225,19 @@ describe("ChatGPT browser adapter", () => {
     ]);
 
     expect(selectChatGptPage([hidden, visible], undefined, visibilityByPage)?.url).toBe("https://chatgpt.com/c/visible");
+  });
+
+  it("prefers the visible matching ChatGPT page when a confirmed target has duplicates", () => {
+    const hidden = devtoolsPage("https://chatgpt.com/c/target");
+    hidden.title = "hidden target";
+    const visible = devtoolsPage("https://chatgpt.com/c/target?model=gpt-5");
+    visible.title = "visible target";
+    const visibilityByPage = new Map([
+      [hidden.webSocketDebuggerUrl, "hidden"],
+      [visible.webSocketDebuggerUrl, "visible"]
+    ]);
+
+    expect(selectChatGptPage([hidden, visible], "https://chatgpt.com/c/target", visibilityByPage)?.title).toBe("visible target");
   });
 
   it("requires a visible ChatGPT tab before sending prompts", () => {

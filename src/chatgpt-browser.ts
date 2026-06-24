@@ -199,7 +199,7 @@ export function chatGptBlockerErrorFromAnswerState(state: {
   blockerTextSample?: string;
   visibleButtonLabels: string[];
 }): string | undefined {
-  return formatBlockerError(detectChatGptBlocker(state.blockerTextSample ?? state.textSample, []));
+  return formatBlockerError(detectChatGptBlocker(state.blockerTextSample ?? state.textSample, state.visibleButtonLabels));
 }
 
 export function computePromptAcceptanceDeadline(timeoutMs: number, startedAt: number): number {
@@ -243,7 +243,8 @@ export function selectChatGptPage(
   if (!targetUrl) {
     return chatGptPages.find((page) => visibilityByPage.get(page.webSocketDebuggerUrl) === "visible") ?? chatGptPages[0];
   }
-  return chatGptPages.find((page) => chatGptUrlsReferToSameTarget(page.url, targetUrl));
+  const targetMatches = chatGptPages.filter((page) => chatGptUrlsReferToSameTarget(page.url, targetUrl));
+  return targetMatches.find((page) => visibilityByPage.get(page.webSocketDebuggerUrl) === "visible") ?? targetMatches[0];
 }
 
 export function assertVisibleChatGptTab(visibilityState: string, url: string, targetUrl?: string): void {
@@ -411,7 +412,7 @@ async function findChatGptPage(
     const response = await fetch(`http://127.0.0.1:${port}/json/list`, { signal: AbortSignal.timeout(timeoutMs) });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const pages = (await response.json()) as DevtoolsPage[];
-    const visibilityByPage = targetUrl ? undefined : await getChatGptPageVisibility(pages);
+    const visibilityByPage = await getChatGptPageVisibility(pages);
     return { ok: true, page: selectChatGptPage(pages, targetUrl, visibilityByPage) };
   } catch (error) {
     return {

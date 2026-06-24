@@ -197,6 +197,53 @@ describe("runCli", () => {
     ).rejects.toThrow("Unknown option for tasks list: --stauts");
   });
 
+  it("rejects unknown options and extra arguments for task mutation commands", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const createOut: string[] = [];
+    await runCli(["tasks", "create", "--title", "Review", "--prompt", "Review the plan"], {
+      cwd,
+      stdout: (line) => createOut.push(line),
+      stderr: () => {}
+    });
+    const taskId = createOut[0].split("\t")[0];
+
+    await expect(
+      runCli(["tasks", "create", "--titl", "Review", "--prompt", "Review the plan"], {
+        cwd,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.toThrow("Unknown option for tasks create: --titl");
+    await expect(
+      runCli(["tasks", "create", "--title", "Review", "--prompt", "Review the plan", "extra"], {
+        cwd,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.toThrow("Unexpected argument for tasks create: extra");
+    await expect(
+      runCli(["tasks", "claim", taskId, "extra"], {
+        cwd,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.toThrow("Unexpected argument for tasks claim: extra");
+    await expect(
+      runCli(["tasks", "complete", taskId, "--summry", "Done"], {
+        cwd,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.toThrow("Unknown option for tasks complete: --summry");
+    await expect(
+      runCli(["tasks", "block", taskId, "--summary", "Blocked", "--nextstep", "Retry"], {
+        cwd,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.toThrow("Unknown option for tasks block: --nextstep");
+  });
+
   it("rejects unknown setup, start, status, and browser options", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
 
@@ -1330,6 +1377,46 @@ describe("runCli", () => {
     expect(Date.parse(status.token_expires_at ?? "")).toBeGreaterThan(Date.now());
     expect(status.server_url).toContain("gptprouse_token=***");
     expect(out.join("\n")).not.toContain("super-secret-token");
+  });
+
+  it("strips URL userinfo from status output while preserving token redaction controls", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    await mkdir(path.join(cwd, ".bridge"), { recursive: true });
+    await writeFile(
+      path.join(cwd, ".bridge", "config.local.json"),
+      `${JSON.stringify(
+        {
+          schema_version: 1,
+          host: "127.0.0.1",
+          port: 8787,
+          token: "secret-token",
+          server_url: "http://user:pass@127.0.0.1:8787/mcp?gptprouse_token=secret-token",
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+    const redactedOut: string[] = [];
+    const tokenOut: string[] = [];
+
+    await runCli(["status"], {
+      cwd,
+      stdout: (line) => redactedOut.push(line),
+      stderr: () => {}
+    });
+    await runCli(["status", "--show-token", "--url-only"], {
+      cwd,
+      stdout: (line) => tokenOut.push(line),
+      stderr: () => {}
+    });
+
+    expect(redactedOut.join("\n")).not.toContain("user:pass");
+    expect(redactedOut.join("\n")).toContain("gptprouse_token=***");
+    expect(redactedOut.join("\n")).not.toContain("secret-token");
+    expect(tokenOut).toEqual(["http://127.0.0.1:8787/mcp?gptprouse_token=secret-token"]);
   });
 
   it("keeps status url-only output limited to the MCP URL when token expiry exists", async () => {

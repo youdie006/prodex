@@ -35,6 +35,21 @@ describe("MCP tool handlers", () => {
     expect(listed.tasks.map((task) => task.title)).toContain("From Claude");
   });
 
+  it("rejects unsafe file paths when creating tasks through MCP handlers", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    const handlers = createMcpToolHandlers({ cwd });
+
+    for (const unsafePath of ["/etc/passwd", "../escape.txt", ".bridge/config.local.json"]) {
+      await expect(
+        handlers.bridge_create_task({
+          title: "Unsafe file path",
+          prompt: "Reject unsafe task context paths.",
+          files: [{ path: unsafePath }]
+        })
+      ).rejects.toThrow(/repo-relative|inside|sensitive/);
+    }
+  });
+
   it("completes and blocks bridge tasks through MCP handlers", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
     const handlers = createMcpToolHandlers({ cwd });

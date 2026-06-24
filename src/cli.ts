@@ -115,7 +115,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
     const targetCwd = resolveCwdFlag(io.cwd, rest);
     const config = await loadLocalConfigForCommand(targetCwd, "status");
     const showToken = rest.includes("--show-token");
-    const serverUrl = showToken ? config.server_url : redactServerUrl(config.server_url);
+    const serverUrl = formatServerUrlForOutput(config.server_url, { showToken });
     if (rest.includes("--url-only")) {
       io.stdout(serverUrl);
       return 0;
@@ -218,6 +218,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
   if (command === "tasks") {
     const [subcommand, ...taskArgs] = rest;
     if (subcommand === "create") {
+      assertOnlyOptions(taskArgs, "tasks create", ["--title", "--prompt", "--repo-id", "--file"]);
       const title = readFlag(taskArgs, "--title");
       const prompt = readFlag(taskArgs, "--prompt");
       if (!title || !prompt) throw new Error("tasks create requires --title and --prompt");
@@ -251,16 +252,17 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       return 0;
     }
     if (subcommand === "claim") {
-      const taskId = taskArgs[0];
-      if (!taskId) throw new Error("tasks claim requires <task-id>");
+      const taskId = readRequiredLeadingArgument(taskArgs, "tasks claim", "<task-id>");
+      assertOnlyOptions(taskArgs.slice(1), "tasks claim", ["--by"]);
       const task = await store.claimTask(taskId, readFlag(taskArgs, "--by") ?? "codex");
       io.stdout(`${task.id}\t${task.status}\t${task.claimed_by ?? ""}`);
       return 0;
     }
     if (subcommand === "complete") {
-      const taskId = taskArgs[0];
+      const taskId = readRequiredLeadingArgument(taskArgs, "tasks complete", "<task-id>");
+      assertOnlyOptions(taskArgs.slice(1), "tasks complete", ["--summary", "--command"]);
       const summary = readFlag(taskArgs, "--summary");
-      if (!taskId || !summary) throw new Error("tasks complete requires <task-id> --summary");
+      if (!summary) throw new Error("tasks complete requires <task-id> --summary");
       const result = await store.completeTask(taskId, {
         status: "done",
         summary,
@@ -270,9 +272,10 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       return 0;
     }
     if (subcommand === "block") {
-      const taskId = taskArgs[0];
+      const taskId = readRequiredLeadingArgument(taskArgs, "tasks block", "<task-id>");
+      assertOnlyOptions(taskArgs.slice(1), "tasks block", ["--summary", "--code", "--next-step", "--command"], ["--retryable"]);
       const summary = readFlag(taskArgs, "--summary");
-      if (!taskId || !summary) throw new Error("tasks block requires <task-id> --summary");
+      if (!summary) throw new Error("tasks block requires <task-id> --summary");
       const result = await store.completeTask(taskId, {
         status: "blocked",
         summary,
@@ -1300,12 +1303,19 @@ async function loadLocalConfigForCommand(cwd: string, command: "start" | "status
 }
 
 function redactServerUrl(value: string): string {
+  return formatServerUrlForOutput(value, { showToken: false });
+}
+
+function formatServerUrlForOutput(value: string, options: { showToken: boolean }): string {
   try {
     const url = new URL(value);
-    if (url.searchParams.has("gptprouse_token")) url.searchParams.set("gptprouse_token", "***");
+    url.username = "";
+    url.password = "";
+    if (!options.showToken && url.searchParams.has("gptprouse_token")) url.searchParams.set("gptprouse_token", "***");
     return url.toString();
   } catch {
-    return value.replace(/([?&]gptprouse_token=)[^&]+/g, "$1***");
+    const withoutUserinfo = value.replace(/\/\/[^/@\s]+@/g, "//");
+    return options.showToken ? withoutUserinfo : withoutUserinfo.replace(/([?&]gptprouse_token=)[^&]+/g, "$1***");
   }
 }
 
@@ -1388,6 +1398,12 @@ function assertNoExtraArgs(args: string[], command: string, maxPositionals: numb
     }
     throw new Error(`Unexpected argument for ${command}: ${arg}`);
   }
+}
+
+function readRequiredLeadingArgument(args: string[], command: string, placeholder: string): string {
+  const value = args[0];
+  if (!value || value.startsWith("-")) throw new Error(`${command} requires ${placeholder}`);
+  return value;
 }
 
 const ASK_PRO_BOOLEAN_FLAGS = new Set(["--dry-run", "--send", "--confirm-target"]);

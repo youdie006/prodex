@@ -5,7 +5,7 @@
 - [x] Create project folder.
 - [x] Record goals, boundaries, and research.
 - [x] Decide runtime and package manager.
-- [ ] Initialize git repo if desired.
+- [x] Initialize git repo if desired.
 
 ## Phase 1 - Local Consult
 

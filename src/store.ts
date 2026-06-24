@@ -3,6 +3,7 @@ import { constants } from "node:fs";
 import { link, lstat, mkdir, open, readFile, readdir, realpath, rename, rm } from "node:fs/promises";
 import type { FileHandle } from "node:fs/promises";
 import path from "node:path";
+import { assertRepoRelativePath } from "./repo.js";
 import { readVerifiedUtf8File, writeVerifiedUtf8File } from "./safe-file.js";
 import {
   type BridgeFile,
@@ -110,6 +111,7 @@ export class BridgeStore {
   async createTask(input: CreateTaskInput): Promise<Task> {
     await this.ensure();
     const timestamp = nowIso();
+    const taskFiles = validateTaskFiles(input.files ?? []);
     const task: Task = TaskSchema.parse({
       schema_version: SCHEMA_VERSION,
       id: await this.uniqueId("task", input.title, "tasks"),
@@ -118,7 +120,7 @@ export class BridgeStore {
       title: input.title,
       prompt: input.prompt,
       repo_id: input.repo_id ?? "default",
-      files: input.files ?? [],
+      files: taskFiles,
       provenance: input.provenance,
       created_at: timestamp,
       updated_at: timestamp
@@ -702,6 +704,13 @@ export class BridgeStore {
       throw new Error(`Bridge record path must stay under .bridge/${kind}`);
     }
   }
+}
+
+function validateTaskFiles(files: BridgeFile[]): BridgeFile[] {
+  for (const file of files) {
+    assertRepoRelativePath(file.path);
+  }
+  return files;
 }
 
 async function exists(filePath: string): Promise<boolean> {
