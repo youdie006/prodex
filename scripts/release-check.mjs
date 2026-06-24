@@ -7,6 +7,7 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const RESERVED_PACKAGE_NAMES = new Set(["node_modules", "favicon.ico"]);
 const args = process.argv.slice(2);
 const root = readFlag(args, "--root") ?? repoRoot;
 const metadataOnly = args.includes("--metadata-only");
@@ -74,6 +75,7 @@ function isNonEmptyString(value) {
 
 function isNpmPublishablePackageName(value) {
   if (!isNonEmptyString(value) || value.length > 214 || value !== value.toLowerCase()) return false;
+  if (RESERVED_PACKAGE_NAMES.has(value)) return false;
   if (value.startsWith("@")) {
     const parts = value.slice(1).split("/");
     return parts.length === 2 && parts.every(isPackageNameSegment);

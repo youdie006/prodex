@@ -59,6 +59,23 @@ describe("release-check", () => {
     expect(invalidNameOutput).not.toContain("npm pack dry-run failed");
     expect(invalidNameResult.stdout).not.toContain("release_metadata=ok");
 
+    const reservedNameRoot = await mkdtemp(path.join(tmpdir(), "gptprouse-release-check-identity-"));
+    await writeFile(
+      path.join(reservedNameRoot, "package.json"),
+      `${JSON.stringify({ name: "node_modules", version: "1.0.0", license: "MIT" }, null, 2)}\n`,
+      "utf8"
+    );
+    await writeFile(path.join(reservedNameRoot, "LICENSE"), "MIT License\n", "utf8");
+
+    const reservedNameResult = await runReleaseCheck(reservedNameRoot);
+
+    const reservedNameOutput = `${reservedNameResult.stdout}\n${reservedNameResult.stderr}`;
+    expect(reservedNameResult.code).toBe(1);
+    expect(reservedNameOutput).toContain("release metadata failed");
+    expect(reservedNameOutput).toContain("package.json name must be npm-publishable");
+    expect(reservedNameOutput).not.toContain("npm pack dry-run failed");
+    expect(reservedNameResult.stdout).not.toContain("release_metadata=ok");
+
     const invalidVersionRoot = await mkdtemp(path.join(tmpdir(), "gptprouse-release-check-identity-"));
     await writeFile(path.join(invalidVersionRoot, "package.json"), `${JSON.stringify({ name: "demo", version: "1.0", license: "MIT" }, null, 2)}\n`, "utf8");
     await writeFile(path.join(invalidVersionRoot, "LICENSE"), "MIT License\n", "utf8");

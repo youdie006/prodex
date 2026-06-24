@@ -31,6 +31,7 @@ const execFileAsync = promisify(execFile);
 const requirePackageJson = createRequire(import.meta.url);
 const packageJson = requirePackageJson("../package.json") as { version?: string };
 const CLI_VERSION = packageJson.version ?? "0.0.0";
+const RESERVED_PACKAGE_NAMES = new Set(["node_modules", "favicon.ico"]);
 
 const DOCTOR_REQUIRED_MCP_TOOLS = [
   "bridge_create_task",
@@ -953,6 +954,7 @@ function isNonEmptyPackageString(value: unknown): value is string {
 
 function isNpmPublishablePackageName(value: string): boolean {
   if (!isNonEmptyPackageString(value) || value.length > 214 || value !== value.toLowerCase()) return false;
+  if (RESERVED_PACKAGE_NAMES.has(value)) return false;
   if (value.startsWith("@")) {
     const parts = value.slice(1).split("/");
     return parts.length === 2 && parts.every(isPackageNameSegment);

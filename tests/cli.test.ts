@@ -1505,6 +1505,28 @@ describe("runCli", () => {
     expect(invalidNameText).not.toContain("metadata: ok");
     expect(invalidNameText).not.toContain("pack: ok");
 
+    const reservedNameCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-release-identity-"));
+    await writeFile(
+      path.join(reservedNameCwd, "package.json"),
+      `${JSON.stringify({ name: "favicon.ico", version: "1.0.0", license: "MIT" }, null, 2)}\n`,
+      "utf8"
+    );
+    await writeFile(path.join(reservedNameCwd, "LICENSE"), "MIT License\n", "utf8");
+    const reservedNameOut: string[] = [];
+
+    await runCli(["release", "status", "--cwd", reservedNameCwd], {
+      cwd: "/tmp",
+      stdout: (line) => reservedNameOut.push(line),
+      stderr: () => {}
+    });
+
+    const reservedNameText = reservedNameOut.join("\n");
+    expect(reservedNameText).toContain("package: favicon.ico@1.0.0");
+    expect(reservedNameText).toContain("metadata: blocked package.json name must be npm-publishable");
+    expect(reservedNameText).toContain("next: fix package.json name, then run `npm run release:check`");
+    expect(reservedNameText).not.toContain("metadata: ok");
+    expect(reservedNameText).not.toContain("pack: ok");
+
     const invalidVersionCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-release-identity-"));
     await writeFile(
       path.join(invalidVersionCwd, "package.json"),

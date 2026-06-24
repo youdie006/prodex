@@ -475,6 +475,17 @@ async function smokeInstalledReleaseGitReadiness(binPath, tmp, launcherCwd) {
   assertIncludes(invalidName.stdout, "metadata: blocked", "installed release status invalid name output");
   assertIncludes(invalidName.stdout, "name must be npm-publishable", "installed release status invalid name output");
 
+  const reservedNameDir = path.join(tmp, "release-reserved-name");
+  await mkdir(reservedNameDir, { recursive: true });
+  await writeFile(
+    path.join(reservedNameDir, "package.json"),
+    `${JSON.stringify({ name: "node_modules", version: "1.0.0", license: "MIT" }, null, 2)}\n`
+  );
+  await writeFile(path.join(reservedNameDir, "LICENSE"), "MIT License\n");
+  const reservedName = await run(binPath, ["release", "status", "--cwd", reservedNameDir], { cwd: launcherCwd });
+  assertIncludes(reservedName.stdout, "metadata: blocked", "installed release status reserved name output");
+  assertIncludes(reservedName.stdout, "name must be npm-publishable", "installed release status reserved name output");
+
   const invalidVersionDir = path.join(tmp, "release-invalid-version");
   await mkdir(invalidVersionDir, { recursive: true });
   await writeFile(
