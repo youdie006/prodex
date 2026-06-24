@@ -55,6 +55,7 @@ try {
   }
   const help = await run(binPath, ["help"], { cwd: consumerDir });
   assertIncludes(help.stdout, "gptprouse doctor", "installed help output");
+  assertIncludes(help.stdout, "gptprouse onboard", "installed help output");
   assertIncludes(help.stdout, "gptprouse release status", "installed help output");
   assertIncludes(help.stdout, "gptprouse project prompt", "installed help output");
   assertIncludes(help.stdout, "gptprouse claude prompt", "installed help output");
@@ -77,6 +78,18 @@ try {
   assertIncludes(privateReleaseStatus.stdout, "metadata: blocked", "installed private release status output");
   assertIncludes(privateReleaseStatus.stdout, "private: true", "installed private release status output");
   assertNotIncludes(privateReleaseStatus.stdout, "metadata: ok", "installed private release status output");
+  const onboard = await run(binPath, ["onboard", "--cwd", consumerDir], { cwd: path.dirname(consumerDir) });
+  assertIncludes(onboard.stdout, "gptprouse onboarding", "installed onboard output");
+  assertIncludes(onboard.stdout, `gptprouse init --cwd ${consumerDir}`, "installed onboard output");
+  assertIncludes(onboard.stdout, `gptprouse doctor --cwd ${consumerDir}`, "installed onboard output");
+  assertIncludes(onboard.stdout, `gptprouse claude config --cwd ${consumerDir}`, "installed onboard output");
+  assertIncludes(onboard.stdout, `gptprouse setup --cwd ${consumerDir} --token-ttl-hours 24`, "installed onboard output");
+  assertIncludes(onboard.stdout, `gptprouse project prompt --cwd ${consumerDir}`, "installed onboard output");
+  assertIncludes(onboard.stdout, 'gptprouse pro ask --file README.md "Review this repo"  # dry-run/manual preview', "installed onboard output");
+  assertIncludes(onboard.stdout, "gptprouse pro browser login", "installed onboard output");
+  assertIncludes(onboard.stdout, 'gptprouse pro browser ask --file README.md "Review this repo"  # visible-browser send', "installed onboard output");
+  assertIncludes(onboard.stdout, "Cloudflare", "installed onboard output");
+  assertNotIncludes(onboard.stdout, "gptprouse_token=", "installed onboard output");
   const projectPrompt = await run(binPath, ["project", "prompt", "--cwd", consumerDir], { cwd: path.dirname(consumerDir) });
   assertIncludes(projectPrompt.stdout, "ChatGPT Project MCP verification prompt", "installed project prompt output");
   assertIncludes(projectPrompt.stdout, "bridge_create_task", "installed project prompt output");
@@ -165,6 +178,7 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertNotIncludes(httpMcpDoc, "/absolute/path/to/project", "installed HTTP MCP docs");
   assertNotIncludes(claudeDoc, "/absolute/path/to/project", "installed Claude docs");
   assertIncludes(readme, "For an installed package", "installed README");
+  assertIncludes(readme, "gptprouse onboard", "installed README");
   assertIncludes(readme, "gptprouse init", "installed README");
   assertIncludes(readme, "CLI-only", "installed README");
   assertIncludes(readme, "ripgrep", "installed README");

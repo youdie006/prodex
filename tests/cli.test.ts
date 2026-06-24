@@ -272,6 +272,13 @@ describe("runCli", () => {
       })
     ).rejects.toThrow("Unknown option for status: --show-tokn");
     await expect(
+      runCli(["onboard", "--cwdd", cwd], {
+        cwd,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.toThrow("Unknown option for onboard: --cwdd");
+    await expect(
       runCli(["pro", "browser", "login", "--dry-run", "--profile-dri", "profile"], {
         cwd,
         stdout: () => {},
@@ -1006,6 +1013,7 @@ describe("runCli", () => {
     expect(text).toContain("gptprouse status [--cwd /absolute/path/to/repo]");
     expect(text).toContain("gptprouse tunnel url [--cwd /absolute/path/to/repo]");
     expect(text).toContain("gptprouse doctor [--cwd /absolute/path/to/repo]");
+    expect(text).toContain("gptprouse onboard [--cwd /absolute/path/to/repo]");
     expect(text).toContain("gptprouse mcp [--cwd /absolute/path/to/repo]");
   });
 
@@ -1135,6 +1143,39 @@ describe("runCli", () => {
     expect(parsed.mcpServers?.gptprouse?.command).toBe("node");
     expect(parsed.mcpServers?.gptprouse?.args).toEqual([sourceCli, "mcp", "--cwd", targetCwd]);
     expect(out.join("\n")).not.toContain("gptprouse_token=");
+  });
+
+  it("onboard prints first-run commands without exposing tokens or changing state", async () => {
+    const launcherCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-launcher-"));
+    const targetCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-target-"));
+    const out: string[] = [];
+
+    await runCli(["onboard", "--cwd", targetCwd], {
+      cwd: launcherCwd,
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    const text = out.join("\n");
+    expect(text).toContain("gptprouse onboarding");
+    expect(text).toContain(`repo: ${targetCwd}`);
+    expect(text).toContain(`gptprouse init --cwd ${targetCwd}`);
+    expect(text).toContain(`gptprouse doctor --cwd ${targetCwd}`);
+    expect(text).toContain(`gptprouse claude config --cwd ${targetCwd}`);
+    expect(text).toContain(`gptprouse claude prompt --cwd ${targetCwd}`);
+    expect(text).toContain(`gptprouse setup --cwd ${targetCwd} --token-ttl-hours 24`);
+    expect(text).toContain(`gptprouse start --cwd ${targetCwd}`);
+    expect(text).toContain(`gptprouse status --cwd ${targetCwd} --show-token --url-only`);
+    expect(text).toContain(`gptprouse project prompt --cwd ${targetCwd}`);
+    expect(text).toContain('gptprouse pro ask --file README.md "Review this repo"  # dry-run/manual preview');
+    expect(text).toContain("gptprouse pro browser login");
+    expect(text).toContain("gptprouse pro browser check");
+    expect(text).toContain("gptprouse pro browser smoke");
+    expect(text).toContain('gptprouse pro browser ask --file README.md "Review this repo"  # visible-browser send');
+    expect(text).toContain("manual, visible browser");
+    expect(text).toContain("Cloudflare");
+    expect(text).not.toContain("gptprouse_token=");
+    await expect(readFile(path.join(targetCwd, ".bridge", "config.local.json"), "utf8")).rejects.toThrow();
   });
 
   it("describes token TTL as an explicit help placeholder", async () => {

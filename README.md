@@ -78,6 +78,7 @@ Requires Node.js 20 or newer, `git`, and `ripgrep` (`rg`) on PATH. The optional 
 For an installed package:
 
 ```bash
+gptprouse onboard
 gptprouse init
 gptprouse doctor
 gptprouse pro ask --file README.md "Review the project positioning"
@@ -88,12 +89,14 @@ For a source checkout:
 ```bash
 npm install
 npm run build
+node dist/cli.js onboard
 node dist/cli.js init
 node dist/cli.js doctor
 node dist/cli.js pro ask --file README.md "Review the project positioning"
 ```
 
 The examples below use the installed `gptprouse` binary. In a source checkout, replace `gptprouse` with `node dist/cli.js` after building.
+`onboard` prints the Claude, ChatGPT Project, and optional ChatGPT Pro consult commands without changing local state.
 
 `init` creates the local `.bridge/` ledger directories and ignore rules. On a source checkout it may also add `node_modules/` and `dist/` to the repo root `.gitignore` so local dependencies and build output stay out of git.
 Run `init` from the repo root, or use `gptprouse init --cwd /absolute/path/to/your/repo` from elsewhere.

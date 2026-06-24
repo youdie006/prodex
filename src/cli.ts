@@ -214,6 +214,12 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
     return 0;
   }
 
+  if (command === "onboard") {
+    assertOnlyOptions(rest, "onboard", ["--cwd"]);
+    io.stdout(formatOnboardingGuide(resolveCwdFlag(io.cwd, rest)));
+    return 0;
+  }
+
   if (command === "project") {
     const [subcommand, ...projectArgs] = rest;
     if (subcommand !== "prompt") throw new Error("project requires prompt");
@@ -694,6 +700,7 @@ Commands:
   gptprouse status [--cwd /absolute/path/to/repo] [--show-token] [--url-only] [--unsafe-show-non-expiring-token]
   gptprouse tunnel url [--cwd /absolute/path/to/repo] --public-url https://... [--show-token] [--url-only]
   gptprouse release status [--cwd /absolute/path/to/repo]
+  gptprouse onboard [--cwd /absolute/path/to/repo]
   gptprouse project prompt [--cwd /absolute/path/to/repo]
   gptprouse claude prompt [--cwd /absolute/path/to/repo]
   gptprouse claude config [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]
@@ -748,6 +755,39 @@ Local follow-up after ChatGPT replies:
 cd ${shellQuote(cwd)}
 gptprouse tasks list --status new
 gptprouse tasks show <task-id>`;
+}
+
+function formatOnboardingGuide(cwd: string): string {
+  const quotedCwd = shellQuote(cwd);
+  return `gptprouse onboarding
+
+repo: ${cwd}
+
+1. Prepare the local bridge:
+   gptprouse init --cwd ${quotedCwd}
+   gptprouse doctor --cwd ${quotedCwd}
+
+2. Claude stdio MCP:
+   gptprouse claude config --cwd ${quotedCwd}
+   gptprouse claude prompt --cwd ${quotedCwd}
+
+3. ChatGPT Project HTTP MCP:
+   gptprouse setup --cwd ${quotedCwd} --token-ttl-hours 24
+   gptprouse start --cwd ${quotedCwd}
+   gptprouse status --cwd ${quotedCwd} --show-token --url-only
+   gptprouse project prompt --cwd ${quotedCwd}
+
+4. Optional ChatGPT Pro consults:
+   gptprouse pro ask --file README.md "Review this repo"  # dry-run/manual preview
+   gptprouse pro browser login
+   gptprouse pro browser check
+   gptprouse pro browser smoke
+   gptprouse pro browser ask --file README.md "Review this repo"  # visible-browser send
+
+Safety notes:
+- This command only prints commands; it does not start servers, open browsers, or write files.
+- HTTP MCP uses a short-lived token. Paste token-bearing URLs only into your own trusted private MCP client.
+- Visible-browser sends require a manual, visible browser session and stop on login, captcha, Cloudflare, permission, rate-limit, or usage-limit blockers.`;
 }
 
 function formatClaudeVerificationPrompt(cwd: string): string {
