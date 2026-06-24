@@ -72,7 +72,7 @@ Run this in a terminal and keep it running while ChatGPT is using the bridge:
 gptprouse start
 ```
 
-The HTTP MCP listener is loopback-only. `setup --host` accepts local loopback hosts such as `127.0.0.1` or `localhost`; it rejects public interfaces like `0.0.0.0`. `start` reads the saved setup profile exactly, so the running server matches the URL printed by `status` and `tunnel url`. To change the listener or rotate the token, rerun `setup`. If you need ChatGPT to reach it from outside the machine, keep `gptprouse start` local and put your own explicit tunnel in front of it.
+The HTTP MCP listener is loopback-only. `setup --host` accepts local loopback hosts such as `127.0.0.1` or `localhost`; it rejects public interfaces like `0.0.0.0`. `start` reads the saved setup profile when the server process starts. If you rerun `setup` to change the listener or rotate the token, restart `gptprouse start` so the running server uses the new profile. `status --show-token --url-only` prints the saved local MCP URL, while `tunnel url` formats your supplied public tunnel URL with the saved token; it does not create or inspect the tunnel. If you need ChatGPT to reach it from outside the machine, keep `gptprouse start` local and put your own explicit tunnel in front of it.
 
 From outside the repo:
 

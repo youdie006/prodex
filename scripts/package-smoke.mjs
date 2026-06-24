@@ -73,7 +73,8 @@ try {
   assertIncludes(releaseStatus.stdout, "gptprouse release status", "installed release status output");
   assertIncludes(releaseStatus.stdout, "metadata: blocked", "installed release status output");
   assertIncludes(releaseStatus.stdout, "explicit license", "installed release status output");
-  assertIncludes(releaseStatus.stdout, "git:", "installed release status output");
+  assertIncludes(releaseStatus.stdout, "git: blocked", "installed release status output");
+  assertIncludes(releaseStatus.stdout, "not a git worktree", "installed release status output");
   const privatePackageDir = path.join(tmp, "private-release");
   await mkdir(privatePackageDir, { recursive: true });
   await writeFile(
@@ -96,6 +97,7 @@ try {
   assertIncludes(invalidLicenseReleaseStatus.stdout, "metadata: blocked", "installed invalid LICENSE release status output");
   assertIncludes(invalidLicenseReleaseStatus.stdout, "license_file=invalid", "installed invalid LICENSE release status output");
   assertNotIncludes(invalidLicenseReleaseStatus.stdout, "metadata: ok", "installed invalid LICENSE release status output");
+  await smokeInstalledReleaseGitReadiness(binPath, tmp, consumerDir);
   const onboard = await run(binPath, ["onboard", "--cwd", consumerDir], { cwd: path.dirname(consumerDir) });
   assertIncludes(onboard.stdout, "gptprouse onboarding", "installed onboard output");
   assertIncludes(onboard.stdout, `gptprouse init --cwd ${consumerDir}`, "installed onboard output");
@@ -116,6 +118,19 @@ try {
   assertIncludes(onboard.stdout, 'gptprouse pro browser ask --file README.md "Review this repo"  # visible-browser send', "installed onboard output");
   assertIncludes(onboard.stdout, "Cloudflare", "installed onboard output");
   assertNotIncludes(onboard.stdout, "gptprouse_token=", "installed onboard output");
+  const missingCwd = path.join(consumerDir, "missing-repo");
+  const missingCwdOnboard = await runExpectFailure(binPath, ["onboard", "--cwd", missingCwd], { cwd: path.dirname(consumerDir) });
+  assertIncludes(missingCwdOnboard.stderr, `--cwd does not exist or is not accessible: ${missingCwd}`, "installed missing cwd output");
+  assertNotIncludes(missingCwdOnboard.stderr, "ENOENT", "installed missing cwd output");
+  const missingSourceCli = path.join(consumerDir, "missing-dist-cli.js");
+  const missingSourceCliConfig = await runExpectFailure(binPath, ["claude", "config", "--cwd", consumerDir, "--source-cli", missingSourceCli], {
+    cwd: path.dirname(consumerDir)
+  });
+  assertIncludes(missingSourceCliConfig.stderr, `--source-cli does not exist or is not accessible: ${missingSourceCli}`, "installed missing source-cli output");
+  assertNotIncludes(missingSourceCliConfig.stderr, "ENOENT", "installed missing source-cli output");
+  const missingSetupStatus = await runExpectFailure(binPath, ["status"], { cwd: consumerDir });
+  assertIncludes(missingSetupStatus.stderr, "Run `gptprouse setup` first.", "installed missing setup status output");
+  assertNotIncludes(missingSetupStatus.stderr, "Run `gptprouse setup --token-ttl-hours <hours>` first.", "installed missing setup status output");
   const projectPrompt = await run(binPath, ["project", "prompt", "--cwd", consumerDir], { cwd: path.dirname(consumerDir) });
   assertIncludes(projectPrompt.stdout, "ChatGPT Project MCP verification prompt", "installed project prompt output");
   assertIncludes(projectPrompt.stdout, "bridge_create_task", "installed project prompt output");
@@ -264,7 +279,10 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertIncludes(readme, "npm run release:verify", "installed README");
   assertIncludes(readme, "regular file", "installed README");
   assertIncludes(readme, "loopback-only", "installed README");
-  assertIncludes(readme, "`start` reads the saved setup profile exactly", "installed README");
+  assertIncludes(readme, "`start` reads the saved setup profile when the server process starts", "installed README");
+  assertIncludes(readme, "restart `gptprouse start` so the running server uses the new profile", "installed README");
+  assertIncludes(readme, "`tunnel url` formats your supplied public tunnel URL with the saved token", "installed README");
+  assertNotIncludes(readme, "running server stay on the same host, port, and token", "installed README");
   assertIncludes(readme, "private: true", "installed README");
   assertIncludes(readme, "configured `doctor`", "installed README");
   assertIncludes(readme, ".bridge/artifacts/results/", "installed README");
@@ -297,7 +315,10 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertIncludes(httpMcpDoc, "Verify In ChatGPT", "installed HTTP MCP docs");
   assertIncludes(httpMcpDoc, "Keep `gptprouse start` running", "installed HTTP MCP docs");
   assertIncludes(httpMcpDoc, "loopback-only", "installed HTTP MCP docs");
-  assertIncludes(httpMcpDoc, "`start` reads the saved setup profile exactly", "installed HTTP MCP docs");
+  assertIncludes(httpMcpDoc, "`start` reads the saved setup profile when the server process starts", "installed HTTP MCP docs");
+  assertIncludes(httpMcpDoc, "restart `gptprouse start` so the running server uses the new profile", "installed HTTP MCP docs");
+  assertIncludes(httpMcpDoc, "`tunnel url` formats your supplied public tunnel URL with the saved token", "installed HTTP MCP docs");
+  assertNotIncludes(httpMcpDoc, "running server matches the URL printed by `status` and `tunnel url`", "installed HTTP MCP docs");
   assertIncludes(httpMcpDoc, "CLI-only", "installed HTTP MCP docs");
   assertIncludes(httpMcpDoc, ".bridge/artifacts/results/", "installed HTTP MCP docs");
   assertNotIncludes(httpMcpDoc, "start --host", "installed HTTP MCP docs");
@@ -409,6 +430,41 @@ async function smokeInstalledProBlockedConsult(binPath, cwd) {
   const check = await run(binPath, ["pro", "browser", "check", "--port", "65534", "--timeout-ms", "10"], { cwd, timeout: 60_000 });
   assertIncludes(check.stdout, `latest_pro: blocked ${taskId}`, "installed pro browser check blocked output");
   assertNotIncludes(check.stdout, `latest_pro: ok ${taskId} blocked`, "installed pro browser check blocked output");
+}
+
+async function smokeInstalledReleaseGitReadiness(binPath, tmp, launcherCwd) {
+  const noRemoteDir = await createReleaseGitFixture(path.join(tmp, "release-no-remote"), { remote: false });
+  const noRemote = await run(binPath, ["release", "status", "--cwd", noRemoteDir], { cwd: launcherCwd });
+  assertIncludes(noRemote.stdout, "metadata: ok", "installed release status no-remote output");
+  assertIncludes(noRemote.stdout, "git: blocked no remote", "installed release status no-remote output");
+
+  const dirtyDir = await createReleaseGitFixture(path.join(tmp, "release-dirty"), { remote: true });
+  await writeFile(path.join(dirtyDir, "README.md"), "dirty\n");
+  const dirty = await run(binPath, ["release", "status", "--cwd", dirtyDir], { cwd: launcherCwd });
+  assertIncludes(dirty.stdout, "git: blocked worktree has uncommitted changes", "installed release status dirty output");
+
+  const detachedDir = await createReleaseGitFixture(path.join(tmp, "release-detached"), { remote: true });
+  await execFileAsync("git", ["checkout", "--detach", "HEAD"], { cwd: detachedDir });
+  const detached = await run(binPath, ["release", "status", "--cwd", detachedDir], { cwd: launcherCwd });
+  assertIncludes(detached.stdout, "git: blocked detached HEAD", "installed release status detached output");
+
+  const okDir = await createReleaseGitFixture(path.join(tmp, "release-ok"), { remote: true });
+  const ok = await run(binPath, ["release", "status", "--cwd", okDir], { cwd: launcherCwd });
+  assertIncludes(ok.stdout, "metadata: ok", "installed release status ok output");
+  assertIncludes(ok.stdout, "git: ok", "installed release status ok output");
+}
+
+async function createReleaseGitFixture(cwd, options) {
+  await mkdir(cwd, { recursive: true });
+  await writeFile(path.join(cwd, "package.json"), `${JSON.stringify({ name: path.basename(cwd), version: "1.0.0", license: "MIT" }, null, 2)}\n`);
+  await writeFile(path.join(cwd, "LICENSE"), "MIT License\n");
+  await execFileAsync("git", ["init"], { cwd });
+  await execFileAsync("git", ["config", "user.email", "release@example.com"], { cwd });
+  await execFileAsync("git", ["config", "user.name", "GPTProUse Package Smoke"], { cwd });
+  await execFileAsync("git", ["add", "package.json", "LICENSE"], { cwd });
+  await execFileAsync("git", ["commit", "-m", "initial"], { cwd });
+  if (options.remote) await execFileAsync("git", ["remote", "add", "origin", "https://example.com/gptprouse-smoke.git"], { cwd });
+  return cwd;
 }
 
 async function smokeStdioMcp(binPath, cwd) {

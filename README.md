@@ -161,7 +161,7 @@ gptprouse start
 
 `setup` writes `.bridge/config.local.json` and ensures `.bridge/.gitignore` covers local task/result/session/receipt/artifact/config files. `setup`, `start`, and `status` redact the URL token by default.
 The HTTP MCP listener is loopback-only: `setup --host` accepts local loopback hosts such as `127.0.0.1` or `localhost`, not public interfaces like `0.0.0.0`.
-`start` reads the saved setup profile exactly, so `status --show-token --url-only`, `tunnel url`, and the running server stay on the same host, port, and token. To change the listener or rotate the token, rerun `setup`.
+`start` reads the saved setup profile when the server process starts. If you rerun `setup` to change the listener or rotate the token, restart `gptprouse start` so the running server uses the new profile. `status --show-token --url-only` prints the saved local MCP URL, while `tunnel url` formats your supplied public tunnel URL with the saved token; it does not create or inspect the tunnel.
 
 Run these commands from the repo root, or add `--cwd /absolute/path/to/your/repo` to `setup`, `start`, `status`, `doctor`, and `tunnel url`. For example:
 

@@ -386,6 +386,10 @@ async function readDryRunReplacementContent(store: BridgeStore, metadata: DryRun
   if (typeof newContent !== "string") {
     throw new Error(`Dry-run receipt metadata is missing replacement content`);
   }
+  const newContentBytes = Buffer.byteLength(newContent, "utf8");
+  if (newContentBytes > MAX_WRITE_BYTES) {
+    throw new Error(`Dry-run replacement content is too large (${newContentBytes} bytes > ${MAX_WRITE_BYTES} bytes)`);
+  }
   if (sha256(newContent) !== metadata.new_sha256) {
     throw new Error(
       metadata.new_content_artifact

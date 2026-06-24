@@ -1626,9 +1626,16 @@ async function latestTask(
 }
 
 async function getConsult(store: BridgeStore, taskId: string, options: { readOnly?: boolean } = {}): Promise<ConsultRecord | undefined> {
-  const [task, result] = await Promise.all(
-    options.readOnly ? [store.getTaskReadOnly(taskId), store.getResultReadOnly(taskId)] : [store.getTask(taskId), store.getResult(taskId)]
-  ).catch(() => [undefined, undefined] as const);
+  let task: Awaited<ReturnType<BridgeStore["getTask"]>>;
+  let result: Awaited<ReturnType<BridgeStore["getResult"]>>;
+  try {
+    [task, result] = await Promise.all(
+      options.readOnly ? [store.getTaskReadOnly(taskId), store.getResultReadOnly(taskId)] : [store.getTask(taskId), store.getResult(taskId)]
+    );
+  } catch (error) {
+    if (isMissingFileError(error)) return undefined;
+    throw error;
+  }
   if (!task || !result) return undefined;
   const record = { task, result };
   return isConsultRecord(record) ? record : undefined;
@@ -1721,7 +1728,9 @@ function isMissingFileError(error: unknown): boolean {
 async function loadLocalConfigForCommand(cwd: string, command: "start" | "status") {
   return loadLocalConfig(cwd).catch(async (error) => {
     if (isMissingFileError(error)) {
-      throw new Error(`${command} requires local MCP setup. Run \`gptprouse setup --token-ttl-hours <hours>\` first.`);
+      throw new Error(
+        `${command} requires local MCP setup. Run \`gptprouse setup\` first. Add \`--token-ttl-hours <hours>\` before revealing token URLs, using tunnels, or connecting ChatGPT Projects.`
+      );
     }
     throw error;
   });
@@ -1799,12 +1808,21 @@ function readRepeatedFlag(args: string[], flag: string): string[] {
 function resolveCwdFlag(defaultCwd: string, args: string[]): string {
   const cwd = readFlag(args, "--cwd");
   if (!cwd) return defaultCwd;
-  return realpathSync(path.resolve(defaultCwd, cwd));
+  return resolveExistingPathFlag(defaultCwd, cwd, "--cwd");
 }
 
 function resolveOptionalPathFlag(defaultCwd: string, args: string[], flag: string): string | undefined {
   const value = readFlag(args, flag);
-  return value ? realpathSync(path.resolve(defaultCwd, value)) : undefined;
+  return value ? resolveExistingPathFlag(defaultCwd, value, flag) : undefined;
+}
+
+function resolveExistingPathFlag(defaultCwd: string, value: string, flag: string): string {
+  const resolved = path.resolve(defaultCwd, value);
+  try {
+    return realpathSync(resolved);
+  } catch {
+    throw new Error(`${flag} does not exist or is not accessible: ${resolved}`);
+  }
 }
 
 function assertOnlyOptions(args: string[], command: string, valueFlags: readonly string[], booleanFlags: readonly string[] = []): void {

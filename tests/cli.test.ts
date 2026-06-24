@@ -303,6 +303,26 @@ describe("runCli", () => {
     ).rejects.toThrow("Unknown option for pro browser check: --porrt");
   });
 
+  it("reports missing --cwd targets with a friendly CLI error", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const missing = path.join(cwd, "missing-repo");
+
+    await expect(
+      runCli(["onboard", "--cwd", missing], {
+        cwd,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.toThrow(`--cwd does not exist or is not accessible: ${missing}`);
+    await expect(
+      runCli(["status", "--cwd", missing], {
+        cwd,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.toThrow(`--cwd does not exist or is not accessible: ${missing}`);
+  });
+
   it("rejects extra arguments for show commands", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
     const store = new BridgeStore(cwd);
@@ -800,6 +820,31 @@ describe("runCli", () => {
     expect(out.join("\n")).toContain(taskId);
     expect(out.join("\n")).toContain("task_id:");
     expect(out.join("\n")).toContain("Use receipt-gated writes next.");
+  });
+
+  it("surfaces corrupt GPT Pro result records instead of hiding them as not found", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const createOut: string[] = [];
+    await runCli(["tasks", "create", "--title", "GPT Pro consult", "--prompt", "Ask Pro"], {
+      cwd,
+      stdout: (line) => createOut.push(line),
+      stderr: () => {}
+    });
+    const taskId = createOut[0].split("\t")[0];
+    await runCli(["tasks", "complete", taskId, "--summary", "Initial answer", "--command", "visible ChatGPT browser consult"], {
+      cwd,
+      stdout: () => {},
+      stderr: () => {}
+    });
+    await writeFile(path.join(cwd, ".bridge", "results", `${taskId}.json`), "{not-json\n", "utf8");
+
+    await expect(
+      runCli(["pro", "show", taskId], {
+        cwd,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.not.toThrow(/not found/i);
   });
 
   it("prints result artifact content only from result records", async () => {
@@ -2475,7 +2520,14 @@ describe("runCli", () => {
         stdout: () => {},
         stderr: () => {}
       })
-    ).rejects.toThrow("status requires local MCP setup. Run `gptprouse setup --token-ttl-hours <hours>` first.");
+    ).rejects.toThrow("status requires local MCP setup. Run `gptprouse setup` first.");
+    await expect(
+      runCli(["start"], {
+        cwd,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.toThrow("start requires local MCP setup. Run `gptprouse setup` first.");
   });
 
   it("refuses to start with an expired configured token", async () => {

@@ -621,6 +621,35 @@ describe("MCP tool handlers", () => {
     expect(await readFile(path.join(cwd, "notes.md"), "utf8")).toBe("legacy\n");
   });
 
+  it("rejects oversized legacy inline write payloads before hashing them", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    await writeFile(path.join(cwd, "notes.md"), "old\n", "utf8");
+    const head = await initGitRepo(cwd);
+    const store = new BridgeStore(cwd);
+    const legacyReceipt = await store.writeReceipt({
+      kind: "repo_write_dry_run",
+      summary: "Legacy oversized dry-run write for notes.md",
+      metadata: {
+        path: "notes.md",
+        expected_head: head,
+        preimage_sha256: sha256("old\n"),
+        new_sha256: "not-the-right-hash",
+        diff: "--- a/notes.md\n+++ b/notes.md\n-old\n+oversized",
+        new_content: "x".repeat(1_000_001)
+      }
+    });
+    const handlers = createMcpToolHandlers({ cwd });
+
+    await expect(
+      handlers.repo_write_file_apply({
+        receipt_id: legacyReceipt.id,
+        expected_head: head,
+        preimage_sha256: sha256("old\n")
+      })
+    ).rejects.toThrow(/too large|1000000/i);
+    expect(await readFile(path.join(cwd, "notes.md"), "utf8")).toBe("old\n");
+  });
+
   it("rejects write apply when the file preimage changed after dry-run", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
     await writeFile(path.join(cwd, "notes.md"), "old\n", "utf8");
