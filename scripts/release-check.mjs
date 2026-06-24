@@ -32,14 +32,14 @@ try {
 async function checkReleaseMetadata(rootDir) {
   const packageJsonPath = path.join(rootDir, "package.json");
   const packageJson = JSON.parse(await readFile(packageJsonPath, "utf8"));
+  if (packageJson.private === true) {
+    throw new Error("release metadata failed: package.json private: true prevents npm publish");
+  }
   if (typeof packageJson.license !== "string" || packageJson.license.trim() === "") {
     throw new Error("release metadata failed: package.json must include an explicit license before publishing");
   }
   if (packageJson.license === "UNLICENSED") {
-    if (packageJson.private !== true) {
-      throw new Error('release metadata failed: license "UNLICENSED" requires "private": true to prevent public publishing');
-    }
-    return;
+    throw new Error('release metadata failed: license "UNLICENSED" is not publishable');
   }
   try {
     await access(path.join(rootDir, "LICENSE"));

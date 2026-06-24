@@ -1212,6 +1212,51 @@ describe("runCli", () => {
     expect(text).toContain("next: run `npm run release:check` before publishing");
   });
 
+  it("release status reports private packages as not publishable", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-release-"));
+    await writeFile(
+      path.join(cwd, "package.json"),
+      `${JSON.stringify({ name: "demo", version: "1.0.0", license: "MIT", private: true }, null, 2)}\n`,
+      "utf8"
+    );
+    await writeFile(path.join(cwd, "LICENSE"), "MIT License\n", "utf8");
+    const out: string[] = [];
+
+    await runCli(["release", "status", "--cwd", cwd], {
+      cwd: "/tmp",
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    const text = out.join("\n");
+    expect(text).toContain("metadata: blocked");
+    expect(text).toContain("private: true");
+    expect(text).toContain("remove `private: true` before public publishing");
+    expect(text).not.toContain("metadata: ok");
+  });
+
+  it("release status reports unlicensed packages as not publishable", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-release-"));
+    await writeFile(
+      path.join(cwd, "package.json"),
+      `${JSON.stringify({ name: "demo", version: "1.0.0", license: "UNLICENSED" }, null, 2)}\n`,
+      "utf8"
+    );
+    const out: string[] = [];
+
+    await runCli(["release", "status", "--cwd", cwd], {
+      cwd: "/tmp",
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    const text = out.join("\n");
+    expect(text).toContain('metadata: blocked license "UNLICENSED" is not publishable');
+    expect(text).toContain("choose a public license");
+    expect(text).not.toContain("set `private: true`");
+    expect(text).not.toContain("metadata: ok");
+  });
+
   it("release status reports a clean git worktree without a remote as blocked", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-release-"));
     await writeFile(

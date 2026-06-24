@@ -808,17 +808,15 @@ async function formatReleaseStatus(cwd: string): Promise<string> {
   const license = typeof packageJson.license === "string" ? packageJson.license.trim() : "";
   let metadataNext = "run `npm run release:check` before publishing";
 
-  if (!license) {
+  if (packageJson.private === true) {
+    lines.push("metadata: blocked package.json private: true prevents npm publish");
+    metadataNext = "remove `private: true` before public publishing, then run `npm run release:check`";
+  } else if (!license) {
     lines.push("metadata: blocked package.json must include an explicit license before publishing");
     metadataNext = "choose a license, add LICENSE, then run `npm run release:check`";
   } else if (license === "UNLICENSED") {
-    if (packageJson.private === true) {
-      lines.push('metadata: ok private package license=UNLICENSED');
-      metadataNext = "keep this package private, or choose a public license before publishing";
-    } else {
-      lines.push('metadata: blocked license "UNLICENSED" requires "private": true to prevent public publishing');
-      metadataNext = "set `private: true`, or choose a public license and add LICENSE";
-    }
+    lines.push('metadata: blocked license "UNLICENSED" is not publishable');
+    metadataNext = "choose a public license and add LICENSE, then run `npm run release:check`";
   } else {
     const hasLicenseFile = await fileExists(path.join(cwd, "LICENSE"));
     if (!hasLicenseFile) {

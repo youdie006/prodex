@@ -31,12 +31,41 @@ describe("release-check", () => {
     expect(result.stdout).toContain("release_metadata=ok");
   });
 
-  it("runs the full release verification command sequence", async () => {
+  it("fails release metadata when package is private even with a public license", async () => {
+    const root = await copyPackageJsonToTemp();
+    const packageJson = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
+    packageJson.license = "MIT";
+    packageJson.private = true;
+    await writeFile(path.join(root, "package.json"), `${JSON.stringify(packageJson, null, 2)}\n`, "utf8");
+    await writeFile(path.join(root, "LICENSE"), "MIT License\n", "utf8");
+
+    const result = await runReleaseCheck(root);
+
+    expect(result.code).toBe(1);
+    expect(`${result.stdout}\n${result.stderr}`).toMatch(/private/i);
+    expect(result.stdout).not.toContain("release_metadata=ok");
+  });
+
+  it("fails release metadata when license is unlicensed", async () => {
     const root = await copyPackageJsonToTemp();
     const packageJson = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
     packageJson.license = "UNLICENSED";
-    packageJson.private = true;
     await writeFile(path.join(root, "package.json"), `${JSON.stringify(packageJson, null, 2)}\n`, "utf8");
+
+    const result = await runReleaseCheck(root);
+
+    expect(result.code).toBe(1);
+    expect(`${result.stdout}\n${result.stderr}`).toContain("UNLICENSED");
+    expect(`${result.stdout}\n${result.stderr}`).toContain("not publishable");
+    expect(result.stdout).not.toContain("release_metadata=ok");
+  });
+
+  it("runs the full release verification command sequence", async () => {
+    const root = await copyPackageJsonToTemp();
+    const packageJson = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
+    packageJson.license = "MIT";
+    await writeFile(path.join(root, "package.json"), `${JSON.stringify(packageJson, null, 2)}\n`, "utf8");
+    await writeFile(path.join(root, "LICENSE"), "MIT License\n", "utf8");
     const fakeCommands = await createFakeReleaseCommands(root);
     const npmCommand = expectedNpmCommand();
 
@@ -87,9 +116,9 @@ describe("release-check", () => {
   it("stops the full release verification sequence when a child check fails", async () => {
     const root = await copyPackageJsonToTemp();
     const packageJson = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
-    packageJson.license = "UNLICENSED";
-    packageJson.private = true;
+    packageJson.license = "MIT";
     await writeFile(path.join(root, "package.json"), `${JSON.stringify(packageJson, null, 2)}\n`, "utf8");
+    await writeFile(path.join(root, "LICENSE"), "MIT License\n", "utf8");
     const npmCommand = expectedNpmCommand();
     const fakeCommands = await createFakeReleaseCommands(root, { failCommand: `${npmCommand}\trun typecheck` });
 

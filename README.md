@@ -246,13 +246,13 @@ gptprouse release status
 
 It reports package metadata blockers plus local git readiness, including a dirty worktree or missing git remote.
 
-Before publishing to npm, choose an explicit license and add the matching `LICENSE` file. `npm publish` is intentionally guarded by `prepublishOnly`; it runs:
+Before publishing to npm, choose an explicit license, add the matching `LICENSE` file, and make sure `package.json` does not have `private: true`. `release:check` treats `private: true` as a publish blocker because npm will refuse to publish private packages. `npm publish` is intentionally guarded by `prepublishOnly`; it runs:
 
 ```bash
 npm run release:check
 ```
 
-Until the license is chosen, `release:check` fails with a metadata error instead of letting an accidental public publish proceed.
+Until the license is chosen and package metadata is publishable, `release:check` fails with a metadata error instead of letting an accidental public publish proceed. Use `npm run release:verify` when you only want local verification without claiming publish readiness.
 
 ## Claude MCP
 

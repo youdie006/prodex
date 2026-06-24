@@ -66,6 +66,17 @@ try {
   assertIncludes(releaseStatus.stdout, "metadata: blocked", "installed release status output");
   assertIncludes(releaseStatus.stdout, "explicit license", "installed release status output");
   assertIncludes(releaseStatus.stdout, "git:", "installed release status output");
+  const privatePackageDir = path.join(tmp, "private-release");
+  await mkdir(privatePackageDir, { recursive: true });
+  await writeFile(
+    path.join(privatePackageDir, "package.json"),
+    `${JSON.stringify({ name: "private-demo", version: "1.0.0", license: "MIT", private: true }, null, 2)}\n`
+  );
+  await writeFile(path.join(privatePackageDir, "LICENSE"), "MIT License\n");
+  const privateReleaseStatus = await run(binPath, ["release", "status", "--cwd", privatePackageDir], { cwd: consumerDir });
+  assertIncludes(privateReleaseStatus.stdout, "metadata: blocked", "installed private release status output");
+  assertIncludes(privateReleaseStatus.stdout, "private: true", "installed private release status output");
+  assertNotIncludes(privateReleaseStatus.stdout, "metadata: ok", "installed private release status output");
   const projectPrompt = await run(binPath, ["project", "prompt", "--cwd", consumerDir], { cwd: path.dirname(consumerDir) });
   assertIncludes(projectPrompt.stdout, "ChatGPT Project MCP verification prompt", "installed project prompt output");
   assertIncludes(projectPrompt.stdout, "bridge_create_task", "installed project prompt output");
@@ -164,6 +175,7 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertIncludes(readme, "gptprouse claude config", "installed README");
   assertIncludes(readme, "gptprouse release status", "installed README");
   assertIncludes(readme, "npm run release:verify", "installed README");
+  assertIncludes(readme, "private: true", "installed README");
   assertIncludes(readme, "configured `doctor`", "installed README");
   assertIncludes(httpMcpDoc, "For an installed package", "installed HTTP MCP docs");
   assertIncludes(httpMcpDoc, "ripgrep", "installed HTTP MCP docs");
