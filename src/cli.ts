@@ -294,6 +294,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
   if (command === "receipts") {
     const [subcommand, ...receiptArgs] = rest;
     if (subcommand === "list") {
+      assertOnlyOptions(receiptArgs, "receipts list", ["--kind", "--task-id"]);
       const receipts = await store.listReceipts({
         kind: readReceiptKindFlag(receiptArgs),
         task_id: readFlag(receiptArgs, "--task-id")

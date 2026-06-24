@@ -400,7 +400,13 @@ describe("runCli", () => {
   it("lists and shows receipts with legacy inline write content redacted", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
     const store = new BridgeStore(cwd);
+    await store.writeReceipt({
+      task_id: "task_20990101_000000_other",
+      kind: "repo_write_dry_run",
+      summary: "Other dry-run write"
+    });
     const receipt = await store.writeReceipt({
+      task_id: "task_20990101_000000_target",
       kind: "repo_write_dry_run",
       summary: "Legacy dry-run write",
       metadata: {
@@ -410,11 +416,17 @@ describe("runCli", () => {
       }
     });
     const listOut: string[] = [];
+    const taskListOut: string[] = [];
     const showOut: string[] = [];
 
     await runCli(["receipts", "list", "--kind", "repo_write_dry_run"], {
       cwd,
       stdout: (line) => listOut.push(line),
+      stderr: () => {}
+    });
+    await runCli(["receipts", "list", "--kind", "repo_write_dry_run", "--task-id", "task_20990101_000000_target"], {
+      cwd,
+      stdout: (line) => taskListOut.push(line),
       stderr: () => {}
     });
     await runCli(["receipts", "show", "latest"], {
@@ -424,6 +436,7 @@ describe("runCli", () => {
     });
 
     expect(listOut.join("\n")).toContain(`${receipt.id}\trepo_write_dry_run\tLegacy dry-run write`);
+    expect(taskListOut).toEqual([`${receipt.id}\trepo_write_dry_run\tLegacy dry-run write`]);
     const shown = JSON.parse(showOut.join("\n")) as { id?: string; metadata?: Record<string, unknown> };
     expect(shown.id).toBe(receipt.id);
     expect(showOut.join("\n")).not.toContain("sensitive replacement payload");
@@ -443,6 +456,18 @@ describe("runCli", () => {
         stderr: () => {}
       })
     ).rejects.toThrow("--kind must be one of");
+  });
+
+  it("rejects unknown receipt list options", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+
+    await expect(
+      runCli(["receipts", "list", "--kinnd", "repo_write_dry_run"], {
+        cwd,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.toThrow("Unknown option for receipts list: --kinnd");
   });
 
   it("filters listed sessions by status", async () => {
