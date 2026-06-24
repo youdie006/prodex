@@ -432,6 +432,11 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
     }
     if (subcommand === "browser") {
       const [browserSubcommand, ...browserArgs] = proArgs;
+      if (!browserSubcommand || browserSubcommand === "help" || browserSubcommand === "--help" || browserSubcommand === "-h") {
+        assertNoExtraArgs(browserArgs, "pro browser help", 0);
+        printProBrowserHelp(io.stdout);
+        return 0;
+      }
       if (browserSubcommand === "login") {
         assertOnlyOptions(browserArgs, "pro browser login", ["--profile-dir", "--port", "--url"], ["--dry-run"]);
         const loginUrl = readChatGptBrowserUrlFlag(browserArgs);
@@ -781,6 +786,7 @@ repo: ${cwd}
    gptprouse project prompt --cwd ${quotedCwd}
 
 4. Optional ChatGPT Pro consults:
+   cd ${quotedCwd}
    gptprouse pro ask --file README.md "Review this repo"  # dry-run/manual preview
    gptprouse pro browser login --dry-run  # preview, no browser opens
    gptprouse pro browser login  # opens visible browser
@@ -894,6 +900,9 @@ async function formatReleaseStatus(cwd: string): Promise<string> {
     } else if (licenseFile.status === "invalid") {
       lines.push(`metadata: blocked license=${license} license_file=invalid - LICENSE must be a regular file and must not be a symlink`);
       metadataNext = "replace LICENSE with a regular file, then run `npm run release:check`";
+    } else if (licenseFile.status === "hardlinked") {
+      lines.push(`metadata: blocked license=${license} license_file=invalid - LICENSE must not have hard links`);
+      metadataNext = "replace LICENSE with a non-hard-linked regular file, then run `npm run release:check`";
     } else {
       lines.push(`metadata: ok license=${license} license_file=present`);
       metadataReady = true;
@@ -941,6 +950,13 @@ async function readReleasePackStatus(cwd: string, packageJson: { bin?: unknown }
         next: "fix file modes or publish from a filesystem that preserves executable bits, then run `npm run release:check`"
       };
     }
+    const hardLinked = await findHardLinkedPackedFiles(cwd, files);
+    if (hardLinked.length > 0) {
+      return {
+        line: `pack: blocked packed files have hard links: ${formatPathList(hardLinked)}`,
+        next: "replace hard-linked packed files with independent files, then run `npm run release:check`"
+      };
+    }
     return { line: "pack: ok file_modes=ok" };
   } catch (error) {
     return {
@@ -979,6 +995,27 @@ function findExecutableNonBinPackedFiles(files: PackedFile[], packageJson: { bin
     .filter((file) => (file.mode & 0o111) !== 0)
     .map((file) => normalizePackagePath(file.path))
     .filter((filePath) => !binPaths.has(filePath));
+}
+
+async function findHardLinkedPackedFiles(cwd: string, files: PackedFile[]): Promise<string[]> {
+  const invalid: string[] = [];
+  for (const file of files) {
+    const packagePath = normalizePackagePath(file.path);
+    const filePath = path.join(cwd, packagePath);
+    const relative = path.relative(cwd, filePath);
+    if (relative.startsWith("..") || path.isAbsolute(relative)) {
+      invalid.push(packagePath);
+      continue;
+    }
+    try {
+      const stat = await lstat(filePath);
+      if (stat.nlink > 1) invalid.push(packagePath);
+    } catch (error) {
+      if (isMissingFileError(error)) invalid.push(packagePath);
+      else throw error;
+    }
+  }
+  return invalid;
 }
 
 function packageBinPaths(bin: unknown): Set<string> {
@@ -1077,10 +1114,11 @@ async function gitStdout(cwd: string, args: string[]): Promise<string> {
   return stdout;
 }
 
-async function readLicenseFileStatus(filePath: string): Promise<{ status: "present" | "missing" | "invalid" }> {
+async function readLicenseFileStatus(filePath: string): Promise<{ status: "present" | "missing" | "invalid" | "hardlinked" }> {
   try {
     const stat = await lstat(filePath);
     if (stat.isSymbolicLink() || !stat.isFile()) return { status: "invalid" };
+    if (stat.nlink > 1) return { status: "hardlinked" };
     return { status: "present" };
   } catch (error) {
     if (isMissingFileError(error)) return { status: "missing" };
@@ -1541,7 +1579,7 @@ function printBrowserLoginGuide(
   stdout("");
   stdout("Steps:");
   stdout("1. Log in manually at https://chatgpt.com/ in the dedicated Chrome window.");
-  stdout("2. If ChatGPT asks for captcha, permission, or account verification, complete it in the browser.");
+  stdout("2. If ChatGPT asks for captcha, Cloudflare/human verification, permission, account verification, or usage limit handling, complete it in the browser.");
   stdout("3. Select the Pro/Thinking model you want in the ChatGPT UI.");
   stdout("4. Run `gptprouse pro browser check` to confirm the session is reachable.");
   stdout("5. Run `gptprouse pro browser smoke` to verify a real Pro response path.");
@@ -1549,6 +1587,18 @@ function printBrowserLoginGuide(
   stdout(`Profile: ${input.profileDir}`);
   stdout(`Debug: http://127.0.0.1:${input.port}`);
   stdout("You can close this Chrome window after login. The dedicated profile is reused next time.");
+}
+
+function printProBrowserHelp(stdout: (line: string) => void): void {
+  stdout(`gptprouse pro browser
+
+Commands:
+  gptprouse pro browser login [--dry-run] [--profile-dir path] [--port 9333] [--url https://chatgpt.com/...]
+  gptprouse pro browser check [--port 9333] [--timeout-ms 1500]
+  gptprouse pro browser smoke [--port 9333] [--timeout-ms 30000]
+  gptprouse pro browser ask [--target-url url --confirm-target] [--file path] "prompt"
+
+Visible-browser sends require a manual browser session and stop on login, captcha, Cloudflare, permission, rate-limit, or usage-limit blockers.`);
 }
 
 async function assertBrowserLaunchStayedAlive(opened: ChatGptBrowserLaunch): Promise<void> {

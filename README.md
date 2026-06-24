@@ -101,6 +101,7 @@ The examples below use the installed `gptprouse` binary. In a source checkout, r
 Run `init` from the repo root, or use `gptprouse init --cwd /absolute/path/to/your/repo` from elsewhere.
 
 `pro ask` is a dry-run/manual preview. It does not drive a logged-in browser; `pro ask --send` is rejected so accidental sends do not happen through the preview alias. Use `pro browser ask` when you explicitly want the visible browser adapter.
+Run `pro ask` and `pro browser ask` from the repo root so `--file` paths and `.bridge` records resolve to the intended project. If you generated commands with `onboard --cwd`, use the `cd ...` line in the optional Pro section first.
 If your prompt itself starts with flag-like text, put `--` before the prompt, for example `gptprouse pro ask -- --strict mode review`.
 
 ## First Pro Login
@@ -237,7 +238,7 @@ Before sharing a package tarball, run:
 npm run smoke:package
 ```
 
-This packs the project, installs the tarball into a temporary consumer project, runs the installed `gptprouse` binary, verifies HTTP MCP onboarding through installed token-TTL `setup`/`status`/configured `doctor`/`tunnel url`/`start`, checks `/health`, connects to the installed `/mcp` endpoint, lists tools, calls `bridge_create_task`, verifies explicit `--cwd` task storage, exercises the installed HTTP MCP repo write dry-run/apply/stage flow, verifies the package is CLI-only by blocking unsupported deep imports, verifies the installed stdio MCP server exposes the expected tool catalog, exercises the installed stdio repo write dry-run/apply/stage flow, and calls the installed stdio task completion/blocking tools.
+This packs the project, installs the tarball into a temporary consumer project, runs the installed `gptprouse` binary, verifies HTTP MCP onboarding through installed token-TTL `setup`/`status`/configured `doctor`/`tunnel url`/`start`, checks `/health`, connects to the installed `/mcp` endpoint, lists tools, calls `bridge_create_task`, verifies explicit `--cwd` task storage, exercises the installed HTTP MCP repo write dry-run/apply/stage flow, exercises the installed HTTP MCP task completion/blocking/result/artifact fetch flow, verifies the package is CLI-only by blocking unsupported deep imports, verifies the installed stdio MCP server exposes the expected tool catalog, exercises the installed stdio repo write dry-run/apply/stage flow, and exercises the installed stdio task completion/blocking/result/artifact fetch flow.
 
 To run the full release verification sequence before choosing a public license:
 
@@ -255,7 +256,7 @@ gptprouse release status
 
 It reports package metadata blockers plus local git readiness, including a dirty worktree or missing git remote.
 
-Before publishing to npm, choose an explicit license, add the matching `LICENSE` regular file, and make sure `package.json` does not have `private: true`. `release:check` treats `private: true` as a publish blocker because npm will refuse to publish private packages. It also rejects a `LICENSE` path that is a directory or symlink, and blocks packed files with unexpected executable modes outside the package `bin` entries. If you are on a WSL/Windows mount that reports every file as executable, publish from a Linux filesystem or fix mount metadata/chmod first. `npm publish` is intentionally guarded by `prepublishOnly`; it runs:
+Before publishing to npm, choose an explicit license, add the matching `LICENSE` regular file, and make sure `package.json` does not have `private: true`. `release:check` treats `private: true` as a publish blocker because npm will refuse to publish private packages. It also rejects a `LICENSE` path that is a directory, symlink, or hard link, and blocks packed files with unexpected executable modes or hard links outside the package `bin` entries. If you are on a WSL/Windows mount that reports every file as executable, publish from a Linux filesystem or fix mount metadata/chmod first. `npm publish` is intentionally guarded by `prepublishOnly`; it runs:
 
 ```bash
 npm run release:check

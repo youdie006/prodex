@@ -60,6 +60,9 @@ async function assertRegularLicenseFile(rootDir) {
     if (stat.isSymbolicLink() || !stat.isFile()) {
       throw new Error("release metadata failed: LICENSE must be a regular file and must not be a symlink");
     }
+    if (stat.nlink > 1) {
+      throw new Error("release metadata failed: LICENSE must not have hard links");
+    }
   } catch (error) {
     if (isMissingFileError(error)) {
       throw new Error("release metadata failed: publishable packages must include a LICENSE file");
@@ -100,6 +103,10 @@ async function assertPackedFileModes(rootDir, packageJson) {
       `release metadata failed: packed files have unexpected executable modes outside package bin entries: ${formatPathList(invalid)}`
     );
   }
+  const hardLinked = await findHardLinkedPackedFiles(rootDir, packedFiles);
+  if (hardLinked.length > 0) {
+    throw new Error(`release metadata failed: packed files must not have hard links: ${formatPathList(hardLinked)}`);
+  }
 }
 
 async function readPackedFiles(rootDir) {
@@ -131,6 +138,28 @@ function findExecutableNonBinPackedFiles(files, packageJson) {
     .filter((file) => (file.mode & 0o111) !== 0)
     .map((file) => normalizePackagePath(file.path))
     .filter((filePath) => !binPaths.has(filePath));
+}
+
+async function findHardLinkedPackedFiles(rootDir, files) {
+  const invalid = [];
+  for (const file of files) {
+    if (typeof file?.path !== "string") continue;
+    const packagePath = normalizePackagePath(file.path);
+    const filePath = path.join(rootDir, packagePath);
+    const relative = path.relative(rootDir, filePath);
+    if (relative.startsWith("..") || path.isAbsolute(relative)) {
+      invalid.push(packagePath);
+      continue;
+    }
+    try {
+      const stat = await lstat(filePath);
+      if (stat.nlink > 1) invalid.push(packagePath);
+    } catch (error) {
+      if (isMissingFileError(error)) invalid.push(packagePath);
+      else throw error;
+    }
+  }
+  return invalid;
 }
 
 function packageBinPaths(packageJson) {

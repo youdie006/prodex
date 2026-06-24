@@ -124,6 +124,21 @@ describe("HTTP MCP server", () => {
     expect(response.status).toBe(401);
   });
 
+  it("accepts bearer authorization tokens for MCP requests", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-http-mcp-"));
+    running = await startHttpMcpServer({ cwd, host: "127.0.0.1", port: 0, token: "test-token" });
+
+    const response = await fetch(`${running.url}/mcp`, {
+      method: "POST",
+      headers: { authorization: "Bearer test-token" },
+      body: "{}"
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(body.error.message).toContain("no valid MCP session");
+  });
+
   it("rejects authorized MCP request bodies over the configured byte limit", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-http-mcp-"));
     running = await startHttpMcpServer({

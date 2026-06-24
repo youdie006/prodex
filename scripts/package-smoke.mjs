@@ -118,11 +118,13 @@ try {
     `gptprouse status --cwd ${consumerDir} --show-token --url-only`,
     "installed onboard output"
   );
+  assertIncludes(onboard.stdout, `cd ${consumerDir}`, "installed onboard output");
   assertIncludes(onboard.stdout, 'gptprouse pro ask --file README.md "Review this repo"  # dry-run/manual preview', "installed onboard output");
   assertIncludes(onboard.stdout, "gptprouse pro browser login --dry-run  # preview, no browser opens", "installed onboard output");
   assertIncludes(onboard.stdout, "gptprouse pro browser login  # opens visible browser", "installed onboard output");
   assertIncludes(onboard.stdout, 'gptprouse pro browser ask --file README.md "Review this repo"  # visible-browser send', "installed onboard output");
   assertIncludes(onboard.stdout, "Cloudflare", "installed onboard output");
+  assertIncludes(onboard.stdout, "usage-limit", "installed onboard output");
   assertNotIncludes(onboard.stdout, "gptprouse_token=", "installed onboard output");
   const missingCwd = path.join(consumerDir, "missing-repo");
   const missingCwdOnboard = await runExpectFailure(binPath, ["onboard", "--cwd", missingCwd], { cwd: path.dirname(consumerDir) });
@@ -162,9 +164,14 @@ try {
   assertNotIncludes(claudeConfig.stdout, "gptprouse_token=", "installed Claude config output");
   const browserLoginGuide = await run(binPath, ["pro", "browser", "login", "--dry-run"], { cwd: consumerDir });
   assertIncludes(browserLoginGuide.stdout, "Dry run: no browser was opened.", "installed browser login guide");
+  assertIncludes(browserLoginGuide.stdout, "Cloudflare", "installed browser login guide");
+  assertIncludes(browserLoginGuide.stdout, "usage limit", "installed browser login guide");
   assertIncludes(browserLoginGuide.stdout, "gptprouse pro browser check", "installed browser login guide");
   assertIncludes(browserLoginGuide.stdout, "gptprouse pro browser smoke", "installed browser login guide");
   assertNotIncludes(browserLoginGuide.stdout, "node dist/cli.js", "installed browser login guide");
+  const browserHelp = await run(binPath, ["pro", "browser", "help"], { cwd: consumerDir });
+  assertIncludes(browserHelp.stdout, "gptprouse pro browser login [--dry-run]", "installed browser help");
+  assertIncludes(browserHelp.stdout, "gptprouse pro browser ask", "installed browser help");
   await assertMissingFile(path.join(consumerDir, ".bridge"), "installed consumer bridge before pro ask alias guard");
   const proAskSendAlias = await runExpectFailure(binPath, ["pro", "ask", "--send", "--timeout-ms", "1", "Review this"], {
     cwd: consumerDir
@@ -226,7 +233,9 @@ try {
   }
   await smokeInstalledStdioTaskFinalizers(binPath, consumerDir);
 
-  console.log(`package_smoke: ok tarball=${path.basename(packed.filename)} http_onboarding=ok installed_http_mcp=ok http_write_flow=ok configured_doctor=ok tunnel_url=ok package_boundary=ok stdio_write_flow=ok stdio_task_flow=ok stdio_task_finalizers=ok tools=${REQUIRED_MCP_TOOLS.join(",")}`);
+  console.log(
+    `package_smoke: ok tarball=${path.basename(packed.filename)} http_onboarding=ok installed_http_mcp=ok http_write_flow=ok http_task_finalizers=ok http_result_artifact_flow=ok configured_doctor=ok tunnel_url=ok package_boundary=ok stdio_write_flow=ok stdio_task_flow=ok stdio_task_finalizers=ok stdio_result_artifact_flow=ok tools=${REQUIRED_MCP_TOOLS.join(",")}`
+  );
 } finally {
   await rm(tmp, { recursive: true, force: true });
 }
@@ -286,12 +295,16 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertIncludes(readme, "gptprouse claude prompt", "installed README");
   assertIncludes(readme, "gptprouse claude config", "installed README");
   assertIncludes(readme, "gptprouse release status", "installed README");
+  assertIncludes(readme, "Run `pro ask` and `pro browser ask` from the repo root", "installed README");
   assertIncludes(readme, "npm run release:verify", "installed README");
   assertIncludes(readme, "regular file", "installed README");
+  assertIncludes(readme, "hard link", "installed README");
   assertIncludes(readme, "unexpected executable modes", "installed README");
   assertIncludes(readme, "WSL/Windows mount", "installed README");
   assertIncludes(readme, "installed HTTP MCP repo write dry-run/apply/stage flow", "installed README");
+  assertIncludes(readme, "installed HTTP MCP task completion/blocking/result/artifact fetch flow", "installed README");
   assertIncludes(readme, "installed stdio repo write dry-run/apply/stage flow", "installed README");
+  assertIncludes(readme, "installed stdio task completion/blocking/result/artifact fetch flow", "installed README");
   assertIncludes(readme, "loopback-only", "installed README");
   assertIncludes(readme, "`start` reads the saved setup profile when the server process starts", "installed README");
   assertIncludes(readme, "restart `gptprouse start` so the running server uses the new profile", "installed README");
@@ -610,10 +623,15 @@ async function smokeInstalledStdioTaskFinalizers(binPath, cwd) {
       taskId: doneTask.task.id,
       status: "claimed"
     });
+    const resultArtifactPath = `.bridge/artifacts/results/${doneTask.task.id}.md`;
+    const resultArtifactContent = "Installed stdio MCP artifact answer.\n";
+    await mkdir(path.join(cwd, ".bridge", "artifacts", "results"), { recursive: true });
+    await writeFile(path.join(cwd, resultArtifactPath), resultArtifactContent, "utf8");
     const completed = await callJsonTool(client, "bridge_complete_task", {
       task_id: doneTask.task.id,
       summary: "Completed by installed stdio MCP",
-      commands: ["package stdio finalizer smoke"]
+      commands: ["package stdio finalizer smoke"],
+      artifacts: [{ path: resultArtifactPath, role: "result", bytes: Buffer.byteLength(resultArtifactContent, "utf8") }]
     });
     const blockedTask = await callJsonTool(client, "bridge_create_task", {
       title: "Package stdio block smoke",
@@ -627,6 +645,10 @@ async function smokeInstalledStdioTaskFinalizers(binPath, cwd) {
       next_step: "Inspect package smoke output."
     });
     const fetchedDone = await callJsonTool(client, "bridge_fetch_result", { task_id: doneTask.task.id });
+    const fetchedArtifact = await callJsonTool(client, "bridge_fetch_result_artifact", {
+      task_id: doneTask.task.id,
+      path: resultArtifactPath
+    });
     const fetchedBlocked = await callJsonTool(client, "bridge_fetch_result", { task_id: blockedTask.task.id });
     const doneTasks = await callJsonTool(client, "bridge_list_tasks", { status: "done" });
     const blockedTasks = await callJsonTool(client, "bridge_list_tasks", { status: "blocked" });
@@ -644,6 +666,9 @@ async function smokeInstalledStdioTaskFinalizers(binPath, cwd) {
       summary: "Completed by installed stdio MCP",
       commands: ["package stdio finalizer smoke"]
     });
+    if (fetchedArtifact.content !== resultArtifactContent) {
+      throw new Error(`Installed stdio result artifact content mismatch: ${JSON.stringify(fetchedArtifact)}`);
+    }
     assertResult(blocked.result, {
       taskId: blockedTask.task.id,
       status: "blocked",
@@ -871,6 +896,76 @@ async function smokeInstalledHttpMcpEndpoint(mcpUrl, cwd, writeHead) {
       prompt: "Verify installed HTTP MCP endpoint"
     });
     await assertBridgeTaskStoredInCwd(cwd, created.task.id);
+    const resultArtifactPath = ".bridge/artifacts/results/installed-http-answer.md";
+    const resultArtifactContent = "Installed HTTP MCP artifact answer.\n";
+    await mkdir(path.join(cwd, ".bridge", "artifacts", "results"), { recursive: true });
+    await writeFile(path.join(cwd, resultArtifactPath), resultArtifactContent, "utf8");
+    const completed = await callJsonTool(client, "bridge_complete_task", {
+      task_id: created.task.id,
+      summary: "Completed by installed HTTP MCP",
+      commands: ["package http result smoke"],
+      artifacts: [{ path: resultArtifactPath, role: "result", bytes: Buffer.byteLength(resultArtifactContent, "utf8") }]
+    });
+    const fetchedResult = await callJsonTool(client, "bridge_fetch_result", { task_id: created.task.id });
+    const fetchedArtifact = await callJsonTool(client, "bridge_fetch_result_artifact", {
+      task_id: created.task.id,
+      path: resultArtifactPath
+    });
+    const blockedTask = await callJsonTool(client, "bridge_create_task", {
+      title: "Installed HTTP MCP block",
+      prompt: "Verify installed HTTP MCP blocking path"
+    });
+    await assertBridgeTaskStoredInCwd(cwd, blockedTask.task.id);
+    const blocked = await callJsonTool(client, "bridge_block_task", {
+      task_id: blockedTask.task.id,
+      summary: "Blocked by installed HTTP MCP",
+      code: "package_http_smoke_blocker",
+      retryable: true,
+      next_step: "Inspect installed HTTP smoke output."
+    });
+    const fetchedBlocked = await callJsonTool(client, "bridge_fetch_result", { task_id: blockedTask.task.id });
+    const results = await callJsonTool(client, "bridge_list_results", {});
+    assertResult(completed.result, {
+      taskId: created.task.id,
+      status: "done",
+      summary: "Completed by installed HTTP MCP",
+      commands: ["package http result smoke"]
+    });
+    assertResult(fetchedResult.result, {
+      taskId: created.task.id,
+      status: "done",
+      summary: "Completed by installed HTTP MCP",
+      commands: ["package http result smoke"]
+    });
+    assertResultInList(results.results, {
+      taskId: created.task.id,
+      status: "done",
+      summary: "Completed by installed HTTP MCP"
+    });
+    assertResult(blocked.result, {
+      taskId: blockedTask.task.id,
+      status: "blocked",
+      summary: "Blocked by installed HTTP MCP",
+      blockerCode: "package_http_smoke_blocker",
+      retryable: true,
+      nextStep: "Inspect installed HTTP smoke output."
+    });
+    assertResult(fetchedBlocked.result, {
+      taskId: blockedTask.task.id,
+      status: "blocked",
+      summary: "Blocked by installed HTTP MCP",
+      blockerCode: "package_http_smoke_blocker",
+      retryable: true,
+      nextStep: "Inspect installed HTTP smoke output."
+    });
+    assertResultInList(results.results, {
+      taskId: blockedTask.task.id,
+      status: "blocked",
+      summary: "Blocked by installed HTTP MCP"
+    });
+    if (fetchedArtifact.content !== resultArtifactContent) {
+      throw new Error(`Installed HTTP result artifact content mismatch: ${JSON.stringify(fetchedArtifact)}`);
+    }
     const dryRun = await callJsonTool(client, "repo_write_file_dry_run", {
       path: "http-notes.md",
       content: "new\n",

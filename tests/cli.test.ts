@@ -1310,6 +1310,7 @@ describe("runCli", () => {
     expect(text.indexOf("HTTP MCP uses a short-lived token")).toBeLessThan(
       text.indexOf(`gptprouse status --cwd ${targetCwd} --show-token --url-only`)
     );
+    expect(text).toContain(`cd ${targetCwd}`);
     expect(text).toContain('gptprouse pro ask --file README.md "Review this repo"  # dry-run/manual preview');
     expect(text).toContain("gptprouse pro browser login --dry-run  # preview, no browser opens");
     expect(text).toContain("gptprouse pro browser login  # opens visible browser");
@@ -1318,6 +1319,7 @@ describe("runCli", () => {
     expect(text).toContain('gptprouse pro browser ask --file README.md "Review this repo"  # visible-browser send');
     expect(text).toContain("manual, visible browser");
     expect(text).toContain("Cloudflare");
+    expect(text).toContain("usage-limit");
     expect(text).not.toContain("gptprouse_token=");
     await expect(readFile(path.join(targetCwd, ".bridge", "config.local.json"), "utf8")).rejects.toThrow();
   });
@@ -1524,6 +1526,57 @@ describe("runCli", () => {
     expect(symlinkText).not.toContain("metadata: ok");
   });
 
+  it("release status reports hard-linked package files as release blockers", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-release-"));
+    await writeFile(
+      path.join(cwd, "package.json"),
+      `${JSON.stringify({ name: "demo", version: "1.0.0", license: "MIT", files: ["LICENSE"] }, null, 2)}\n`,
+      "utf8"
+    );
+    const outside = path.join(path.dirname(cwd), "outside-license.txt");
+    await writeFile(outside, "MIT License from outside\n", "utf8");
+    await link(outside, path.join(cwd, "LICENSE"));
+    const out: string[] = [];
+
+    await runCli(["release", "status", "--cwd", cwd], {
+      cwd: "/tmp",
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    const text = out.join("\n");
+    expect(text).toContain("metadata: blocked");
+    expect(text).toContain("hard links");
+    expect(text).toContain("LICENSE");
+    expect(text).not.toContain("metadata: ok");
+  });
+
+  it("release status reports hard-linked packed non-license files as release blockers", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-release-"));
+    await writeFile(
+      path.join(cwd, "package.json"),
+      `${JSON.stringify({ name: "demo", version: "1.0.0", license: "MIT", files: ["README.md"] }, null, 2)}\n`,
+      "utf8"
+    );
+    await writeFile(path.join(cwd, "LICENSE"), "MIT License\n", "utf8");
+    const outside = path.join(path.dirname(cwd), "outside-readme.md");
+    await writeFile(outside, "# Outside README\n", "utf8");
+    await link(outside, path.join(cwd, "README.md"));
+    const out: string[] = [];
+
+    await runCli(["release", "status", "--cwd", cwd], {
+      cwd: "/tmp",
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    const text = out.join("\n");
+    expect(text).toContain("metadata: ok license=MIT license_file=present");
+    expect(text).toContain("pack: blocked packed files have hard links");
+    expect(text).toContain("README.md");
+    expect(text).not.toContain("pack: ok");
+  });
+
   it("release status reports private packages as not publishable", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-release-"));
     await writeFile(
@@ -1728,10 +1781,29 @@ describe("runCli", () => {
     const text = out.join("\n");
     expect(text).toContain("ChatGPT Pro browser login");
     expect(text).toContain("Log in manually");
+    expect(text).toContain("Cloudflare");
+    expect(text).toContain("usage limit");
     expect(text).toContain("gptprouse pro browser check");
     expect(text).toContain("gptprouse pro browser smoke");
     expect(text).not.toContain("node dist/cli.js");
     expect(text).toContain("You can close this Chrome window after login");
+  });
+
+  it("prints browser-specific help from pro browser help", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const out: string[] = [];
+
+    await runCli(["pro", "browser", "help"], {
+      cwd,
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    const text = out.join("\n");
+    expect(text).toContain("gptprouse pro browser");
+    expect(text).toContain("gptprouse pro browser login [--dry-run]");
+    expect(text).toContain("gptprouse pro browser check");
+    expect(text).toContain("gptprouse pro browser ask");
   });
 
   it("rejects non-ChatGPT browser login URLs before opening Chrome", async () => {

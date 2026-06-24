@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { chmod, mkdir, mkdtemp, readFile, symlink, writeFile } from "node:fs/promises";
+import { chmod, link, mkdir, mkdtemp, readFile, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -123,6 +123,46 @@ describe("release-check", () => {
     expect(`${symlinkResult.stdout}\n${symlinkResult.stderr}`).toContain("LICENSE");
     expect(`${symlinkResult.stdout}\n${symlinkResult.stderr}`).toMatch(/regular file|symlink/i);
     expect(symlinkResult.stdout).not.toContain("release_metadata=ok");
+  });
+
+  it("fails release metadata when packed files are hard linked", async () => {
+    const root = await copyPackageJsonToTemp();
+    const packageJson = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
+    packageJson.license = "MIT";
+    await writeFile(path.join(root, "package.json"), `${JSON.stringify(packageJson, null, 2)}\n`, "utf8");
+    const outside = path.join(path.dirname(root), "outside-license.txt");
+    await writeFile(outside, "MIT License from outside\n", "utf8");
+    await link(outside, path.join(root, "LICENSE"));
+
+    const result = await runReleaseCheck(root);
+
+    const output = `${result.stdout}\n${result.stderr}`;
+    expect(result.code).toBe(1);
+    expect(output).toContain("release metadata failed");
+    expect(output).toContain("hard links");
+    expect(output).toContain("LICENSE");
+    expect(result.stdout).not.toContain("release_metadata=ok");
+  });
+
+  it("fails release metadata when packed non-license files are hard linked", async () => {
+    const root = await copyPackageJsonToTemp();
+    const packageJson = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
+    packageJson.license = "MIT";
+    packageJson.files = ["README.md"];
+    await writeFile(path.join(root, "package.json"), `${JSON.stringify(packageJson, null, 2)}\n`, "utf8");
+    await writeFile(path.join(root, "LICENSE"), "MIT License\n", "utf8");
+    const outside = path.join(path.dirname(root), "outside-readme.md");
+    await writeFile(outside, "# Outside README\n", "utf8");
+    await link(outside, path.join(root, "README.md"));
+
+    const result = await runReleaseCheck(root);
+
+    const output = `${result.stdout}\n${result.stderr}`;
+    expect(result.code).toBe(1);
+    expect(output).toContain("release metadata failed");
+    expect(output).toContain("hard links");
+    expect(output).toContain("README.md");
+    expect(result.stdout).not.toContain("release_metadata=ok");
   });
 
   it("fails release metadata when package is private even with a public license", async () => {
@@ -265,6 +305,8 @@ async function createFakeReleaseCommands(
   const binDir = path.join(root, "fake-bin");
   const logPath = path.join(root, "release-check-commands.log");
   await mkdir(binDir, { recursive: true });
+  await mkdir(path.join(root, "dist"), { recursive: true });
+  await writeFile(path.join(root, "dist", "cli.js"), "#!/usr/bin/env node\nconsole.log('doctor')\n", "utf8");
   await Promise.all([
     writeFakeCommand(path.join(binDir, "npm"), "npm", logPath, options.failCommand),
     writeFakeCommand(path.join(binDir, "npm.cmd.mjs"), "npm.cmd", logPath, options.failCommand),
