@@ -706,7 +706,7 @@ Commands:
   gptprouse claude config [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]
   gptprouse ask-pro --dry-run|--send [--file path] "prompt"
   gptprouse pro ask [--file path] "prompt"  # dry-run preview
-  gptprouse pro browser login
+  gptprouse pro browser login [--dry-run]  # preview/open visible browser login
   gptprouse pro browser check|smoke
   gptprouse pro browser ask [--target-url url --confirm-target] [--file path] "prompt"  # explicit visible-browser send
   gptprouse pro latest|list|show <task-id|latest>
@@ -779,7 +779,8 @@ repo: ${cwd}
 
 4. Optional ChatGPT Pro consults:
    gptprouse pro ask --file README.md "Review this repo"  # dry-run/manual preview
-   gptprouse pro browser login
+   gptprouse pro browser login --dry-run  # preview, no browser opens
+   gptprouse pro browser login  # opens visible browser
    gptprouse pro browser check
    gptprouse pro browser smoke
    gptprouse pro browser ask --file README.md "Review this repo"  # visible-browser send

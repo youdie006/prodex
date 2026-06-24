@@ -109,6 +109,7 @@ If your prompt itself starts with flag-like text, put `--` before the prompt, fo
 Use this only when you explicitly want to use your logged-in ChatGPT Pro web session.
 
 ```bash
+gptprouse pro browser login --dry-run
 gptprouse pro browser login
 gptprouse pro browser check
 gptprouse pro browser smoke
@@ -116,7 +117,8 @@ gptprouse pro browser smoke
 
 What happens:
 
-- A dedicated Chrome profile opens at ChatGPT.
+- `login --dry-run` prints the dedicated Chrome profile, debug URL, and next commands without opening a browser.
+- `login` opens that dedicated Chrome profile at ChatGPT.
 - You log in manually in the visible browser.
 - If ChatGPT asks for captcha, permission, or account verification, handle it in that browser.
 - Pick the Pro/Thinking model you want in the ChatGPT UI.

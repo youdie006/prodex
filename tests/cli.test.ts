@@ -921,6 +921,7 @@ describe("runCli", () => {
 
     const text = out.join("\n");
     expect(text).toContain('gptprouse pro ask [--file path] "prompt"  # dry-run preview');
+    expect(text).toContain("gptprouse pro browser login [--dry-run]  # preview/open visible browser login");
     expect(text).toContain('gptprouse pro browser ask [--target-url url --confirm-target] [--file path] "prompt"  # explicit visible-browser send');
   });
 
@@ -1168,7 +1169,8 @@ describe("runCli", () => {
     expect(text).toContain(`gptprouse status --cwd ${targetCwd} --show-token --url-only`);
     expect(text).toContain(`gptprouse project prompt --cwd ${targetCwd}`);
     expect(text).toContain('gptprouse pro ask --file README.md "Review this repo"  # dry-run/manual preview');
-    expect(text).toContain("gptprouse pro browser login");
+    expect(text).toContain("gptprouse pro browser login --dry-run  # preview, no browser opens");
+    expect(text).toContain("gptprouse pro browser login  # opens visible browser");
     expect(text).toContain("gptprouse pro browser check");
     expect(text).toContain("gptprouse pro browser smoke");
     expect(text).toContain('gptprouse pro browser ask --file README.md "Review this repo"  # visible-browser send');

@@ -60,6 +60,7 @@ try {
   assertIncludes(help.stdout, "gptprouse project prompt", "installed help output");
   assertIncludes(help.stdout, "gptprouse claude prompt", "installed help output");
   assertIncludes(help.stdout, "gptprouse claude config", "installed help output");
+  assertIncludes(help.stdout, "gptprouse pro browser login [--dry-run]", "installed help output");
   assertIncludes(help.stdout, `gptprouse v${installedPackageJson.version}`, "installed help output");
   const installedPackageDir = path.join(consumerDir, "node_modules", "gptprouse");
   const releaseStatus = await run(binPath, ["release", "status", "--cwd", installedPackageDir], { cwd: consumerDir });
@@ -86,7 +87,8 @@ try {
   assertIncludes(onboard.stdout, `gptprouse setup --cwd ${consumerDir} --token-ttl-hours 24`, "installed onboard output");
   assertIncludes(onboard.stdout, `gptprouse project prompt --cwd ${consumerDir}`, "installed onboard output");
   assertIncludes(onboard.stdout, 'gptprouse pro ask --file README.md "Review this repo"  # dry-run/manual preview', "installed onboard output");
-  assertIncludes(onboard.stdout, "gptprouse pro browser login", "installed onboard output");
+  assertIncludes(onboard.stdout, "gptprouse pro browser login --dry-run  # preview, no browser opens", "installed onboard output");
+  assertIncludes(onboard.stdout, "gptprouse pro browser login  # opens visible browser", "installed onboard output");
   assertIncludes(onboard.stdout, 'gptprouse pro browser ask --file README.md "Review this repo"  # visible-browser send', "installed onboard output");
   assertIncludes(onboard.stdout, "Cloudflare", "installed onboard output");
   assertNotIncludes(onboard.stdout, "gptprouse_token=", "installed onboard output");
@@ -110,6 +112,7 @@ try {
   }
   assertNotIncludes(claudeConfig.stdout, "gptprouse_token=", "installed Claude config output");
   const browserLoginGuide = await run(binPath, ["pro", "browser", "login", "--dry-run"], { cwd: consumerDir });
+  assertIncludes(browserLoginGuide.stdout, "Dry run: no browser was opened.", "installed browser login guide");
   assertIncludes(browserLoginGuide.stdout, "gptprouse pro browser check", "installed browser login guide");
   assertIncludes(browserLoginGuide.stdout, "gptprouse pro browser smoke", "installed browser login guide");
   assertNotIncludes(browserLoginGuide.stdout, "node dist/cli.js", "installed browser login guide");
@@ -179,6 +182,7 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertNotIncludes(claudeDoc, "/absolute/path/to/project", "installed Claude docs");
   assertIncludes(readme, "For an installed package", "installed README");
   assertIncludes(readme, "gptprouse onboard", "installed README");
+  assertIncludes(readme, "gptprouse pro browser login --dry-run", "installed README");
   assertIncludes(readme, "gptprouse init", "installed README");
   assertIncludes(readme, "CLI-only", "installed README");
   assertIncludes(readme, "ripgrep", "installed README");
