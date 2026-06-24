@@ -124,12 +124,14 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertIncludes(readme, "For an installed package", "installed README");
   assertIncludes(readme, "gptprouse init", "installed README");
   assertIncludes(readme, "CLI-only", "installed README");
+  assertIncludes(readme, "mcp --cwd", "installed README");
   assertIncludes(readme, "configured `doctor`", "installed README");
   assertIncludes(httpMcpDoc, "For an installed package", "installed HTTP MCP docs");
   assertIncludes(httpMcpDoc, "gptprouse setup --token-ttl-hours 24", "installed HTTP MCP docs");
   assertIncludes(httpMcpDoc, "Keep `gptprouse start` running", "installed HTTP MCP docs");
   assertIncludes(httpMcpDoc, "CLI-only", "installed HTTP MCP docs");
   assertIncludes(claudeDoc, "CLI-only", "installed Claude docs");
+  assertIncludes(claudeDoc, "mcp --cwd", "installed Claude docs");
 }
 
 async function assertInstalledPackageImportBoundary(consumerDir, packedFiles) {
@@ -174,8 +176,8 @@ async function smokeStdioMcp(binPath, cwd) {
   const client = new Client({ name: "gptprouse-package-smoke", version: "0.2.0" });
   const transport = new StdioClientTransport({
     command: binPath,
-    args: ["mcp"],
-    cwd,
+    args: ["mcp", "--cwd", cwd],
+    cwd: path.dirname(cwd),
     stderr: "pipe"
   });
   try {
@@ -191,8 +193,8 @@ async function smokeInstalledStdioTaskFinalizers(binPath, cwd) {
   const client = new Client({ name: "gptprouse-package-finalizers-smoke", version: "0.2.0" });
   const transport = new StdioClientTransport({
     command: binPath,
-    args: ["mcp"],
-    cwd,
+    args: ["mcp", "--cwd", cwd],
+    cwd: path.dirname(cwd),
     stderr: "pipe"
   });
   try {
@@ -306,8 +308,18 @@ async function smokeInstalledStdioTaskFinalizers(binPath, cwd) {
       status: "blocked",
       summary: "Blocked by installed stdio MCP"
     });
+    await assertBridgeTaskStoredInCwd(cwd, doneTask.task.id);
+    await assertBridgeTaskStoredInCwd(cwd, blockedTask.task.id);
   } finally {
     await closeStdioClient(client, transport, "installed stdio MCP client for task finalizer smoke");
+  }
+}
+
+async function assertBridgeTaskStoredInCwd(cwd, taskId) {
+  const raw = await readFile(path.join(cwd, ".bridge", "tasks", `${taskId}.json`), "utf8");
+  const task = JSON.parse(raw);
+  if (task.id !== taskId) {
+    throw new Error(`Expected task ${taskId} to be stored under explicit MCP --cwd, got ${task.id}`);
   }
 }
 
@@ -459,32 +471,39 @@ async function callJsonTool(client, name, args) {
 }
 
 async function closeStdioClient(client, transport, label) {
+  const processRef = captureStdioTransportProcess(transport);
   const closePromise = client.close();
   closePromise.catch(() => undefined);
   try {
     await withTimeout(closePromise, 10_000, `Timed out closing ${label}`);
   } catch (error) {
-    forceKillStdioTransport(transport);
-    await waitForStdioTransportExit(transport, 2_000).catch(() => undefined);
+    forceKillStdioProcess(processRef);
+    await waitForStdioProcessExit(processRef, 2_000).catch(() => undefined);
     throw error;
   }
 }
 
-function forceKillStdioTransport(transport) {
-  const child = transport._process;
+function captureStdioTransportProcess(transport) {
+  return { child: transport._process, pid: transport.pid };
+}
+
+function forceKillStdioProcess(processRef) {
+  const child = processRef.child;
   if (child && child.exitCode === null && child.signalCode === null) {
     child.kill("SIGKILL");
-  } else if (transport.pid) {
+    return;
+  }
+  if (processRef.pid) {
     try {
-      process.kill(transport.pid, "SIGKILL");
+      process.kill(processRef.pid, "SIGKILL");
     } catch {
       // Process already exited.
     }
   }
 }
 
-async function waitForStdioTransportExit(transport, timeoutMs) {
-  const child = transport._process;
+async function waitForStdioProcessExit(processRef, timeoutMs) {
+  const child = processRef.child;
   if (!child || child.exitCode !== null || child.signalCode !== null) return;
   await withTimeout(
     new Promise((resolve) => child.once("exit", resolve)),

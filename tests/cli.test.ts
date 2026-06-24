@@ -1,10 +1,15 @@
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { chmod, mkdir, mkdtemp, readFile, readdir, symlink, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { runCli } from "../src/cli.js";
 import { setSafeFileTestHooks } from "../src/safe-file.js";
 import { BridgeStore } from "../src/store.js";
+
+const requireFromTest = createRequire(import.meta.url);
 
 describe("runCli", () => {
   afterEach(() => {
@@ -267,6 +272,33 @@ describe("runCli", () => {
       ).rejects.toThrow(`Unexpected argument for ${args[0]} show: extra`);
     }
   });
+
+  it("runs stdio MCP against an explicit --cwd target instead of the process cwd", async () => {
+    const launcherCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-launcher-"));
+    const targetCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-target-"));
+    const cliPath = path.resolve(import.meta.dirname, "..", "src", "cli.ts");
+    const tsxLoader = requireFromTest.resolve("tsx");
+    const client = new Client({ name: "gptprouse-cli-test", version: "0.2.0" });
+    const transport = new StdioClientTransport({
+      command: process.execPath,
+      args: ["--import", tsxLoader, cliPath, "mcp", "--cwd", targetCwd],
+      cwd: launcherCwd,
+      stderr: "pipe"
+    });
+
+    try {
+      await withTimeout(client.connect(transport), 20_000, "Timed out connecting to stdio MCP server");
+      await callMcpJsonTool(client, "bridge_create_task", {
+        title: "Explicit cwd",
+        prompt: "Create this task in the explicit cwd."
+      });
+    } finally {
+      await closeStdioClient(client, transport);
+    }
+
+    await expect(readdir(path.join(targetCwd, ".bridge", "tasks"))).resolves.toHaveLength(1);
+    await expect(readdir(path.join(launcherCwd, ".bridge", "tasks"))).rejects.toThrow();
+  }, 20_000);
 
   it("rejects flags that are missing required values", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
@@ -890,6 +922,19 @@ describe("runCli", () => {
     const text = out.join("\n");
     expect(text).toContain("gptprouse receipts list [--kind kind] [--task-id task-id]");
     expect(text).toContain("gptprouse receipts show <receipt-id|latest>");
+  });
+
+  it("documents explicit MCP cwd selection in help", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const out: string[] = [];
+
+    await runCli(["help"], {
+      cwd,
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    expect(out.join("\n")).toContain("gptprouse mcp [--cwd /absolute/path/to/repo]");
   });
 
   it("describes token TTL as an explicit help placeholder", async () => {
@@ -1518,5 +1563,79 @@ async function writeExpiredLocalConfig(cwd: string): Promise<void> {
       2
     )}\n`,
     "utf8"
+  );
+}
+
+async function callMcpJsonTool(client: Client, name: string, args: Record<string, unknown>): Promise<unknown> {
+  const result = await withTimeout(client.callTool({ name, arguments: args }), 20_000, `Timed out calling ${name}`);
+  const text = result.content.find((item) => item.type === "text")?.text;
+  if (!text) throw new Error(`Tool ${name} did not return text content`);
+  return JSON.parse(text);
+}
+
+async function closeStdioClient(client: Client, transport: StdioClientTransport): Promise<void> {
+  const processRef = captureStdioTransportProcess(transport);
+  const closePromise = client.close();
+  closePromise.catch(() => undefined);
+  try {
+    await withTimeout(closePromise, 10_000, "Timed out closing stdio MCP client");
+  } catch (error) {
+    forceKillStdioProcess(processRef);
+    await waitForStdioProcessExit(processRef, 2_000).catch(() => undefined);
+    throw error;
+  }
+}
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_resolve, reject) => {
+        timeout = setTimeout(() => reject(new Error(message)), timeoutMs);
+      })
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
+
+type CapturedStdioProcess = {
+  child?: {
+    exitCode: number | null;
+    signalCode: string | null;
+    kill(signal: string): void;
+    once(event: "exit", listener: () => void): void;
+  };
+  pid?: number;
+};
+
+function captureStdioTransportProcess(transport: StdioClientTransport): CapturedStdioProcess {
+  const raw = transport as unknown as { _process?: CapturedStdioProcess["child"]; pid?: number };
+  return { child: raw._process, pid: raw.pid };
+}
+
+function forceKillStdioProcess(processRef: CapturedStdioProcess): void {
+  const child = processRef.child;
+  if (child && child.exitCode === null && child.signalCode === null) {
+    child.kill("SIGKILL");
+    return;
+  }
+  if (processRef.pid) {
+    try {
+      process.kill(processRef.pid, "SIGKILL");
+    } catch {
+      // Process already exited.
+    }
+  }
+}
+
+async function waitForStdioProcessExit(processRef: CapturedStdioProcess, timeoutMs: number): Promise<void> {
+  const child = processRef.child;
+  if (!child || child.exitCode !== null || child.signalCode !== null) return;
+  await withTimeout(
+    new Promise<void>((resolve) => child.once("exit", resolve)),
+    timeoutMs,
+    "Timed out waiting for killed stdio MCP process"
   );
 }

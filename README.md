@@ -224,11 +224,10 @@ If `gptprouse` is installed and on your PATH, point Claude at the stdio server:
   "mcpServers": {
     "gptprouse": {
       "command": "gptprouse",
-      "args": ["mcp"],
-      "cwd": "/absolute/path/to/your/repo"
+      "args": ["mcp", "--cwd", "/absolute/path/to/your/repo"]
     }
   }
 }
 ```
 
-For a source checkout, first run `npm install && npm run build`, then use `node` with your own absolute path to `dist/cli.js`. See [docs/claude.md](docs/claude.md) for Claude Desktop and Claude Code notes.
+For a source checkout, first run `npm install && npm run build`, then use `node` with your own absolute path to `dist/cli.js` and the same `mcp --cwd /absolute/path/to/your/repo` args. See [docs/claude.md](docs/claude.md) for Claude Desktop and Claude Code notes.

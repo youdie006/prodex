@@ -25,8 +25,7 @@ Add this server to your Claude Desktop MCP config:
   "mcpServers": {
     "gptprouse": {
       "command": "gptprouse",
-      "args": ["mcp"],
-      "cwd": "/absolute/path/to/your/repo"
+      "args": ["mcp", "--cwd", "/absolute/path/to/your/repo"]
     }
   }
 }
@@ -39,8 +38,7 @@ For a source checkout instead of an installed package, use:
   "mcpServers": {
     "gptprouse": {
       "command": "node",
-      "args": ["/absolute/path/to/gptprouse/dist/cli.js", "mcp"],
-      "cwd": "/absolute/path/to/your/repo"
+      "args": ["/absolute/path/to/gptprouse/dist/cli.js", "mcp", "--cwd", "/absolute/path/to/your/repo"]
     }
   }
 }
@@ -53,7 +51,7 @@ Restart Claude Desktop after editing the config.
 Use the same command shape in Claude Code's MCP configuration. If your Claude Code install supports adding servers from the CLI, the command is conceptually:
 
 ```bash
-claude mcp add gptprouse -- gptprouse mcp
+claude mcp add gptprouse -- gptprouse mcp --cwd /absolute/path/to/your/repo
 ```
 
 If your install expects a JSON config, use the Claude Desktop JSON above.

@@ -600,7 +600,8 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
   }
 
   if (command === "mcp") {
-    await runMcpServer(io.cwd);
+    assertOnlyOptions(rest, "mcp", ["--cwd"]);
+    await runMcpServer(resolveCwdFlag(io.cwd, rest));
     return 0;
   }
 
@@ -646,7 +647,7 @@ Commands:
   gptprouse receipts show <receipt-id|latest>
   gptprouse sessions list [--status preview|running|done|blocked]
   gptprouse sessions show <session-id|latest>
-  gptprouse mcp`);
+  gptprouse mcp [--cwd /absolute/path/to/repo]`);
 }
 
 async function runDoctor(store: BridgeStore, io: CliIO): Promise<number> {
@@ -1327,6 +1328,12 @@ function readRepeatedFlag(args: string[], flag: string): string[] {
     }
   }
   return values;
+}
+
+function resolveCwdFlag(defaultCwd: string, args: string[]): string {
+  const cwd = readFlag(args, "--cwd");
+  if (!cwd) return defaultCwd;
+  return realpathSync(path.resolve(defaultCwd, cwd));
 }
 
 function assertOnlyOptions(args: string[], command: string, valueFlags: readonly string[], booleanFlags: readonly string[] = []): void {
