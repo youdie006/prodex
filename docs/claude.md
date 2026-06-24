@@ -89,6 +89,10 @@ No shell, browser, public tunnel, direct ungated write, or direct ungated stagin
 
 ## First Prompt
 
-```text
-Use gptprouse. Create a bridge task for Codex with a short title and a concrete prompt. Then list open bridge tasks.
+After adding the MCP server, generate a paste-ready verification prompt:
+
+```bash
+gptprouse claude prompt --cwd /absolute/path/to/your/repo
 ```
+
+Paste the generated prompt into Claude. It asks Claude to use only `bridge_create_task`, `bridge_list_tasks`, and `bridge_get_task`, then gives local follow-up commands for checking the created task from your terminal.

@@ -129,6 +129,9 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
         "status --show-token requires a token with expiry. Run `gptprouse setup --token-ttl-hours <hours>` first, or pass --unsafe-show-non-expiring-token for local-only debugging."
       );
     }
+    if (showToken && tokenStatus.status === "expired") {
+      throw new Error(`token expired at ${tokenStatus.token_expires_at}. Run \`gptprouse setup --token-ttl-hours <hours>\`.`);
+    }
     const serverUrl = formatServerUrlForOutput(config.server_url, { showToken });
     if (rest.includes("--url-only")) {
       io.stdout(serverUrl);
@@ -216,6 +219,14 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
     if (subcommand !== "prompt") throw new Error("project requires prompt");
     assertOnlyOptions(projectArgs, "project prompt", ["--cwd"]);
     io.stdout(formatProjectVerificationPrompt(resolveCwdFlag(io.cwd, projectArgs)));
+    return 0;
+  }
+
+  if (command === "claude") {
+    const [subcommand, ...claudeArgs] = rest;
+    if (subcommand !== "prompt") throw new Error("claude requires prompt");
+    assertOnlyOptions(claudeArgs, "claude prompt", ["--cwd"]);
+    io.stdout(formatClaudeVerificationPrompt(resolveCwdFlag(io.cwd, claudeArgs)));
     return 0;
   }
 
@@ -677,6 +688,7 @@ Commands:
   gptprouse tunnel url [--cwd /absolute/path/to/repo] --public-url https://... [--show-token] [--url-only]
   gptprouse release status [--cwd /absolute/path/to/repo]
   gptprouse project prompt [--cwd /absolute/path/to/repo]
+  gptprouse claude prompt [--cwd /absolute/path/to/repo]
   gptprouse ask-pro --dry-run|--send [--file path] "prompt"
   gptprouse pro ask [--file path] "prompt"  # dry-run preview
   gptprouse pro browser login
@@ -724,6 +736,36 @@ Please verify the gptprouse MCP bridge for this private project:
 4. Reply with the task_id and whether all three MCP calls succeeded. Do not call repo_write_file_dry_run, repo_write_file_apply, repo_stage_reviewed_paths, or any write/stage tool for this verification.
 
 Local follow-up after ChatGPT replies:
+
+cd ${shellQuote(cwd)}
+gptprouse tasks list --status new
+gptprouse tasks show <task-id>`;
+}
+
+function formatClaudeVerificationPrompt(cwd: string): string {
+  return `Claude MCP verification prompt
+
+Paste this into Claude after adding the gptprouse stdio MCP server.
+
+Please verify the gptprouse MCP bridge for this private repo:
+
+1. Call the MCP tool \`bridge_create_task\` with:
+
+   {
+     "title": "gptprouse Claude MCP verification",
+     "prompt": "Verify that Claude can create tasks through the local gptprouse MCP bridge.",
+     "repo_id": "default"
+   }
+
+2. Call \`bridge_list_tasks\` with:
+
+   { "status": "new" }
+
+3. Call \`bridge_get_task\` with the task_id returned by \`bridge_create_task\`.
+
+4. Reply with the task_id and whether all three MCP calls succeeded. Do not call repo_write_file_dry_run, repo_write_file_apply, repo_stage_reviewed_paths, or any write/stage tool for this verification.
+
+Local follow-up after Claude replies:
 
 cd ${shellQuote(cwd)}
 gptprouse tasks list --status new

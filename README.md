@@ -270,3 +270,11 @@ If `gptprouse` is installed and on your PATH, point Claude at the stdio server:
 ```
 
 For a source checkout, first run `npm install && npm run build`, then use `node` with your own absolute path to `dist/cli.js` and the same `mcp --cwd /absolute/path/to/your/repo` args. See [docs/claude.md](docs/claude.md) for Claude Desktop and Claude Code notes.
+
+After adding the MCP server in Claude, generate a paste-ready verification prompt:
+
+```bash
+gptprouse claude prompt --cwd /absolute/path/to/your/repo
+```
+
+The generated prompt asks Claude to create and read a bridge task only; it does not request write, stage, shell, browser, or tunnel actions.

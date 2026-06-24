@@ -1020,6 +1020,7 @@ describe("runCli", () => {
     });
 
     expect(out.join("\n")).toContain("gptprouse project prompt [--cwd /absolute/path/to/repo]");
+    expect(out.join("\n")).toContain("gptprouse claude prompt [--cwd /absolute/path/to/repo]");
   });
 
   it("project prompt prints a paste-ready ChatGPT Project MCP verification prompt", async () => {
@@ -1055,6 +1056,41 @@ describe("runCli", () => {
         stderr: () => {}
       })
     ).rejects.toThrow("project requires prompt");
+  });
+
+  it("claude prompt prints a paste-ready Claude MCP verification prompt", async () => {
+    const launcherCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-launcher-"));
+    const targetCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-target-"));
+    const out: string[] = [];
+
+    await runCli(["claude", "prompt", "--cwd", targetCwd], {
+      cwd: launcherCwd,
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    const text = out.join("\n");
+    expect(text).toContain("Claude MCP verification prompt");
+    expect(text).toContain("Paste this into Claude after adding the gptprouse stdio MCP server.");
+    expect(text).toContain("bridge_create_task");
+    expect(text).toContain("bridge_list_tasks");
+    expect(text).toContain("bridge_get_task");
+    expect(text).toContain(`cd ${targetCwd}`);
+    expect(text).toContain("gptprouse tasks list --status new");
+    expect(text).toContain(targetCwd);
+    expect(text).not.toContain("gptprouse_token=");
+  });
+
+  it("claude prompt rejects unknown Claude helper subcommands", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+
+    await expect(
+      runCli(["claude", "verify"], {
+        cwd,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.toThrow("claude requires prompt");
   });
 
   it("describes token TTL as an explicit help placeholder", async () => {
@@ -1608,6 +1644,40 @@ describe("runCli", () => {
     });
 
     expect(out).toEqual(["http://127.0.0.1:8789/mcp?gptprouse_token=super-secret-token"]);
+  });
+
+  it("refuses to reveal expired local MCP tokens", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    await mkdir(path.join(cwd, ".bridge"), { recursive: true });
+    await writeFile(
+      path.join(cwd, ".bridge", "config.local.json"),
+      `${JSON.stringify(
+        {
+          schema_version: 1,
+          host: "127.0.0.1",
+          port: 8789,
+          token: "expired-secret-token",
+          server_url: "http://127.0.0.1:8789/mcp?gptprouse_token=expired-secret-token",
+          token_expires_at: new Date(Date.now() - 1000).toISOString(),
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+    const out: string[] = [];
+
+    await expect(
+      runCli(["status", "--show-token", "--url-only"], {
+        cwd,
+        stdout: (line) => out.push(line),
+        stderr: () => {}
+      })
+    ).rejects.toThrow(/token expired/i);
+
+    expect(out.join("\n")).not.toContain("expired-secret-token");
   });
 
   it("prints token expiry status when setup uses a TTL", async () => {

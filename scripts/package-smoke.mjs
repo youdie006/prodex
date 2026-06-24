@@ -57,6 +57,7 @@ try {
   assertIncludes(help.stdout, "gptprouse doctor", "installed help output");
   assertIncludes(help.stdout, "gptprouse release status", "installed help output");
   assertIncludes(help.stdout, "gptprouse project prompt", "installed help output");
+  assertIncludes(help.stdout, "gptprouse claude prompt", "installed help output");
   assertIncludes(help.stdout, `gptprouse v${installedPackageJson.version}`, "installed help output");
   const installedPackageDir = path.join(consumerDir, "node_modules", "gptprouse");
   const releaseStatus = await run(binPath, ["release", "status", "--cwd", installedPackageDir], { cwd: consumerDir });
@@ -69,6 +70,11 @@ try {
   assertIncludes(projectPrompt.stdout, "bridge_create_task", "installed project prompt output");
   assertIncludes(projectPrompt.stdout, "gptprouse tasks list --status new", "installed project prompt output");
   assertNotIncludes(projectPrompt.stdout, "gptprouse_token=", "installed project prompt output");
+  const claudePrompt = await run(binPath, ["claude", "prompt", "--cwd", consumerDir], { cwd: path.dirname(consumerDir) });
+  assertIncludes(claudePrompt.stdout, "Claude MCP verification prompt", "installed Claude prompt output");
+  assertIncludes(claudePrompt.stdout, "bridge_create_task", "installed Claude prompt output");
+  assertIncludes(claudePrompt.stdout, "gptprouse tasks list --status new", "installed Claude prompt output");
+  assertNotIncludes(claudePrompt.stdout, "gptprouse_token=", "installed Claude prompt output");
   const browserLoginGuide = await run(binPath, ["pro", "browser", "login", "--dry-run"], { cwd: consumerDir });
   assertIncludes(browserLoginGuide.stdout, "gptprouse pro browser check", "installed browser login guide");
   assertIncludes(browserLoginGuide.stdout, "gptprouse pro browser smoke", "installed browser login guide");
@@ -144,6 +150,7 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertIncludes(readme, "setup --cwd", "installed README");
   assertIncludes(readme, "mcp --cwd", "installed README");
   assertIncludes(readme, "gptprouse project prompt", "installed README");
+  assertIncludes(readme, "gptprouse claude prompt", "installed README");
   assertIncludes(readme, "gptprouse release status", "installed README");
   assertIncludes(readme, "npm run release:verify", "installed README");
   assertIncludes(readme, "configured `doctor`", "installed README");
@@ -158,6 +165,7 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertIncludes(claudeDoc, "CLI-only", "installed Claude docs");
   assertIncludes(claudeDoc, "ripgrep", "installed Claude docs");
   assertIncludes(claudeDoc, "mcp --cwd", "installed Claude docs");
+  assertIncludes(claudeDoc, "gptprouse claude prompt", "installed Claude docs");
 }
 
 async function assertInstalledPackageImportBoundary(consumerDir, packedFiles) {
@@ -387,6 +395,32 @@ async function smokeInstalledHttpOnboarding(binPath, cwd) {
   const nonExpiringRevealOutput = `${nonExpiringReveal.stdout}\n${nonExpiringReveal.stderr}`;
   assertIncludes(nonExpiringRevealOutput, "status --show-token requires a token with expiry", "installed non-expiring status reveal refusal");
   assertNotIncludes(nonExpiringRevealOutput, nonExpiringToken, "installed non-expiring status reveal refusal");
+
+  const expiredCwd = path.join(launcherCwd, "expired-http");
+  const expiredToken = "expired-package-smoke-token";
+  await mkdir(path.join(expiredCwd, ".bridge"), { recursive: true });
+  await writeFile(
+    path.join(expiredCwd, ".bridge", "config.local.json"),
+    `${JSON.stringify(
+      {
+        schema_version: 1,
+        host: "127.0.0.1",
+        port: 8791,
+        token: expiredToken,
+        server_url: `http://127.0.0.1:8791/mcp?gptprouse_token=${expiredToken}`,
+        token_expires_at: new Date(Date.now() - 1000).toISOString(),
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      },
+      null,
+      2
+    )}\n`,
+    "utf8"
+  );
+  const expiredReveal = await runExpectFailure(binPath, ["status", "--cwd", expiredCwd, "--show-token", "--url-only"], { cwd: launcherCwd });
+  const expiredRevealOutput = `${expiredReveal.stdout}\n${expiredReveal.stderr}`;
+  assertIncludes(expiredRevealOutput, "token expired", "installed expired status reveal refusal");
+  assertNotIncludes(expiredRevealOutput, expiredToken, "installed expired status reveal refusal");
 
   const configuredDoctor = await run(binPath, ["doctor", "--cwd", cwd], { cwd: launcherCwd, timeout: 60_000 });
   assertIncludes(configuredDoctor.stdout, "config: ok", "installed configured doctor output");
