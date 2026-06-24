@@ -102,6 +102,29 @@ gptprouse status --show-token --url-only
 
 Use it as a remote Streamable HTTP MCP server URL. Keep `gptprouse start` running. Treat the token-bearing URL like a password and rotate it with `setup` when you no longer need that URL.
 
+## Verify In ChatGPT
+
+After adding the MCP URL, generate a prompt that tells ChatGPT exactly which read/task tools to call:
+
+```bash
+gptprouse project prompt
+```
+
+From outside the repo:
+
+```bash
+gptprouse project prompt --cwd /absolute/path/to/your/repo
+```
+
+Paste the generated prompt into the ChatGPT Project. It asks ChatGPT to call `bridge_create_task`, `bridge_list_tasks`, and `bridge_get_task`, then reply with the created task id. It deliberately does not ask for any repo write or staging tools.
+
+After ChatGPT replies, confirm the task locally:
+
+```bash
+gptprouse tasks list --status new
+gptprouse tasks show <task-id>
+```
+
 If the ChatGPT app runtime cannot reach `127.0.0.1`, this project intentionally does not create a tunnel automatically. Put your own explicit tunnel in front of the local server only after you understand the token exposure risk, and create a short-lived replacement URL first:
 
 ```bash

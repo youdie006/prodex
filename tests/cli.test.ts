@@ -1006,6 +1006,54 @@ describe("runCli", () => {
     expect(text).toContain("gptprouse mcp [--cwd /absolute/path/to/repo]");
   });
 
+  it("lists the project prompt command in help", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const out: string[] = [];
+
+    await runCli(["help"], {
+      cwd,
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    expect(out.join("\n")).toContain("gptprouse project prompt [--cwd /absolute/path/to/repo]");
+  });
+
+  it("project prompt prints a paste-ready ChatGPT Project MCP verification prompt", async () => {
+    const launcherCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-launcher-"));
+    const targetCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-target-"));
+    const out: string[] = [];
+
+    await runCli(["project", "prompt", "--cwd", targetCwd], {
+      cwd: launcherCwd,
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    const text = out.join("\n");
+    expect(text).toContain("ChatGPT Project MCP verification prompt");
+    expect(text).toContain("Paste this into the ChatGPT Project after adding the gptprouse MCP server URL.");
+    expect(text).toContain("bridge_create_task");
+    expect(text).toContain("bridge_list_tasks");
+    expect(text).toContain("bridge_get_task");
+    expect(text).toContain(`cd ${targetCwd}`);
+    expect(text).toContain("gptprouse tasks list --status new");
+    expect(text).toContain(targetCwd);
+    expect(text).not.toContain("gptprouse_token=");
+  });
+
+  it("project prompt rejects unknown ChatGPT Project helper subcommands", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+
+    await expect(
+      runCli(["project", "verify"], {
+        cwd,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.toThrow("project requires prompt");
+  });
+
   it("describes token TTL as an explicit help placeholder", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
     const out: string[] = [];

@@ -55,7 +55,13 @@ try {
   }
   const help = await run(binPath, ["help"], { cwd: consumerDir });
   assertIncludes(help.stdout, "gptprouse doctor", "installed help output");
+  assertIncludes(help.stdout, "gptprouse project prompt", "installed help output");
   assertIncludes(help.stdout, `gptprouse v${installedPackageJson.version}`, "installed help output");
+  const projectPrompt = await run(binPath, ["project", "prompt", "--cwd", consumerDir], { cwd: path.dirname(consumerDir) });
+  assertIncludes(projectPrompt.stdout, "ChatGPT Project MCP verification prompt", "installed project prompt output");
+  assertIncludes(projectPrompt.stdout, "bridge_create_task", "installed project prompt output");
+  assertIncludes(projectPrompt.stdout, "gptprouse tasks list --status new", "installed project prompt output");
+  assertNotIncludes(projectPrompt.stdout, "gptprouse_token=", "installed project prompt output");
   const browserLoginGuide = await run(binPath, ["pro", "browser", "login", "--dry-run"], { cwd: consumerDir });
   assertIncludes(browserLoginGuide.stdout, "gptprouse pro browser check", "installed browser login guide");
   assertIncludes(browserLoginGuide.stdout, "gptprouse pro browser smoke", "installed browser login guide");
@@ -130,12 +136,15 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertIncludes(readme, "ripgrep", "installed README");
   assertIncludes(readme, "setup --cwd", "installed README");
   assertIncludes(readme, "mcp --cwd", "installed README");
+  assertIncludes(readme, "gptprouse project prompt", "installed README");
   assertIncludes(readme, "npm run release:verify", "installed README");
   assertIncludes(readme, "configured `doctor`", "installed README");
   assertIncludes(httpMcpDoc, "For an installed package", "installed HTTP MCP docs");
   assertIncludes(httpMcpDoc, "ripgrep", "installed HTTP MCP docs");
   assertIncludes(httpMcpDoc, "setup --cwd", "installed HTTP MCP docs");
   assertIncludes(httpMcpDoc, "gptprouse setup --token-ttl-hours 24", "installed HTTP MCP docs");
+  assertIncludes(httpMcpDoc, "gptprouse project prompt", "installed HTTP MCP docs");
+  assertIncludes(httpMcpDoc, "Verify In ChatGPT", "installed HTTP MCP docs");
   assertIncludes(httpMcpDoc, "Keep `gptprouse start` running", "installed HTTP MCP docs");
   assertIncludes(httpMcpDoc, "CLI-only", "installed HTTP MCP docs");
   assertIncludes(claudeDoc, "CLI-only", "installed Claude docs");

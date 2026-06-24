@@ -171,6 +171,19 @@ gptprouse status --show-token --url-only
 
 The URL token is stored only in `.bridge/config.local.json`, which is ignored by git. Treat the full `--show-token` URL like a password: paste it only into your own private ChatGPT Project/App configuration, then rotate it with `setup` when you no longer need that URL. If you omit `--token-ttl-hours`, the token does not expire; keep that local-only and rerun `setup --token-ttl-hours <hours>` before putting any tunnel in front of it.
 
+After adding the MCP URL to ChatGPT, generate a paste-ready verification prompt:
+
+```bash
+gptprouse project prompt
+```
+
+Paste that prompt into the ChatGPT Project. It asks ChatGPT to call `bridge_create_task`, `bridge_list_tasks`, and `bridge_get_task` only, then you can confirm the created task locally:
+
+```bash
+gptprouse tasks list --status new
+gptprouse tasks show <task-id>
+```
+
 If ChatGPT cannot reach `127.0.0.1` from its app runtime, keep `gptprouse start` local and put your own tunnel in front of it only after creating a short-lived token. `gptprouse` does not create the tunnel for you, but it can format the public MCP URL safely:
 
 ```bash

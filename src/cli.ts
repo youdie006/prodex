@@ -183,6 +183,14 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
     return runDoctor(new BridgeStore(targetCwd), { ...io, cwd: targetCwd });
   }
 
+  if (command === "project") {
+    const [subcommand, ...projectArgs] = rest;
+    if (subcommand !== "prompt") throw new Error("project requires prompt");
+    assertOnlyOptions(projectArgs, "project prompt", ["--cwd"]);
+    io.stdout(formatProjectVerificationPrompt(resolveCwdFlag(io.cwd, projectArgs)));
+    return 0;
+  }
+
   if (command === "chatgpt") {
     const [subcommand, ...chatgptArgs] = rest;
     if (subcommand === "open") {
@@ -639,6 +647,7 @@ Commands:
   gptprouse start [--cwd /absolute/path/to/repo]
   gptprouse status [--cwd /absolute/path/to/repo] [--show-token] [--url-only]
   gptprouse tunnel url [--cwd /absolute/path/to/repo] --public-url https://... [--show-token] [--url-only]
+  gptprouse project prompt [--cwd /absolute/path/to/repo]
   gptprouse ask-pro --dry-run|--send [--file path] "prompt"
   gptprouse pro ask [--file path] "prompt"  # dry-run preview
   gptprouse pro browser login
@@ -660,6 +669,40 @@ Commands:
   gptprouse sessions list [--status preview|running|done|blocked]
   gptprouse sessions show <session-id|latest>
   gptprouse mcp [--cwd /absolute/path/to/repo]`);
+}
+
+function formatProjectVerificationPrompt(cwd: string): string {
+  return `ChatGPT Project MCP verification prompt
+
+Paste this into the ChatGPT Project after adding the gptprouse MCP server URL.
+
+Please verify the gptprouse MCP bridge for this private project:
+
+1. Call the MCP tool \`bridge_create_task\` with:
+
+   {
+     "title": "gptprouse MCP verification",
+     "prompt": "Verify that this ChatGPT Project can create tasks through the local gptprouse MCP bridge.",
+     "repo_id": "default"
+   }
+
+2. Call \`bridge_list_tasks\` with:
+
+   { "status": "new" }
+
+3. Call \`bridge_get_task\` with the task_id returned by \`bridge_create_task\`.
+
+4. Reply with the task_id and whether all three MCP calls succeeded. Do not call repo_write_file_dry_run, repo_write_file_apply, repo_stage_reviewed_paths, or any write/stage tool for this verification.
+
+Local follow-up after ChatGPT replies:
+
+cd ${shellQuote(cwd)}
+gptprouse tasks list --status new
+gptprouse tasks show <task-id>`;
+}
+
+function shellQuote(value: string): string {
+  return /^[A-Za-z0-9_./:@=-]+$/.test(value) ? value : `'${value.replaceAll("'", "'\\''")}'`;
 }
 
 async function runDoctor(store: BridgeStore, io: CliIO): Promise<number> {
