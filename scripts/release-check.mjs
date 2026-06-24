@@ -32,6 +32,8 @@ try {
 async function checkReleaseMetadata(rootDir) {
   const packageJsonPath = path.join(rootDir, "package.json");
   const packageJson = parseReleasePackageJson(await readRequiredPackageJson(packageJsonPath), packageJsonPath);
+  const identityError = packageIdentityError(packageJson);
+  if (identityError) throw new Error(`release metadata failed: ${identityError}`);
   if (packageJson.private === true) {
     throw new Error("release metadata failed: package.json private: true prevents npm publish");
   }
@@ -51,6 +53,41 @@ function parseReleasePackageJson(raw, packageJsonPath) {
   } catch {
     throw new Error(`release metadata failed: package.json is not valid JSON at ${packageJsonPath}`);
   }
+}
+
+function packageIdentityError(packageJson) {
+  if (!isNonEmptyString(packageJson?.name) || !isNonEmptyString(packageJson?.version)) {
+    return "package.json must include non-empty string name and version";
+  }
+  if (!isNpmPublishablePackageName(packageJson.name)) {
+    return "package.json name must be npm-publishable";
+  }
+  if (!isValidSemverVersion(packageJson.version)) {
+    return "package.json version must be valid semver";
+  }
+  return undefined;
+}
+
+function isNonEmptyString(value) {
+  return typeof value === "string" && value.trim() !== "";
+}
+
+function isNpmPublishablePackageName(value) {
+  if (!isNonEmptyString(value) || value.length > 214 || value !== value.toLowerCase()) return false;
+  if (value.startsWith("@")) {
+    const parts = value.slice(1).split("/");
+    return parts.length === 2 && parts.every(isPackageNameSegment);
+  }
+  return !value.includes("/") && isPackageNameSegment(value);
+}
+
+function isPackageNameSegment(value) {
+  return /^(?![._])[a-z0-9][a-z0-9._~-]*$/.test(value);
+}
+
+function isValidSemverVersion(value) {
+  if (!isNonEmptyString(value)) return false;
+  return /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-(?:0|[1-9]\d*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.test(value);
 }
 
 async function assertRegularLicenseFile(rootDir) {

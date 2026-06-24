@@ -30,6 +30,49 @@ describe("release-check", () => {
     expect(`${result.stdout}\n${result.stderr}`).toMatch(/license/i);
   });
 
+  it("fails release metadata when package name or version is missing", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-release-check-identity-"));
+    await writeFile(path.join(root, "package.json"), `${JSON.stringify({ license: "MIT" }, null, 2)}\n`, "utf8");
+    await writeFile(path.join(root, "LICENSE"), "MIT License\n", "utf8");
+
+    const result = await runReleaseCheck(root);
+
+    const output = `${result.stdout}\n${result.stderr}`;
+    expect(result.code).toBe(1);
+    expect(output).toContain("release metadata failed");
+    expect(output).toContain("package.json must include non-empty string name and version");
+    expect(output).not.toContain("npm pack dry-run failed");
+    expect(result.stdout).not.toContain("release_metadata=ok");
+  });
+
+  it("fails release metadata when package name or version is not publishable by npm", async () => {
+    const invalidNameRoot = await mkdtemp(path.join(tmpdir(), "gptprouse-release-check-identity-"));
+    await writeFile(path.join(invalidNameRoot, "package.json"), `${JSON.stringify({ name: "Bad Name", version: "1.0.0", license: "MIT" }, null, 2)}\n`, "utf8");
+    await writeFile(path.join(invalidNameRoot, "LICENSE"), "MIT License\n", "utf8");
+
+    const invalidNameResult = await runReleaseCheck(invalidNameRoot);
+
+    const invalidNameOutput = `${invalidNameResult.stdout}\n${invalidNameResult.stderr}`;
+    expect(invalidNameResult.code).toBe(1);
+    expect(invalidNameOutput).toContain("release metadata failed");
+    expect(invalidNameOutput).toContain("package.json name must be npm-publishable");
+    expect(invalidNameOutput).not.toContain("npm pack dry-run failed");
+    expect(invalidNameResult.stdout).not.toContain("release_metadata=ok");
+
+    const invalidVersionRoot = await mkdtemp(path.join(tmpdir(), "gptprouse-release-check-identity-"));
+    await writeFile(path.join(invalidVersionRoot, "package.json"), `${JSON.stringify({ name: "demo", version: "1.0", license: "MIT" }, null, 2)}\n`, "utf8");
+    await writeFile(path.join(invalidVersionRoot, "LICENSE"), "MIT License\n", "utf8");
+
+    const invalidVersionResult = await runReleaseCheck(invalidVersionRoot);
+
+    const invalidVersionOutput = `${invalidVersionResult.stdout}\n${invalidVersionResult.stderr}`;
+    expect(invalidVersionResult.code).toBe(1);
+    expect(invalidVersionOutput).toContain("release metadata failed");
+    expect(invalidVersionOutput).toContain("package.json version must be valid semver");
+    expect(invalidVersionOutput).not.toContain("npm pack dry-run failed");
+    expect(invalidVersionResult.stdout).not.toContain("release_metadata=ok");
+  });
+
   it("fails release metadata with a friendly message when package.json is malformed", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "gptprouse-release-check-malformed-"));
     await writeFile(path.join(root, "package.json"), "{ broken json\n", "utf8");

@@ -880,10 +880,14 @@ async function formatReleaseStatus(cwd: string): Promise<string> {
   const version = typeof packageJson.version === "string" && packageJson.version.trim() ? packageJson.version : "<unversioned>";
   const lines = ["gptprouse release status", `package: ${name}@${version}`];
   const license = typeof packageJson.license === "string" ? packageJson.license.trim() : "";
+  const identityError = packageIdentityError(packageJson);
   let metadataNext = "run `npm run release:check` before publishing";
   let metadataReady = false;
 
-  if (packageJson.private === true) {
+  if (identityError) {
+    lines.push(`metadata: blocked ${identityError.message}`);
+    metadataNext = identityError.next;
+  } else if (packageJson.private === true) {
     lines.push("metadata: blocked package.json private: true prevents npm publish");
     metadataNext = "remove `private: true` before public publishing, then run `npm run release:check`";
   } else if (!license) {
@@ -919,6 +923,49 @@ async function formatReleaseStatus(cwd: string): Promise<string> {
   lines.push(`next: ${metadataNext}`);
   lines.push("verification: run `npm run release:verify` anytime without weakening the publish guard");
   return lines.join("\n");
+}
+
+function packageIdentityError(packageJson: { name?: unknown; version?: unknown }): { message: string; next: string } | undefined {
+  if (!isNonEmptyPackageString(packageJson.name) || !isNonEmptyPackageString(packageJson.version)) {
+    return {
+      message: "package.json must include non-empty string name and version",
+      next: "set package.json name and version, then run `npm run release:check`"
+    };
+  }
+  if (!isNpmPublishablePackageName(packageJson.name)) {
+    return {
+      message: "package.json name must be npm-publishable",
+      next: "fix package.json name, then run `npm run release:check`"
+    };
+  }
+  if (!isValidSemverVersion(packageJson.version)) {
+    return {
+      message: "package.json version must be valid semver",
+      next: "fix package.json version, then run `npm run release:check`"
+    };
+  }
+  return undefined;
+}
+
+function isNonEmptyPackageString(value: unknown): value is string {
+  return typeof value === "string" && value.trim() !== "";
+}
+
+function isNpmPublishablePackageName(value: string): boolean {
+  if (!isNonEmptyPackageString(value) || value.length > 214 || value !== value.toLowerCase()) return false;
+  if (value.startsWith("@")) {
+    const parts = value.slice(1).split("/");
+    return parts.length === 2 && parts.every(isPackageNameSegment);
+  }
+  return !value.includes("/") && isPackageNameSegment(value);
+}
+
+function isPackageNameSegment(value: string): boolean {
+  return /^(?![._])[a-z0-9][a-z0-9._~-]*$/.test(value);
+}
+
+function isValidSemverVersion(value: string): boolean {
+  return /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-(?:0|[1-9]\d*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.test(value);
 }
 
 async function readReleasePackageJson(packageJsonPath: string): Promise<string> {

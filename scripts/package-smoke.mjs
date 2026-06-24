@@ -301,6 +301,7 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertIncludes(readme, "hard link", "installed README");
   assertIncludes(readme, "unexpected executable modes", "installed README");
   assertIncludes(readme, "WSL/Windows mount", "installed README");
+  assertIncludes(readme, "npm-publishable `name` and valid semver `version`", "installed README");
   assertIncludes(readme, "installed HTTP MCP repo write dry-run/apply/stage flow", "installed README");
   assertIncludes(readme, "installed HTTP MCP task completion/blocking/result/artifact fetch flow", "installed README");
   assertIncludes(readme, "installed stdio repo write dry-run/apply/stage flow", "installed README");
@@ -463,6 +464,28 @@ async function smokeInstalledProBlockedConsult(binPath, cwd) {
 }
 
 async function smokeInstalledReleaseGitReadiness(binPath, tmp, launcherCwd) {
+  const invalidNameDir = path.join(tmp, "release-invalid-name");
+  await mkdir(invalidNameDir, { recursive: true });
+  await writeFile(
+    path.join(invalidNameDir, "package.json"),
+    `${JSON.stringify({ name: "Bad Name", version: "1.0.0", license: "MIT" }, null, 2)}\n`
+  );
+  await writeFile(path.join(invalidNameDir, "LICENSE"), "MIT License\n");
+  const invalidName = await run(binPath, ["release", "status", "--cwd", invalidNameDir], { cwd: launcherCwd });
+  assertIncludes(invalidName.stdout, "metadata: blocked", "installed release status invalid name output");
+  assertIncludes(invalidName.stdout, "name must be npm-publishable", "installed release status invalid name output");
+
+  const invalidVersionDir = path.join(tmp, "release-invalid-version");
+  await mkdir(invalidVersionDir, { recursive: true });
+  await writeFile(
+    path.join(invalidVersionDir, "package.json"),
+    `${JSON.stringify({ name: "demo", version: "1.0", license: "MIT" }, null, 2)}\n`
+  );
+  await writeFile(path.join(invalidVersionDir, "LICENSE"), "MIT License\n");
+  const invalidVersion = await run(binPath, ["release", "status", "--cwd", invalidVersionDir], { cwd: launcherCwd });
+  assertIncludes(invalidVersion.stdout, "metadata: blocked", "installed release status invalid version output");
+  assertIncludes(invalidVersion.stdout, "version must be valid semver", "installed release status invalid version output");
+
   const noRemoteDir = await createReleaseGitFixture(path.join(tmp, "release-no-remote"), { remote: false });
   const noRemote = await run(binPath, ["release", "status", "--cwd", noRemoteDir], { cwd: launcherCwd });
   assertIncludes(noRemote.stdout, "metadata: ok", "installed release status no-remote output");

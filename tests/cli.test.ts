@@ -1461,6 +1461,73 @@ describe("runCli", () => {
     expect(text).not.toContain("metadata: ok");
   });
 
+  it("release status reports missing package name or version as a release blocker", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-release-identity-"));
+    await writeFile(path.join(cwd, "package.json"), `${JSON.stringify({ license: "MIT" }, null, 2)}\n`, "utf8");
+    await writeFile(path.join(cwd, "LICENSE"), "MIT License\n", "utf8");
+    const out: string[] = [];
+
+    await runCli(["release", "status", "--cwd", cwd], {
+      cwd: "/tmp",
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    const text = out.join("\n");
+    expect(text).toContain("gptprouse release status");
+    expect(text).toContain("package: <unnamed>@<unversioned>");
+    expect(text).toContain("metadata: blocked package.json must include non-empty string name and version");
+    expect(text).toContain("next: set package.json name and version, then run `npm run release:check`");
+    expect(text).not.toContain("metadata: ok");
+    expect(text).not.toContain("pack: ok");
+  });
+
+  it("release status reports invalid package name or version as a release blocker", async () => {
+    const invalidNameCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-release-identity-"));
+    await writeFile(
+      path.join(invalidNameCwd, "package.json"),
+      `${JSON.stringify({ name: "Bad Name", version: "1.0.0", license: "MIT" }, null, 2)}\n`,
+      "utf8"
+    );
+    await writeFile(path.join(invalidNameCwd, "LICENSE"), "MIT License\n", "utf8");
+    const invalidNameOut: string[] = [];
+
+    await runCli(["release", "status", "--cwd", invalidNameCwd], {
+      cwd: "/tmp",
+      stdout: (line) => invalidNameOut.push(line),
+      stderr: () => {}
+    });
+
+    const invalidNameText = invalidNameOut.join("\n");
+    expect(invalidNameText).toContain("package: Bad Name@1.0.0");
+    expect(invalidNameText).toContain("metadata: blocked package.json name must be npm-publishable");
+    expect(invalidNameText).toContain("next: fix package.json name, then run `npm run release:check`");
+    expect(invalidNameText).not.toContain("metadata: ok");
+    expect(invalidNameText).not.toContain("pack: ok");
+
+    const invalidVersionCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-release-identity-"));
+    await writeFile(
+      path.join(invalidVersionCwd, "package.json"),
+      `${JSON.stringify({ name: "demo", version: "1.0", license: "MIT" }, null, 2)}\n`,
+      "utf8"
+    );
+    await writeFile(path.join(invalidVersionCwd, "LICENSE"), "MIT License\n", "utf8");
+    const invalidVersionOut: string[] = [];
+
+    await runCli(["release", "status", "--cwd", invalidVersionCwd], {
+      cwd: "/tmp",
+      stdout: (line) => invalidVersionOut.push(line),
+      stderr: () => {}
+    });
+
+    const invalidVersionText = invalidVersionOut.join("\n");
+    expect(invalidVersionText).toContain("package: demo@1.0");
+    expect(invalidVersionText).toContain("metadata: blocked package.json version must be valid semver");
+    expect(invalidVersionText).toContain("next: fix package.json version, then run `npm run release:check`");
+    expect(invalidVersionText).not.toContain("metadata: ok");
+    expect(invalidVersionText).not.toContain("pack: ok");
+  });
+
   it("release status reports publish metadata readiness when license files are explicit", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-release-"));
     await writeFile(
