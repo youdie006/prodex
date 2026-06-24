@@ -197,6 +197,7 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertIncludes(readme, "npm run release:verify", "installed README");
   assertIncludes(readme, "private: true", "installed README");
   assertIncludes(readme, "configured `doctor`", "installed README");
+  assertIncludes(readme, ".bridge/artifacts/results/", "installed README");
   assertAppearsBefore(
     readme,
     "Token-bearing MCP URLs are secrets",
@@ -217,6 +218,7 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertIncludes(httpMcpDoc, "Verify In ChatGPT", "installed HTTP MCP docs");
   assertIncludes(httpMcpDoc, "Keep `gptprouse start` running", "installed HTTP MCP docs");
   assertIncludes(httpMcpDoc, "CLI-only", "installed HTTP MCP docs");
+  assertIncludes(httpMcpDoc, ".bridge/artifacts/results/", "installed HTTP MCP docs");
   assertAppearsBefore(
     httpMcpDoc,
     "Token-bearing MCP URLs are secrets",
@@ -246,6 +248,7 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertIncludes(claudeDoc, "mcp --cwd", "installed Claude docs");
   assertIncludes(claudeDoc, "gptprouse claude prompt", "installed Claude docs");
   assertIncludes(claudeDoc, "gptprouse claude config", "installed Claude docs");
+  assertIncludes(claudeDoc, ".bridge/artifacts/results/", "installed Claude docs");
 }
 
 async function assertInstalledPackageImportBoundary(consumerDir, packedFiles) {

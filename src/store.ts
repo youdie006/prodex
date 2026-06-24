@@ -43,6 +43,7 @@ const SESSION_ID_PATTERN = /^sess_\d{8}_\d{6}_[a-z0-9-]+$/;
 const RECEIPT_ID_PATTERN = /^receipt_\d{8}_\d{6}_[a-z0-9-]+$/;
 const BRIDGE_DIRECTORY_MODE = 0o700;
 const BRIDGE_FILE_MODE = 0o600;
+const FETCHABLE_RESULT_ARTIFACT_PREFIXES = [".bridge/artifacts/pro-consults/", ".bridge/artifacts/results/"];
 
 export interface CreateTaskInput {
   source: Source;
@@ -229,7 +230,7 @@ export class BridgeStore {
       throw new Error(`Result ${taskId} has multiple result artifacts; pass an artifact path`);
     }
     const normalizedArtifactPath = path.posix.normalize(artifact.path.replaceAll("\\", "/"));
-    if (!normalizedArtifactPath.startsWith(".bridge/artifacts/pro-consults/") || normalizedArtifactPath !== artifact.path) {
+    if (!isFetchableResultArtifactPath(normalizedArtifactPath) || normalizedArtifactPath !== artifact.path) {
       throw new Error(`Artifact is not a fetchable result artifact for ${taskId}: ${artifact.path}`);
     }
     return { artifact, content: await this.readArtifactText(artifact.path) };
@@ -729,6 +730,10 @@ async function exists(filePath: string): Promise<boolean> {
 
 function isErrorCode(error: unknown, code: string): boolean {
   return typeof error === "object" && error !== null && "code" in error && (error as { code?: unknown }).code === code;
+}
+
+function isFetchableResultArtifactPath(normalizedPath: string): boolean {
+  return FETCHABLE_RESULT_ARTIFACT_PREFIXES.some((prefix) => normalizedPath.startsWith(prefix));
 }
 
 function assertResultMatchesRetry(taskId: string, existing: Result, retry: Result): void {

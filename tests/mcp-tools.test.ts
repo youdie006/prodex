@@ -196,6 +196,29 @@ describe("MCP tool handlers", () => {
     expect(fetched.content).toBe("answer\n");
   });
 
+  it("fetches MCP completion artifacts from the generic result artifact namespace", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    const store = new BridgeStore(cwd);
+    const handlers = createMcpToolHandlers({ cwd });
+    const task = await handlers.bridge_create_task({
+      title: "Generic result artifact",
+      prompt: "Attach a result artifact"
+    });
+    const artifactPath = await store.writeArtifactText(".bridge/artifacts/results/mcp-answer.md", "generic answer\n");
+
+    await handlers.bridge_complete_task({
+      task_id: task.task.id,
+      summary: "See generic result artifact.",
+      artifacts: [{ path: artifactPath, bytes: "generic answer\n".length }]
+    });
+    const fetched = await handlers.bridge_fetch_result_artifact({ task_id: task.task.id });
+
+    expect(fetched).toEqual({
+      artifact: expect.objectContaining({ path: artifactPath, role: "result" }),
+      content: "generic answer\n"
+    });
+  });
+
   it("lists and fetches consult sessions through bridge handlers", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
     const store = new BridgeStore(cwd);
