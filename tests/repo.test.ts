@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { link, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -53,6 +53,17 @@ describe("repo path policy", () => {
 
     await expect(readRepoFile(root, "README.md")).rejects.toThrow(/symlink|changed|escapes/i);
     expect(await readFile(outsideFile, "utf8")).toBe("outside\n");
+  });
+
+  it("rejects repo reads through hard-linked files", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-repo-"));
+    const outside = await mkdtemp(path.join(tmpdir(), "gptprouse-outside-"));
+    const outsideFile = path.join(outside, "secret.txt");
+    await writeFile(outsideFile, "outside secret\n", "utf8");
+    await mkdir(path.join(root, "links"));
+    await link(outsideFile, path.join(root, "links", "hard.txt"));
+
+    await expect(readRepoFile(root, "links/hard.txt")).rejects.toThrow(/linked|hard link/i);
   });
 
   it("blocks local bridge, git, and env files from repo reads", async () => {

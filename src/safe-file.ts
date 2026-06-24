@@ -34,6 +34,7 @@ export async function readVerifiedUtf8File(
     if (!stat.isFile()) {
       throw new Error(`Path ${filePath} is not a regular file`);
     }
+    assertNotHardLinked(filePath, stat.nlink);
     if (options.maxBytes !== undefined && stat.size > options.maxBytes) {
       throw new Error(`Path ${filePath} is too large (${stat.size} bytes)`);
     }
@@ -60,7 +61,7 @@ export async function writeVerifiedUtf8File(
   const createFlag = options.create ? constants.O_CREAT : 0;
   const handle = await openStableNoFollow(
     filePath,
-    constants.O_WRONLY | constants.O_TRUNC | createFlag,
+    constants.O_WRONLY | createFlag,
     "write",
     parentSnapshot,
     options.mode
@@ -70,7 +71,8 @@ export async function writeVerifiedUtf8File(
     if (!stat.isFile()) {
       throw new Error(`Path ${filePath} is not a regular file`);
     }
-    await handle.writeFile(content, "utf8");
+    assertNotHardLinked(filePath, stat.nlink);
+    await writeHandleUtf8(handle, filePath, content);
     if (options.mode !== undefined) {
       await handle.chmod(options.mode);
     }
@@ -124,6 +126,7 @@ async function readHandleUtf8(handle: FileHandle, filePath: string, maxBytes?: n
   if (!stat.isFile()) {
     throw new Error(`Path ${filePath} is not a regular file`);
   }
+  assertNotHardLinked(filePath, stat.nlink);
   if (maxBytes !== undefined && stat.size > maxBytes) {
     throw new Error(`Path ${filePath} is too large (${stat.size} bytes)`);
   }
@@ -135,6 +138,25 @@ async function readHandleUtf8(handle: FileHandle, filePath: string, maxBytes?: n
     offset += bytesRead;
   }
   return buffer.subarray(0, offset).toString("utf8");
+}
+
+async function writeHandleUtf8(handle: FileHandle, filePath: string, content: string): Promise<void> {
+  const replacement = Buffer.from(content, "utf8");
+  await handle.truncate(0);
+  let offset = 0;
+  while (offset < replacement.length) {
+    const { bytesWritten } = await handle.write(replacement, offset, replacement.length - offset, offset);
+    if (bytesWritten === 0) {
+      throw new Error(`Could not write content to ${filePath}`);
+    }
+    offset += bytesWritten;
+  }
+}
+
+function assertNotHardLinked(filePath: string, linkCount: number): void {
+  if (linkCount > 1) {
+    throw new Error(`Path ${filePath} is hard linked and cannot be used through safe file operations`);
+  }
 }
 
 async function captureParentSnapshot(filePath: string): Promise<ParentSnapshot | undefined> {

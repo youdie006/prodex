@@ -1,4 +1,4 @@
-import { lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, symlink, writeFile } from "node:fs/promises";
+import { link, lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -89,6 +89,21 @@ describe("BridgeStore", () => {
     });
 
     await expect(store.writeArtifactText(relativePath, "payload\n")).rejects.toThrow(/symlink|changed|artifacts/i);
+    expect(await readFile(outsideFile, "utf8")).toBe("outside\n");
+  });
+
+  it("rejects artifact writes through hard-linked files without touching the linked target", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
+    const outside = await mkdtemp(path.join(tmpdir(), "gptprouse-outside-"));
+    const outsideFile = path.join(outside, "secret.txt");
+    const relativePath = ".bridge/artifacts/repo-writes/payload.txt";
+    const artifactPath = path.join(root, relativePath);
+    await mkdir(path.dirname(artifactPath), { recursive: true });
+    await writeFile(outsideFile, "outside\n", "utf8");
+    await link(outsideFile, artifactPath);
+    const store = new BridgeStore(root);
+
+    await expect(store.writeArtifactText(relativePath, "payload\n")).rejects.toThrow(/linked|hard link/i);
     expect(await readFile(outsideFile, "utf8")).toBe("outside\n");
   });
 
