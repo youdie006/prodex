@@ -307,7 +307,7 @@ describe("ChatGPT browser adapter", () => {
     ];
 
     expect(selectChatGptPage(pages, "https://chatgpt.com/c/target")?.url).toBe("https://chatgpt.com/c/target?model=gpt-5");
-    expect(selectChatGptPage(pages)?.url).toBe("https://chatgpt.com/c/first");
+    expect(selectChatGptPage([pages[0]])?.url).toBe("https://chatgpt.com/c/first");
   });
 
   it("blocks no-target selection when multiple visible ChatGPT pages are available", () => {
@@ -329,6 +329,24 @@ describe("ChatGPT browser adapter", () => {
     expect(blocker?.next_step).toContain("--target-url");
     expect(selectChatGptPage([first, second], undefined, visibilityByPage)).toBeUndefined();
     expect(selectChatGptPage([first, second], "https://chatgpt.com/c/second", visibilityByPage)?.url).toBe("https://chatgpt.com/c/second");
+  });
+
+  it("blocks no-target selection when ChatGPT tab visibility is unknown", () => {
+    const visible = devtoolsPage("https://chatgpt.com/c/visible");
+    const unknown = devtoolsPage("https://chatgpt.com/c/unknown");
+    const visibilityByPage = new Map([[visible.webSocketDebuggerUrl, "visible"]]);
+
+    const blocker = chatGptPageSelectionBlocker([visible, unknown], undefined, visibilityByPage);
+
+    expect(blocker).toEqual(
+      expect.objectContaining({
+        code: "ambiguous_chatgpt_tabs",
+        retryable: true
+      })
+    );
+    expect(blocker?.message).toContain("unknown");
+    expect(blocker?.next_step).toContain("--target-url");
+    expect(selectChatGptPage([visible, unknown], undefined, visibilityByPage)).toBeUndefined();
   });
 
   it("prefers the active visible ChatGPT page when no target is confirmed", () => {

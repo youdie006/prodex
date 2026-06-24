@@ -280,10 +280,18 @@ export function selectChatGptPage(
   const chatGptPages = pages.filter((page) => page.type === "page" && isChatGptPageUrl(page.url));
   if (chatGptPageSelectionBlocker(pages, targetUrl, visibilityByPage)) return undefined;
   if (!targetUrl) {
-    return chatGptPages.find((page) => visibilityByPage.get(page.webSocketDebuggerUrl) === "visible") ?? chatGptPages[0];
+    return (
+      chatGptPages.find((page) => visibilityByPage.get(page.webSocketDebuggerUrl) === "visible") ??
+      chatGptPages.find((page) => isVisibilityUnknown(page, visibilityByPage)) ??
+      chatGptPages[0]
+    );
   }
   const targetMatches = chatGptPages.filter((page) => chatGptUrlsReferToSameTarget(page.url, targetUrl));
-  return targetMatches.find((page) => visibilityByPage.get(page.webSocketDebuggerUrl) === "visible") ?? targetMatches[0];
+  return (
+    targetMatches.find((page) => visibilityByPage.get(page.webSocketDebuggerUrl) === "visible") ??
+    targetMatches.find((page) => isVisibilityUnknown(page, visibilityByPage)) ??
+    targetMatches[0]
+  );
 }
 
 export function chatGptPageSelectionBlocker(
@@ -292,17 +300,29 @@ export function chatGptPageSelectionBlocker(
   visibilityByPage = new Map<string, string>()
 ): ChatGptBrowserStatus["blocker"] | undefined {
   if (targetUrl) return undefined;
-  const visibleChatGptPages = pages.filter(
-    (page) => page.type === "page" && isChatGptPageUrl(page.url) && visibilityByPage.get(page.webSocketDebuggerUrl) === "visible"
+  const possiblyVisibleChatGptPages = pages.filter(
+    (page) => page.type === "page" && isChatGptPageUrl(page.url) && isChatGptPagePossiblyVisible(page, visibilityByPage)
   );
-  if (visibleChatGptPages.length <= 1) return undefined;
-  const urls = visibleChatGptPages.map((page) => page.url).slice(0, 5).join(", ");
+  if (possiblyVisibleChatGptPages.length <= 1) return undefined;
+  const urls = possiblyVisibleChatGptPages
+    .map((page) => `${page.url} (${visibilityByPage.get(page.webSocketDebuggerUrl) ?? "unknown"})`)
+    .slice(0, 5)
+    .join(", ");
   return {
     code: "ambiguous_chatgpt_tabs",
-    message: `Multiple visible ChatGPT tabs or windows are available: ${urls}.`,
+    message: `Multiple visible or unverified ChatGPT tabs or windows are available: ${urls}.`,
     retryable: true,
     next_step: "Close extra ChatGPT windows, leave only the intended tab visible, or pass --target-url with --confirm-target."
   };
+}
+
+function isChatGptPagePossiblyVisible(page: DevtoolsPage, visibilityByPage: Map<string, string>): boolean {
+  const visibility = visibilityByPage.get(page.webSocketDebuggerUrl);
+  return visibility === "visible" || visibility === undefined;
+}
+
+function isVisibilityUnknown(page: DevtoolsPage, visibilityByPage: Map<string, string>): boolean {
+  return visibilityByPage.get(page.webSocketDebuggerUrl) === undefined;
 }
 
 export function assertVisibleChatGptTab(visibilityState: string, url: string, targetUrl?: string): void {
@@ -519,7 +539,7 @@ async function getChatGptPageVisibility(pages: DevtoolsPage[]): Promise<Map<stri
             await evaluateOnPage<string>(page, "document.visibilityState", { timeoutMs: PAGE_VISIBILITY_PROBE_TIMEOUT_MS })
           );
         } catch {
-          // A stale DevTools page should not prevent falling back to the first ChatGPT tab.
+          // Leave visibility unknown; untargeted sends treat unknown ChatGPT pages conservatively.
         }
       })
   );
