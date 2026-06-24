@@ -100,6 +100,15 @@ describe("repo path policy", () => {
     ]);
   });
 
+  it("parses search matches in files whose paths contain colons", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-repo-"));
+    await writeFile(path.join(root, "notes:today.md"), "needle:with:colon\n", "utf8");
+
+    await expect(searchRepo(root, "needle")).resolves.toEqual([
+      { path: "notes:today.md", line: 1, text: "needle:with:colon" }
+    ]);
+  });
+
   it("reports a clear prerequisite error when ripgrep is missing", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "gptprouse-repo-"));
     const emptyPath = await mkdtemp(path.join(tmpdir(), "gptprouse-empty-path-"));
@@ -182,6 +191,23 @@ describe("repo path policy", () => {
     await expect(readRepoFile(root, "services/api/.bridge/config.local.json")).rejects.toThrow(/sensitive/);
     await expect(searchRepo(root, "SECRET")).resolves.toEqual([]);
     await expect(searchRepo(root, "SECRET", "services/api/.bridge/**")).rejects.toThrow(/sensitive/);
+  });
+
+  it("ignores user ripgrep config that would follow symlinks outside the repo", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-repo-"));
+    const outside = await mkdtemp(path.join(tmpdir(), "gptprouse-outside-"));
+    const rgConfig = path.join(await mkdtemp(path.join(tmpdir(), "gptprouse-rg-config-")), "ripgreprc");
+    await writeFile(path.join(outside, "secret.txt"), "SECRET=outside\n", "utf8");
+    await symlink(outside, path.join(root, "outside-link"));
+    await writeFile(rgConfig, "--follow\n", "utf8");
+    const previousConfig = process.env.RIPGREP_CONFIG_PATH;
+    process.env.RIPGREP_CONFIG_PATH = rgConfig;
+    try {
+      await expect(searchRepo(root, "SECRET")).resolves.toEqual([]);
+    } finally {
+      if (previousConfig === undefined) delete process.env.RIPGREP_CONFIG_PATH;
+      else process.env.RIPGREP_CONFIG_PATH = previousConfig;
+    }
   });
 
   it("rejects large files before reading them into the response", async () => {

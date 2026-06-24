@@ -28,6 +28,15 @@ export interface SearchResult {
   text: string;
 }
 
+interface RipgrepJsonMatch {
+  type: "match";
+  data: {
+    path: { text: string };
+    line_number: number;
+    lines: { text: string };
+  };
+}
+
 export function assertRepoRelativePath(repoPath: string): void {
   if (!repoPath || repoPath.trim() === "") {
     throw new Error("Path must be a non-empty repo-relative path");
@@ -84,10 +93,9 @@ export async function searchRepo(root: string, query: string, glob?: string): Pr
     assertRepoRelativeGlob(glob);
   }
   const args = [
-    "--line-number",
-    "--no-heading",
-    "--color",
-    "never",
+    "--no-config",
+    "--no-follow",
+    "--json",
     ...(glob ? ["--glob", glob] : []),
     "--glob",
     "!.bridge/**",
@@ -122,11 +130,9 @@ export async function searchRepo(root: string, query: string, glob?: string): Pr
     return stdout
       .split("\n")
       .filter(Boolean)
-      .slice(0, 100)
-      .map((line) => {
-        const [file, lineNo, ...rest] = line.split(":");
-        return { path: file.replace(/^\.\//, ""), line: Number(lineNo), text: rest.join(":") };
-      });
+      .map(parseRipgrepJsonMatch)
+      .filter((match): match is SearchResult => match !== undefined)
+      .slice(0, 100);
   } catch (error) {
     const maybe = error as { code?: number | string; stdout?: string };
     if (maybe.code === "ENOENT") {
@@ -135,6 +141,42 @@ export async function searchRepo(root: string, query: string, glob?: string): Pr
     if (maybe.code === 1) return [];
     throw error;
   }
+}
+
+function parseRipgrepJsonMatch(line: string): SearchResult | undefined {
+  let event: unknown;
+  try {
+    event = JSON.parse(line);
+  } catch {
+    return undefined;
+  }
+  if (!isRipgrepJsonMatch(event)) return undefined;
+  return {
+    path: event.data.path.text.replace(/^\.\//, ""),
+    line: event.data.line_number,
+    text: stripOneTrailingLineEnding(event.data.lines.text)
+  };
+}
+
+function isRipgrepJsonMatch(value: unknown): value is RipgrepJsonMatch {
+  if (!isRecord(value) || value.type !== "match" || !isRecord(value.data)) return false;
+  const { path: matchPath, line_number: lineNumber, lines } = value.data;
+  return (
+    isRecord(matchPath) &&
+    typeof matchPath.text === "string" &&
+    typeof lineNumber === "number" &&
+    Number.isFinite(lineNumber) &&
+    isRecord(lines) &&
+    typeof lines.text === "string"
+  );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function stripOneTrailingLineEnding(value: string): string {
+  return value.replace(/\r?\n$/, "");
 }
 
 function assertNotSensitiveRepoPath(normalizedPath: string): void {
