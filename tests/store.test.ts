@@ -3,11 +3,12 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { setSafeFileTestHooks } from "../src/safe-file.js";
-import { BridgeStore } from "../src/store.js";
+import { BridgeStore, setBridgeStoreTestHooks } from "../src/store.js";
 
 describe("BridgeStore", () => {
   afterEach(() => {
     setSafeFileTestHooks({});
+    setBridgeStoreTestHooks({});
   });
 
   it("creates, claims, completes, and fetches task results", async () => {
@@ -43,6 +44,206 @@ describe("BridgeStore", () => {
       await readFile(path.join(root, ".bridge", "tasks", `${task.id}.json`), "utf8")
     );
     expect(stored.schema_version).toBe(1);
+  });
+
+  it("rejects finalizing a task after it is already done or blocked", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
+    const store = new BridgeStore(root);
+    const doneTask = await store.createTask({
+      source: "codex",
+      title: "Done once",
+      prompt: "Check terminal completion.",
+      repo_id: "default",
+      files: [],
+      provenance: { adapter: "cli" }
+    });
+    const blockedTask = await store.createTask({
+      source: "codex",
+      title: "Blocked once",
+      prompt: "Check terminal block.",
+      repo_id: "default",
+      files: [],
+      provenance: { adapter: "cli" }
+    });
+
+    await store.completeTask(doneTask.id, { status: "done", summary: "First summary." });
+    await store.completeTask(blockedTask.id, { status: "blocked", summary: "First blocker." });
+
+    await expect(store.completeTask(doneTask.id, { status: "done", summary: "Second summary." })).rejects.toThrow(
+      /already done|not finalizable/i
+    );
+    await expect(store.completeTask(blockedTask.id, { status: "done", summary: "Second blocker." })).rejects.toThrow(
+      /already blocked|not finalizable/i
+    );
+    await expect(store.getResult(doneTask.id)).resolves.toEqual(expect.objectContaining({ summary: "First summary." }));
+    await expect(store.getResult(blockedTask.id)).resolves.toEqual(expect.objectContaining({ summary: "First blocker." }));
+  });
+
+  it("rejects finalizing a task when a mismatched result record already exists for a non-terminal task", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
+    const store = new BridgeStore(root);
+    const task = await store.createTask({
+      source: "codex",
+      title: "Partial finalize",
+      prompt: "Recover from a partial result write.",
+      repo_id: "default",
+      files: [],
+      provenance: { adapter: "cli" }
+    });
+    await writeFile(
+      path.join(root, ".bridge", "results", `${task.id}.json`),
+      `${JSON.stringify(
+        {
+          schema_version: 1,
+          task_id: task.id,
+          status: "done",
+          summary: "Recovered summary.",
+          artifacts: [],
+          commands: [],
+          warnings: [],
+          created_at: "2099-01-01T00:00:00.000Z"
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+
+    await expect(store.completeTask(task.id, { status: "done", summary: "Overwrite attempt." })).rejects.toThrow(
+      /already has a result|cannot be finalized/i
+    );
+    await expect(store.getTask(task.id)).resolves.toEqual(expect.objectContaining({ status: "new" }));
+    await expect(store.getResult(task.id)).resolves.toEqual(expect.objectContaining({ summary: "Recovered summary." }));
+  });
+
+  it("repairs a non-terminal task when retrying completion after the matching result was already written", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
+    const store = new BridgeStore(root);
+    const task = await store.createTask({
+      source: "codex",
+      title: "Retry partial finalize",
+      prompt: "Recover by retrying the same completion.",
+      repo_id: "default",
+      files: [],
+      provenance: { adapter: "cli" }
+    });
+    await writeFile(
+      path.join(root, ".bridge", "results", `${task.id}.json`),
+      `${JSON.stringify(
+        {
+          schema_version: 1,
+          task_id: task.id,
+          status: "done",
+          summary: "Recovered summary.",
+          artifacts: [],
+          commands: ["npm test"],
+          warnings: ["already wrote result"],
+          created_at: "2099-01-01T00:00:00.000Z"
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+
+    const result = await store.completeTask(task.id, {
+      status: "done",
+      summary: "Recovered summary.",
+      commands: ["npm test"],
+      warnings: ["already wrote result"]
+    });
+
+    expect(result).toEqual(expect.objectContaining({ task_id: task.id, summary: "Recovered summary." }));
+    await expect(store.getTask(task.id)).resolves.toEqual(
+      expect.objectContaining({
+        status: "done",
+        result_path: `.bridge/results/${task.id}.json`
+      })
+    );
+    await expect(store.getResult(task.id)).resolves.toEqual(expect.objectContaining({ summary: "Recovered summary." }));
+  });
+
+  it("repairs a terminal task when retrying completion after the matching result was written but the receipt is missing", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
+    const store = new BridgeStore(root);
+    const task = await store.createTask({
+      source: "codex",
+      title: "Retry missing receipt",
+      prompt: "Recover a terminal task receipt.",
+      repo_id: "default",
+      files: [],
+      provenance: { adapter: "cli" }
+    });
+    const first = await store.completeTask(task.id, {
+      status: "done",
+      summary: "Receipt repair summary.",
+      commands: ["npm test"]
+    });
+    const completionReceipts = await store.listReceipts({ kind: "task_completed", task_id: task.id });
+    for (const receipt of completionReceipts) {
+      await rm(path.join(root, ".bridge", "receipts", `${receipt.id}.json`));
+    }
+
+    const retried = await store.completeTask(task.id, {
+      status: "done",
+      summary: "Receipt repair summary.",
+      commands: ["npm test"]
+    });
+
+    expect(retried).toEqual(first);
+    await expect(store.getTask(task.id)).resolves.toEqual(expect.objectContaining({ status: "done" }));
+    await expect(store.listReceipts({ kind: "task_completed", task_id: task.id })).resolves.toHaveLength(1);
+  });
+
+  it("cleans up stale internal record temp hard links before reading a result", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
+    const store = new BridgeStore(root);
+    const task = await store.createTask({
+      source: "codex",
+      title: "Stale temp hard link",
+      prompt: "Recover a result with a leftover temp hard link.",
+      repo_id: "default",
+      files: [],
+      provenance: { adapter: "cli" }
+    });
+    await store.completeTask(task.id, { status: "done", summary: "Readable result." });
+    const resultPath = path.join(root, ".bridge", "results", `${task.id}.json`);
+    const staleTempPath = path.join(root, ".bridge", "results", `.${task.id}.json.stale.tmp`);
+    await link(resultPath, staleTempPath);
+
+    await expect(store.getResult(task.id)).resolves.toEqual(expect.objectContaining({ summary: "Readable result." }));
+    await expect(lstat(staleTempPath)).rejects.toThrow();
+  });
+
+  it("does not clean stale record temp hard links through a swapped storage symlink", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
+    const outside = await mkdtemp(path.join(tmpdir(), "gptprouse-outside-"));
+    const store = new BridgeStore(root);
+    const task = await store.createTask({
+      source: "codex",
+      title: "Swapped cleanup",
+      prompt: "Avoid cleaning outside the bridge.",
+      repo_id: "default",
+      files: [],
+      provenance: { adapter: "cli" }
+    });
+    await store.completeTask(task.id, { status: "done", summary: "Protected result." });
+    const resultPath = path.join(root, ".bridge", "results", `${task.id}.json`);
+    const tempName = `.${task.id}.json.stale.tmp`;
+    await link(resultPath, path.join(root, ".bridge", "results", tempName));
+    await link(resultPath, path.join(outside, tempName));
+    let swapped = false;
+    setBridgeStoreTestHooks({
+      beforeRecordTempCleanup: async (kind) => {
+        if (kind !== "results" || swapped) return;
+        swapped = true;
+        await rename(path.join(root, ".bridge", "results"), path.join(root, ".bridge", "results-real"));
+        await symlink(outside, path.join(root, ".bridge", "results"));
+      }
+    });
+
+    await expect(store.getResult(task.id)).rejects.toThrow(/Bridge storage directory|symlink|changed|ENOENT/i);
+    await expect(lstat(path.join(outside, tempName))).resolves.toEqual(expect.objectContaining({ nlink: expect.any(Number) }));
   });
 
   it("stores artifacts only under the local artifacts directory", async () => {

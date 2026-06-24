@@ -93,6 +93,40 @@ describe("MCP tool handlers", () => {
     );
   });
 
+  it("rejects MCP completion when a result record already exists for the task", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    const handlers = createMcpToolHandlers({ cwd });
+    const task = await handlers.bridge_create_task({
+      title: "Partial MCP result",
+      prompt: "Recover from a partial result write"
+    });
+    await writeFile(
+      path.join(cwd, ".bridge", "results", `${task.task.id}.json`),
+      `${JSON.stringify(
+        {
+          schema_version: 1,
+          task_id: task.task.id,
+          status: "done",
+          summary: "First MCP result.",
+          artifacts: [],
+          commands: [],
+          warnings: [],
+          created_at: "2099-01-01T00:00:00.000Z"
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+
+    await expect(
+      handlers.bridge_complete_task({ task_id: task.task.id, summary: "Overwrite through MCP." })
+    ).rejects.toThrow(/already has a result|cannot be finalized/i);
+    const store = new BridgeStore(cwd);
+    await expect(store.getTask(task.task.id)).resolves.toEqual(expect.objectContaining({ status: "new" }));
+    await expect(store.getResult(task.task.id)).resolves.toEqual(expect.objectContaining({ summary: "First MCP result." }));
+  });
+
   it("normalizes MCP completion artifacts to fetchable result artifacts", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
     const store = new BridgeStore(cwd);

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { constants } from "node:fs";
-import { lstat, mkdir, open, readFile, readdir, realpath, rename, rm } from "node:fs/promises";
+import { link, lstat, mkdir, open, readFile, readdir, realpath, rename, rm } from "node:fs/promises";
 import type { FileHandle } from "node:fs/promises";
 import path from "node:path";
 import { readVerifiedUtf8File, writeVerifiedUtf8File } from "./safe-file.js";
@@ -26,6 +26,16 @@ import type { z } from "zod";
 type Source = z.infer<typeof SourceSchema>;
 type BridgeStorageKind = "tasks" | "results" | "sessions" | "artifacts" | "receipts";
 type BridgeRecordKind = Exclude<BridgeStorageKind, "artifacts">;
+
+export type BridgeStoreTestHooks = {
+  beforeRecordTempCleanup?: (kind: BridgeRecordKind, filePath: string) => Promise<void> | void;
+};
+
+let storeTestHooks: BridgeStoreTestHooks = {};
+
+export function setBridgeStoreTestHooks(hooks: BridgeStoreTestHooks): void {
+  storeTestHooks = hooks;
+}
 
 const TASK_ID_PATTERN = /^task_\d{8}_\d{6}_[a-z0-9-]+$/;
 const SESSION_ID_PATTERN = /^sess_\d{8}_\d{6}_[a-z0-9-]+$/;
@@ -168,22 +178,31 @@ export class BridgeStore {
       blocker: input.blocker,
       created_at: nowIso()
     });
-    await this.writeRecordJson("results", taskId, result);
+    if (task.status === "done" || task.status === "blocked") {
+      const existingResult = await this.getResult(taskId);
+      if (await this.hasTaskCompletionReceipt(taskId)) {
+        throw new Error(`Task ${taskId} is already ${task.status} and cannot be finalized again`);
+      }
+      assertResultMatchesRetry(taskId, existingResult, result);
+      await this.writeTaskCompletionReceipt(taskId, existingResult.status);
+      return existingResult;
+    }
+    const wroteResult = await this.writeNewRecordJson("results", taskId, result);
+    const finalResult = wroteResult ? result : await this.getResult(taskId);
+    if (!wroteResult) {
+      assertResultMatchesRetry(taskId, finalResult, result);
+    }
     const updated = TaskSchema.parse({
       ...task,
-      status: input.status,
+      status: finalResult.status,
       provenance: input.provenance ? { ...task.provenance, ...input.provenance } : task.provenance,
-      blocker: input.blocker,
+      blocker: finalResult.blocker,
       result_path: `.bridge/results/${taskId}.json`,
       updated_at: nowIso()
     });
     await this.writeRecordJson("tasks", taskId, updated);
-    await this.writeReceipt({
-      kind: "task_completed",
-      task_id: taskId,
-      summary: `${input.status === "done" ? "Completed" : "Blocked"} task ${taskId}`
-    });
-    return result;
+    await this.writeTaskCompletionReceipt(taskId, finalResult.status);
+    return finalResult;
   }
 
   async listResults(): Promise<Result[]> {
@@ -265,6 +284,18 @@ export class BridgeStore {
     return redactReceiptForDisplay(await this.getReceipt(receiptId));
   }
 
+  private async hasTaskCompletionReceipt(taskId: string): Promise<boolean> {
+    return (await this.listReceipts({ kind: "task_completed", task_id: taskId })).length > 0;
+  }
+
+  private async writeTaskCompletionReceipt(taskId: string, status: Result["status"]): Promise<void> {
+    await this.writeReceipt({
+      kind: "task_completed",
+      task_id: taskId,
+      summary: `${status === "done" ? "Completed" : "Blocked"} task ${taskId}`
+    });
+  }
+
   async writeArtifactText(relativePath: string, content: string): Promise<string> {
     await this.ensure();
     await this.assertBridgeDirIsRealDirectory();
@@ -334,6 +365,7 @@ export class BridgeStore {
   private async readRecordJson(kind: BridgeRecordKind, id: string): Promise<unknown> {
     const filePath = this.pathFor(kind, id);
     await this.assertStorageDirIsRealDirectory(kind);
+    await this.cleanupRecordTempHardLinks(kind, filePath);
     return JSON.parse(await readVerifiedUtf8File(filePath, () => this.assertRecordTargetInside(kind, filePath)));
   }
 
@@ -345,8 +377,21 @@ export class BridgeStore {
     await this.assertRecordTargetInside(kind, filePath);
   }
 
+  private async writeNewRecordJson(kind: BridgeRecordKind, id: string, value: unknown): Promise<boolean> {
+    const filePath = this.pathFor(kind, id);
+    await this.assertStorageDirIsRealDirectory(kind);
+    const wrote = await this.writeJsonIfAbsent(kind, filePath, value);
+    if (!wrote) return false;
+    await this.assertRecordTargetInside(kind, filePath);
+    return true;
+  }
+
   private async writeJson(kind: BridgeRecordKind, filePath: string, value: unknown): Promise<void> {
     await this.writeTextByRename(kind, filePath, `${JSON.stringify(value, null, 2)}\n`);
+  }
+
+  private async writeJsonIfAbsent(kind: BridgeRecordKind, filePath: string, value: unknown): Promise<boolean> {
+    return await this.writeTextByCreateExclusive(kind, filePath, `${JSON.stringify(value, null, 2)}\n`);
   }
 
   private async writeTextByRename(kind: BridgeRecordKind, filePath: string, content: string): Promise<void> {
@@ -355,6 +400,23 @@ export class BridgeStore {
       return;
     }
     await this.writeTextByPathRename(kind, filePath, content);
+  }
+
+  private async writeTextByCreateExclusive(kind: BridgeRecordKind, filePath: string, content: string): Promise<boolean> {
+    if (process.platform === "linux") {
+      return await this.writeTextByStableStorageLinkIfAbsent(kind, filePath, content);
+    }
+    try {
+      await writeVerifiedUtf8File(filePath, content, () => this.assertStorageDirIsRealDirectory(kind), {
+        create: true,
+        exclusive: true
+      });
+    } catch (error) {
+      if (isErrorCode(error, "EEXIST")) return false;
+      throw error;
+    }
+    await this.assertStorageDirIsRealDirectory(kind);
+    return true;
   }
 
   private async writeTextByStableStorageRename(kind: BridgeRecordKind, filePath: string, content: string): Promise<void> {
@@ -394,6 +456,55 @@ export class BridgeStore {
     }
   }
 
+  private async writeTextByStableStorageLinkIfAbsent(kind: BridgeRecordKind, filePath: string, content: string): Promise<boolean> {
+    const fileName = path.basename(filePath);
+    const expectedDir = this.dir(kind);
+    if (path.dirname(filePath) !== expectedDir) {
+      throw new Error(`Bridge record path must stay under .bridge/${kind}`);
+    }
+    const bridgeHandle = await openNoFollowDirectory(this.bridgeDir, "Bridge directory");
+    try {
+      const storageHandle = await openNoFollowDirectory(
+        path.join(procFdPath(bridgeHandle.fd), kind),
+        `Bridge storage directory .bridge/${kind}`
+      );
+      try {
+        await this.assertStorageDirIsRealDirectory(kind);
+        const storageFdPath = procFdPath(storageHandle.fd);
+        const targetPath = path.join(storageFdPath, fileName);
+        const tmpPath = path.join(storageFdPath, `.${fileName}.${process.pid}.${Date.now()}.${randomUUID()}.tmp`);
+        let linked = false;
+        try {
+          await writeVerifiedUtf8File(tmpPath, content, async () => assertOpenDirectoryHandle(storageHandle), {
+            create: true,
+            exclusive: true
+          });
+          try {
+            await link(tmpPath, targetPath);
+          } catch (error) {
+            if (isErrorCode(error, "EEXIST")) {
+              await rm(tmpPath, { force: true }).catch(() => undefined);
+              return false;
+            }
+            throw error;
+          }
+          linked = true;
+          await rm(tmpPath, { force: true });
+          await assertRegularFileIfExists(targetPath, `Bridge record path for .bridge/${kind}`);
+          await this.assertStorageDirIsRealDirectory(kind);
+        } catch (error) {
+          if (!linked) await rm(tmpPath, { force: true }).catch(() => undefined);
+          throw error;
+        }
+      } finally {
+        await storageHandle.close();
+      }
+    } finally {
+      await bridgeHandle.close();
+    }
+    return true;
+  }
+
   private async writeTextByPathRename(kind: BridgeRecordKind, filePath: string, content: string): Promise<void> {
     const tmp = `${filePath}.${process.pid}.${Date.now()}.${randomUUID()}.tmp`;
     try {
@@ -403,6 +514,49 @@ export class BridgeStore {
     } catch (error) {
       await rm(tmp, { force: true }).catch(() => undefined);
       throw error;
+    }
+  }
+
+  private async cleanupRecordTempHardLinks(kind: BridgeRecordKind, filePath: string): Promise<void> {
+    const fileName = path.basename(filePath);
+    const expectedDir = this.dir(kind);
+    if (path.dirname(filePath) !== expectedDir) {
+      throw new Error(`Bridge record path must stay under .bridge/${kind}`);
+    }
+    const bridgeHandle = await openNoFollowDirectory(this.bridgeDir, "Bridge directory");
+    try {
+      const storageHandle = await openNoFollowDirectory(
+        path.join(procFdPath(bridgeHandle.fd), kind),
+        `Bridge storage directory .bridge/${kind}`
+      );
+      try {
+        const storageFdPath = procFdPath(storageHandle.fd);
+        const targetPath = path.join(storageFdPath, fileName);
+        let targetStat;
+        try {
+          targetStat = await lstat(targetPath);
+        } catch (error) {
+          if (isErrorCode(error, "ENOENT")) return;
+          throw error;
+        }
+        if (targetStat.isSymbolicLink() || !targetStat.isFile() || targetStat.nlink <= 1) return;
+        await storeTestHooks.beforeRecordTempCleanup?.(kind, filePath);
+        const tempPrefix = `.${fileName}.`;
+        const entries = await readdir(storageFdPath, { withFileTypes: true });
+        for (const entry of entries) {
+          if (!entry.isFile() || !entry.name.startsWith(tempPrefix) || !entry.name.endsWith(".tmp")) continue;
+          const tempPath = path.join(storageFdPath, entry.name);
+          const tempStat = await lstat(tempPath).catch(() => undefined);
+          if (!tempStat?.isFile() || tempStat.isSymbolicLink()) continue;
+          if (tempStat.dev === targetStat.dev && tempStat.ino === targetStat.ino) {
+            await rm(tempPath, { force: true });
+          }
+        }
+      } finally {
+        await storageHandle.close();
+      }
+    } finally {
+      await bridgeHandle.close();
     }
   }
 
@@ -557,6 +711,28 @@ async function exists(filePath: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+function isErrorCode(error: unknown, code: string): boolean {
+  return typeof error === "object" && error !== null && "code" in error && (error as { code?: unknown }).code === code;
+}
+
+function assertResultMatchesRetry(taskId: string, existing: Result, retry: Result): void {
+  if (JSON.stringify(resultRetryFingerprint(existing)) !== JSON.stringify(resultRetryFingerprint(retry))) {
+    throw new Error(`Task ${taskId} already has a different result and cannot be finalized again`);
+  }
+}
+
+function resultRetryFingerprint(result: Result): Omit<Result, "schema_version" | "created_at"> {
+  return {
+    task_id: result.task_id,
+    status: result.status,
+    summary: result.summary,
+    artifacts: result.artifacts,
+    commands: result.commands,
+    warnings: result.warnings,
+    blocker: result.blocker
+  };
 }
 
 async function openNoFollowDirectory(dirPath: string, label: string): Promise<FileHandle> {

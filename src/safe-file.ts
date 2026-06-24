@@ -50,7 +50,7 @@ export async function writeVerifiedUtf8File(
   filePath: string,
   content: string,
   validate: () => Promise<void>,
-  options: { create?: boolean; maxBytes?: number; mode?: number } = {}
+  options: { create?: boolean; exclusive?: boolean; maxBytes?: number; mode?: number } = {}
 ): Promise<void> {
   if (options.maxBytes !== undefined && Buffer.byteLength(content, "utf8") > options.maxBytes) {
     throw new Error(`New content is too large (${Buffer.byteLength(content, "utf8")} bytes)`);
@@ -58,10 +58,11 @@ export async function writeVerifiedUtf8File(
   await validate();
   const parentSnapshot = await captureParentSnapshot(filePath);
   await testHooks.beforeOpen?.(filePath, "write");
-  const createFlag = options.create ? constants.O_CREAT : 0;
+  const createFlag = options.create || options.exclusive ? constants.O_CREAT : 0;
+  const exclusiveFlag = options.exclusive ? constants.O_EXCL : 0;
   const handle = await openStableNoFollow(
     filePath,
-    constants.O_WRONLY | createFlag,
+    constants.O_WRONLY | createFlag | exclusiveFlag,
     "write",
     parentSnapshot,
     options.mode
