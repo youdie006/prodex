@@ -1149,11 +1149,13 @@ async function printProductCheck(store: BridgeStore, io: CliIO, args: string[]):
   if (!browserStatus.reachable) {
     io.stdout(`chatgpt: ${browserStatus.blocker?.code ?? "unreachable"} - ${browserStatus.blocker?.message ?? "browser is not reachable"}`);
     if (browserStatus.blocker?.next_step) io.stdout(`next: ${browserStatus.blocker.next_step}`);
+  } else if (browserStatus.blocker) {
+    io.stdout(`chatgpt: blocked ${browserStatus.blocker.code} - ${browserStatus.blocker.message}`);
+    if (browserStatus.blocker.next_step) io.stdout(`next: ${browserStatus.blocker.next_step}`);
   } else if (browserStatus.loggedInLikely && browserStatus.hasComposer) {
     io.stdout(`chatgpt: ok logged_in=true composer=true${browserStatus.url ? ` url=${browserStatus.url}` : ""}`);
   } else {
     io.stdout(`chatgpt: blocked logged_in=${browserStatus.loggedInLikely} composer=${browserStatus.hasComposer}`);
-    if (browserStatus.blocker?.next_step) io.stdout(`next: ${browserStatus.blocker.next_step}`);
   }
 
   const latest = (await listConsults(store))[0];
