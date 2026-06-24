@@ -1,4 +1,4 @@
-import { link, lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, symlink, writeFile } from "node:fs/promises";
+import { link, lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -44,6 +44,40 @@ describe("BridgeStore", () => {
       await readFile(path.join(root, ".bridge", "tasks", `${task.id}.json`), "utf8")
     );
     expect(stored.schema_version).toBe(1);
+  });
+
+  it("stores bridge directories and generated files with private permissions", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
+    const store = new BridgeStore(root);
+    const task = await store.createTask({
+      source: "codex",
+      title: "Private bridge files",
+      prompt: "Check local file permissions.",
+      repo_id: "default",
+      files: [],
+      provenance: { adapter: "cli" }
+    });
+    await store.completeTask(task.id, { status: "done", summary: "Permission check." });
+    const session = await store.writeSession({
+      direction: "codex_to_chatgpt",
+      backend: "manual",
+      status: "preview"
+    });
+    const artifactPath = await store.writeArtifactText(".bridge/artifacts/pro-consults/private.md", "private artifact\n");
+
+    await expectMode(path.join(root, ".bridge"), 0o700);
+    for (const dirname of ["tasks", "results", "sessions", "artifacts", "receipts", path.join("artifacts", "pro-consults")]) {
+      await expectMode(path.join(root, ".bridge", dirname), 0o700);
+    }
+    await expectMode(path.join(root, ".bridge", "tasks", `${task.id}.json`), 0o600);
+    await expectMode(path.join(root, ".bridge", "results", `${task.id}.json`), 0o600);
+    await expectMode(path.join(root, ".bridge", "sessions", `${session.id}.json`), 0o600);
+    await expectMode(path.join(root, artifactPath), 0o600);
+    const receipts = await readdir(path.join(root, ".bridge", "receipts"));
+    expect(receipts.length).toBeGreaterThan(0);
+    for (const receipt of receipts) {
+      await expectMode(path.join(root, ".bridge", "receipts", receipt), 0o600);
+    }
   });
 
   it("rejects finalizing a task after it is already done or blocked", async () => {
@@ -556,3 +590,8 @@ describe("BridgeStore", () => {
     expect(await readdir(outside)).toEqual([]);
   });
 });
+
+async function expectMode(filePath: string, expectedMode: number): Promise<void> {
+  if (process.platform === "win32") return;
+  expect((await stat(filePath)).mode & 0o777).toBe(expectedMode);
+}

@@ -41,6 +41,8 @@ export function setBridgeStoreTestHooks(hooks: BridgeStoreTestHooks): void {
 const TASK_ID_PATTERN = /^task_\d{8}_\d{6}_[a-z0-9-]+$/;
 const SESSION_ID_PATTERN = /^sess_\d{8}_\d{6}_[a-z0-9-]+$/;
 const RECEIPT_ID_PATTERN = /^receipt_\d{8}_\d{6}_[a-z0-9-]+$/;
+const BRIDGE_DIRECTORY_MODE = 0o700;
+const BRIDGE_FILE_MODE = 0o600;
 
 export interface CreateTaskInput {
   source: Source;
@@ -92,14 +94,13 @@ export class BridgeStore {
   }
 
   async ensure(): Promise<void> {
-    await mkdir(this.bridgeDir, { recursive: true });
-    await this.assertBridgeDirIsRealDirectory();
+    await ensurePrivateDirectory(this.bridgeDir, "Bridge directory");
     await Promise.all([
-      mkdir(this.dir("tasks"), { recursive: true }),
-      mkdir(this.dir("results"), { recursive: true }),
-      mkdir(this.dir("sessions"), { recursive: true }),
-      mkdir(this.dir("artifacts"), { recursive: true }),
-      mkdir(this.dir("receipts"), { recursive: true })
+      ensurePrivateDirectory(this.dir("tasks"), "Bridge storage directory .bridge/tasks"),
+      ensurePrivateDirectory(this.dir("results"), "Bridge storage directory .bridge/results"),
+      ensurePrivateDirectory(this.dir("sessions"), "Bridge storage directory .bridge/sessions"),
+      ensurePrivateDirectory(this.dir("artifacts"), "Bridge storage directory .bridge/artifacts"),
+      ensurePrivateDirectory(this.dir("receipts"), "Bridge storage directory .bridge/receipts")
     ]);
     await this.assertStorageDirsAreRealDirectories();
   }
@@ -311,7 +312,7 @@ export class BridgeStore {
         await this.assertArtifactParentDirectory(path.dirname(artifactPath));
         await this.assertArtifactTargetInsideIfExists(artifactPath);
       },
-      { create: true }
+      { create: true, mode: BRIDGE_FILE_MODE }
     );
     return this.relativeToRoot(artifactPath);
   }
@@ -411,7 +412,8 @@ export class BridgeStore {
     try {
       await writeVerifiedUtf8File(filePath, content, () => this.assertStorageDirIsRealDirectory(kind), {
         create: true,
-        exclusive: true
+        exclusive: true,
+        mode: BRIDGE_FILE_MODE
       });
     } catch (error) {
       if (isErrorCode(error, "EEXIST")) return false;
@@ -441,7 +443,8 @@ export class BridgeStore {
         const tmpPath = path.join(storageFdPath, `.${fileName}.${process.pid}.${Date.now()}.${randomUUID()}.tmp`);
         try {
           await writeVerifiedUtf8File(tmpPath, content, async () => assertOpenDirectoryHandle(storageHandle), {
-            create: true
+            create: true,
+            mode: BRIDGE_FILE_MODE
           });
           await rename(tmpPath, targetPath);
           await assertRegularFileIfExists(targetPath, `Bridge record path for .bridge/${kind}`);
@@ -479,7 +482,8 @@ export class BridgeStore {
         try {
           await writeVerifiedUtf8File(tmpPath, content, async () => assertOpenDirectoryHandle(storageHandle), {
             create: true,
-            exclusive: true
+            exclusive: true,
+            mode: BRIDGE_FILE_MODE
           });
           try {
             await link(tmpPath, targetPath);
@@ -510,7 +514,7 @@ export class BridgeStore {
   private async writeTextByPathRename(kind: BridgeRecordKind, filePath: string, content: string): Promise<void> {
     const tmp = `${filePath}.${process.pid}.${Date.now()}.${randomUUID()}.tmp`;
     try {
-      await writeVerifiedUtf8File(tmp, content, () => this.assertStorageDirIsRealDirectory(kind), { create: true });
+      await writeVerifiedUtf8File(tmp, content, () => this.assertStorageDirIsRealDirectory(kind), { create: true, mode: BRIDGE_FILE_MODE });
       await rename(tmp, filePath);
       await this.assertStorageDirIsRealDirectory(kind);
     } catch (error) {
@@ -625,12 +629,13 @@ export class BridgeStore {
     } catch (error) {
       const maybe = error as { code?: string };
       if (maybe.code !== "ENOENT") throw error;
-      await mkdir(dirPath);
+      await mkdir(dirPath, { mode: BRIDGE_DIRECTORY_MODE });
       const stat = await lstat(dirPath);
       if (stat.isSymbolicLink() || !stat.isDirectory()) {
         throw new Error("Artifact path must stay under .bridge/artifacts");
       }
     }
+    await chmodPrivateDirectory(dirPath, "Artifact directory");
   }
 
   private async assertRealDirectorySegment(dirPath: string): Promise<void> {
@@ -758,10 +763,25 @@ async function openNoFollowDirectory(dirPath: string, label: string): Promise<Fi
     }
   } catch (error) {
     const maybe = error as { code?: string };
-    if (maybe.code === "ELOOP") {
+    if (maybe.code === "ELOOP" || maybe.code === "ENOTDIR") {
       throw new Error(`${label} must be a real directory and must not be a symlink`);
     }
     throw error;
+  }
+}
+
+async function ensurePrivateDirectory(dirPath: string, label: string): Promise<void> {
+  await mkdir(dirPath, { recursive: true, mode: BRIDGE_DIRECTORY_MODE });
+  await chmodPrivateDirectory(dirPath, label);
+}
+
+async function chmodPrivateDirectory(dirPath: string, label: string): Promise<void> {
+  const handle = await openNoFollowDirectory(dirPath, label);
+  try {
+    await handle.chmod(BRIDGE_DIRECTORY_MODE);
+    await assertOpenDirectoryHandle(handle);
+  } finally {
+    await handle.close();
   }
 }
 

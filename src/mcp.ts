@@ -1,16 +1,23 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import process from "node:process";
+import type { Readable, Writable } from "node:stream";
+import { serializeMessage } from "@modelcontextprotocol/sdk/shared/stdio.js";
+import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
+import { JSONRPCMessageSchema, type JSONRPCMessage } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
-import { createMcpToolHandlers } from "./mcp-tools.js";
+import { createMcpToolHandlers, MAX_MCP_BRIDGE_TEXT_BYTES, MAX_MCP_SHORT_TEXT_BYTES } from "./mcp-tools.js";
 import { ReceiptKindSchema, type SourceSchema } from "./schema.js";
 import type { z as zod } from "zod";
 
 type BridgeSource = zod.infer<typeof SourceSchema>;
+const McpBridgeTextSchema = z.string().max(MAX_MCP_BRIDGE_TEXT_BYTES);
+const McpShortTextSchema = z.string().max(MAX_MCP_SHORT_TEXT_BYTES);
 const BridgeFileInputSchema = z.object({
-  path: z.string(),
+  path: McpShortTextSchema,
   role: z.enum(["context", "artifact", "result"]).optional(),
   bytes: z.number().int().nonnegative().optional()
 });
+export const DEFAULT_STDIO_MESSAGE_LIMIT_BYTES = 1_048_576;
 
 export interface CreateMcpServerOptions {
   source?: BridgeSource;
@@ -37,10 +44,10 @@ export function createServer(cwd = process.cwd(), options: CreateMcpServerOption
     {
       description: "Create a durable task for Codex/local execution in .bridge/tasks.",
       inputSchema: {
-        title: z.string().min(1),
-        prompt: z.string().min(1),
-        repo_id: z.string().optional(),
-        files: z.array(z.object({ path: z.string(), role: z.enum(["context", "artifact", "result"]).optional(), bytes: z.number().optional() })).optional()
+        title: McpShortTextSchema.min(1),
+        prompt: McpBridgeTextSchema.min(1),
+        repo_id: McpShortTextSchema.optional(),
+        files: z.array(BridgeFileInputSchema).max(100).optional()
       }
     },
     async (input) => asText(await handlers.bridge_create_task(input))
@@ -59,7 +66,7 @@ export function createServer(cwd = process.cwd(), options: CreateMcpServerOption
     "bridge_get_task",
     {
       description: "Fetch one bridge task by id.",
-      inputSchema: { task_id: z.string() }
+      inputSchema: { task_id: McpShortTextSchema }
     },
     async (input) => asText(await handlers.bridge_get_task(input))
   );
@@ -68,7 +75,7 @@ export function createServer(cwd = process.cwd(), options: CreateMcpServerOption
     "bridge_claim_task",
     {
       description: "Claim a new bridge task for execution.",
-      inputSchema: { task_id: z.string(), claimed_by: z.string().optional() }
+      inputSchema: { task_id: McpShortTextSchema, claimed_by: McpShortTextSchema.optional() }
     },
     async (input) => asText(await handlers.bridge_claim_task(input))
   );
@@ -78,11 +85,11 @@ export function createServer(cwd = process.cwd(), options: CreateMcpServerOption
     {
       description: "Complete a bridge task with a durable result record.",
       inputSchema: {
-        task_id: z.string(),
-        summary: z.string().min(1),
-        artifacts: z.array(BridgeFileInputSchema).optional(),
-        commands: z.array(z.string()).optional(),
-        warnings: z.array(z.string()).optional()
+        task_id: McpShortTextSchema,
+        summary: McpBridgeTextSchema.min(1),
+        artifacts: z.array(BridgeFileInputSchema).max(100).optional(),
+        commands: z.array(McpBridgeTextSchema).max(100).optional(),
+        warnings: z.array(McpBridgeTextSchema).max(100).optional()
       }
     },
     async (input) => asText(await handlers.bridge_complete_task(input))
@@ -93,14 +100,14 @@ export function createServer(cwd = process.cwd(), options: CreateMcpServerOption
     {
       description: "Close a bridge task as blocked with durable blocker metadata.",
       inputSchema: {
-        task_id: z.string(),
-        summary: z.string().min(1),
-        code: z.string().optional(),
-        next_step: z.string().optional(),
+        task_id: McpShortTextSchema,
+        summary: McpBridgeTextSchema.min(1),
+        code: McpShortTextSchema.optional(),
+        next_step: McpBridgeTextSchema.optional(),
         retryable: z.boolean().optional(),
-        artifacts: z.array(BridgeFileInputSchema).optional(),
-        commands: z.array(z.string()).optional(),
-        warnings: z.array(z.string()).optional()
+        artifacts: z.array(BridgeFileInputSchema).max(100).optional(),
+        commands: z.array(McpBridgeTextSchema).max(100).optional(),
+        warnings: z.array(McpBridgeTextSchema).max(100).optional()
       }
     },
     async (input) => asText(await handlers.bridge_block_task(input))
@@ -119,7 +126,7 @@ export function createServer(cwd = process.cwd(), options: CreateMcpServerOption
     "bridge_fetch_result",
     {
       description: "Fetch the result for a bridge task.",
-      inputSchema: { task_id: z.string() }
+      inputSchema: { task_id: McpShortTextSchema }
     },
     async (input) => asText(await handlers.bridge_fetch_result(input))
   );
@@ -128,7 +135,7 @@ export function createServer(cwd = process.cwd(), options: CreateMcpServerOption
     "bridge_fetch_result_artifact",
     {
       description: "Fetch text content for a result-listed artifact. Arbitrary .bridge artifacts are not exposed.",
-      inputSchema: { task_id: z.string(), path: z.string().optional() }
+      inputSchema: { task_id: McpShortTextSchema, path: McpShortTextSchema.optional() }
     },
     async (input) => asText(await handlers.bridge_fetch_result_artifact(input))
   );
@@ -137,7 +144,7 @@ export function createServer(cwd = process.cwd(), options: CreateMcpServerOption
     "bridge_list_receipts",
     {
       description: "List durable bridge receipts with legacy inline write payloads redacted.",
-      inputSchema: { kind: ReceiptKindSchema.optional(), task_id: z.string().optional() }
+      inputSchema: { kind: ReceiptKindSchema.optional(), task_id: McpShortTextSchema.optional() }
     },
     async (input) => asText(await handlers.bridge_list_receipts(input))
   );
@@ -146,7 +153,7 @@ export function createServer(cwd = process.cwd(), options: CreateMcpServerOption
     "bridge_get_receipt",
     {
       description: "Fetch one bridge receipt with legacy inline write payloads redacted.",
-      inputSchema: { receipt_id: z.string() }
+      inputSchema: { receipt_id: McpShortTextSchema }
     },
     async (input) => asText(await handlers.bridge_get_receipt(input))
   );
@@ -164,7 +171,7 @@ export function createServer(cwd = process.cwd(), options: CreateMcpServerOption
     "bridge_get_session",
     {
       description: "Fetch one consult/session record by id.",
-      inputSchema: { session_id: z.string() }
+      inputSchema: { session_id: McpShortTextSchema }
     },
     async (input) => asText(await handlers.bridge_get_session(input))
   );
@@ -174,7 +181,7 @@ export function createServer(cwd = process.cwd(), options: CreateMcpServerOption
     {
       description: "Read a repo-relative text file with line bounds. Absolute paths and traversal are rejected.",
       inputSchema: {
-        path: z.string(),
+        path: McpShortTextSchema,
         start_line: z.number().int().positive().optional(),
         max_lines: z.number().int().positive().max(500).optional()
       }
@@ -186,7 +193,7 @@ export function createServer(cwd = process.cwd(), options: CreateMcpServerOption
     "repo_search",
     {
       description: "Search the current repo with ripgrep. Read-only.",
-      inputSchema: { query: z.string().min(1), glob: z.string().optional() }
+      inputSchema: { query: McpBridgeTextSchema.min(1), glob: McpShortTextSchema.optional() }
     },
     async (input) => asText(await handlers.repo_search(input))
   );
@@ -196,9 +203,9 @@ export function createServer(cwd = process.cwd(), options: CreateMcpServerOption
     {
       description: "Create a receipt-gated write preview for an existing repo-relative text file. Does not modify files.",
       inputSchema: {
-        path: z.string(),
-        content: z.string(),
-        expected_head: z.string().min(1)
+        path: McpShortTextSchema,
+        content: z.string().max(1_000_000),
+        expected_head: McpShortTextSchema.min(1)
       }
     },
     async (input) => asText(await handlers.repo_write_file_dry_run(input))
@@ -209,9 +216,9 @@ export function createServer(cwd = process.cwd(), options: CreateMcpServerOption
     {
       description: "Apply a prior write dry-run only when git HEAD and preimage hash match.",
       inputSchema: {
-        receipt_id: z.string().min(1),
-        expected_head: z.string().min(1),
-        preimage_sha256: z.string().min(1)
+        receipt_id: McpShortTextSchema.min(1),
+        expected_head: McpShortTextSchema.min(1),
+        preimage_sha256: McpShortTextSchema.min(1)
       }
     },
     async (input) => asText(await handlers.repo_write_file_apply(input))
@@ -222,8 +229,8 @@ export function createServer(cwd = process.cwd(), options: CreateMcpServerOption
     {
       description: "Stage paths only when backed by applied write receipts matching the current git HEAD and file content.",
       inputSchema: {
-        receipt_ids: z.array(z.string().min(1)).min(1),
-        expected_head: z.string().min(1)
+        receipt_ids: z.array(McpShortTextSchema.min(1)).min(1).max(100),
+        expected_head: McpShortTextSchema.min(1)
       }
     },
     async (input) => asText(await handlers.repo_stage_reviewed_paths(input))
@@ -234,6 +241,96 @@ export function createServer(cwd = process.cwd(), options: CreateMcpServerOption
 
 export async function runMcpServer(cwd = process.cwd()): Promise<void> {
   const server = createServer(cwd);
-  const transport = new StdioServerTransport();
+  const transport = new LimitedStdioServerTransport();
   await server.connect(transport);
+}
+
+export class LimitedStdioServerTransport implements Transport {
+  onclose?: Transport["onclose"];
+  onerror?: Transport["onerror"];
+  onmessage?: Transport["onmessage"];
+  sessionId?: string;
+  setProtocolVersion?: Transport["setProtocolVersion"];
+
+  private buffer = Buffer.alloc(0);
+  private started = false;
+  private closed = false;
+  private readonly maxMessageBytes: number;
+
+  constructor(
+    private readonly stdin: Readable = process.stdin,
+    private readonly stdout: Writable = process.stdout,
+    options: { maxMessageBytes?: number } = {}
+  ) {
+    this.maxMessageBytes = Math.max(1, options.maxMessageBytes ?? DEFAULT_STDIO_MESSAGE_LIMIT_BYTES);
+  }
+
+  async start(): Promise<void> {
+    if (this.started) {
+      throw new Error("LimitedStdioServerTransport already started");
+    }
+    this.started = true;
+    this.stdin.on("data", this.onData);
+    this.stdin.on("error", this.onInputError);
+  }
+
+  async close(): Promise<void> {
+    if (this.closed) {
+      return;
+    }
+    this.closed = true;
+    this.stdin.off("data", this.onData);
+    this.stdin.off("error", this.onInputError);
+    if (this.stdin.listenerCount("data") === 0) {
+      this.stdin.pause();
+    }
+    this.buffer = Buffer.alloc(0);
+    this.onclose?.();
+  }
+
+  async send(message: JSONRPCMessage): Promise<void> {
+    const json = serializeMessage(message);
+    await new Promise<void>((resolve) => {
+      if (this.stdout.write(json)) {
+        resolve();
+      } else {
+        this.stdout.once("drain", resolve);
+      }
+    });
+  }
+
+  private readonly onData = (chunk: Buffer | string): void => {
+    try {
+      const buffer = Buffer.from(chunk);
+      this.buffer = this.buffer.length === 0 ? buffer : Buffer.concat([this.buffer, buffer]);
+      this.processBuffer();
+    } catch (error) {
+      this.buffer = Buffer.alloc(0);
+      this.onerror?.(error instanceof Error ? error : new Error(String(error)));
+      void this.close();
+    }
+  };
+
+  private readonly onInputError = (error: Error): void => {
+    this.onerror?.(error);
+  };
+
+  private processBuffer(): void {
+    while (true) {
+      const newlineIndex = this.buffer.indexOf("\n");
+      if (newlineIndex === -1) {
+        if (this.buffer.length > this.maxMessageBytes) {
+          throw new Error(`MCP stdio message is too large (${this.buffer.length} bytes > ${this.maxMessageBytes} bytes)`);
+        }
+        return;
+      }
+      if (newlineIndex > this.maxMessageBytes) {
+        throw new Error(`MCP stdio message is too large (${newlineIndex} bytes > ${this.maxMessageBytes} bytes)`);
+      }
+      const line = this.buffer.toString("utf8", 0, newlineIndex).replace(/\r$/, "");
+      this.buffer = this.buffer.subarray(newlineIndex + 1);
+      const message = JSONRPCMessageSchema.parse(JSON.parse(line));
+      this.onmessage?.(message);
+    }
+  }
 }

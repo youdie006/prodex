@@ -1,9 +1,12 @@
-import { chmod, lstat, mkdir } from "node:fs/promises";
+import { constants } from "node:fs";
+import { chmod, lstat, mkdir, open, type FileHandle } from "node:fs/promises";
 import { randomBytes } from "node:crypto";
 import path from "node:path";
 import { z } from "zod";
 import { SCHEMA_VERSION } from "./schema.js";
 import { readVerifiedUtf8File, writeVerifiedUtf8File } from "./safe-file.js";
+
+const BRIDGE_DIRECTORY_MODE = 0o700;
 
 const LocalConfigSchema = z.object({
   schema_version: z.literal(SCHEMA_VERSION),
@@ -66,6 +69,7 @@ export async function writeLocalConfig(cwd: string, input: WriteLocalConfigInput
 
 export async function loadLocalConfig(cwd: string): Promise<LocalConfig> {
   await assertLocalConfigTargetSafe(cwd, { allowMissing: false });
+  await chmodPrivateBridgeDirectory(cwd);
   const config = LocalConfigSchema.parse(
     JSON.parse(await readVerifiedUtf8File(localConfigPath(cwd), () => assertLocalConfigTargetSafe(cwd, { allowMissing: false })))
   );
@@ -125,8 +129,7 @@ async function readExistingConfig(cwd: string): Promise<LocalConfig | undefined>
 
 async function ensureBridgeLocalFiles(cwd: string): Promise<void> {
   const bridgeDir = path.join(cwd, ".bridge");
-  await mkdir(bridgeDir, { recursive: true });
-  await assertRealBridgeDirectory(cwd);
+  await ensurePrivateBridgeDirectory(cwd);
   const ignorePath = path.join(bridgeDir, ".gitignore");
   let current = "";
   try {
@@ -148,6 +151,22 @@ async function ensureBridgeLocalFiles(cwd: string): Promise<void> {
   await writeVerifiedUtf8File(ignorePath, `${Array.from(lines).join("\n")}\n`, () => assertBridgeGitignoreTargetSafe(cwd), {
     create: true
   });
+}
+
+async function ensurePrivateBridgeDirectory(cwd: string): Promise<void> {
+  await mkdir(path.join(cwd, ".bridge"), { recursive: true, mode: BRIDGE_DIRECTORY_MODE });
+  await chmodPrivateBridgeDirectory(cwd);
+}
+
+async function chmodPrivateBridgeDirectory(cwd: string): Promise<void> {
+  const bridgeDir = path.join(cwd, ".bridge");
+  const handle = await openNoFollowDirectory(bridgeDir, ".bridge");
+  try {
+    await handle.chmod(BRIDGE_DIRECTORY_MODE);
+    await assertDirectoryHandle(handle, ".bridge");
+  } finally {
+    await handle.close();
+  }
 }
 
 async function assertLocalConfigTargetSafe(cwd: string, options: { allowMissing?: boolean } = { allowMissing: true }): Promise<void> {
@@ -196,4 +215,32 @@ async function assertRealBridgeDirectory(cwd: string): Promise<void> {
 
 function isMissingFileError(error: unknown): boolean {
   return typeof error === "object" && error !== null && "code" in error && (error as { code?: unknown }).code === "ENOENT";
+}
+
+async function openNoFollowDirectory(dirPath: string, label: string): Promise<FileHandle> {
+  const noFollowFlag = typeof constants.O_NOFOLLOW === "number" ? constants.O_NOFOLLOW : 0;
+  const directoryFlag = typeof constants.O_DIRECTORY === "number" ? constants.O_DIRECTORY : 0;
+  try {
+    const handle = await open(dirPath, constants.O_RDONLY | directoryFlag | noFollowFlag);
+    try {
+      await assertDirectoryHandle(handle, label);
+      return handle;
+    } catch (error) {
+      await handle.close().catch(() => undefined);
+      throw error;
+    }
+  } catch (error) {
+    const maybe = error as { code?: string };
+    if (maybe.code === "ELOOP" || maybe.code === "ENOTDIR") {
+      throw new Error(`${label} must be a real directory and must not be a symlink`);
+    }
+    throw error;
+  }
+}
+
+async function assertDirectoryHandle(handle: FileHandle, label: string): Promise<void> {
+  const stat = await handle.stat();
+  if (!stat.isDirectory()) {
+    throw new Error(`${label} must be a real directory`);
+  }
 }

@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -33,6 +33,39 @@ describe("MCP tool handlers", () => {
 
     const listed = await handlers.bridge_list_tasks({});
     expect(listed.tasks.map((task) => task.title)).toContain("From Claude");
+  });
+
+  it("rejects oversized MCP task prompts before writing bridge records", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    const handlers = createMcpToolHandlers({ cwd });
+
+    await expect(
+      handlers.bridge_create_task({
+        title: "Oversized prompt",
+        prompt: "x".repeat(100_001)
+      })
+    ).rejects.toThrow(/too large|100000/i);
+    await expect(readdir(path.join(cwd, ".bridge", "tasks"))).rejects.toThrow();
+  });
+
+  it("rejects oversized MCP result summaries before completion", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    const handlers = createMcpToolHandlers({ cwd });
+    const created = await handlers.bridge_create_task({
+      title: "Oversized result",
+      prompt: "Complete this normally."
+    });
+
+    await expect(
+      handlers.bridge_complete_task({
+        task_id: created.task.id,
+        summary: "x".repeat(100_001)
+      })
+    ).rejects.toThrow(/too large|100000/i);
+
+    const store = new BridgeStore(cwd);
+    await expect(store.getTask(created.task.id)).resolves.toEqual(expect.objectContaining({ status: "new" }));
+    await expect(store.getResult(created.task.id)).rejects.toThrow();
   });
 
   it("rejects unsafe file paths when creating tasks through MCP handlers", async () => {

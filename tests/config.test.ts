@@ -75,6 +75,7 @@ describe("local bridge config", () => {
     await writeLocalConfig(cwd, { port: 9797, token: "test-token" });
 
     if (process.platform !== "win32") {
+      expect((await stat(path.join(cwd, ".bridge"))).mode & 0o777).toBe(0o700);
       expect((await stat(localConfigPath(cwd))).mode & 0o777).toBe(0o600);
     }
   });
@@ -84,8 +85,10 @@ describe("local bridge config", () => {
     await writeLocalConfig(cwd, { port: 9797, token: "test-token" });
 
     if (process.platform !== "win32") {
+      await chmod(path.join(cwd, ".bridge"), 0o777);
       await chmod(localConfigPath(cwd), 0o666);
       await loadLocalConfig(cwd);
+      expect((await stat(path.join(cwd, ".bridge"))).mode & 0o777).toBe(0o700);
       expect((await stat(localConfigPath(cwd))).mode & 0o777).toBe(0o600);
     }
   });
