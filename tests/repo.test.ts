@@ -193,6 +193,33 @@ describe("repo path policy", () => {
     await expect(searchRepo(root, "SECRET", "services/api/.bridge/**")).rejects.toThrow(/sensitive/);
   });
 
+  it("blocks case-folded sensitive paths from repo reads and searches", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-repo-"));
+    await mkdir(path.join(root, ".Bridge"), { recursive: true });
+    await mkdir(path.join(root, "Services", "API", ".GIT"), { recursive: true });
+    await mkdir(path.join(root, "Services", "API"), { recursive: true });
+    await mkdir(path.join(root, "Packages", "A", "Node_Modules", "pkg"), { recursive: true });
+    await mkdir(path.join(root, "Packages", "A", "DIST"), { recursive: true });
+    await writeFile(path.join(root, ".Bridge", "config.local.json"), "SECRET=bridge\n", "utf8");
+    await writeFile(path.join(root, "Services", "API", ".GIT", "config"), "SECRET=git\n", "utf8");
+    await writeFile(path.join(root, "Services", "API", ".ENV.Local"), "SECRET=env\n", "utf8");
+    await writeFile(path.join(root, "Packages", "A", "Node_Modules", "pkg", "secret.txt"), "SECRET=dependency\n", "utf8");
+    await writeFile(path.join(root, "Packages", "A", "DIST", "build.txt"), "SECRET=build\n", "utf8");
+    await writeFile(path.join(root, "README.md"), "SECRET=public\n", "utf8");
+
+    await expect(readRepoFile(root, ".Bridge/config.local.json")).rejects.toThrow(/sensitive/);
+    await expect(readRepoFile(root, "Services/API/.GIT/config")).rejects.toThrow(/sensitive/);
+    await expect(readRepoFile(root, "Services/API/.ENV.Local")).rejects.toThrow(/sensitive/);
+    await expect(readRepoFile(root, "Packages/A/Node_Modules/pkg/secret.txt")).rejects.toThrow(/sensitive/);
+    await expect(readRepoFile(root, "Packages/A/DIST/build.txt")).rejects.toThrow(/sensitive/);
+    await expect(searchRepo(root, "SECRET")).resolves.toEqual([{ path: "README.md", line: 1, text: "SECRET=public" }]);
+    await expect(searchRepo(root, "SECRET", "**/.Bridge/**")).rejects.toThrow(/sensitive/);
+    await expect(searchRepo(root, "SECRET", "**/.GIT/**")).rejects.toThrow(/sensitive/);
+    await expect(searchRepo(root, "SECRET", "**/.ENV*")).rejects.toThrow(/sensitive/);
+    await expect(searchRepo(root, "SECRET", "**/Node_Modules/**")).rejects.toThrow(/sensitive/);
+    await expect(searchRepo(root, "SECRET", "**/DIST/**")).rejects.toThrow(/sensitive/);
+  });
+
   it("ignores user ripgrep config that would follow symlinks outside the repo", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "gptprouse-repo-"));
     const outside = await mkdtemp(path.join(tmpdir(), "gptprouse-outside-"));

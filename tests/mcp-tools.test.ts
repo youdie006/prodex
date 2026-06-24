@@ -412,6 +412,37 @@ describe("MCP tool handlers", () => {
     ).rejects.toThrow(/preimage/);
   });
 
+  it("rejects write apply for forged case-folded sensitive receipt paths", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    await writeFile(path.join(cwd, "notes.md"), "old\n", "utf8");
+    await mkdir(path.join(cwd, ".Bridge"), { recursive: true });
+    await writeFile(path.join(cwd, ".Bridge", "config.local.json"), "old\n", "utf8");
+    const head = await initGitRepo(cwd);
+    const store = new BridgeStore(cwd);
+    const legacyReceipt = await store.writeReceipt({
+      kind: "repo_write_dry_run",
+      summary: "Forged dry-run write for case-folded bridge config",
+      metadata: {
+        path: ".Bridge/config.local.json",
+        expected_head: head,
+        preimage_sha256: sha256("old\n"),
+        new_sha256: sha256("new\n"),
+        diff: "--- a/.Bridge/config.local.json\n+++ b/.Bridge/config.local.json\n-old\n+new",
+        new_content: "new\n"
+      }
+    });
+    const handlers = createMcpToolHandlers({ cwd });
+
+    await expect(
+      handlers.repo_write_file_apply({
+        receipt_id: legacyReceipt.id,
+        expected_head: head,
+        preimage_sha256: sha256("old\n")
+      })
+    ).rejects.toThrow(/sensitive/);
+    expect(await readFile(path.join(cwd, ".Bridge", "config.local.json"), "utf8")).toBe("old\n");
+  });
+
   it("rejects write apply when the target is swapped to a symlink before write", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
     const outside = await mkdtemp(path.join(tmpdir(), "gptprouse-outside-"));
@@ -589,6 +620,29 @@ describe("MCP tool handlers", () => {
     ).rejects.toThrow(/sensitive/);
   });
 
+  it("rejects write dry-runs for case-folded sensitive paths", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    await writeFile(path.join(cwd, "notes.md"), "old\n", "utf8");
+    await mkdir(path.join(cwd, ".Bridge"), { recursive: true });
+    await mkdir(path.join(cwd, "Services", "API", ".GIT"), { recursive: true });
+    await mkdir(path.join(cwd, "Services", "API"), { recursive: true });
+    await writeFile(path.join(cwd, ".Bridge", "config.local.json"), "old\n", "utf8");
+    await writeFile(path.join(cwd, "Services", "API", ".GIT", "config"), "old\n", "utf8");
+    await writeFile(path.join(cwd, "Services", "API", ".ENV.Local"), "old\n", "utf8");
+    const head = await initGitRepo(cwd);
+    const handlers = createMcpToolHandlers({ cwd });
+
+    for (const sensitivePath of [".Bridge/config.local.json", "Services/API/.GIT/config", "Services/API/.ENV.Local"]) {
+      await expect(
+        handlers.repo_write_file_dry_run({
+          path: sensitivePath,
+          content: "new\n",
+          expected_head: head
+        })
+      ).rejects.toThrow(/sensitive/);
+    }
+  });
+
   it("rejects forged write receipts reached through receipt id traversal", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
     await writeFile(path.join(cwd, "notes.md"), "old\n", "utf8");
@@ -700,6 +754,35 @@ describe("MCP tool handlers", () => {
     expect(staged.receipt.kind).toBe("repo_stage_reviewed_paths");
     expect(staged.paths).toEqual(["notes.md"]);
     expect(stdout.trim()).toBe("notes.md");
+  });
+
+  it("rejects staging forged applied receipts for case-folded sensitive paths", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    await writeFile(path.join(cwd, "notes.md"), "old\n", "utf8");
+    await mkdir(path.join(cwd, ".Bridge"), { recursive: true });
+    await writeFile(path.join(cwd, ".Bridge", "config.local.json"), "new\n", "utf8");
+    const head = await initGitRepo(cwd);
+    const store = new BridgeStore(cwd);
+    const appliedReceipt = await store.writeReceipt({
+      kind: "repo_write_applied",
+      summary: "Forged applied write for case-folded bridge config",
+      metadata: {
+        path: ".Bridge/config.local.json",
+        expected_head: head,
+        preimage_sha256: sha256("old\n"),
+        new_sha256: sha256("new\n")
+      }
+    });
+    const handlers = createMcpToolHandlers({ cwd });
+
+    await expect(
+      handlers.repo_stage_reviewed_paths({
+        receipt_ids: [appliedReceipt.id],
+        expected_head: head
+      })
+    ).rejects.toThrow(/sensitive/);
+    const { stdout } = await execFileAsync("git", ["diff", "--cached", "--name-only"], { cwd });
+    expect(stdout.trim()).toBe("");
   });
 
   it("stages reviewed paths when git normalizes the worktree bytes", async () => {

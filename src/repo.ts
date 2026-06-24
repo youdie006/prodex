@@ -132,6 +132,7 @@ export async function searchRepo(root: string, query: string, glob?: string): Pr
       .filter(Boolean)
       .map(parseRipgrepJsonMatch)
       .filter((match): match is SearchResult => match !== undefined)
+      .filter((match) => isAllowedRepoSearchResult(match.path))
       .slice(0, 100);
   } catch (error) {
     const maybe = error as { code?: number | string; stdout?: string };
@@ -184,11 +185,7 @@ function assertNotSensitiveRepoPath(normalizedPath: string): void {
   if (segments.some(isEnvLikeSegment)) {
     throw new Error(`Path ${normalizedPath} is sensitive and cannot be read through repo tools`);
   }
-  if (
-    segments.some(
-      (segment) => segment === ".bridge" || segment === ".git" || segment === "node_modules" || segment === "dist"
-    )
-  ) {
+  if (segments.some(isSensitiveRepoSegment)) {
     throw new Error(`Path ${normalizedPath} is sensitive and cannot be read through repo tools`);
   }
 }
@@ -210,10 +207,7 @@ function assertNoSensitiveGlobSegment(normalizedGlob: string): void {
   if (
     segments.some(
       (segment) =>
-        segment === ".git" ||
-        segment === ".bridge" ||
-        segment === "node_modules" ||
-        segment === "dist" ||
+        isSensitiveRepoSegment(segment) ||
         isEnvLikeGlobSegment(segment)
     )
   ) {
@@ -221,8 +215,23 @@ function assertNoSensitiveGlobSegment(normalizedGlob: string): void {
   }
 }
 
+function isAllowedRepoSearchResult(repoPath: string): boolean {
+  try {
+    assertNotSensitiveRepoPath(path.posix.normalize(repoPath.replaceAll("\\", "/")));
+    return true;
+  } catch (error) {
+    if (error instanceof Error && /sensitive/.test(error.message)) return false;
+    throw error;
+  }
+}
+
+function isSensitiveRepoSegment(segment: string): boolean {
+  const folded = foldSensitiveSegment(segment);
+  return folded === ".bridge" || folded === ".git" || folded === "node_modules" || folded === "dist";
+}
+
 function isEnvLikeSegment(segment: string): boolean {
-  return segment.startsWith(".env");
+  return foldSensitiveSegment(segment).startsWith(".env");
 }
 
 function isEnvLikeGlobSegment(segment: string): boolean {
@@ -233,7 +242,8 @@ function isEnvLikeGlobSegment(segment: string): boolean {
 
 function isEnvLikeGlobVariant(segment: string): boolean {
   if (isBroadWildcardOnlyGlobVariant(segment)) return false;
-  return ENV_LIKE_GLOB_PROBES.some((probe) => globSegmentMatches(segment, probe));
+  const folded = foldSensitiveSegment(segment);
+  return ENV_LIKE_GLOB_PROBES.some((probe) => globSegmentMatches(folded, probe));
 }
 
 function isBroadWildcardOnlyGlobVariant(segment: string): boolean {
@@ -294,6 +304,10 @@ function readGlobCharClass(pattern: string, start: number): { source: string; en
 
 function escapeRegexLiteral(char: string): string {
   return char.replace(/[\\^$.*+?()[\]{}|]/g, "\\$&");
+}
+
+function foldSensitiveSegment(segment: string): string {
+  return segment.toLowerCase();
 }
 
 function expandBraceGlobSegment(segment: string, depth = 0): string[] | null {
