@@ -29,6 +29,7 @@ gptprouse setup --token-ttl-hours 24
 ```
 
 The installed npm package is CLI-only. Use the `gptprouse` command and MCP server surfaces; JavaScript imports from `gptprouse` or `gptprouse/dist/*` are unsupported until a library API is designed and documented.
+Run the local bridge commands from the repo root, or pass `--cwd /absolute/path/to/your/repo` to `setup`, `start`, `status`, `doctor`, and `tunnel url`.
 
 For a source checkout:
 
@@ -55,6 +56,12 @@ gptprouse_token=***
 gptprouse setup --token-ttl-hours 24
 ```
 
+Equivalent from outside the repo:
+
+```bash
+gptprouse setup --cwd /absolute/path/to/your/repo --token-ttl-hours 24
+```
+
 Expired tokens are rejected by `gptprouse start` and by the HTTP MCP server. Rerun `setup` to rotate the URL.
 
 ## Start The Local Server
@@ -65,10 +72,22 @@ Run this in a terminal and keep it running while ChatGPT is using the bridge:
 gptprouse start
 ```
 
+From outside the repo:
+
+```bash
+gptprouse start --cwd /absolute/path/to/your/repo
+```
+
 In another terminal, get the paste-ready MCP URL:
 
 ```bash
 gptprouse status --show-token --url-only
+```
+
+From outside the repo:
+
+```bash
+gptprouse status --cwd /absolute/path/to/your/repo --show-token --url-only
 ```
 
 Only use `--show-token` when you are ready to paste the URL into your own trusted private MCP client configuration.
@@ -93,6 +112,12 @@ After you create your own tunnel, ask `gptprouse` to format the public MCP URL. 
 
 ```bash
 gptprouse tunnel url --public-url "https://your-tunnel.example" --show-token --url-only
+```
+
+From outside the repo, include the same target:
+
+```bash
+gptprouse tunnel url --cwd /absolute/path/to/your/repo --public-url "https://your-tunnel.example" --show-token --url-only
 ```
 
 `tunnel url` refuses non-expiring or expired tokens. By default it redacts the token; use `--show-token` only when you are ready to paste the URL into a trusted private MCP client.

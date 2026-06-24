@@ -61,8 +61,11 @@ try {
   assertIncludes(browserLoginGuide.stdout, "gptprouse pro browser smoke", "installed browser login guide");
   assertNotIncludes(browserLoginGuide.stdout, "node dist/cli.js", "installed browser login guide");
 
-  const init = await run(binPath, ["init"], { cwd: consumerDir });
+  const launcherDir = path.dirname(consumerDir);
+  const init = await run(binPath, ["init", "--cwd", consumerDir], { cwd: launcherDir });
   assertIncludes(init.stdout, "Initialized .bridge", "installed init output");
+  assertIncludes(await readFile(path.join(consumerDir, ".bridge", ".gitignore"), "utf8"), "tasks/*.json", "installed explicit --cwd init gitignore");
+  await assertMissingFile(path.join(launcherDir, ".bridge", ".gitignore"), "installed launcher cwd bridge gitignore");
 
   const doctor = await run(binPath, ["doctor"], { cwd: consumerDir, timeout: 60_000 });
   assertIncludes(doctor.stdout, "mcp_write_smoke: ok", "installed doctor output");
@@ -124,9 +127,11 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertIncludes(readme, "For an installed package", "installed README");
   assertIncludes(readme, "gptprouse init", "installed README");
   assertIncludes(readme, "CLI-only", "installed README");
+  assertIncludes(readme, "setup --cwd", "installed README");
   assertIncludes(readme, "mcp --cwd", "installed README");
   assertIncludes(readme, "configured `doctor`", "installed README");
   assertIncludes(httpMcpDoc, "For an installed package", "installed HTTP MCP docs");
+  assertIncludes(httpMcpDoc, "setup --cwd", "installed HTTP MCP docs");
   assertIncludes(httpMcpDoc, "gptprouse setup --token-ttl-hours 24", "installed HTTP MCP docs");
   assertIncludes(httpMcpDoc, "Keep `gptprouse start` running", "installed HTTP MCP docs");
   assertIncludes(httpMcpDoc, "CLI-only", "installed HTTP MCP docs");
@@ -324,46 +329,49 @@ async function assertBridgeTaskStoredInCwd(cwd, taskId) {
 }
 
 async function smokeInstalledHttpOnboarding(binPath, cwd) {
+  const launcherCwd = path.dirname(cwd);
   const port = await getFreePort();
   const token = "package-smoke-token";
   const expectedUrl = `http://127.0.0.1:${port}/mcp?gptprouse_token=${token}`;
 
-  const setup = await run(binPath, ["setup", "--port", String(port), "--token", token, "--token-ttl-hours", "1"], { cwd });
+  const setup = await run(binPath, ["setup", "--cwd", cwd, "--port", String(port), "--token", token, "--token-ttl-hours", "1"], { cwd: launcherCwd });
   const setupOutput = `${setup.stdout}\n${setup.stderr}`;
   assertIncludes(setupOutput, "gptprouse_token=***", "installed setup output");
   assertIncludes(setupOutput, "Token expires:", "installed setup output");
   assertNotIncludes(setupOutput, token, "installed setup output");
+  assertIncludes(await readFile(path.join(cwd, ".bridge", "config.local.json"), "utf8"), token, "installed explicit --cwd config file");
+  await assertMissingFile(path.join(launcherCwd, ".bridge", "config.local.json"), "installed launcher cwd config file");
 
-  const status = await run(binPath, ["status"], { cwd });
+  const status = await run(binPath, ["status", "--cwd", cwd], { cwd: launcherCwd });
   const statusOutput = `${status.stdout}\n${status.stderr}`;
   assertIncludes(statusOutput, "gptprouse_token=***", "installed status output");
   assertIncludes(statusOutput, '"token_status": "valid"', "installed status output");
   assertIncludes(statusOutput, '"token_expires_at":', "installed status output");
   assertNotIncludes(statusOutput, token, "installed status output");
 
-  const configuredDoctor = await run(binPath, ["doctor"], { cwd, timeout: 60_000 });
+  const configuredDoctor = await run(binPath, ["doctor", "--cwd", cwd], { cwd: launcherCwd, timeout: 60_000 });
   assertIncludes(configuredDoctor.stdout, "config: ok", "installed configured doctor output");
   assertIncludes(configuredDoctor.stdout, "token_status=valid", "installed configured doctor output");
   assertIncludes(configuredDoctor.stdout, "gptprouse_token=***", "installed configured doctor output");
   assertNotIncludes(configuredDoctor.stdout, token, "installed configured doctor output");
 
-  const pasteReady = await run(binPath, ["status", "--show-token", "--url-only"], { cwd });
+  const pasteReady = await run(binPath, ["status", "--cwd", cwd, "--show-token", "--url-only"], { cwd: launcherCwd });
   if (pasteReady.stdout.trim() !== expectedUrl) {
     throw new Error(`Installed status --show-token --url-only returned ${pasteReady.stdout.trim()}, expected ${expectedUrl}`);
   }
 
   const tunnelUrl = await run(
     binPath,
-    ["tunnel", "url", "--public-url", "https://gptprouse-package-smoke.example/ignored", "--show-token", "--url-only"],
-    { cwd }
+    ["tunnel", "url", "--cwd", cwd, "--public-url", "https://gptprouse-package-smoke.example/ignored", "--show-token", "--url-only"],
+    { cwd: launcherCwd }
   );
   const expectedTunnelUrl = `https://gptprouse-package-smoke.example/mcp?gptprouse_token=${token}`;
   if (tunnelUrl.stdout.trim() !== expectedTunnelUrl) {
     throw new Error(`Installed tunnel url returned ${tunnelUrl.stdout.trim()}, expected ${expectedTunnelUrl}`);
   }
 
-  const child = spawn(binPath, ["start"], {
-    cwd,
+  const child = spawn(binPath, ["start", "--cwd", cwd], {
+    cwd: launcherCwd,
     stdio: ["ignore", "pipe", "pipe"]
   });
   let stdout = "";
@@ -383,6 +391,16 @@ async function smokeInstalledHttpOnboarding(binPath, cwd) {
   assertIncludes(startOutput, "gptprouse_token=***", "installed start output");
   assertIncludes(startOutput, "Token expires:", "installed start output");
   assertNotIncludes(startOutput, token, "installed start output");
+}
+
+async function assertMissingFile(filePath, label) {
+  try {
+    await readFile(filePath, "utf8");
+  } catch (error) {
+    if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") return;
+    throw error;
+  }
+  throw new Error(`${label} unexpectedly exists at ${filePath}`);
 }
 
 async function getFreePort() {

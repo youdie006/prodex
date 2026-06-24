@@ -343,6 +343,22 @@ describe("runCli", () => {
     expect(gitignore).toContain("dist/");
   });
 
+  it("uses an explicit --cwd target for init", async () => {
+    const launcherCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-launcher-"));
+    const targetCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-target-"));
+    const out: string[] = [];
+
+    await runCli(["init", "--cwd", targetCwd], {
+      cwd: launcherCwd,
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    expect(out).toEqual(["Initialized .bridge receipt ledger."]);
+    await expect(readFile(path.join(targetCwd, ".bridge", ".gitignore"), "utf8")).resolves.toContain("tasks/*.json");
+    await expect(readFile(path.join(launcherCwd, ".bridge", ".gitignore"), "utf8")).rejects.toThrow();
+  });
+
   it("rejects init when the root gitignore is a symlink", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
     const outside = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-outside-"));
@@ -934,7 +950,13 @@ describe("runCli", () => {
       stderr: () => {}
     });
 
-    expect(out.join("\n")).toContain("gptprouse mcp [--cwd /absolute/path/to/repo]");
+    const text = out.join("\n");
+    expect(text).toContain("gptprouse setup [--cwd /absolute/path/to/repo]");
+    expect(text).toContain("gptprouse start [--cwd /absolute/path/to/repo]");
+    expect(text).toContain("gptprouse status [--cwd /absolute/path/to/repo]");
+    expect(text).toContain("gptprouse tunnel url [--cwd /absolute/path/to/repo]");
+    expect(text).toContain("gptprouse doctor [--cwd /absolute/path/to/repo]");
+    expect(text).toContain("gptprouse mcp [--cwd /absolute/path/to/repo]");
   });
 
   it("describes token TTL as an explicit help placeholder", async () => {
@@ -948,7 +970,7 @@ describe("runCli", () => {
     });
 
     const text = out.join("\n");
-    expect(text).toContain("gptprouse setup [--host 127.0.0.1] [--port 8787] [--token-ttl-hours <hours>]");
+    expect(text).toContain("gptprouse setup [--cwd /absolute/path/to/repo] [--host 127.0.0.1] [--port 8787] [--token-ttl-hours <hours>]");
     expect(text).not.toContain("[--token-ttl-hours 24]");
   });
 
@@ -1171,6 +1193,85 @@ describe("runCli", () => {
     const text = [...setupOut, ...statusOut].join("\n");
     expect(text).toContain("gptprouse_token=***");
     expect(text).not.toContain("super-secret-token");
+  });
+
+  it("uses an explicit --cwd target for local HTTP MCP setup, status, and tunnel URLs", async () => {
+    const launcherCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-launcher-"));
+    const targetCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-target-"));
+
+    await runCli(["setup", "--cwd", targetCwd, "--port", "8789", "--token", "super-secret-token", "--token-ttl-hours", "1"], {
+      cwd: launcherCwd,
+      stdout: () => {},
+      stderr: () => {}
+    });
+
+    await expect(readFile(path.join(targetCwd, ".bridge", "config.local.json"), "utf8")).resolves.toContain("super-secret-token");
+    await expect(readFile(path.join(launcherCwd, ".bridge", "config.local.json"), "utf8")).rejects.toThrow();
+
+    const statusOut: string[] = [];
+    await runCli(["status", "--cwd", targetCwd, "--show-token", "--url-only"], {
+      cwd: launcherCwd,
+      stdout: (line) => statusOut.push(line),
+      stderr: () => {}
+    });
+
+    expect(statusOut).toEqual(["http://127.0.0.1:8789/mcp?gptprouse_token=super-secret-token"]);
+
+    const tunnelOut: string[] = [];
+    await runCli(["tunnel", "url", "--cwd", targetCwd, "--public-url", "https://example.trycloudflare.com", "--show-token", "--url-only"], {
+      cwd: launcherCwd,
+      stdout: (line) => tunnelOut.push(line),
+      stderr: () => {}
+    });
+
+    expect(tunnelOut).toEqual(["https://example.trycloudflare.com/mcp?gptprouse_token=super-secret-token"]);
+  });
+
+  it("uses an explicit --cwd target for local HTTP MCP start", async () => {
+    const launcherCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-launcher-"));
+    const targetCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-target-"));
+    await runCli(["setup", "--cwd", targetCwd, "--port", "8789", "--token", "super-secret-token", "--token-ttl-hours", "1"], {
+      cwd: launcherCwd,
+      stdout: () => {},
+      stderr: () => {}
+    });
+    const out: string[] = [];
+
+    const start = runCli(["start", "--cwd", targetCwd, "--port", "0"], {
+      cwd: launcherCwd,
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+    const stop = setTimeout(() => process.emit("SIGTERM"), 50);
+
+    await expect(start).resolves.toBe(0);
+    clearTimeout(stop);
+    expect(out.join("\n")).toContain("gptprouse_token=***");
+    expect(out.join("\n")).not.toContain("super-secret-token");
+  });
+
+  it("uses an explicit --cwd target for doctor checks", async () => {
+    const launcherCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-launcher-"));
+    const targetCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-target-"));
+    await runCli(["setup", "--cwd", targetCwd, "--port", "8789", "--token", "super-secret-token"], {
+      cwd: launcherCwd,
+      stdout: () => {},
+      stderr: () => {}
+    });
+    const out: string[] = [];
+
+    const code = await runCli(["doctor", "--cwd", targetCwd], {
+      cwd: launcherCwd,
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    const text = out.join("\n");
+    expect(code).toBe(0);
+    expect(text).toContain("config: ok");
+    expect(text).toContain("http_mcp_smoke: ok");
+    expect(text).not.toContain("super-secret-token");
+    await expect(readFile(path.join(launcherCwd, ".bridge", "config.local.json"), "utf8")).rejects.toThrow();
   });
 
   it("prints the local MCP URL token only when explicitly requested", async () => {

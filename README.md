@@ -96,6 +96,7 @@ node dist/cli.js pro ask --file README.md "Review the project positioning"
 The examples below use the installed `gptprouse` binary. In a source checkout, replace `gptprouse` with `node dist/cli.js` after building.
 
 `init` creates the local `.bridge/` ledger directories and ignore rules. On a source checkout it may also add `node_modules/` and `dist/` to the repo root `.gitignore` so local dependencies and build output stay out of git.
+Run `init` from the repo root, or use `gptprouse init --cwd /absolute/path/to/your/repo` from elsewhere.
 
 `pro ask` is a dry-run/manual preview by default. It does not drive a logged-in browser unless you explicitly choose the browser adapter.
 If your prompt itself starts with flag-like text, put `--` before the prompt, for example `gptprouse pro ask -- --strict mode review`.
@@ -153,7 +154,16 @@ gptprouse setup --token-ttl-hours 24
 gptprouse start
 ```
 
-`setup` writes `.bridge/config.local.json` and ensures `.bridge/.gitignore` covers local task/result/session/receipt/artifact/config files. `setup`, `start`, and `status` redact the URL token by default. When you are ready to paste the MCP URL into ChatGPT Developer Mode / Apps, run:
+`setup` writes `.bridge/config.local.json` and ensures `.bridge/.gitignore` covers local task/result/session/receipt/artifact/config files. `setup`, `start`, and `status` redact the URL token by default.
+
+Run these commands from the repo root, or add `--cwd /absolute/path/to/your/repo` to `setup`, `start`, `status`, `doctor`, and `tunnel url`. For example:
+
+```bash
+gptprouse setup --cwd /absolute/path/to/your/repo --token-ttl-hours 24
+gptprouse start --cwd /absolute/path/to/your/repo
+```
+
+When you are ready to paste the MCP URL into ChatGPT Developer Mode / Apps, run:
 
 ```bash
 gptprouse status --show-token --url-only

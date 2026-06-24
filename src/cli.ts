@@ -66,15 +66,19 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
   }
 
   if (command === "init") {
-    await store.ensure();
-    await ensureBridgeGitignore(io.cwd);
+    assertOnlyOptions(rest, "init", ["--cwd"]);
+    const targetCwd = resolveCwdFlag(io.cwd, rest);
+    const targetStore = new BridgeStore(targetCwd);
+    await targetStore.ensure();
+    await ensureBridgeGitignore(targetCwd);
     io.stdout("Initialized .bridge receipt ledger.");
     return 0;
   }
 
   if (command === "setup") {
-    assertOnlyOptions(rest, "setup", ["--host", "--port", "--token", "--token-ttl-hours"]);
-    const config = await writeLocalConfig(io.cwd, {
+    assertOnlyOptions(rest, "setup", ["--cwd", "--host", "--port", "--token", "--token-ttl-hours"]);
+    const targetCwd = resolveCwdFlag(io.cwd, rest);
+    const config = await writeLocalConfig(targetCwd, {
       host: readFlag(rest, "--host") ?? "127.0.0.1",
       port: readNumberFlag(rest, "--port") ?? 8787,
       token: readFlag(rest, "--token"),
@@ -88,12 +92,13 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
   }
 
   if (command === "start") {
-    assertOnlyOptions(rest, "start", ["--host", "--port", "--token"]);
-    const config = await loadLocalConfigForCommand(io.cwd, "start");
+    assertOnlyOptions(rest, "start", ["--cwd", "--host", "--port", "--token"]);
+    const targetCwd = resolveCwdFlag(io.cwd, rest);
+    const config = await loadLocalConfigForCommand(targetCwd, "start");
     const overrideToken = readFlag(rest, "--token");
     if (!overrideToken) assertTokenNotExpired(config);
     const running = await startHttpMcpServer({
-      cwd: io.cwd,
+      cwd: targetCwd,
       host: readFlag(rest, "--host") ?? config.host,
       port: readNumberFlag(rest, "--port") ?? config.port,
       token: overrideToken ?? config.token,
@@ -106,8 +111,9 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
   }
 
   if (command === "status") {
-    assertOnlyOptions(rest, "status", [], ["--show-token", "--url-only"]);
-    const config = await loadLocalConfigForCommand(io.cwd, "status");
+    assertOnlyOptions(rest, "status", ["--cwd"], ["--show-token", "--url-only"]);
+    const targetCwd = resolveCwdFlag(io.cwd, rest);
+    const config = await loadLocalConfigForCommand(targetCwd, "status");
     const showToken = rest.includes("--show-token");
     const serverUrl = showToken ? config.server_url : redactServerUrl(config.server_url);
     if (rest.includes("--url-only")) {
@@ -134,8 +140,9 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
   if (command === "tunnel") {
     const [subcommand, ...tunnelArgs] = rest;
     if (subcommand !== "url") throw new Error("tunnel requires url");
-    assertOnlyOptions(tunnelArgs, "tunnel url", ["--public-url"], ["--show-token", "--url-only"]);
-    const config = await loadLocalConfig(io.cwd);
+    assertOnlyOptions(tunnelArgs, "tunnel url", ["--cwd", "--public-url"], ["--show-token", "--url-only"]);
+    const targetCwd = resolveCwdFlag(io.cwd, tunnelArgs);
+    const config = await loadLocalConfig(targetCwd);
     const tokenStatus = getTokenExpiryStatus(config);
     if (tokenStatus.status === "none") {
       throw new Error("tunnel url requires a short-lived token. Run `gptprouse setup --token-ttl-hours <hours>` first.");
@@ -171,7 +178,9 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
   }
 
   if (command === "doctor") {
-    return runDoctor(store, io);
+    assertOnlyOptions(rest, "doctor", ["--cwd"]);
+    const targetCwd = resolveCwdFlag(io.cwd, rest);
+    return runDoctor(new BridgeStore(targetCwd), { ...io, cwd: targetCwd });
   }
 
   if (command === "chatgpt") {
@@ -621,12 +630,12 @@ function printHelp(stdout: (line: string) => void): void {
 
 Commands:
   gptprouse --version
-  gptprouse init
-  gptprouse doctor
-  gptprouse setup [--host 127.0.0.1] [--port 8787] [--token-ttl-hours <hours>]
-  gptprouse start
-  gptprouse status [--show-token] [--url-only]
-  gptprouse tunnel url --public-url https://... [--show-token] [--url-only]
+  gptprouse init [--cwd /absolute/path/to/repo]
+  gptprouse doctor [--cwd /absolute/path/to/repo]
+  gptprouse setup [--cwd /absolute/path/to/repo] [--host 127.0.0.1] [--port 8787] [--token-ttl-hours <hours>]
+  gptprouse start [--cwd /absolute/path/to/repo]
+  gptprouse status [--cwd /absolute/path/to/repo] [--show-token] [--url-only]
+  gptprouse tunnel url [--cwd /absolute/path/to/repo] --public-url https://... [--show-token] [--url-only]
   gptprouse ask-pro --dry-run|--send [--file path] "prompt"
   gptprouse pro ask [--file path] "prompt"  # dry-run preview
   gptprouse pro browser login
