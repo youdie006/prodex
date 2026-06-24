@@ -167,7 +167,6 @@ function assertNotHardLinked(filePath: string, linkCount: number): void {
 }
 
 async function captureParentSnapshot(filePath: string): Promise<ParentSnapshot | undefined> {
-  if (process.platform !== "linux") return undefined;
   const parentPath = path.dirname(filePath);
   if (parentPath.startsWith("/proc/self/fd/")) return undefined;
   return {
@@ -184,6 +183,23 @@ async function openStableNoFollow(
   mode?: number
 ): Promise<FileHandle> {
   if (!parentSnapshot) return openNoFollow(filePath, flags, operation, mode);
+  if (process.platform !== "linux") {
+    const actualParentBeforeOpen = await realpath(parentSnapshot.path);
+    if (actualParentBeforeOpen !== parentSnapshot.realPath) {
+      throw new Error(`Path ${filePath} changed during ${operation} file operation`);
+    }
+    const handle = await openNoFollow(filePath, flags, operation, mode);
+    try {
+      const actualParentAfterOpen = await realpath(parentSnapshot.path);
+      if (actualParentAfterOpen !== parentSnapshot.realPath) {
+        throw new Error(`Path ${filePath} changed during ${operation} file operation`);
+      }
+      return handle;
+    } catch (error) {
+      await handle.close().catch(() => undefined);
+      throw error;
+    }
+  }
   const parentHandle = await openNoFollowDirectory(parentSnapshot.path, operation);
   try {
     const parentFdPath = procFdPath(parentHandle.fd);

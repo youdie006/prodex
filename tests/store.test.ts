@@ -589,6 +589,42 @@ describe("BridgeStore", () => {
     ).rejects.toThrow(/Bridge storage directory|record|symlink|ENOENT/i);
     expect(await readdir(outside)).toEqual([]);
   });
+
+  it("rejects new result writes without leaving outside files on the non-Linux fallback", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
+    const outside = await mkdtemp(path.join(tmpdir(), "gptprouse-outside-"));
+    const movedResultsDir = path.join(root, ".bridge", "results-real");
+    const store = new BridgeStore(root);
+    const task = await store.createTask({
+      source: "codex",
+      title: "Fallback result swap",
+      prompt: "Avoid writing outside through fallback create.",
+      repo_id: "default",
+      files: [],
+      provenance: { adapter: "cli" }
+    });
+    const originalPlatform = process.platform;
+    Object.defineProperty(process, "platform", { value: "darwin" });
+    let swapped = false;
+    setSafeFileTestHooks({
+      beforeOpen: async (filePath, operation) => {
+        if (!swapped && operation === "write" && filePath === path.join(root, ".bridge", "results", `${task.id}.json`)) {
+          swapped = true;
+          await rename(path.join(root, ".bridge", "results"), movedResultsDir);
+          await symlink(outside, path.join(root, ".bridge", "results"));
+        }
+      }
+    });
+
+    try {
+      await expect(store.completeTask(task.id, { status: "done", summary: "Should not write outside." })).rejects.toThrow(
+        /changed|Bridge storage directory|symlink|ENOENT/i
+      );
+      expect(await readdir(outside)).toEqual([]);
+    } finally {
+      Object.defineProperty(process, "platform", { value: originalPlatform });
+    }
+  });
 });
 
 async function expectMode(filePath: string, expectedMode: number): Promise<void> {
