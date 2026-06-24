@@ -873,10 +873,13 @@ async function formatReleaseStatus(cwd: string): Promise<string> {
     lines.push('metadata: blocked license "UNLICENSED" is not publishable');
     metadataNext = "choose a public license and add LICENSE, then run `npm run release:check`";
   } else {
-    const hasLicenseFile = await fileExists(path.join(cwd, "LICENSE"));
-    if (!hasLicenseFile) {
+    const licenseFile = await readLicenseFileStatus(path.join(cwd, "LICENSE"));
+    if (licenseFile.status === "missing") {
       lines.push(`metadata: blocked license=${license} license_file=missing`);
       metadataNext = "add LICENSE, then run `npm run release:check`";
+    } else if (licenseFile.status === "invalid") {
+      lines.push(`metadata: blocked license=${license} license_file=invalid - LICENSE must be a regular file and must not be a symlink`);
+      metadataNext = "replace LICENSE with a regular file, then run `npm run release:check`";
     } else {
       lines.push(`metadata: ok license=${license} license_file=present`);
     }
@@ -949,12 +952,13 @@ async function gitStdout(cwd: string, args: string[]): Promise<string> {
   return stdout;
 }
 
-async function fileExists(filePath: string): Promise<boolean> {
+async function readLicenseFileStatus(filePath: string): Promise<{ status: "present" | "missing" | "invalid" }> {
   try {
-    await lstat(filePath);
-    return true;
+    const stat = await lstat(filePath);
+    if (stat.isSymbolicLink() || !stat.isFile()) return { status: "invalid" };
+    return { status: "present" };
   } catch (error) {
-    if (isMissingFileError(error)) return false;
+    if (isMissingFileError(error)) return { status: "missing" };
     throw error;
   }
 }

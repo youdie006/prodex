@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { chmod, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -41,6 +41,35 @@ describe("release-check", () => {
 
     expect(result.code).toBe(0);
     expect(result.stdout).toContain("release_metadata=ok");
+  });
+
+  it("fails release metadata when LICENSE is not a regular file", async () => {
+    const root = await copyPackageJsonToTemp();
+    const packageJson = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
+    packageJson.license = "MIT";
+    await writeFile(path.join(root, "package.json"), `${JSON.stringify(packageJson, null, 2)}\n`, "utf8");
+    await mkdir(path.join(root, "LICENSE"));
+
+    const directoryResult = await runReleaseCheck(root);
+
+    expect(directoryResult.code).toBe(1);
+    expect(`${directoryResult.stdout}\n${directoryResult.stderr}`).toContain("LICENSE");
+    expect(`${directoryResult.stdout}\n${directoryResult.stderr}`).toMatch(/regular file|symlink/i);
+    expect(directoryResult.stdout).not.toContain("release_metadata=ok");
+
+    const symlinkRoot = await copyPackageJsonToTemp();
+    const symlinkPackageJson = JSON.parse(await readFile(path.join(symlinkRoot, "package.json"), "utf8"));
+    symlinkPackageJson.license = "MIT";
+    await writeFile(path.join(symlinkRoot, "package.json"), `${JSON.stringify(symlinkPackageJson, null, 2)}\n`, "utf8");
+    await writeFile(path.join(symlinkRoot, "ACTUAL_LICENSE"), "MIT License\n", "utf8");
+    await symlink(path.join(symlinkRoot, "ACTUAL_LICENSE"), path.join(symlinkRoot, "LICENSE"));
+
+    const symlinkResult = await runReleaseCheck(symlinkRoot);
+
+    expect(symlinkResult.code).toBe(1);
+    expect(`${symlinkResult.stdout}\n${symlinkResult.stderr}`).toContain("LICENSE");
+    expect(`${symlinkResult.stdout}\n${symlinkResult.stderr}`).toMatch(/regular file|symlink/i);
+    expect(symlinkResult.stdout).not.toContain("release_metadata=ok");
   });
 
   it("fails release metadata when package is private even with a public license", async () => {

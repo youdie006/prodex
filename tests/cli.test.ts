@@ -1301,6 +1301,49 @@ describe("runCli", () => {
     expect(text).toContain("next: run `npm run release:check` before publishing");
   });
 
+  it("release status reports non-regular license paths as release blockers", async () => {
+    const directoryCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-release-"));
+    await writeFile(
+      path.join(directoryCwd, "package.json"),
+      `${JSON.stringify({ name: "demo", version: "1.0.0", license: "MIT" }, null, 2)}\n`,
+      "utf8"
+    );
+    await mkdir(path.join(directoryCwd, "LICENSE"));
+    const directoryOut: string[] = [];
+
+    await runCli(["release", "status", "--cwd", directoryCwd], {
+      cwd: "/tmp",
+      stdout: (line) => directoryOut.push(line),
+      stderr: () => {}
+    });
+
+    const directoryText = directoryOut.join("\n");
+    expect(directoryText).toContain("metadata: blocked license=MIT license_file=invalid");
+    expect(directoryText).toContain("LICENSE must be a regular file");
+    expect(directoryText).not.toContain("metadata: ok");
+
+    const symlinkCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-release-"));
+    await writeFile(
+      path.join(symlinkCwd, "package.json"),
+      `${JSON.stringify({ name: "demo", version: "1.0.0", license: "MIT" }, null, 2)}\n`,
+      "utf8"
+    );
+    await writeFile(path.join(symlinkCwd, "ACTUAL_LICENSE"), "MIT License\n", "utf8");
+    await symlink(path.join(symlinkCwd, "ACTUAL_LICENSE"), path.join(symlinkCwd, "LICENSE"));
+    const symlinkOut: string[] = [];
+
+    await runCli(["release", "status", "--cwd", symlinkCwd], {
+      cwd: "/tmp",
+      stdout: (line) => symlinkOut.push(line),
+      stderr: () => {}
+    });
+
+    const symlinkText = symlinkOut.join("\n");
+    expect(symlinkText).toContain("metadata: blocked license=MIT license_file=invalid");
+    expect(symlinkText).toContain("LICENSE must be a regular file");
+    expect(symlinkText).not.toContain("metadata: ok");
+  });
+
   it("release status reports private packages as not publishable", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-release-"));
     await writeFile(

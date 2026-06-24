@@ -84,6 +84,17 @@ try {
   assertIncludes(privateReleaseStatus.stdout, "metadata: blocked", "installed private release status output");
   assertIncludes(privateReleaseStatus.stdout, "private: true", "installed private release status output");
   assertNotIncludes(privateReleaseStatus.stdout, "metadata: ok", "installed private release status output");
+  const invalidLicenseDir = path.join(tmp, "invalid-license-release");
+  await mkdir(invalidLicenseDir, { recursive: true });
+  await writeFile(
+    path.join(invalidLicenseDir, "package.json"),
+    `${JSON.stringify({ name: "invalid-license-demo", version: "1.0.0", license: "MIT" }, null, 2)}\n`
+  );
+  await mkdir(path.join(invalidLicenseDir, "LICENSE"));
+  const invalidLicenseReleaseStatus = await run(binPath, ["release", "status", "--cwd", invalidLicenseDir], { cwd: consumerDir });
+  assertIncludes(invalidLicenseReleaseStatus.stdout, "metadata: blocked", "installed invalid LICENSE release status output");
+  assertIncludes(invalidLicenseReleaseStatus.stdout, "license_file=invalid", "installed invalid LICENSE release status output");
+  assertNotIncludes(invalidLicenseReleaseStatus.stdout, "metadata: ok", "installed invalid LICENSE release status output");
   const onboard = await run(binPath, ["onboard", "--cwd", consumerDir], { cwd: path.dirname(consumerDir) });
   assertIncludes(onboard.stdout, "gptprouse onboarding", "installed onboard output");
   assertIncludes(onboard.stdout, `gptprouse init --cwd ${consumerDir}`, "installed onboard output");
@@ -211,6 +222,7 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertIncludes(readme, "gptprouse claude config", "installed README");
   assertIncludes(readme, "gptprouse release status", "installed README");
   assertIncludes(readme, "npm run release:verify", "installed README");
+  assertIncludes(readme, "regular file", "installed README");
   assertIncludes(readme, "loopback-only", "installed README");
   assertIncludes(readme, "private: true", "installed README");
   assertIncludes(readme, "configured `doctor`", "installed README");

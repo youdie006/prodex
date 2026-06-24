@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { execFile } from "node:child_process";
-import { access, readFile } from "node:fs/promises";
+import { lstat, readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
@@ -41,10 +41,21 @@ async function checkReleaseMetadata(rootDir) {
   if (packageJson.license === "UNLICENSED") {
     throw new Error('release metadata failed: license "UNLICENSED" is not publishable');
   }
+  await assertRegularLicenseFile(rootDir);
+}
+
+async function assertRegularLicenseFile(rootDir) {
+  const licensePath = path.join(rootDir, "LICENSE");
   try {
-    await access(path.join(rootDir, "LICENSE"));
-  } catch {
-    throw new Error("release metadata failed: publishable packages must include a LICENSE file");
+    const stat = await lstat(licensePath);
+    if (stat.isSymbolicLink() || !stat.isFile()) {
+      throw new Error("release metadata failed: LICENSE must be a regular file and must not be a symlink");
+    }
+  } catch (error) {
+    if (isMissingFileError(error)) {
+      throw new Error("release metadata failed: publishable packages must include a LICENSE file");
+    }
+    throw error;
   }
 }
 

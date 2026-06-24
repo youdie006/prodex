@@ -255,7 +255,7 @@ gptprouse release status
 
 It reports package metadata blockers plus local git readiness, including a dirty worktree or missing git remote.
 
-Before publishing to npm, choose an explicit license, add the matching `LICENSE` file, and make sure `package.json` does not have `private: true`. `release:check` treats `private: true` as a publish blocker because npm will refuse to publish private packages. `npm publish` is intentionally guarded by `prepublishOnly`; it runs:
+Before publishing to npm, choose an explicit license, add the matching `LICENSE` regular file, and make sure `package.json` does not have `private: true`. `release:check` treats `private: true` as a publish blocker because npm will refuse to publish private packages. It also rejects a `LICENSE` path that is a directory or symlink. `npm publish` is intentionally guarded by `prepublishOnly`; it runs:
 
 ```bash
 npm run release:check
