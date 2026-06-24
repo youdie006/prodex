@@ -212,7 +212,9 @@ try {
   assertIncludes(doctor.stdout, "finalizers=ok", "installed doctor output");
   await smokeInstalledProBlockedConsult(binPath, consumerDir);
 
-  await smokeInstalledHttpOnboarding(binPath, consumerDir);
+  const httpRepoDir = path.join(tmp, "http-repo");
+  await mkdir(httpRepoDir, { recursive: true });
+  await smokeInstalledHttpOnboarding(binPath, httpRepoDir);
   await assertInstalledDocsArePortable(consumerDir);
   await assertInstalledPackageImportBoundary(consumerDir, packed.files);
 
@@ -224,7 +226,7 @@ try {
   }
   await smokeInstalledStdioTaskFinalizers(binPath, consumerDir);
 
-  console.log(`package_smoke: ok tarball=${path.basename(packed.filename)} http_onboarding=ok installed_http_mcp=ok configured_doctor=ok tunnel_url=ok package_boundary=ok stdio_write_flow=ok stdio_task_flow=ok stdio_task_finalizers=ok tools=${REQUIRED_MCP_TOOLS.join(",")}`);
+  console.log(`package_smoke: ok tarball=${path.basename(packed.filename)} http_onboarding=ok installed_http_mcp=ok http_write_flow=ok configured_doctor=ok tunnel_url=ok package_boundary=ok stdio_write_flow=ok stdio_task_flow=ok stdio_task_finalizers=ok tools=${REQUIRED_MCP_TOOLS.join(",")}`);
 } finally {
   await rm(tmp, { recursive: true, force: true });
 }
@@ -288,6 +290,7 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertIncludes(readme, "regular file", "installed README");
   assertIncludes(readme, "unexpected executable modes", "installed README");
   assertIncludes(readme, "WSL/Windows mount", "installed README");
+  assertIncludes(readme, "installed HTTP MCP repo write dry-run/apply/stage flow", "installed README");
   assertIncludes(readme, "installed stdio repo write dry-run/apply/stage flow", "installed README");
   assertIncludes(readme, "loopback-only", "installed README");
   assertIncludes(readme, "`start` reads the saved setup profile when the server process starts", "installed README");
@@ -695,6 +698,8 @@ async function smokeInstalledHttpOnboarding(binPath, cwd) {
   const port = await getFreePort();
   const token = "package-smoke-token";
   const expectedUrl = `http://127.0.0.1:${port}/mcp?gptprouse_token=${token}`;
+  await writeFile(path.join(cwd, "http-notes.md"), "old\n", "utf8");
+  const writeHead = await initPackageSmokeGitRepo(cwd, ["http-notes.md"]);
 
   const setup = await run(binPath, ["setup", "--cwd", cwd, "--port", String(port), "--token", token, "--token-ttl-hours", "1"], { cwd: launcherCwd });
   const setupOutput = `${setup.stdout}\n${setup.stderr}`;
@@ -787,7 +792,7 @@ async function smokeInstalledHttpOnboarding(binPath, cwd) {
   let smokeFailed = false;
   try {
     await waitForHttpHealth(`http://127.0.0.1:${port}/health`, 20_000);
-    await smokeInstalledHttpMcpEndpoint(expectedUrl, cwd);
+    await smokeInstalledHttpMcpEndpoint(expectedUrl, cwd, writeHead);
   } catch (error) {
     smokeFailed = true;
     throw error;
@@ -847,7 +852,7 @@ async function waitForHttpHealth(url, timeoutMs) {
   throw new Error(`Timed out waiting for installed HTTP health at ${url}: ${lastError instanceof Error ? lastError.message : String(lastError)}`);
 }
 
-async function smokeInstalledHttpMcpEndpoint(mcpUrl, cwd) {
+async function smokeInstalledHttpMcpEndpoint(mcpUrl, cwd, writeHead) {
   const client = new Client({ name: "gptprouse-package-http-smoke", version: "0.2.0" });
   let failed = false;
   try {
@@ -866,6 +871,42 @@ async function smokeInstalledHttpMcpEndpoint(mcpUrl, cwd) {
       prompt: "Verify installed HTTP MCP endpoint"
     });
     await assertBridgeTaskStoredInCwd(cwd, created.task.id);
+    const dryRun = await callJsonTool(client, "repo_write_file_dry_run", {
+      path: "http-notes.md",
+      content: "new\n",
+      expected_head: writeHead
+    });
+    if (dryRun.receipt?.kind !== "repo_write_dry_run") {
+      throw new Error(`Installed HTTP write dry-run returned unexpected receipt: ${JSON.stringify(dryRun.receipt)}`);
+    }
+    if (dryRun.preimage_sha256 !== sha256("old\n")) {
+      throw new Error(`Installed HTTP write dry-run returned unexpected preimage hash: ${dryRun.preimage_sha256}`);
+    }
+    assertIncludes(dryRun.diff, "-old", "installed HTTP write dry-run diff");
+    assertIncludes(dryRun.diff, "+new", "installed HTTP write dry-run diff");
+    const applied = await callJsonTool(client, "repo_write_file_apply", {
+      receipt_id: dryRun.receipt.id,
+      expected_head: writeHead,
+      preimage_sha256: dryRun.preimage_sha256
+    });
+    if (applied.receipt?.kind !== "repo_write_applied") {
+      throw new Error(`Installed HTTP write apply returned unexpected receipt: ${JSON.stringify(applied.receipt)}`);
+    }
+    assertIncludes(await readFile(path.join(cwd, "http-notes.md"), "utf8"), "new\n", "installed HTTP write apply file");
+    const staged = await callJsonTool(client, "repo_stage_reviewed_paths", {
+      receipt_ids: [applied.receipt.id],
+      expected_head: writeHead
+    });
+    if (staged.receipt?.kind !== "repo_stage_reviewed_paths") {
+      throw new Error(`Installed HTTP stage returned unexpected receipt: ${JSON.stringify(staged.receipt)}`);
+    }
+    if (!Array.isArray(staged.paths) || staged.paths.join(",") !== "http-notes.md") {
+      throw new Error(`Installed HTTP stage returned unexpected paths: ${JSON.stringify(staged.paths)}`);
+    }
+    const { stdout: stagedNames } = await execFileAsync("git", ["diff", "--cached", "--name-only"], { cwd });
+    if (stagedNames.trim() !== "http-notes.md") {
+      throw new Error(`Installed HTTP stage did not stage http-notes.md, got: ${stagedNames.trim()}`);
+    }
   } catch (error) {
     failed = true;
     throw error;
