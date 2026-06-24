@@ -509,6 +509,9 @@ async function smokeInstalledHttpOnboarding(binPath, cwd) {
   const nonExpiringToken = "non-expiring-package-smoke-token";
   await mkdir(nonExpiringCwd, { recursive: true });
   await run(binPath, ["setup", "--cwd", nonExpiringCwd, "--port", "8790", "--token", nonExpiringToken], { cwd: launcherCwd });
+  const nonExpiringStatus = await run(binPath, ["status", "--cwd", nonExpiringCwd], { cwd: launcherCwd });
+  assertIncludes(nonExpiringStatus.stdout, '"token_status": "non_expiring"', "installed non-expiring status output");
+  assertNotIncludes(nonExpiringStatus.stdout, '"token_status": "none"', "installed non-expiring status output");
   const nonExpiringReveal = await runExpectFailure(binPath, ["status", "--cwd", nonExpiringCwd, "--show-token", "--url-only"], { cwd: launcherCwd });
   const nonExpiringRevealOutput = `${nonExpiringReveal.stdout}\n${nonExpiringReveal.stderr}`;
   assertIncludes(nonExpiringRevealOutput, "status --show-token requires a token with expiry", "installed non-expiring status reveal refusal");

@@ -125,7 +125,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
     const showToken = rest.includes("--show-token");
     const allowNonExpiringTokenReveal = rest.includes("--unsafe-show-non-expiring-token");
     const tokenStatus = getTokenExpiryStatus(config);
-    if (showToken && tokenStatus.status === "none" && !allowNonExpiringTokenReveal) {
+    if (showToken && tokenStatus.status === "non_expiring" && !allowNonExpiringTokenReveal) {
       throw new Error(
         "status --show-token requires a token with expiry. Run `gptprouse setup --token-ttl-hours <hours>` first, or pass --unsafe-show-non-expiring-token for local-only debugging."
       );
@@ -139,7 +139,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       return 0;
     }
     const warnings = tokenStatus.warning ? [tokenStatus.warning] : [];
-    if (showToken && allowNonExpiringTokenReveal && tokenStatus.status === "none") {
+    if (showToken && allowNonExpiringTokenReveal && tokenStatus.status === "non_expiring") {
       warnings.push(
         "Showing a non-expiring token. Keep this local-only and rotate it with `gptprouse setup --token-ttl-hours <hours>` before any tunnel or ChatGPT Project use."
       );
@@ -167,7 +167,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
     const targetCwd = resolveCwdFlag(io.cwd, tunnelArgs);
     const config = await loadLocalConfig(targetCwd);
     const tokenStatus = getTokenExpiryStatus(config);
-    if (tokenStatus.status === "none") {
+    if (tokenStatus.status === "non_expiring") {
       throw new Error("tunnel url requires a short-lived token. Run `gptprouse setup --token-ttl-hours <hours>` first.");
     }
     if (tokenStatus.status === "expired") {

@@ -2023,6 +2023,35 @@ describe("runCli", () => {
     await expect(readFile(path.join(launcherCwd, ".bridge", "config.local.json"), "utf8")).rejects.toThrow();
   });
 
+  it("labels non-expiring local MCP tokens clearly in status and doctor output", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    await runCli(["setup", "--port", "8789", "--token", "super-secret-token"], {
+      cwd,
+      stdout: () => {},
+      stderr: () => {}
+    });
+    const statusOut: string[] = [];
+    const doctorOut: string[] = [];
+
+    await runCli(["status"], {
+      cwd,
+      stdout: (line) => statusOut.push(line),
+      stderr: () => {}
+    });
+    await runCli(["doctor"], {
+      cwd,
+      stdout: (line) => doctorOut.push(line),
+      stderr: () => {}
+    });
+
+    const status = JSON.parse(statusOut.join("\n")) as { token_status?: string; token_expires_at?: string | null };
+    expect(status.token_status).toBe("non_expiring");
+    expect(status.token_expires_at).toBeNull();
+    expect(statusOut.join("\n")).not.toContain('"token_status": "none"');
+    expect(doctorOut.join("\n")).toContain("token_status=non_expiring");
+    expect(doctorOut.join("\n")).not.toContain("token_status=none");
+  });
+
   it("refuses to reveal a non-expiring local MCP token by default", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
     await runCli(["setup", "--port", "8789", "--token", "super-secret-token"], {

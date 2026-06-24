@@ -22,7 +22,7 @@ const LocalConfigSchema = z.object({
 
 export type LocalConfig = z.infer<typeof LocalConfigSchema>;
 export type TokenExpiryStatus =
-  | { status: "none"; token_expires_at?: undefined; warning: string }
+  | { status: "non_expiring"; token_expires_at?: undefined; warning: string }
   | { status: "valid"; token_expires_at: string; warning?: undefined }
   | { status: "expired"; token_expires_at: string; warning: string };
 
@@ -99,7 +99,7 @@ export async function loadLocalConfig(cwd: string): Promise<LocalConfig> {
 export function getTokenExpiryStatus(config: Pick<LocalConfig, "token_expires_at">, now: Date = new Date()): TokenExpiryStatus {
   if (!config.token_expires_at) {
     return {
-      status: "none",
+      status: "non_expiring",
       warning: "Token has no expiry. Keep this local-only, or rerun `gptprouse setup --token-ttl-hours <hours>` before using a tunnel."
     };
   }

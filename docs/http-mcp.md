@@ -50,7 +50,7 @@ By default, command output redacts the URL token:
 gptprouse_token=***
 ```
 
-`--token-ttl-hours` is optional for strictly local use. If you omit it, `status` reports `token_status: "none"` and the token does not expire. `status --show-token` refuses to reveal non-expiring tokens by default; pass `--unsafe-show-non-expiring-token` only for local-only debugging. Before pasting the URL into ChatGPT or exposing this server through any tunnel, rerun setup with a short TTL:
+`--token-ttl-hours` is optional for strictly local use. If you omit it, `status` reports `token_status: "non_expiring"` and the token does not expire. `status --show-token` refuses to reveal non-expiring tokens by default; pass `--unsafe-show-non-expiring-token` only for local-only debugging. Before pasting the URL into ChatGPT or exposing this server through any tunnel, rerun setup with a short TTL:
 
 ```bash
 gptprouse setup --token-ttl-hours 24
