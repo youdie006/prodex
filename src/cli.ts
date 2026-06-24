@@ -1125,6 +1125,24 @@ function printBrowserLoginGuide(
   stdout("You can close this Chrome window after login. The dedicated profile is reused next time.");
 }
 
+function formatBrowserModelHints(modelHints: string[]): string | undefined {
+  const modelish = /\b(?:ChatGPT|GPT(?:-[\w.]+)?|Pro|Plus|Team|Enterprise|Thinking|Extra High|Auto)\b/i;
+  const hints = [...new Set(modelHints.map((hint) => hint.trim()).filter((hint) => modelish.test(hint)))]
+    .map((hint) => (hint.length > 80 ? `${hint.slice(0, 77)}...` : hint))
+    .slice(0, 6);
+  return hints.length > 0 ? hints.join(" | ") : undefined;
+}
+
+function browserReadinessNextStep(input: { loggedInLikely: boolean; hasComposer: boolean }): string {
+  if (!input.loggedInLikely) {
+    return "Log in manually in the visible ChatGPT browser, then retry.";
+  }
+  if (!input.hasComposer) {
+    return "Open a normal ChatGPT chat or Project thread, select the Pro/Thinking model, and retry.";
+  }
+  return "Review the visible ChatGPT browser state, then retry.";
+}
+
 async function printProductCheck(store: BridgeStore, io: CliIO, args: string[]): Promise<void> {
   await store.ensure();
   io.stdout("gptprouse product check");
@@ -1156,7 +1174,10 @@ async function printProductCheck(store: BridgeStore, io: CliIO, args: string[]):
     io.stdout(`chatgpt: ok logged_in=true composer=true${browserStatus.url ? ` url=${browserStatus.url}` : ""}`);
   } else {
     io.stdout(`chatgpt: blocked logged_in=${browserStatus.loggedInLikely} composer=${browserStatus.hasComposer}`);
+    io.stdout(`next: ${browserReadinessNextStep(browserStatus)}`);
   }
+  const modelHints = formatBrowserModelHints(browserStatus.modelHints);
+  if (modelHints) io.stdout(`model_hints: ${modelHints}`);
 
   const latest = (await listConsults(store))[0];
   if (latest) {
