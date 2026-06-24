@@ -66,6 +66,18 @@ describe("repo path policy", () => {
     await expect(readRepoFile(root, "links/hard.txt")).rejects.toThrow(/linked|hard link/i);
   });
 
+  it("does not return repo search matches from hard-linked files", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-repo-"));
+    const outside = await mkdtemp(path.join(tmpdir(), "gptprouse-outside-"));
+    const outsideFile = path.join(outside, "secret.txt");
+    await writeFile(outsideFile, "TOKEN=outside\n", "utf8");
+    await link(outsideFile, path.join(root, "public.txt"));
+    await writeFile(path.join(root, "README.md"), "TOKEN=public\n", "utf8");
+
+    await expect(readRepoFile(root, "public.txt")).rejects.toThrow(/linked|hard link/i);
+    await expect(searchRepo(root, "TOKEN")).resolves.toEqual([{ path: "README.md", line: 1, text: "TOKEN=public" }]);
+  });
+
   it("blocks local bridge, git, and env files from repo reads", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "gptprouse-repo-"));
     await mkdir(path.join(root, ".bridge"), { recursive: true });

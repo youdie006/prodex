@@ -1,4 +1,4 @@
-import { realpath } from "node:fs/promises";
+import { lstat, realpath } from "node:fs/promises";
 import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -128,13 +128,19 @@ export async function searchRepo(root: string, query: string, glob?: string): Pr
       timeout: 10_000,
       maxBuffer: 1024 * 1024
     });
-    return stdout
+    const parsedMatches = stdout
       .split("\n")
       .filter(Boolean)
       .map(parseRipgrepJsonMatch)
-      .filter((match): match is SearchResult => match !== undefined)
-      .filter((match) => isAllowedRepoSearchResult(match.path))
-      .slice(0, 100);
+      .filter((match): match is SearchResult => match !== undefined);
+    const allowedMatches: SearchResult[] = [];
+    for (const match of parsedMatches) {
+      if (await isAllowedRepoSearchResult(root, match.path)) {
+        allowedMatches.push(match);
+      }
+      if (allowedMatches.length >= 100) break;
+    }
+    return allowedMatches;
   } catch (error) {
     const maybe = error as { code?: number | string; stdout?: string };
     if (maybe.code === "ENOENT") {
@@ -216,13 +222,15 @@ function assertNoSensitiveGlobSegment(normalizedGlob: string): void {
   }
 }
 
-function isAllowedRepoSearchResult(repoPath: string): boolean {
+async function isAllowedRepoSearchResult(root: string, repoPath: string): Promise<boolean> {
   try {
-    assertNotSensitiveRepoPath(path.posix.normalize(repoPath.replaceAll("\\", "/")));
-    return true;
-  } catch (error) {
-    if (error instanceof Error && /sensitive/.test(error.message)) return false;
-    throw error;
+    const normalized = path.posix.normalize(repoPath.replaceAll("\\", "/"));
+    const resolved = resolveRepoPath(root, normalized);
+    await assertResolvedRepoPathAllowed(root, resolved, normalized);
+    const stat = await lstat(resolved);
+    return stat.isFile() && !stat.isSymbolicLink() && stat.nlink <= 1;
+  } catch {
+    return false;
   }
 }
 
