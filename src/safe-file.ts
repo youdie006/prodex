@@ -5,6 +5,7 @@ import path from "node:path";
 type SafeFileOperation = "read" | "write";
 
 export type SafeFileTestHooks = {
+  afterWrite?: (filePath: string, operation: SafeFileOperation) => Promise<void> | void;
   beforeOpen?: (filePath: string, operation: SafeFileOperation) => Promise<void> | void;
   beforeReplace?: (filePath: string) => Promise<void> | void;
 };
@@ -77,6 +78,7 @@ export async function writeVerifiedUtf8File(
     }
     assertNotHardLinked(filePath, stat.nlink);
     await writeHandleUtf8(handle, filePath, content);
+    await testHooks.afterWrite?.(filePath, "write");
     if (options.mode !== undefined) {
       await handle.chmod(options.mode);
     }
@@ -116,6 +118,7 @@ export async function replaceVerifiedUtf8File(
       }
       offset += bytesWritten;
     }
+    await testHooks.afterWrite?.(filePath, "write");
     if (options.mode !== undefined) {
       await handle.chmod(options.mode);
     }

@@ -11,7 +11,9 @@ const execFileAsync = promisify(execFile);
 const MAX_WRITE_BYTES = 1_000_000;
 
 export type RepoWriteTestHooks = {
+  beforeAppliedReceipt?: (path: string) => Promise<void> | void;
   beforeGitAdd?: (paths: string[]) => Promise<void> | void;
+  beforeStageReceipt?: (paths: string[]) => Promise<void> | void;
 };
 
 let testHooks: RepoWriteTestHooks = {};
@@ -83,10 +85,7 @@ export async function createRepoWriteDryRun(
   store: BridgeStore,
   input: RepoWriteDryRunInput
 ): Promise<RepoWriteDryRunResult> {
-  const head = await getGitHead(root);
-  if (head !== input.expected_head) {
-    throw new Error(`Git HEAD mismatch: expected ${input.expected_head}, got ${head}`);
-  }
+  const head = await assertGitHead(root, input.expected_head);
   if (Buffer.byteLength(input.content, "utf8") > MAX_WRITE_BYTES) {
     throw new Error(`New content is too large to write through repo tools`);
   }
@@ -141,10 +140,7 @@ export async function applyRepoWriteDryRun(
     throw new Error(`Expected preimage does not match dry-run receipt`);
   }
 
-  const head = await getGitHead(root);
-  if (head !== input.expected_head) {
-    throw new Error(`Git HEAD mismatch: expected ${input.expected_head}, got ${head}`);
-  }
+  await assertGitHead(root, input.expected_head);
   const current = await readWritableExistingFile(root, metadata.path);
   const currentPreimage = sha256(current.content);
   if (currentPreimage !== input.preimage_sha256) {
@@ -153,28 +149,44 @@ export async function applyRepoWriteDryRun(
 
   const newContent = await readDryRunReplacementContent(store, metadata);
 
-  await replaceVerifiedUtf8File(
-    current.resolved,
-    newContent,
-    () => assertResolvedRepoPathAllowed(root, current.resolved, metadata.path),
-    (latestContent) => {
-      if (sha256(latestContent) !== input.preimage_sha256) {
-        throw new Error(`File preimage changed for ${metadata.path}`);
+  let receipt: Receipt;
+  try {
+    await replaceVerifiedUtf8File(
+      current.resolved,
+      newContent,
+      async () => {
+        await assertResolvedRepoPathAllowed(root, current.resolved, metadata.path);
+        await assertGitHead(root, input.expected_head);
+      },
+      async (latestContent) => {
+        await assertGitHead(root, input.expected_head);
+        if (sha256(latestContent) !== input.preimage_sha256) {
+          throw new Error(`File preimage changed for ${metadata.path}`);
+        }
+      },
+      { maxBytes: MAX_WRITE_BYTES }
+    );
+    await testHooks.beforeAppliedReceipt?.(metadata.path);
+    await assertGitHead(root, input.expected_head);
+    receipt = await store.writeReceipt({
+      kind: "repo_write_applied",
+      summary: `Applied write receipt ${input.receipt_id} to ${metadata.path}`,
+      metadata: {
+        dry_run_receipt_id: input.receipt_id,
+        path: metadata.path,
+        expected_head: input.expected_head,
+        preimage_sha256: input.preimage_sha256,
+        new_sha256: metadata.new_sha256
       }
-    },
-    { maxBytes: MAX_WRITE_BYTES }
-  );
-  const receipt = await store.writeReceipt({
-    kind: "repo_write_applied",
-    summary: `Applied write receipt ${input.receipt_id} to ${metadata.path}`,
-    metadata: {
-      dry_run_receipt_id: input.receipt_id,
-      path: metadata.path,
-      expected_head: input.expected_head,
-      preimage_sha256: input.preimage_sha256,
-      new_sha256: metadata.new_sha256
+    });
+  } catch (error) {
+    try {
+      await rollbackReplacementIfPresent(root, current.resolved, metadata.path, current.content, metadata.new_sha256);
+    } catch (rollbackError) {
+      throw new Error(`${errorMessage(error)} (also failed to roll back replacement: ${errorMessage(rollbackError)})`);
     }
-  });
+    throw error;
+  }
   return {
     receipt,
     path: metadata.path,
@@ -192,10 +204,7 @@ export async function stageReviewedPaths(
   if (input.receipt_ids.length === 0) {
     throw new Error("At least one applied write receipt is required");
   }
-  const head = await getGitHead(root);
-  if (head !== input.expected_head) {
-    throw new Error(`Git HEAD mismatch: expected ${input.expected_head}, got ${head}`);
-  }
+  await assertGitHead(root, input.expected_head);
 
   const paths = new Set<string>();
   const expectedObjectIdByPath = new Map<string, string>();
@@ -220,29 +229,36 @@ export async function stageReviewedPaths(
   }
 
   const stagedPaths = Array.from(paths).sort();
-  await testHooks.beforeGitAdd?.(stagedPaths);
-  await execFileAsync("git", ["add", "--", ...stagedPaths], { cwd: root });
+  let staged = false;
   try {
+    await testHooks.beforeGitAdd?.(stagedPaths);
+    await assertGitHead(root, input.expected_head);
+    await execFileAsync("git", ["add", "--", ...stagedPaths], { cwd: root });
+    staged = true;
     await verifyStagedContent(root, expectedObjectIdByPath);
+    await testHooks.beforeStageReceipt?.(stagedPaths);
+    await assertGitHead(root, input.expected_head);
+    const receipt = await store.writeReceipt({
+      kind: "repo_stage_reviewed_paths",
+      summary: `Staged reviewed paths: ${stagedPaths.join(", ")}`,
+      metadata: {
+        expected_head: input.expected_head,
+        receipt_ids: input.receipt_ids,
+        paths: stagedPaths
+      }
+    });
+    return {
+      receipt,
+      paths: stagedPaths,
+      receipt_ids: input.receipt_ids,
+      expected_head: input.expected_head
+    };
   } catch (error) {
-    await unstagePaths(root, stagedPaths);
+    if (staged) {
+      await unstagePaths(root, stagedPaths);
+    }
     throw error;
   }
-  const receipt = await store.writeReceipt({
-    kind: "repo_stage_reviewed_paths",
-    summary: `Staged reviewed paths: ${stagedPaths.join(", ")}`,
-    metadata: {
-      expected_head: input.expected_head,
-      receipt_ids: input.receipt_ids,
-      paths: stagedPaths
-    }
-  });
-  return {
-    receipt,
-    paths: stagedPaths,
-    receipt_ids: input.receipt_ids,
-    expected_head: input.expected_head
-  };
 }
 
 async function gitObjectIdForContent(root: string, gitPath: string, content: string): Promise<string> {
@@ -297,6 +313,43 @@ async function runGitWithStdin(root: string, args: string[], input: string): Pro
 async function getGitHead(root: string): Promise<string> {
   const { stdout } = await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: root });
   return stdout.trim();
+}
+
+async function assertGitHead(root: string, expectedHead: string): Promise<string> {
+  const head = await getGitHead(root);
+  if (head !== expectedHead) {
+    throw new Error(`Git HEAD mismatch: expected ${expectedHead}, got ${head}`);
+  }
+  return head;
+}
+
+async function rollbackReplacementIfPresent(
+  root: string,
+  resolvedPath: string,
+  repoPath: string,
+  originalContent: string,
+  replacementSha: string
+): Promise<void> {
+  let currentContent: string;
+  try {
+    currentContent = await readVerifiedUtf8File(resolvedPath, () => assertResolvedRepoPathAllowed(root, resolvedPath, repoPath), {
+      maxBytes: MAX_WRITE_BYTES
+    });
+  } catch {
+    return;
+  }
+  if (sha256(currentContent) !== replacementSha) return;
+  await replaceVerifiedUtf8File(
+    resolvedPath,
+    originalContent,
+    () => assertResolvedRepoPathAllowed(root, resolvedPath, repoPath),
+    (latestContent) => {
+      if (sha256(latestContent) !== replacementSha) {
+        throw new Error(`Cannot roll back ${repoPath}; replacement content changed`);
+      }
+    },
+    { maxBytes: MAX_WRITE_BYTES }
+  );
 }
 
 async function readWritableExistingFile(root: string, repoPath: string): Promise<{ resolved: string; content: string }> {
@@ -355,6 +408,10 @@ function parseAppliedMetadata(value: Record<string, unknown>): AppliedMetadata {
 
 function sha256(value: string): string {
   return createHash("sha256").update(value, "utf8").digest("hex");
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function buildSimpleDiff(repoPath: string, before: string, after: string): string {

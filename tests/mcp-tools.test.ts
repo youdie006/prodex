@@ -596,6 +596,105 @@ describe("MCP tool handlers", () => {
     expect(await readFile(repoFile, "utf8")).toBe("raced immediately\n");
   });
 
+  it("rejects write apply when git HEAD moves immediately before replacement", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    const repoFile = path.join(cwd, "notes.md");
+    await writeFile(repoFile, "old\n", "utf8");
+    const head = await initGitRepo(cwd);
+    const handlers = createMcpToolHandlers({ cwd });
+    const dryRun = await handlers.repo_write_file_dry_run({
+      path: "notes.md",
+      content: "new\n",
+      expected_head: head
+    });
+    let moved = false;
+    setSafeFileTestHooks({
+      beforeReplace: async (filePath) => {
+        if (!moved && filePath === repoFile) {
+          moved = true;
+          await writeFile(path.join(cwd, "head-marker.txt"), "move\n", "utf8");
+          await execFileAsync("git", ["add", "head-marker.txt"], { cwd });
+          await execFileAsync("git", ["commit", "-m", "move head during apply"], { cwd });
+        }
+      }
+    });
+
+    await expect(
+      handlers.repo_write_file_apply({
+        receipt_id: dryRun.receipt.id,
+        expected_head: head,
+        preimage_sha256: dryRun.preimage_sha256
+      })
+    ).rejects.toThrow(/HEAD mismatch/);
+    expect(await readFile(repoFile, "utf8")).toBe("old\n");
+  });
+
+  it("rolls back write apply when git HEAD moves after replacement before receipt", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    const repoFile = path.join(cwd, "notes.md");
+    await writeFile(repoFile, "old\n", "utf8");
+    const head = await initGitRepo(cwd);
+    const handlers = createMcpToolHandlers({ cwd });
+    const dryRun = await handlers.repo_write_file_dry_run({
+      path: "notes.md",
+      content: "new\n",
+      expected_head: head
+    });
+    setRepoWriteTestHooks({
+      beforeAppliedReceipt: async () => {
+        await writeFile(path.join(cwd, "head-marker.txt"), "move\n", "utf8");
+        await execFileAsync("git", ["add", "head-marker.txt"], { cwd });
+        await execFileAsync("git", ["commit", "-m", "move head after apply"], { cwd });
+      }
+    });
+
+    await expect(
+      handlers.repo_write_file_apply({
+        receipt_id: dryRun.receipt.id,
+        expected_head: head,
+        preimage_sha256: dryRun.preimage_sha256
+      })
+    ).rejects.toThrow(/HEAD mismatch/);
+    expect(await readFile(repoFile, "utf8")).toBe("old\n");
+    const appliedReceipts = await handlers.bridge_list_receipts({ kind: "repo_write_applied" });
+    expect(appliedReceipts.receipts).toEqual([]);
+  });
+
+  it("rolls back write apply when git HEAD moves during final replacement validation", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    const repoFile = path.join(cwd, "notes.md");
+    await writeFile(repoFile, "old\n", "utf8");
+    const head = await initGitRepo(cwd);
+    const handlers = createMcpToolHandlers({ cwd });
+    const dryRun = await handlers.repo_write_file_dry_run({
+      path: "notes.md",
+      content: "new\n",
+      expected_head: head
+    });
+    let moved = false;
+    setSafeFileTestHooks({
+      afterWrite: async (filePath) => {
+        if (!moved && filePath === repoFile) {
+          moved = true;
+          await writeFile(path.join(cwd, "head-marker.txt"), "move\n", "utf8");
+          await execFileAsync("git", ["add", "head-marker.txt"], { cwd });
+          await execFileAsync("git", ["commit", "-m", "move head during final validation"], { cwd });
+        }
+      }
+    });
+
+    await expect(
+      handlers.repo_write_file_apply({
+        receipt_id: dryRun.receipt.id,
+        expected_head: head,
+        preimage_sha256: dryRun.preimage_sha256
+      })
+    ).rejects.toThrow(/HEAD mismatch/);
+    expect(await readFile(repoFile, "utf8")).toBe("old\n");
+    const appliedReceipts = await handlers.bridge_list_receipts({ kind: "repo_write_applied" });
+    expect(appliedReceipts.receipts).toEqual([]);
+  });
+
   it("rejects write dry-runs when git HEAD does not match", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
     await writeFile(path.join(cwd, "notes.md"), "old\n", "utf8");
@@ -945,6 +1044,74 @@ describe("MCP tool handlers", () => {
     ).rejects.toThrow(/staged content|content changed/i);
     const { stdout } = await execFileAsync("git", ["diff", "--cached", "--name-only"], { cwd });
     expect(stdout.trim()).toBe("");
+  });
+
+  it("rejects staging when git HEAD moves after validation but before git add", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    await writeFile(path.join(cwd, "notes.md"), "old\n", "utf8");
+    const head = await initGitRepo(cwd);
+    const handlers = createMcpToolHandlers({ cwd });
+    const dryRun = await handlers.repo_write_file_dry_run({
+      path: "notes.md",
+      content: "new\n",
+      expected_head: head
+    });
+    const applied = await handlers.repo_write_file_apply({
+      receipt_id: dryRun.receipt.id,
+      expected_head: head,
+      preimage_sha256: dryRun.preimage_sha256
+    });
+    setRepoWriteTestHooks({
+      beforeGitAdd: async () => {
+        await writeFile(path.join(cwd, "head-marker.txt"), "move\n", "utf8");
+        await execFileAsync("git", ["add", "head-marker.txt"], { cwd });
+        await execFileAsync("git", ["commit", "-m", "move head before stage"], { cwd });
+      }
+    });
+
+    await expect(
+      handlers.repo_stage_reviewed_paths({
+        receipt_ids: [applied.receipt.id],
+        expected_head: head
+      })
+    ).rejects.toThrow(/HEAD mismatch/);
+    const { stdout } = await execFileAsync("git", ["diff", "--cached", "--name-only"], { cwd });
+    expect(stdout.trim()).toBe("");
+  });
+
+  it("unstages reviewed paths when git HEAD moves after git add before receipt", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    await writeFile(path.join(cwd, "notes.md"), "old\n", "utf8");
+    const head = await initGitRepo(cwd);
+    const handlers = createMcpToolHandlers({ cwd });
+    const dryRun = await handlers.repo_write_file_dry_run({
+      path: "notes.md",
+      content: "new\n",
+      expected_head: head
+    });
+    const applied = await handlers.repo_write_file_apply({
+      receipt_id: dryRun.receipt.id,
+      expected_head: head,
+      preimage_sha256: dryRun.preimage_sha256
+    });
+    setRepoWriteTestHooks({
+      beforeStageReceipt: async () => {
+        await writeFile(path.join(cwd, "head-marker.txt"), "move\n", "utf8");
+        await execFileAsync("git", ["add", "head-marker.txt"], { cwd });
+        await execFileAsync("git", ["commit", "--only", "head-marker.txt", "-m", "move head after stage"], { cwd });
+      }
+    });
+
+    await expect(
+      handlers.repo_stage_reviewed_paths({
+        receipt_ids: [applied.receipt.id],
+        expected_head: head
+      })
+    ).rejects.toThrow(/HEAD mismatch/);
+    const { stdout } = await execFileAsync("git", ["diff", "--cached", "--name-only"], { cwd });
+    expect(stdout.trim()).toBe("");
+    const stageReceipts = await handlers.bridge_list_receipts({ kind: "repo_stage_reviewed_paths" });
+    expect(stageReceipts.receipts).toEqual([]);
   });
 
   it("rejects staging when git HEAD moved after apply", async () => {
