@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { constants, existsSync } from "node:fs";
 import { link, lstat, mkdir, open, readFile, readdir, realpath, rename, rm } from "node:fs/promises";
 import type { FileHandle } from "node:fs/promises";
@@ -187,7 +187,7 @@ export class BridgeStore {
   async completeTask(taskId: string, input: CompleteTaskInput): Promise<Result> {
     const task = await this.getTask(taskId);
     assertFetchableResultArtifacts(input.artifacts ?? []);
-    const result: Result = ResultSchema.parse({
+    const retryResult: Result = ResultSchema.parse({
       schema_version: SCHEMA_VERSION,
       task_id: taskId,
       status: input.status,
@@ -203,14 +203,37 @@ export class BridgeStore {
       if (await this.hasTaskCompletionReceipt(taskId)) {
         throw new Error(`Task ${taskId} is already ${task.status} and cannot be finalized again`);
       }
-      assertResultMatchesRetry(taskId, existingResult, result);
+      assertResultMatchesRetry(taskId, existingResult, retryResult);
       await this.writeTaskCompletionReceipt(taskId, existingResult.status);
       return existingResult;
     }
+    const existingResult = await this.getResult(taskId).catch((error) => {
+      if (isErrorCode(error, "ENOENT")) return undefined;
+      throw error;
+    });
+    if (existingResult) {
+      assertResultMatchesRetry(taskId, existingResult, retryResult);
+      const updated = TaskSchema.parse({
+        ...task,
+        status: existingResult.status,
+        provenance: input.provenance ? { ...task.provenance, ...input.provenance } : task.provenance,
+        blocker: existingResult.blocker,
+        result_path: `.bridge/results/${taskId}.json`,
+        updated_at: nowIso()
+      });
+      await this.writeRecordJson("tasks", taskId, updated);
+      await this.writeTaskCompletionReceipt(taskId, existingResult.status);
+      return existingResult;
+    }
+    const artifacts = await this.withResultArtifactHashes(input.artifacts ?? []);
+    const result: Result = ResultSchema.parse({
+      ...retryResult,
+      artifacts
+    });
     const wroteResult = await this.writeNewRecordJson("results", taskId, result);
     const finalResult = wroteResult ? result : await this.getResult(taskId);
     if (!wroteResult) {
-      assertResultMatchesRetry(taskId, finalResult, result);
+      assertResultMatchesRetry(taskId, finalResult, retryResult);
     }
     const updated = TaskSchema.parse({
       ...task,
@@ -264,7 +287,25 @@ export class BridgeStore {
     if (!isFetchableResultArtifactPath(normalizedArtifactPath) || normalizedArtifactPath !== artifact.path) {
       throw new Error(`Artifact is not a fetchable result artifact for ${taskId}: ${artifact.path}`);
     }
-    return { artifact, content: await this.readArtifactText(artifact.path, options) };
+    const content = await this.readArtifactText(artifact.path, options);
+    if (artifact.sha256 && sha256(content) !== artifact.sha256) {
+      throw new Error(`Result artifact changed after finalization for ${taskId}: ${artifact.path} sha256 mismatch`);
+    }
+    return { artifact, content };
+  }
+
+  private async withResultArtifactHashes(artifacts: BridgeFile[]): Promise<BridgeFile[]> {
+    const withHashes: BridgeFile[] = [];
+    for (const artifact of artifacts) {
+      if (artifact.role !== "result") {
+        withHashes.push(artifact);
+        continue;
+      }
+      const content = await this.readArtifactText(artifact.path);
+      const bytes = Buffer.byteLength(content, "utf8");
+      withHashes.push({ ...artifact, bytes, sha256: sha256(content) });
+    }
+    return withHashes;
   }
 
   async writeSession(input: WriteSessionInput): Promise<Session> {
@@ -807,6 +848,10 @@ function isFetchableResultArtifactPath(normalizedPath: string): boolean {
   return FETCHABLE_RESULT_ARTIFACT_PREFIXES.some((prefix) => normalizedPath.startsWith(prefix));
 }
 
+function sha256(value: string): string {
+  return createHash("sha256").update(value, "utf8").digest("hex");
+}
+
 function assertFetchableResultArtifacts(artifacts: BridgeFile[]): void {
   for (const artifact of artifacts) {
     if (artifact.role !== "result") continue;
@@ -828,10 +873,17 @@ function resultRetryFingerprint(result: Result): Omit<Result, "schema_version" |
     task_id: result.task_id,
     status: result.status,
     summary: result.summary,
-    artifacts: result.artifacts,
+    artifacts: result.artifacts.map(resultArtifactRetryFingerprint),
     commands: result.commands,
     warnings: result.warnings,
     blocker: result.blocker
+  };
+}
+
+function resultArtifactRetryFingerprint(artifact: BridgeFile): Pick<BridgeFile, "path" | "role"> {
+  return {
+    path: artifact.path,
+    role: artifact.role
   };
 }
 

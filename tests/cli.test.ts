@@ -899,6 +899,32 @@ describe("runCli", () => {
     expect(out).toEqual(["latest artifact answer"]);
   });
 
+  it("rejects result artifact content changed after finalization", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const store = new BridgeStore(cwd);
+    const task = await store.createTask({
+      source: "codex",
+      title: "Tampered artifact",
+      prompt: "Fetch artifact.",
+      provenance: { adapter: "cli" }
+    });
+    const artifactPath = await store.writeArtifactText(".bridge/artifacts/results/cli-answer.md", "original cli artifact");
+    await store.completeTask(task.id, {
+      status: "done",
+      summary: "See artifact.",
+      artifacts: [{ path: artifactPath, role: "result", bytes: "original cli artifact".length }]
+    });
+    await store.writeArtifactText(artifactPath, "tampered cli artifact");
+
+    await expect(
+      runCli(["results", "artifact", task.id], {
+        cwd,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.toThrow(/changed|sha256|artifact/i);
+  });
+
   it("shows result details by id or latest", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
     const firstCreateOut: string[] = [];

@@ -62,7 +62,7 @@
 - [x] Add dedicated ChatGPT Project HTTP MCP setup docs.
 - [x] Add Project/thread target URL sends only after manual `--confirm-target` confirmation.
 - [x] Add optional tunnel URL helper for remote ChatGPT clients with explicit short-lived-token guidance.
-- [ ] Add immutable result artifact verification, for example storing a result artifact sha256 on the result record and rejecting `bridge_fetch_result_artifact` if the artifact changed after finalization.
+- [x] Add immutable result artifact verification by storing a result artifact sha256 on the result record and rejecting `bridge_fetch_result_artifact` if the artifact changed after finalization.
 
 ## Safety Checklist
 

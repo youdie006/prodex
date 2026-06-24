@@ -28,7 +28,8 @@ export const ProvenanceSchema = z.object({
 export const BridgeFileSchema = z.object({
   path: z.string(),
   role: z.enum(["context", "artifact", "result"]).default("context"),
-  bytes: z.number().int().nonnegative().optional()
+  bytes: z.number().int().nonnegative().optional(),
+  sha256: z.string().regex(/^[a-f0-9]{64}$/).optional()
 });
 
 export const BlockerSchema = z.object({

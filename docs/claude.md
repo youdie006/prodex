@@ -93,7 +93,7 @@ The server currently exposes ledger-first tools:
 - `repo_write_file_apply`
 - `repo_stage_reviewed_paths`
 
-`bridge_complete_task` and `bridge_block_task` close tasks by writing durable `.bridge/results` records; they do not modify repo files. `bridge_fetch_result_artifact` only returns text artifacts that are listed on a result record and stored under `.bridge/artifacts/pro-consults/` or `.bridge/artifacts/results/`; it does not expose arbitrary `.bridge/artifacts` files.
+`bridge_complete_task` and `bridge_block_task` close tasks by writing durable `.bridge/results` records; they do not modify repo files. `bridge_fetch_result_artifact` only returns text artifacts that are listed on a result record and stored under `.bridge/artifacts/pro-consults/` or `.bridge/artifacts/results/`; it does not expose arbitrary `.bridge/artifacts` files. Newly finalized result artifacts record a sha256, and fetch rejects the artifact if its content changed afterward.
 
 Write tools are narrow and receipt-gated. Claude must first call `repo_write_file_dry_run` with an existing repo-relative text file, replacement content, and the expected git HEAD. The file is not changed; the receipt stores hashes/diff and points at a replacement-text artifact under `.bridge/artifacts/repo-writes/`. To apply it, Claude must call `repo_write_file_apply` with the dry-run receipt id, the same expected HEAD, and the reported preimage hash. If git HEAD, file content, or artifact content changed, apply fails. To stage the result, Claude must call `repo_stage_reviewed_paths` with applied write receipt ids and the same expected HEAD; staging fails if any file changed after apply.
 

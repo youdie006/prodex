@@ -197,6 +197,101 @@ describe("BridgeStore", () => {
     await expect(store.getResult(task.id)).resolves.toEqual(expect.objectContaining({ summary: "Recovered summary." }));
   });
 
+  it("repairs a non-terminal task with a legacy unhashed result artifact without rereading the artifact", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
+    const store = new BridgeStore(root);
+    const task = await store.createTask({
+      source: "codex",
+      title: "Retry legacy artifact",
+      prompt: "Recover by retrying a legacy artifact completion.",
+      repo_id: "default",
+      files: [],
+      provenance: { adapter: "cli" }
+    });
+    await mkdir(path.join(root, ".bridge", "artifacts", "results"), { recursive: true });
+    await writeFile(path.join(root, ".bridge", "artifacts", "results", "legacy.md"), "legacy answer\n", "utf8");
+    await writeFile(
+      path.join(root, ".bridge", "results", `${task.id}.json`),
+      `${JSON.stringify(
+        {
+          schema_version: 1,
+          task_id: task.id,
+          status: "done",
+          summary: "Recovered legacy artifact summary.",
+          artifacts: [{ path: ".bridge/artifacts/results/legacy.md", role: "result", bytes: 14 }],
+          commands: ["npm test"],
+          warnings: [],
+          created_at: "2099-01-01T00:00:00.000Z"
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+    await rm(path.join(root, ".bridge", "artifacts", "results", "legacy.md"));
+
+    const result = await store.completeTask(task.id, {
+      status: "done",
+      summary: "Recovered legacy artifact summary.",
+      artifacts: [{ path: ".bridge/artifacts/results/legacy.md", role: "result", bytes: 14 }],
+      commands: ["npm test"]
+    });
+
+    expect(result).toEqual(expect.objectContaining({ task_id: task.id, summary: "Recovered legacy artifact summary." }));
+    await expect(store.getTask(task.id)).resolves.toEqual(expect.objectContaining({ status: "done" }));
+  });
+
+  it("repairs a non-terminal task with a hashed result artifact using the original completion input", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
+    const store = new BridgeStore(root);
+    const task = await store.createTask({
+      source: "codex",
+      title: "Retry hashed artifact",
+      prompt: "Recover by retrying a hashed artifact completion.",
+      repo_id: "default",
+      files: [],
+      provenance: { adapter: "cli" }
+    });
+    await mkdir(path.join(root, ".bridge", "artifacts", "results"), { recursive: true });
+    await writeFile(path.join(root, ".bridge", "artifacts", "results", "hashed.md"), "hashed answer\n", "utf8");
+    await writeFile(
+      path.join(root, ".bridge", "results", `${task.id}.json`),
+      `${JSON.stringify(
+        {
+          schema_version: 1,
+          task_id: task.id,
+          status: "done",
+          summary: "Recovered hashed artifact summary.",
+          artifacts: [
+            {
+              path: ".bridge/artifacts/results/hashed.md",
+              role: "result",
+              bytes: "hashed answer\n".length,
+              sha256: "e89c883dd92d10b652566ef903006543e5901c315d5346f54b0d7339c127411a"
+            }
+          ],
+          commands: ["npm test"],
+          warnings: [],
+          created_at: "2099-01-01T00:00:00.000Z"
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+    await rm(path.join(root, ".bridge", "artifacts", "results", "hashed.md"));
+
+    const result = await store.completeTask(task.id, {
+      status: "done",
+      summary: "Recovered hashed artifact summary.",
+      artifacts: [{ path: ".bridge/artifacts/results/hashed.md", role: "result", bytes: 1 }],
+      commands: ["npm test"]
+    });
+
+    expect(result).toEqual(expect.objectContaining({ task_id: task.id, summary: "Recovered hashed artifact summary." }));
+    await expect(store.getTask(task.id)).resolves.toEqual(expect.objectContaining({ status: "done" }));
+  });
+
   it("repairs a terminal task when retrying completion after the matching result was written but the receipt is missing", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
     const store = new BridgeStore(root);
@@ -226,6 +321,41 @@ describe("BridgeStore", () => {
 
     expect(retried).toEqual(first);
     await expect(store.getTask(task.id)).resolves.toEqual(expect.objectContaining({ status: "done" }));
+    await expect(store.listReceipts({ kind: "task_completed", task_id: task.id })).resolves.toHaveLength(1);
+  });
+
+  it("repairs a terminal task receipt without rereading an already stored result artifact", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
+    const store = new BridgeStore(root);
+    const task = await store.createTask({
+      source: "codex",
+      title: "Retry receipt artifact",
+      prompt: "Recover a terminal task receipt with an artifact.",
+      repo_id: "default",
+      files: [],
+      provenance: { adapter: "cli" }
+    });
+    const artifactPath = await store.writeArtifactText(".bridge/artifacts/results/receipt-repair.md", "receipt repair answer\n");
+    const first = await store.completeTask(task.id, {
+      status: "done",
+      summary: "Receipt repair artifact summary.",
+      artifacts: [{ path: artifactPath, role: "result" }],
+      commands: ["npm test"]
+    });
+    const completionReceipts = await store.listReceipts({ kind: "task_completed", task_id: task.id });
+    for (const receipt of completionReceipts) {
+      await rm(path.join(root, ".bridge", "receipts", `${receipt.id}.json`));
+    }
+    await rm(path.join(root, artifactPath));
+
+    const retried = await store.completeTask(task.id, {
+      status: "done",
+      summary: "Receipt repair artifact summary.",
+      artifacts: first.artifacts,
+      commands: ["npm test"]
+    });
+
+    expect(retried).toEqual(first);
     await expect(store.listReceipts({ kind: "task_completed", task_id: task.id })).resolves.toHaveLength(1);
   });
 

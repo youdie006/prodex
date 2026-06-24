@@ -219,6 +219,55 @@ describe("MCP tool handlers", () => {
     });
   });
 
+  it("records and verifies result artifact hashes before fetching", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    const store = new BridgeStore(cwd);
+    const handlers = createMcpToolHandlers({ cwd });
+    const task = await handlers.bridge_create_task({
+      title: "Immutable result artifact",
+      prompt: "Attach a result artifact"
+    });
+    const artifactPath = await store.writeArtifactText(".bridge/artifacts/results/immutable-answer.md", "original answer\n");
+
+    const completed = await handlers.bridge_complete_task({
+      task_id: task.task.id,
+      summary: "See immutable artifact.",
+      artifacts: [{ path: artifactPath, bytes: 1 }]
+    });
+    const fetched = await handlers.bridge_fetch_result_artifact({ task_id: task.task.id });
+
+    expect(completed.result.artifacts[0]).toEqual(
+      expect.objectContaining({
+        path: artifactPath,
+        role: "result",
+        bytes: "original answer\n".length,
+        sha256: "690b6029cb29446ae4b7e890b37e77ba1a4faefd66ec7be56d6cfad568eb3998"
+      })
+    );
+    expect(fetched.artifact).toEqual(expect.objectContaining({ sha256: "690b6029cb29446ae4b7e890b37e77ba1a4faefd66ec7be56d6cfad568eb3998" }));
+    expect(fetched.content).toBe("original answer\n");
+  });
+
+  it("rejects result artifacts that changed after task completion", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    const store = new BridgeStore(cwd);
+    const handlers = createMcpToolHandlers({ cwd });
+    const task = await handlers.bridge_create_task({
+      title: "Tampered result artifact",
+      prompt: "Attach a result artifact"
+    });
+    const artifactPath = await store.writeArtifactText(".bridge/artifacts/results/tampered-answer.md", "original answer\n");
+    await handlers.bridge_complete_task({
+      task_id: task.task.id,
+      summary: "See tamper-protected artifact.",
+      artifacts: [{ path: artifactPath, bytes: "original answer\n".length }]
+    });
+
+    await store.writeArtifactText(artifactPath, "tampered answer\n");
+
+    await expect(handlers.bridge_fetch_result_artifact({ task_id: task.task.id })).rejects.toThrow(/changed|sha256|artifact/i);
+  });
+
   it("lists and fetches consult sessions through bridge handlers", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
     const store = new BridgeStore(cwd);

@@ -314,6 +314,7 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertIncludes(readme, "configured `doctor`", "installed README");
   assertIncludes(readme, ".bridge/artifacts/results/", "installed README");
   assertIncludes(readme, "generic MCP handoff artifacts", "installed README");
+  assertIncludes(readme, "sha256 recorded at finalization", "installed README");
   assertIncludes(readme, "more than one ChatGPT tab or window is visible", "installed README");
   assertIncludes(readme, "blocker code and next step", "installed README");
   assertIncludes(readme, "fatal finalization failures print the received answer", "installed README");
@@ -348,6 +349,7 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertNotIncludes(httpMcpDoc, "running server matches the URL printed by `status` and `tunnel url`", "installed HTTP MCP docs");
   assertIncludes(httpMcpDoc, "CLI-only", "installed HTTP MCP docs");
   assertIncludes(httpMcpDoc, ".bridge/artifacts/results/", "installed HTTP MCP docs");
+  assertIncludes(httpMcpDoc, "fetch rejects the artifact if its content changed afterward", "installed HTTP MCP docs");
   assertNotIncludes(httpMcpDoc, "start --host", "installed HTTP MCP docs");
   assertAppearsBefore(
     httpMcpDoc,
@@ -379,6 +381,7 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertIncludes(claudeDoc, "gptprouse claude prompt", "installed Claude docs");
   assertIncludes(claudeDoc, "gptprouse claude config", "installed Claude docs");
   assertIncludes(claudeDoc, ".bridge/artifacts/results/", "installed Claude docs");
+  assertIncludes(claudeDoc, "fetch rejects the artifact if its content changed afterward", "installed Claude docs");
 }
 
 async function assertInstalledPackageImportBoundary(consumerDir, packedFiles) {
@@ -668,6 +671,12 @@ async function smokeInstalledStdioTaskFinalizers(binPath, cwd) {
     });
     if (fetchedArtifact.content !== resultArtifactContent) {
       throw new Error(`Installed stdio result artifact content mismatch: ${JSON.stringify(fetchedArtifact)}`);
+    }
+    if (fetchedArtifact.artifact?.sha256 !== sha256(resultArtifactContent)) {
+      throw new Error(`Installed stdio result artifact sha256 mismatch: ${JSON.stringify(fetchedArtifact)}`);
+    }
+    if (fetchedArtifact.artifact?.bytes !== Buffer.byteLength(resultArtifactContent, "utf8")) {
+      throw new Error(`Installed stdio result artifact byte count mismatch: ${JSON.stringify(fetchedArtifact)}`);
     }
     assertResult(blocked.result, {
       taskId: blockedTask.task.id,
@@ -965,6 +974,12 @@ async function smokeInstalledHttpMcpEndpoint(mcpUrl, cwd, writeHead) {
     });
     if (fetchedArtifact.content !== resultArtifactContent) {
       throw new Error(`Installed HTTP result artifact content mismatch: ${JSON.stringify(fetchedArtifact)}`);
+    }
+    if (fetchedArtifact.artifact?.sha256 !== sha256(resultArtifactContent)) {
+      throw new Error(`Installed HTTP result artifact sha256 mismatch: ${JSON.stringify(fetchedArtifact)}`);
+    }
+    if (fetchedArtifact.artifact?.bytes !== Buffer.byteLength(resultArtifactContent, "utf8")) {
+      throw new Error(`Installed HTTP result artifact byte count mismatch: ${JSON.stringify(fetchedArtifact)}`);
     }
     const dryRun = await callJsonTool(client, "repo_write_file_dry_run", {
       path: "http-notes.md",
