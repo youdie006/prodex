@@ -79,6 +79,15 @@ describe("repo path policy", () => {
     await expect(readRepoFile(root, ".env")).rejects.toThrow(/sensitive/);
   });
 
+  it("blocks repo reads through symlink aliases to sensitive directories", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-repo-"));
+    await mkdir(path.join(root, ".bridge"), { recursive: true });
+    await writeFile(path.join(root, ".bridge", "config.local.json"), '{"token":"secret"}\n', "utf8");
+    await symlink(path.join(root, ".bridge"), path.join(root, "bridge-alias"));
+
+    await expect(readRepoFile(root, "bridge-alias/config.local.json")).rejects.toThrow(/sensitive/);
+  });
+
   it("excludes sensitive local files from repo search results", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "gptprouse-repo-"));
     await mkdir(path.join(root, ".bridge"), { recursive: true });

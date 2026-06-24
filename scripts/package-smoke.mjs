@@ -62,6 +62,8 @@ try {
   assertIncludes(help.stdout, "gptprouse claude config", "installed help output");
   assertIncludes(help.stdout, "gptprouse pro browser login [--dry-run]", "installed help output");
   assertIncludes(help.stdout, `gptprouse v${installedPackageJson.version}`, "installed help output");
+  assertNotIncludes(help.stdout, "gptprouse pro browser open|status", "installed help output");
+  assertNotIncludes(help.stdout, "gptprouse chatgpt open|status|smoke", "installed help output");
   const installedPackageDir = path.join(consumerDir, "node_modules", "gptprouse");
   const releaseStatus = await run(binPath, ["release", "status", "--cwd", installedPackageDir], { cwd: consumerDir });
   assertIncludes(releaseStatus.stdout, "gptprouse release status", "installed release status output");

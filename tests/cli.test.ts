@@ -1195,6 +1195,25 @@ describe("runCli", () => {
     expect(text).not.toContain("[--token-ttl-hours 24]");
   });
 
+  it("keeps low-level browser aliases out of primary help", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const out: string[] = [];
+
+    await runCli(["help"], {
+      cwd,
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    const text = out.join("\n");
+    expect(text).toContain("gptprouse pro ask [--file path]");
+    expect(text).toContain("gptprouse pro browser login [--dry-run]");
+    expect(text).toContain("gptprouse pro browser check|smoke");
+    expect(text).toContain("gptprouse pro browser ask");
+    expect(text).not.toContain("gptprouse pro browser open|status");
+    expect(text).not.toContain("gptprouse chatgpt open|status|smoke");
+  });
+
   it("lists the release status command in help", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
     const out: string[] = [];
@@ -1231,6 +1250,24 @@ describe("runCli", () => {
     expect(text).toContain("git: blocked not a git worktree");
     expect(text).toContain("next: choose a license, add LICENSE, then run `npm run release:check`");
     expect(text).not.toContain("metadata: ok");
+  });
+
+  it("release status reports a missing package.json as a release blocker", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-release-missing-"));
+    const out: string[] = [];
+
+    await runCli(["release", "status", "--cwd", cwd], {
+      cwd: "/tmp",
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    const text = out.join("\n");
+    expect(text).toContain("gptprouse release status");
+    expect(text).toContain("metadata: blocked");
+    expect(text).toContain("package.json not found");
+    expect(text).toContain("git: blocked");
+    expect(text).not.toContain("ENOENT");
   });
 
   it("release status reports publish metadata readiness when license files are explicit", async () => {

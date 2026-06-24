@@ -31,7 +31,7 @@ try {
 
 async function checkReleaseMetadata(rootDir) {
   const packageJsonPath = path.join(rootDir, "package.json");
-  const packageJson = JSON.parse(await readFile(packageJsonPath, "utf8"));
+  const packageJson = JSON.parse(await readRequiredPackageJson(packageJsonPath));
   if (packageJson.private === true) {
     throw new Error("release metadata failed: package.json private: true prevents npm publish");
   }
@@ -45,6 +45,17 @@ async function checkReleaseMetadata(rootDir) {
     await access(path.join(rootDir, "LICENSE"));
   } catch {
     throw new Error("release metadata failed: publishable packages must include a LICENSE file");
+  }
+}
+
+async function readRequiredPackageJson(packageJsonPath) {
+  try {
+    return await readFile(packageJsonPath, "utf8");
+  } catch (error) {
+    if (isMissingFileError(error)) {
+      throw new Error(`release metadata failed: package.json not found at ${packageJsonPath}`);
+    }
+    throw error;
   }
 }
 
@@ -77,4 +88,8 @@ function commandForPlatform(command) {
 function readFlag(values, flag) {
   const index = values.indexOf(flag);
   return index === -1 ? undefined : values[index + 1];
+}
+
+function isMissingFileError(error) {
+  return typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT";
 }

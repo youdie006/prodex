@@ -1,9 +1,8 @@
 import { createHash } from "node:crypto";
 import { execFile, spawn } from "node:child_process";
-import { realpath } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
-import { resolveRepoPath } from "./repo.js";
+import { assertResolvedRepoPathAllowed, resolveRepoPath } from "./repo.js";
 import { readVerifiedUtf8File, replaceVerifiedUtf8File } from "./safe-file.js";
 import type { Receipt } from "./schema.js";
 import type { BridgeStore } from "./store.js";
@@ -157,7 +156,7 @@ export async function applyRepoWriteDryRun(
   await replaceVerifiedUtf8File(
     current.resolved,
     newContent,
-    () => assertRealPathInside(root, current.resolved, metadata.path),
+    () => assertResolvedRepoPathAllowed(root, current.resolved, metadata.path),
     (latestContent) => {
       if (sha256(latestContent) !== input.preimage_sha256) {
         throw new Error(`File preimage changed for ${metadata.path}`);
@@ -302,7 +301,8 @@ async function getGitHead(root: string): Promise<string> {
 
 async function readWritableExistingFile(root: string, repoPath: string): Promise<{ resolved: string; content: string }> {
   const resolved = resolveRepoPath(root, repoPath);
-  const content = await readVerifiedUtf8File(resolved, () => assertRealPathInside(root, resolved, repoPath), {
+  await assertResolvedRepoPathAllowed(root, resolved, repoPath);
+  const content = await readVerifiedUtf8File(resolved, () => assertResolvedRepoPathAllowed(root, resolved, repoPath), {
     maxBytes: MAX_WRITE_BYTES
   }).catch((error) => {
     if (error instanceof Error && /too large/.test(error.message)) {
@@ -311,14 +311,6 @@ async function readWritableExistingFile(root: string, repoPath: string): Promise
     throw error;
   });
   return { resolved, content };
-}
-
-async function assertRealPathInside(root: string, resolved: string, repoPath: string): Promise<void> {
-  const [realRoot, realTarget] = await Promise.all([realpath(root), realpath(resolved)]);
-  const relative = path.relative(realRoot, realTarget);
-  if (relative.startsWith("..") || path.isAbsolute(relative)) {
-    throw new Error(`Path ${repoPath} escapes the repository root after resolving symlinks`);
-  }
 }
 
 function parseDryRunMetadata(value: Record<string, unknown>): DryRunMetadata {

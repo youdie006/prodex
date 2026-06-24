@@ -603,6 +603,24 @@ describe("MCP tool handlers", () => {
     ).rejects.toThrow(/sensitive/);
   });
 
+  it("rejects write dry-runs through symlink aliases to sensitive directories", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    await writeFile(path.join(cwd, "notes.md"), "old\n", "utf8");
+    await mkdir(path.join(cwd, ".bridge", "artifacts"), { recursive: true });
+    await writeFile(path.join(cwd, ".bridge", "artifacts", "aliased.txt"), "old\n", "utf8");
+    await symlink(path.join(cwd, ".bridge"), path.join(cwd, "bridge-alias"));
+    const head = await initGitRepo(cwd);
+    const handlers = createMcpToolHandlers({ cwd });
+
+    await expect(
+      handlers.repo_write_file_dry_run({
+        path: "bridge-alias/artifacts/aliased.txt",
+        content: "new\n",
+        expected_head: head
+      })
+    ).rejects.toThrow(/sensitive/);
+  });
+
   it("rejects write dry-runs for env-like files", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
     await writeFile(path.join(cwd, "notes.md"), "old\n", "utf8");

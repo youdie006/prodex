@@ -63,7 +63,8 @@ export function resolveRepoPath(root: string, repoPath: string): string {
 
 export async function readRepoFile(root: string, repoPath: string, options: ReadRepoFileOptions = {}): Promise<ReadRepoFileResult> {
   const resolved = resolveRepoPath(root, repoPath);
-  const text = await readVerifiedUtf8File(resolved, () => assertRealPathInside(root, resolved, repoPath), {
+  await assertResolvedRepoPathAllowed(root, resolved, repoPath);
+  const text = await readVerifiedUtf8File(resolved, () => assertResolvedRepoPathAllowed(root, resolved, repoPath), {
     maxBytes: MAX_REPO_READ_BYTES
   }).catch((error) => {
     if (error instanceof Error && /too large/.test(error.message)) {
@@ -368,10 +369,13 @@ function splitBraceAlternatives(input: string): string[] {
   return alternatives;
 }
 
-async function assertRealPathInside(root: string, resolved: string, repoPath: string): Promise<void> {
+export async function assertResolvedRepoPathAllowed(root: string, resolved: string, repoPath: string): Promise<void> {
   const [realRoot, realTarget] = await Promise.all([realpath(root), realpath(resolved)]);
   const relative = path.relative(realRoot, realTarget);
   if (relative.startsWith("..") || path.isAbsolute(relative)) {
     throw new Error(`Path ${repoPath} escapes the repository root after resolving symlinks`);
+  }
+  if (relative) {
+    assertNotSensitiveRepoPath(path.posix.normalize(relative.split(path.sep).join("/")));
   }
 }

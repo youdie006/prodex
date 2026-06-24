@@ -710,8 +710,6 @@ Commands:
   gptprouse pro browser check|smoke
   gptprouse pro browser ask [--target-url url --confirm-target] [--file path] "prompt"  # explicit visible-browser send
   gptprouse pro latest|list|show <task-id|latest>
-  gptprouse pro browser open|status
-  gptprouse chatgpt open|status|smoke  # low-level alias
   gptprouse tasks create --title "Title" --prompt "Prompt"
   gptprouse tasks list [--status new|claimed|done|blocked]
   gptprouse tasks show <task-id|latest>
@@ -841,7 +839,20 @@ function shellQuote(value: string): string {
 
 async function formatReleaseStatus(cwd: string): Promise<string> {
   const packageJsonPath = path.join(cwd, "package.json");
-  const raw = await readFile(packageJsonPath, "utf8");
+  const raw = await readReleasePackageJson(packageJsonPath).catch(async (error) => {
+    if (!isMissingFileError(error)) throw error;
+    return undefined;
+  });
+  if (raw === undefined) {
+    const lines = ["gptprouse release status", "package: <missing package.json>"];
+    lines.push(`metadata: blocked package.json not found at ${packageJsonPath}`);
+    const gitStatus = await readReleaseGitStatus(cwd);
+    lines.push(gitStatus.line);
+    if (gitStatus.next) lines.push(`git_next: ${gitStatus.next}`);
+    lines.push("next: run this command from a package root or pass `--cwd /absolute/path/to/repo`");
+    lines.push("verification: run `npm run release:verify` anytime without weakening the publish guard");
+    return lines.join("\n");
+  }
   const packageJson = JSON.parse(raw) as { name?: unknown; version?: unknown; license?: unknown; private?: unknown };
   const name = typeof packageJson.name === "string" && packageJson.name.trim() ? packageJson.name : "<unnamed>";
   const version = typeof packageJson.version === "string" && packageJson.version.trim() ? packageJson.version : "<unversioned>";
@@ -873,6 +884,10 @@ async function formatReleaseStatus(cwd: string): Promise<string> {
   lines.push(`next: ${metadataNext}`);
   lines.push("verification: run `npm run release:verify` anytime without weakening the publish guard");
   return lines.join("\n");
+}
+
+async function readReleasePackageJson(packageJsonPath: string): Promise<string> {
+  return readFile(packageJsonPath, "utf8");
 }
 
 type ReleaseGitStatus = {

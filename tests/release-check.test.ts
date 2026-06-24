@@ -9,6 +9,18 @@ const execFileAsync = promisify(execFile);
 const repoRoot = path.resolve(import.meta.dirname, "..");
 
 describe("release-check", () => {
+  it("fails release metadata with a friendly message when package.json is missing", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-release-check-missing-"));
+
+    const result = await runReleaseCheck(root);
+
+    const output = `${result.stdout}\n${result.stderr}`;
+    expect(result.code).toBe(1);
+    expect(output).toContain("release metadata failed");
+    expect(output).toContain("package.json not found");
+    expect(output).not.toContain("ENOENT");
+  });
+
   it("fails release metadata when package license is missing", async () => {
     const root = await copyPackageJsonToTemp();
 
