@@ -65,6 +65,7 @@ try {
   assertIncludes(help.stdout, "gptprouse claude config", "installed help output");
   assertIncludes(help.stdout, "gptprouse pro browser login [--dry-run]", "installed help output");
   assertIncludes(help.stdout, `gptprouse v${installedPackageJson.version}`, "installed help output");
+  assertNotIncludes(help.stdout, "gptprouse ask-pro", "installed help output");
   assertNotIncludes(help.stdout, "gptprouse pro browser open|status", "installed help output");
   assertNotIncludes(help.stdout, "gptprouse chatgpt open|status|smoke", "installed help output");
   const installedPackageDir = path.join(consumerDir, "node_modules", "gptprouse");
@@ -241,6 +242,7 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertIncludes(readme, "fatal finalization failures print the received answer", "installed README");
   assertIncludes(readme, "connects to the installed `/mcp` endpoint", "installed README");
   assertIncludes(readme, "verifies explicit `--cwd` task storage", "installed README");
+  assertNotIncludes(readme, "ask-pro --send", "installed README");
   assertNotIncludes(readme, "Read-only result artifact fetch for Pro consult artifacts explicitly listed", "installed README");
   assertAppearsBefore(
     readme,

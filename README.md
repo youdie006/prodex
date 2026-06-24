@@ -55,7 +55,6 @@ Implemented:
 - `receipts list` and `receipts show` for inspecting the local action ledger without exposing legacy inline write payloads.
 - Ledger MCP tools for creating, claiming, completing, blocking, and inspecting task/result/session/receipt records from Claude or ChatGPT Projects.
 - Read-only result artifact fetch for Pro consult and generic MCP handoff artifacts explicitly listed on result records.
-- `ask-pro --dry-run` and `ask-pro --send` as explicit lower-level aliases.
 - `pro browser login/check/smoke/ask` for the optional visible browser adapter.
 - Claude-compatible stdio MCP server through `gptprouse mcp`.
 - ChatGPT Developer Mode-style Streamable HTTP MCP server through `gptprouse setup` and `gptprouse start`.

@@ -179,6 +179,7 @@ export class BridgeStore {
 
   async completeTask(taskId: string, input: CompleteTaskInput): Promise<Result> {
     const task = await this.getTask(taskId);
+    assertFetchableResultArtifacts(input.artifacts ?? []);
     const result: Result = ResultSchema.parse({
       schema_version: SCHEMA_VERSION,
       task_id: taskId,
@@ -769,6 +770,16 @@ function isErrorCode(error: unknown, code: string): boolean {
 
 function isFetchableResultArtifactPath(normalizedPath: string): boolean {
   return FETCHABLE_RESULT_ARTIFACT_PREFIXES.some((prefix) => normalizedPath.startsWith(prefix));
+}
+
+function assertFetchableResultArtifacts(artifacts: BridgeFile[]): void {
+  for (const artifact of artifacts) {
+    if (artifact.role !== "result") continue;
+    const normalizedPath = path.posix.normalize(artifact.path.replaceAll("\\", "/"));
+    if (!isFetchableResultArtifactPath(normalizedPath) || normalizedPath !== artifact.path) {
+      throw new Error(`Artifact is not a fetchable result artifact: ${artifact.path}`);
+    }
+  }
 }
 
 function assertResultMatchesRetry(taskId: string, existing: Result, retry: Result): void {

@@ -295,7 +295,7 @@ describe("MCP tool handlers", () => {
     ).rejects.toThrow(/Result artifact not found/);
   });
 
-  it("rejects repo-write artifacts even when a result record lists them as result artifacts", async () => {
+  it("rejects repo-write result artifacts before finalizing a task", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
     const store = new BridgeStore(cwd);
     const task = await store.createTask({
@@ -305,17 +305,42 @@ describe("MCP tool handlers", () => {
       provenance: { adapter: "cli", warnings: [] }
     });
     const repoWriteArtifact = await store.writeArtifactText(".bridge/artifacts/repo-writes/payload.txt", "replacement payload");
-    await store.completeTask(task.id, {
-      status: "done",
-      summary: "Tampered artifact list.",
-      artifacts: [{ path: repoWriteArtifact, role: "result", bytes: "replacement payload".length }]
-    });
     const handlers = createMcpToolHandlers({ cwd });
 
-    await expect(handlers.bridge_fetch_result_artifact({ task_id: task.id })).rejects.toThrow(/not a fetchable result artifact/);
+    await expect(
+      handlers.bridge_complete_task({
+        task_id: task.id,
+        summary: "Tampered artifact list.",
+        artifacts: [{ path: repoWriteArtifact, role: "result", bytes: "replacement payload".length }]
+      })
+    ).rejects.toThrow(/fetchable result artifact/);
+    await expect(store.getTask(task.id)).resolves.toEqual(expect.objectContaining({ status: "new" }));
+    await expect(store.getResult(task.id)).rejects.toThrow();
   });
 
-  it("rejects result artifact paths that traverse out of the pro consult namespace", async () => {
+  it("rejects store completion with result artifacts outside fetchable namespaces", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    const store = new BridgeStore(cwd);
+    const task = await store.createTask({
+      source: "codex",
+      title: "GPT Pro consult",
+      prompt: "Ask Pro",
+      provenance: { adapter: "cli", warnings: [] }
+    });
+    const repoWriteArtifact = await store.writeArtifactText(".bridge/artifacts/repo-writes/payload.txt", "replacement payload");
+
+    await expect(
+      store.completeTask(task.id, {
+        status: "done",
+        summary: "Tampered artifact list.",
+        artifacts: [{ path: repoWriteArtifact, role: "result", bytes: "replacement payload".length }]
+      })
+    ).rejects.toThrow(/fetchable result artifact/);
+    await expect(store.getTask(task.id)).resolves.toEqual(expect.objectContaining({ status: "new" }));
+    await expect(store.getResult(task.id)).rejects.toThrow();
+  });
+
+  it("rejects result artifact paths that traverse out of the pro consult namespace before finalizing", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
     const store = new BridgeStore(cwd);
     const task = await store.createTask({
@@ -325,17 +350,111 @@ describe("MCP tool handlers", () => {
       provenance: { adapter: "cli", warnings: [] }
     });
     await store.writeArtifactText(".bridge/artifacts/repo-writes/payload.txt", "replacement payload");
-    await store.completeTask(task.id, {
-      status: "done",
-      summary: "Tampered artifact list.",
-      artifacts: [
-        {
-          path: ".bridge/artifacts/pro-consults/../repo-writes/payload.txt",
-          role: "result",
-          bytes: "replacement payload".length
-        }
-      ]
+
+    await expect(
+      store.completeTask(task.id, {
+        status: "done",
+        summary: "Tampered artifact list.",
+        artifacts: [
+          {
+            path: ".bridge/artifacts/pro-consults/../repo-writes/payload.txt",
+            role: "result",
+            bytes: "replacement payload".length
+          }
+        ]
+      })
+    ).rejects.toThrow(/fetchable result artifact/);
+    await expect(store.getTask(task.id)).resolves.toEqual(expect.objectContaining({ status: "new" }));
+    await expect(store.getResult(task.id)).rejects.toThrow();
+  });
+
+  it("rejects absolute result artifact paths before finalizing", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    const store = new BridgeStore(cwd);
+    const task = await store.createTask({
+      source: "codex",
+      title: "GPT Pro consult",
+      prompt: "Ask Pro",
+      provenance: { adapter: "cli", warnings: [] }
     });
+
+    await expect(
+      store.completeTask(task.id, {
+        status: "done",
+        summary: "Tampered artifact list.",
+        artifacts: [{ path: path.join(cwd, ".bridge", "artifacts", "pro-consults", "answer.md"), role: "result" }]
+      })
+    ).rejects.toThrow(/fetchable result artifact/);
+    await expect(store.getTask(task.id)).resolves.toEqual(expect.objectContaining({ status: "new" }));
+    await expect(store.getResult(task.id)).rejects.toThrow();
+  });
+
+  it("rejects legacy result records that list repo-write artifacts when fetched", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    const store = new BridgeStore(cwd);
+    const task = await store.createTask({
+      source: "codex",
+      title: "GPT Pro consult",
+      prompt: "Ask Pro",
+      provenance: { adapter: "cli", warnings: [] }
+    });
+    const repoWriteArtifact = await store.writeArtifactText(".bridge/artifacts/repo-writes/payload.txt", "replacement payload");
+    await writeFile(
+      path.join(cwd, ".bridge", "results", `${task.id}.json`),
+      `${JSON.stringify(
+        {
+          schema_version: 1,
+          task_id: task.id,
+          status: "done",
+          summary: "Legacy bad artifact list.",
+          artifacts: [{ path: repoWriteArtifact, role: "result", bytes: "replacement payload".length }],
+          commands: [],
+          warnings: [],
+          created_at: "2099-01-01T00:00:00.000Z"
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+    const handlers = createMcpToolHandlers({ cwd });
+
+    await expect(handlers.bridge_fetch_result_artifact({ task_id: task.id })).rejects.toThrow(/not a fetchable result artifact/);
+  });
+
+  it("rejects legacy result artifact paths that traverse out of the pro consult namespace when fetched", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    const store = new BridgeStore(cwd);
+    const task = await store.createTask({
+      source: "codex",
+      title: "GPT Pro consult",
+      prompt: "Ask Pro",
+      provenance: { adapter: "cli", warnings: [] }
+    });
+    await writeFile(
+      path.join(cwd, ".bridge", "results", `${task.id}.json`),
+      `${JSON.stringify(
+        {
+          schema_version: 1,
+          task_id: task.id,
+          status: "done",
+          summary: "Legacy bad artifact list.",
+          artifacts: [
+            {
+              path: ".bridge/artifacts/pro-consults/../repo-writes/payload.txt",
+              role: "result",
+              bytes: "replacement payload".length
+            }
+          ],
+          commands: [],
+          warnings: [],
+          created_at: "2099-01-01T00:00:00.000Z"
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
     const handlers = createMcpToolHandlers({ cwd });
 
     await expect(handlers.bridge_fetch_result_artifact({ task_id: task.id })).rejects.toThrow(/not a fetchable result artifact/);

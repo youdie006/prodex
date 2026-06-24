@@ -1233,6 +1233,7 @@ describe("runCli", () => {
     expect(text).toContain("gptprouse pro browser login [--dry-run]");
     expect(text).toContain("gptprouse pro browser check|smoke");
     expect(text).toContain("gptprouse pro browser ask");
+    expect(text).not.toContain("gptprouse ask-pro");
     expect(text).not.toContain("gptprouse pro browser open|status");
     expect(text).not.toContain("gptprouse chatgpt open|status|smoke");
   });
@@ -1588,6 +1589,21 @@ describe("runCli", () => {
     expect(text).toContain("You can close this Chrome window after login");
   });
 
+  it("rejects non-ChatGPT browser login URLs before opening Chrome", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const out: string[] = [];
+
+    await expect(
+      runCli(["pro", "browser", "login", "--dry-run", "--url", "https://example.com/"], {
+        cwd,
+        stdout: (line) => out.push(line),
+        stderr: () => {}
+      })
+    ).rejects.toThrow(/ChatGPT web URL/);
+
+    expect(out.join("\n")).not.toContain("ChatGPT Pro browser login");
+  });
+
   it("fails browser login cleanly before printing the guide when Chrome cannot be launched", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
     const out: string[] = [];
@@ -1848,6 +1864,27 @@ describe("runCli", () => {
           stderr: () => {}
         })
       ).rejects.toThrow(/exited immediately|Chrome|browser/i);
+    } finally {
+      if (previousChrome === undefined) delete process.env.GPTPROUSE_CHROME;
+      else process.env.GPTPROUSE_CHROME = previousChrome;
+    }
+
+    expect(out.join("\n")).not.toContain("Opened ChatGPT browser");
+  });
+
+  it("rejects non-ChatGPT legacy browser open URLs before launching Chrome", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const out: string[] = [];
+    const previousChrome = process.env.GPTPROUSE_CHROME;
+    process.env.GPTPROUSE_CHROME = "/definitely/not/present";
+    try {
+      await expect(
+        runCli(["chatgpt", "open", "--url", "https://example.com/"], {
+          cwd,
+          stdout: (line) => out.push(line),
+          stderr: () => {}
+        })
+      ).rejects.toThrow(/ChatGPT web URL/);
     } finally {
       if (previousChrome === undefined) delete process.env.GPTPROUSE_CHROME;
       else process.env.GPTPROUSE_CHROME = previousChrome;

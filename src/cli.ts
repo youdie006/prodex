@@ -251,7 +251,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       const opened = openChatGptBrowser({
         port: readNumberFlag(chatgptArgs, "--port") ?? 9333,
         profileDir: readFlag(chatgptArgs, "--profile-dir"),
-        url: readFlag(chatgptArgs, "--url") ?? "https://chatgpt.com/"
+        url: readChatGptBrowserUrlFlag(chatgptArgs)
       });
       await assertBrowserLaunchStayedAlive(opened);
       io.stdout(`Opened ChatGPT browser via ${opened.command}.`);
@@ -434,6 +434,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       const [browserSubcommand, ...browserArgs] = proArgs;
       if (browserSubcommand === "login") {
         assertOnlyOptions(browserArgs, "pro browser login", ["--profile-dir", "--port", "--url"], ["--dry-run"]);
+        const loginUrl = readChatGptBrowserUrlFlag(browserArgs);
         if (browserArgs.includes("--dry-run")) {
           printBrowserLoginGuide(io.stdout, {
             opened: false,
@@ -445,7 +446,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
         const opened = openChatGptBrowser({
           port: readNumberFlag(browserArgs, "--port") ?? 9333,
           profileDir: readFlag(browserArgs, "--profile-dir"),
-          url: readFlag(browserArgs, "--url") ?? "https://chatgpt.com/"
+          url: loginUrl
         });
         await assertBrowserLaunchStayedAlive(opened);
         printBrowserLoginGuide(io.stdout, {
@@ -732,7 +733,6 @@ Commands:
   gptprouse project prompt [--cwd /absolute/path/to/repo]
   gptprouse claude prompt [--cwd /absolute/path/to/repo]
   gptprouse claude config [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]
-  gptprouse ask-pro --dry-run|--send [--file path] "prompt"
   gptprouse pro ask [--file path] "prompt"  # dry-run preview
   gptprouse pro browser login [--dry-run]  # preview/open visible browser login
   gptprouse pro browser check|smoke
@@ -1781,6 +1781,10 @@ function readNumberFlag(args: string[], flag: string): number | undefined {
   const value = Number(raw);
   if (!Number.isFinite(value)) throw new Error(`${flag} requires a finite number`);
   return value;
+}
+
+function readChatGptBrowserUrlFlag(args: string[]): string {
+  return normalizeChatGptTargetUrl(readFlag(args, "--url") ?? "https://chatgpt.com/");
 }
 
 function readRepeatedFlag(args: string[], flag: string): string[] {
