@@ -234,7 +234,7 @@ try {
   await smokeInstalledStdioTaskFinalizers(binPath, consumerDir);
 
   console.log(
-    `package_smoke: ok tarball=${path.basename(packed.filename)} http_onboarding=ok installed_http_mcp=ok http_write_flow=ok http_task_finalizers=ok http_result_artifact_flow=ok configured_doctor=ok tunnel_url=ok package_boundary=ok stdio_write_flow=ok stdio_task_flow=ok stdio_task_finalizers=ok stdio_result_artifact_flow=ok tools=${REQUIRED_MCP_TOOLS.join(",")}`
+    `package_smoke: ok tarball=${path.basename(packed.filename)} http_onboarding=ok installed_http_mcp=ok http_write_flow=ok http_task_finalizers=ok http_result_artifact_flow=ok http_result_artifact_tamper=ok configured_doctor=ok tunnel_url=ok package_boundary=ok stdio_write_flow=ok stdio_task_flow=ok stdio_task_finalizers=ok stdio_result_artifact_flow=ok stdio_result_artifact_tamper=ok tools=${REQUIRED_MCP_TOOLS.join(",")}`
   );
 } finally {
   await rm(tmp, { recursive: true, force: true });
@@ -678,6 +678,11 @@ async function smokeInstalledStdioTaskFinalizers(binPath, cwd) {
     if (fetchedArtifact.artifact?.bytes !== Buffer.byteLength(resultArtifactContent, "utf8")) {
       throw new Error(`Installed stdio result artifact byte count mismatch: ${JSON.stringify(fetchedArtifact)}`);
     }
+    await writeFile(path.join(cwd, resultArtifactPath), "Tampered installed stdio MCP artifact answer.\n", "utf8");
+    await callToolExpectFailure(client, "bridge_fetch_result_artifact", {
+      task_id: doneTask.task.id,
+      path: resultArtifactPath
+    }, "sha256");
     assertResult(blocked.result, {
       taskId: blockedTask.task.id,
       status: "blocked",
@@ -981,6 +986,11 @@ async function smokeInstalledHttpMcpEndpoint(mcpUrl, cwd, writeHead) {
     if (fetchedArtifact.artifact?.bytes !== Buffer.byteLength(resultArtifactContent, "utf8")) {
       throw new Error(`Installed HTTP result artifact byte count mismatch: ${JSON.stringify(fetchedArtifact)}`);
     }
+    await writeFile(path.join(cwd, resultArtifactPath), "Tampered installed HTTP MCP artifact answer.\n", "utf8");
+    await callToolExpectFailure(client, "bridge_fetch_result_artifact", {
+      task_id: created.task.id,
+      path: resultArtifactPath
+    }, "sha256");
     const dryRun = await callJsonTool(client, "repo_write_file_dry_run", {
       path: "http-notes.md",
       content: "new\n",
@@ -1098,6 +1108,27 @@ async function callJsonTool(client, name, args) {
   const text = result.content.find((item) => item.type === "text")?.text;
   if (!text) throw new Error(`Installed MCP tool ${name} did not return text content`);
   return JSON.parse(text);
+}
+
+async function callToolExpectFailure(client, name, args, expectedText) {
+  let result;
+  try {
+    result = await withTimeout(
+      client.callTool({ name, arguments: args }),
+      20_000,
+      `Timed out calling installed MCP tool ${name}`
+    );
+  } catch (error) {
+    const message = errorMessage(error);
+    if (message.includes(expectedText)) return;
+    throw error;
+  }
+  const text = result.content.find((item) => item.type === "text")?.text ?? "";
+  if (result.isError === true) {
+    assertIncludes(text, expectedText, `installed MCP ${name} failure output`);
+    return;
+  }
+  throw new Error(`Installed MCP tool ${name} unexpectedly succeeded. Output was:\n${redactSmokeSecrets(text).slice(0, 1000)}`);
 }
 
 async function closeStdioClient(client, transport, label) {
