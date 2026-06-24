@@ -378,6 +378,15 @@ async function smokeInstalledHttpOnboarding(binPath, cwd) {
   assertIncludes(statusOutput, '"token_expires_at":', "installed status output");
   assertNotIncludes(statusOutput, token, "installed status output");
 
+  const nonExpiringCwd = path.join(launcherCwd, "non-expiring-http");
+  const nonExpiringToken = "non-expiring-package-smoke-token";
+  await mkdir(nonExpiringCwd, { recursive: true });
+  await run(binPath, ["setup", "--cwd", nonExpiringCwd, "--port", "8790", "--token", nonExpiringToken], { cwd: launcherCwd });
+  const nonExpiringReveal = await runExpectFailure(binPath, ["status", "--cwd", nonExpiringCwd, "--show-token", "--url-only"], { cwd: launcherCwd });
+  const nonExpiringRevealOutput = `${nonExpiringReveal.stdout}\n${nonExpiringReveal.stderr}`;
+  assertIncludes(nonExpiringRevealOutput, "status --show-token requires a token with expiry", "installed non-expiring status reveal refusal");
+  assertNotIncludes(nonExpiringRevealOutput, nonExpiringToken, "installed non-expiring status reveal refusal");
+
   const configuredDoctor = await run(binPath, ["doctor", "--cwd", cwd], { cwd: launcherCwd, timeout: 60_000 });
   assertIncludes(configuredDoctor.stdout, "config: ok", "installed configured doctor output");
   assertIncludes(configuredDoctor.stdout, "token_status=valid", "installed configured doctor output");
@@ -490,6 +499,21 @@ async function run(command, args, options = {}) {
     maxBuffer: options.maxBuffer ?? 5 * 1024 * 1024,
     cwd: options.cwd
   });
+}
+
+async function runExpectFailure(command, args, options = {}) {
+  try {
+    const result = await run(command, args, options);
+    throw new Error(`Expected command to fail but it exited successfully. stdout:\n${result.stdout}\nstderr:\n${result.stderr}`);
+  } catch (error) {
+    if (error && typeof error === "object" && "stdout" in error && "stderr" in error) {
+      return {
+        stdout: String(error.stdout ?? ""),
+        stderr: String(error.stderr ?? "")
+      };
+    }
+    throw error;
+  }
 }
 
 async function withTimeout(promise, timeoutMs, message) {

@@ -50,7 +50,7 @@ By default, command output redacts the URL token:
 gptprouse_token=***
 ```
 
-`--token-ttl-hours` is optional for strictly local use. If you omit it, `status` reports `token_status: "none"` and the token does not expire. Before exposing this server through any tunnel, rerun setup with a short TTL:
+`--token-ttl-hours` is optional for strictly local use. If you omit it, `status` reports `token_status: "none"` and the token does not expire. `status --show-token` refuses to reveal non-expiring tokens by default; pass `--unsafe-show-non-expiring-token` only for local-only debugging. Before pasting the URL into ChatGPT or exposing this server through any tunnel, rerun setup with a short TTL:
 
 ```bash
 gptprouse setup --token-ttl-hours 24
@@ -90,7 +90,7 @@ From outside the repo:
 gptprouse status --cwd /absolute/path/to/your/repo --show-token --url-only
 ```
 
-Only use `--show-token` when you are ready to paste the URL into your own trusted private MCP client configuration.
+Only use `--show-token` when you are ready to paste the URL into your own trusted private MCP client configuration. It requires a token created with `setup --token-ttl-hours <hours>` unless you explicitly pass the local-debug `--unsafe-show-non-expiring-token` override.
 
 ## Add It To ChatGPT
 
@@ -205,4 +205,5 @@ If ChatGPT cannot connect:
 - Confirm `gptprouse start` is still running.
 - Confirm you pasted the full `status --show-token --url-only` URL.
 - Confirm the client can reach the host in that URL.
+- If `status --show-token` says a token with expiry is required, run `gptprouse setup --token-ttl-hours 24` and update the URL.
 - Run `gptprouse status`; if the token is expired, run `gptprouse setup --token-ttl-hours 24` again and update the URL.

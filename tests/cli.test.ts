@@ -1440,7 +1440,7 @@ describe("runCli", () => {
     await expect(readFile(path.join(launcherCwd, ".bridge", "config.local.json"), "utf8")).rejects.toThrow();
   });
 
-  it("prints the local MCP URL token only when explicitly requested", async () => {
+  it("refuses to reveal a non-expiring local MCP token by default", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
     await runCli(["setup", "--port", "8789", "--token", "super-secret-token"], {
       cwd,
@@ -1449,18 +1449,58 @@ describe("runCli", () => {
     });
     const out: string[] = [];
 
-    await runCli(["status", "--show-token"], {
+    await expect(
+      runCli(["status", "--show-token"], {
+        cwd,
+        stdout: (line) => out.push(line),
+        stderr: () => {}
+      })
+    ).rejects.toThrow("status --show-token requires a token with expiry");
+
+    expect(out.join("\n")).not.toContain("super-secret-token");
+  });
+
+  it("refuses url-only token reveal for non-expiring local MCP tokens by default", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    await runCli(["setup", "--port", "8789", "--token", "super-secret-token"], {
+      cwd,
+      stdout: () => {},
+      stderr: () => {}
+    });
+    const out: string[] = [];
+
+    await expect(
+      runCli(["status", "--show-token", "--url-only"], {
+        cwd,
+        stdout: (line) => out.push(line),
+        stderr: () => {}
+      })
+    ).rejects.toThrow("status --show-token requires a token with expiry");
+
+    expect(out).toEqual([]);
+  });
+
+  it("reveals a non-expiring token only with the unsafe local-debug override", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    await runCli(["setup", "--port", "8789", "--token", "super-secret-token"], {
+      cwd,
+      stdout: () => {},
+      stderr: () => {}
+    });
+    const out: string[] = [];
+
+    await runCli(["status", "--show-token", "--unsafe-show-non-expiring-token", "--url-only"], {
       cwd,
       stdout: (line) => out.push(line),
       stderr: () => {}
     });
 
-    expect(out.join("\n")).toContain("super-secret-token");
+    expect(out).toEqual(["http://127.0.0.1:8789/mcp?gptprouse_token=super-secret-token"]);
   });
 
   it("prints a paste-ready local MCP URL when url-only is requested", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
-    await runCli(["setup", "--port", "8789", "--token", "super-secret-token"], {
+    await runCli(["setup", "--port", "8789", "--token", "super-secret-token", "--token-ttl-hours", "1"], {
       cwd,
       stdout: () => {},
       stderr: () => {}
@@ -1510,6 +1550,7 @@ describe("runCli", () => {
           port: 8787,
           token: "secret-token",
           server_url: "http://user:pass@127.0.0.1:8787/mcp?gptprouse_token=secret-token",
+          token_expires_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString()
         },

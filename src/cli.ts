@@ -111,16 +111,28 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
   }
 
   if (command === "status") {
-    assertOnlyOptions(rest, "status", ["--cwd"], ["--show-token", "--url-only"]);
+    assertOnlyOptions(rest, "status", ["--cwd"], ["--show-token", "--url-only", "--unsafe-show-non-expiring-token"]);
     const targetCwd = resolveCwdFlag(io.cwd, rest);
     const config = await loadLocalConfigForCommand(targetCwd, "status");
     const showToken = rest.includes("--show-token");
+    const allowNonExpiringTokenReveal = rest.includes("--unsafe-show-non-expiring-token");
+    const tokenStatus = getTokenExpiryStatus(config);
+    if (showToken && tokenStatus.status === "none" && !allowNonExpiringTokenReveal) {
+      throw new Error(
+        "status --show-token requires a token with expiry. Run `gptprouse setup --token-ttl-hours <hours>` first, or pass --unsafe-show-non-expiring-token for local-only debugging."
+      );
+    }
     const serverUrl = formatServerUrlForOutput(config.server_url, { showToken });
     if (rest.includes("--url-only")) {
       io.stdout(serverUrl);
       return 0;
     }
-    const tokenStatus = getTokenExpiryStatus(config);
+    const warnings = tokenStatus.warning ? [tokenStatus.warning] : [];
+    if (showToken && allowNonExpiringTokenReveal && tokenStatus.status === "none") {
+      warnings.push(
+        "Showing a non-expiring token. Keep this local-only and rotate it with `gptprouse setup --token-ttl-hours <hours>` before any tunnel or ChatGPT Project use."
+      );
+    }
     io.stdout(
       JSON.stringify(
         {
@@ -128,7 +140,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
           config_path: ".bridge/config.local.json",
           token_status: tokenStatus.status,
           token_expires_at: tokenStatus.token_expires_at ?? null,
-          warnings: tokenStatus.warning ? [tokenStatus.warning] : []
+          warnings
         },
         null,
         2
@@ -654,7 +666,7 @@ Commands:
   gptprouse doctor [--cwd /absolute/path/to/repo]
   gptprouse setup [--cwd /absolute/path/to/repo] [--host 127.0.0.1] [--port 8787] [--token-ttl-hours <hours>]
   gptprouse start [--cwd /absolute/path/to/repo]
-  gptprouse status [--cwd /absolute/path/to/repo] [--show-token] [--url-only]
+  gptprouse status [--cwd /absolute/path/to/repo] [--show-token] [--url-only] [--unsafe-show-non-expiring-token]
   gptprouse tunnel url [--cwd /absolute/path/to/repo] --public-url https://... [--show-token] [--url-only]
   gptprouse release status [--cwd /absolute/path/to/repo]
   gptprouse project prompt [--cwd /absolute/path/to/repo]

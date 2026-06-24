@@ -169,7 +169,7 @@ When you are ready to paste the MCP URL into ChatGPT Developer Mode / Apps, run:
 gptprouse status --show-token --url-only
 ```
 
-The URL token is stored only in `.bridge/config.local.json`, which is ignored by git. Treat the full `--show-token` URL like a password: paste it only into your own private ChatGPT Project/App configuration, then rotate it with `setup` when you no longer need that URL. If you omit `--token-ttl-hours`, the token does not expire; keep that local-only and rerun `setup --token-ttl-hours <hours>` before putting any tunnel in front of it.
+`status --show-token` requires a token with an expiry, so run `setup --token-ttl-hours <hours>` before asking for a paste-ready URL. The URL token is stored only in `.bridge/config.local.json`, which is ignored by git. Treat the full `--show-token` URL like a password: paste it only into your own private ChatGPT Project/App configuration, then rotate it with `setup` when you no longer need that URL. If you intentionally created a non-expiring token for local-only debugging, `status --show-token` refuses to reveal it unless you also pass `--unsafe-show-non-expiring-token`.
 
 After adding the MCP URL to ChatGPT, generate a paste-ready verification prompt:
 
