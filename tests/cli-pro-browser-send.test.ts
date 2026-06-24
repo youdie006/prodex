@@ -169,13 +169,16 @@ describe("pro browser ask persistence", () => {
       }
     });
 
+    const out: string[] = [];
     await expect(
       runCli(["pro", "browser", "ask", "Review this"], {
         cwd,
-        stdout: () => {},
+        stdout: (line) => out.push(line),
         stderr: () => {}
       })
     ).rejects.toThrow(/forced final result write failure/);
+    expect(out.join("\n")).toContain("consult_answer_received_but_not_saved:");
+    expect(out.join("\n")).toContain("The answer was already received.");
 
     const artifactFiles = await readdir(path.join(cwd, ".bridge", "artifacts", "pro-consults"));
     expect(artifactFiles).toHaveLength(1);
@@ -199,6 +202,103 @@ describe("pro browser ask persistence", () => {
     expect(result.status).toBe("done");
     expect(result.summary).toContain("The answer was already received.");
     expect(result.artifacts).toContainEqual(expect.objectContaining({ role: "result" }));
+  });
+
+  it("keeps the received answer when answer artifact storage fails", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-pro-send-"));
+    sendChatGptPromptMock.mockResolvedValueOnce({
+      url: "https://chatgpt.com/c/abc",
+      title: "ChatGPT",
+      answer: "Artifact storage failed after this answer arrived.",
+      modelHints: [],
+      warnings: []
+    });
+    setSafeFileTestHooks({
+      beforeOpen: (filePath, operation) => {
+        if (operation === "write" && filePath.includes(`${path.sep}artifacts${path.sep}pro-consults${path.sep}`)) {
+          throw new Error("forced artifact write failure");
+        }
+      }
+    });
+    const out: string[] = [];
+    const err: string[] = [];
+
+    await runCli(["pro", "browser", "ask", "Review this"], {
+      cwd,
+      stdout: (line) => out.push(line),
+      stderr: (line) => err.push(line)
+    });
+
+    const taskId = out[0].split("\t")[0];
+    expect(out[0]).toContain("\tdone\t");
+    expect(out.join("\n")).toContain("Artifact storage failed after this answer arrived.");
+    expect(err.join("\n")).toContain("answer_artifact_warning");
+    expect(err.join("\n")).toContain("forced artifact write failure");
+    const result = JSON.parse(await readFile(path.join(cwd, ".bridge", "results", `${taskId}.json`), "utf8")) as {
+      summary: string;
+      artifacts: Array<{ path: string; role: string }>;
+      warnings: string[];
+    };
+    expect(result.summary).toContain("Artifact storage failed after this answer arrived.");
+    expect(result.artifacts).toEqual([]);
+    expect(result.warnings.join("\n")).toContain("forced artifact write failure");
+    const receiptFiles = await readdir(path.join(cwd, ".bridge", "receipts"));
+    const receipts = await Promise.all(
+      receiptFiles.map(async (file) => JSON.parse(await readFile(path.join(cwd, ".bridge", "receipts", file), "utf8")) as { kind: string; task_id?: string })
+    );
+    expect(receipts).toContainEqual(expect.objectContaining({ kind: "consult_answer_saved", task_id: taskId }));
+  });
+
+  it("keeps the received answer when answer receipt storage fails", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-pro-send-"));
+    sendChatGptPromptMock.mockResolvedValueOnce({
+      url: "https://chatgpt.com/c/abc",
+      title: "ChatGPT",
+      answer: "Receipt storage failed after this answer arrived.",
+      modelHints: [],
+      warnings: []
+    });
+    let artifactSeen = false;
+    let receiptFailureThrown = false;
+    setSafeFileTestHooks({
+      beforeOpen: (filePath, operation) => {
+        if (operation !== "write") return;
+        if (filePath.includes(`${path.sep}artifacts${path.sep}pro-consults${path.sep}`)) {
+          artifactSeen = true;
+          return;
+        }
+        if (
+          artifactSeen &&
+          !receiptFailureThrown &&
+          (filePath.includes(`${path.sep}receipts${path.sep}`) || filePath.includes(`${path.sep}.receipt_`))
+        ) {
+          receiptFailureThrown = true;
+          throw new Error("forced receipt write failure");
+        }
+      }
+    });
+    const out: string[] = [];
+    const err: string[] = [];
+
+    await runCli(["pro", "browser", "ask", "Review this"], {
+      cwd,
+      stdout: (line) => out.push(line),
+      stderr: (line) => err.push(line)
+    });
+
+    const taskId = out[0].split("\t")[0];
+    expect(out[0]).toContain("\tdone\t");
+    expect(out.join("\n")).toContain("Receipt storage failed after this answer arrived.");
+    expect(err.join("\n")).toContain("receipt_record_warning");
+    expect(err.join("\n")).toContain("forced receipt write failure");
+    const result = JSON.parse(await readFile(path.join(cwd, ".bridge", "results", `${taskId}.json`), "utf8")) as {
+      summary: string;
+      artifacts: Array<{ path: string; role: string }>;
+      warnings: string[];
+    };
+    expect(result.summary).toContain("Receipt storage failed after this answer arrived.");
+    expect(result.artifacts).toContainEqual(expect.objectContaining({ role: "result" }));
+    expect(result.warnings.join("\n")).toContain("forced receipt write failure");
   });
 
   it("completes the browser consult when optional session writes fail", async () => {

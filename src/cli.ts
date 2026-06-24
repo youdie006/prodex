@@ -612,29 +612,51 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
         throw error;
       }
       const answerArtifactText = formatProConsultArtifact(consult);
-      const answerArtifactPath = await store.writeArtifactText(`.bridge/artifacts/pro-consults/${task.id}.md`, answerArtifactText);
-      await store.writeReceipt({
-        kind: "consult_answer_saved",
-        task_id: task.id,
-        session_id: bundle.id,
-        summary: `Saved ChatGPT answer for ${task.id}`,
-        metadata: {
-          artifact_path: answerArtifactPath,
-          thread: consult.url,
-          warnings: consult.warnings
-        }
-      });
-      const result = await store.completeTask(task.id, {
-        status: "done",
-        summary: consult.answer,
-        artifacts: [{ path: answerArtifactPath, role: "result", bytes: Buffer.byteLength(answerArtifactText, "utf8") }],
-        commands: ["visible ChatGPT browser consult"],
-        warnings: consult.warnings,
-        provenance: {
-          thread: consult.url,
-          warnings: consult.warnings
-        }
-      });
+      const persistenceWarnings = [...consult.warnings];
+      let answerArtifactPath: string | undefined;
+      try {
+        answerArtifactPath = await store.writeArtifactText(`.bridge/artifacts/pro-consults/${task.id}.md`, answerArtifactText);
+      } catch (error) {
+        const warning = `answer_artifact_warning: ${errorMessage(error)}`;
+        persistenceWarnings.push(warning);
+        io.stderr(warning);
+      }
+      try {
+        await store.writeReceipt({
+          kind: "consult_answer_saved",
+          task_id: task.id,
+          session_id: bundle.id,
+          summary: `Recorded ChatGPT answer for ${task.id}`,
+          metadata: {
+            ...(answerArtifactPath ? { artifact_path: answerArtifactPath } : {}),
+            thread: consult.url,
+            warnings: persistenceWarnings
+          }
+        });
+      } catch (error) {
+        const warning = `receipt_record_warning: ${errorMessage(error)}`;
+        persistenceWarnings.push(warning);
+        io.stderr(warning);
+      }
+      let result: Awaited<ReturnType<BridgeStore["completeTask"]>>;
+      try {
+        result = await store.completeTask(task.id, {
+          status: "done",
+          summary: consult.answer,
+          artifacts: answerArtifactPath ? [{ path: answerArtifactPath, role: "result", bytes: Buffer.byteLength(answerArtifactText, "utf8") }] : [],
+          commands: ["visible ChatGPT browser consult"],
+          warnings: persistenceWarnings,
+          provenance: {
+            thread: consult.url,
+            warnings: persistenceWarnings
+          }
+        });
+      } catch (error) {
+        io.stdout(`consult_answer_received_but_not_saved: ${task.id} ${consult.url}`);
+        io.stdout("");
+        io.stdout(consult.answer);
+        throw new Error(`ChatGPT answer was received but local persistence failed: ${errorMessage(error)}`);
+      }
       await writeSessionBestEffort(
         store,
         {
@@ -644,7 +666,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
           task_id: task.id,
           thread: consult.url,
           status: "done",
-          warnings: consult.warnings
+          warnings: persistenceWarnings
         },
         io
       );

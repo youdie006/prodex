@@ -231,6 +231,7 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertIncludes(readme, "generic MCP handoff artifacts", "installed README");
   assertIncludes(readme, "more than one ChatGPT tab or window is visible", "installed README");
   assertIncludes(readme, "blocker code and next step", "installed README");
+  assertIncludes(readme, "fatal finalization failures print the received answer", "installed README");
   assertIncludes(readme, "connects to the installed `/mcp` endpoint", "installed README");
   assertIncludes(readme, "verifies explicit `--cwd` task storage", "installed README");
   assertNotIncludes(readme, "Read-only result artifact fetch for Pro consult artifacts explicitly listed", "installed README");
