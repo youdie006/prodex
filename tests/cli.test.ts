@@ -192,6 +192,82 @@ describe("runCli", () => {
     ).rejects.toThrow("Unknown option for tasks list: --stauts");
   });
 
+  it("rejects unknown setup, start, status, and browser options", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+
+    await expect(
+      runCli(["setup", "--token-ttl-hour", "24"], {
+        cwd,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.toThrow("Unknown option for setup: --token-ttl-hour");
+    await expect(
+      runCli(["start", "--porrt", "8789"], {
+        cwd,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.toThrow("Unknown option for start: --porrt");
+    await expect(
+      runCli(["status", "--show-tokn", "--url-only"], {
+        cwd,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.toThrow("Unknown option for status: --show-tokn");
+    await expect(
+      runCli(["pro", "browser", "login", "--dry-run", "--profile-dri", "profile"], {
+        cwd,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.toThrow("Unknown option for pro browser login: --profile-dri");
+    await expect(
+      runCli(["pro", "browser", "check", "--porrt", "65534"], {
+        cwd,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.toThrow("Unknown option for pro browser check: --porrt");
+  });
+
+  it("rejects extra arguments for show commands", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const store = new BridgeStore(cwd);
+    const task = await store.createTask({
+      source: "codex",
+      title: "Show strictness",
+      prompt: "Reject extra show arguments.",
+      repo_id: "default",
+      files: [],
+      provenance: { adapter: "cli", warnings: [] }
+    });
+    await store.completeTask(task.id, { status: "done", summary: "Show result." });
+    await store.writeSession({
+      id: "sess_20990101_000000_show-strictness",
+      direction: "codex_to_chatgpt",
+      backend: "manual",
+      status: "preview"
+    });
+    await store.writeReceipt({ kind: "consult_preview", summary: "Show receipt" });
+
+    for (const args of [
+      ["tasks", "show", "latest", "extra"],
+      ["results", "show", "latest", "extra"],
+      ["receipts", "show", "latest", "extra"],
+      ["sessions", "show", "latest", "extra"]
+    ]) {
+      await expect(
+        runCli(args, {
+          cwd,
+          stdout: () => {},
+          stderr: () => {}
+        })
+      ).rejects.toThrow(`Unexpected argument for ${args[0]} show: extra`);
+    }
+  });
+
   it("rejects flags that are missing required values", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
 

@@ -73,6 +73,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
   }
 
   if (command === "setup") {
+    assertOnlyOptions(rest, "setup", ["--host", "--port", "--token", "--token-ttl-hours"]);
     const config = await writeLocalConfig(io.cwd, {
       host: readFlag(rest, "--host") ?? "127.0.0.1",
       port: readNumberFlag(rest, "--port") ?? 8787,
@@ -87,6 +88,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
   }
 
   if (command === "start") {
+    assertOnlyOptions(rest, "start", ["--host", "--port", "--token"]);
     const config = await loadLocalConfigForCommand(io.cwd, "start");
     const overrideToken = readFlag(rest, "--token");
     if (!overrideToken) assertTokenNotExpired(config);
@@ -104,6 +106,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
   }
 
   if (command === "status") {
+    assertOnlyOptions(rest, "status", [], ["--show-token", "--url-only"]);
     const config = await loadLocalConfigForCommand(io.cwd, "status");
     const showToken = rest.includes("--show-token");
     const serverUrl = showToken ? config.server_url : redactServerUrl(config.server_url);
@@ -131,6 +134,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
   if (command === "tunnel") {
     const [subcommand, ...tunnelArgs] = rest;
     if (subcommand !== "url") throw new Error("tunnel requires url");
+    assertOnlyOptions(tunnelArgs, "tunnel url", ["--public-url"], ["--show-token", "--url-only"]);
     const config = await loadLocalConfig(io.cwd);
     const tokenStatus = getTokenExpiryStatus(config);
     if (tokenStatus.status === "none") {
@@ -173,6 +177,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
   if (command === "chatgpt") {
     const [subcommand, ...chatgptArgs] = rest;
     if (subcommand === "open") {
+      assertOnlyOptions(chatgptArgs, "chatgpt open", ["--port", "--profile-dir", "--url"]);
       const opened = openChatGptBrowser({
         port: readNumberFlag(chatgptArgs, "--port") ?? 9333,
         profileDir: readFlag(chatgptArgs, "--profile-dir"),
@@ -184,11 +189,13 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       return 0;
     }
     if (subcommand === "status") {
+      assertOnlyOptions(chatgptArgs, "chatgpt status", ["--port"]);
       const status = await getChatGptBrowserStatus({ port: readNumberFlag(chatgptArgs, "--port") ?? 9333 });
       io.stdout(JSON.stringify(status, null, 2));
       return 0;
     }
     if (subcommand === "smoke") {
+      assertOnlyOptions(chatgptArgs, "chatgpt smoke", ["--port", "--timeout-ms"]);
       const result = await sendChatGptPrompt({
         port: readNumberFlag(chatgptArgs, "--port") ?? 9333,
         prompt: "This is a one-time gptprouse smoke test. Reply exactly: GPTPROUSE_PRO_SMOKE_OK",
@@ -228,6 +235,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
     if (subcommand === "show") {
       const taskId = taskArgs[0];
       if (!taskId) throw new Error("tasks show requires <task-id|latest>");
+      assertNoExtraArgs(taskArgs, "tasks show", 1);
       const task = taskId === "latest" ? await latestTask(store) : await store.getTask(taskId);
       if (!task) throw new Error(`Task not found: ${taskId}`);
       io.stdout(JSON.stringify(task, null, 2));
@@ -277,6 +285,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
     if (subcommand === "show") {
       const taskId = resultArgs[0];
       if (!taskId) throw new Error("results show requires <task-id|latest>");
+      assertNoExtraArgs(resultArgs, "results show", 1);
       const resolvedTaskId = taskId === "latest" ? await latestResultTaskId(store) : taskId;
       io.stdout(JSON.stringify(await store.getResult(resolvedTaskId), null, 2));
       return 0;
@@ -284,6 +293,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
     if (subcommand === "artifact") {
       const taskId = resultArgs[0];
       if (!taskId) throw new Error("results artifact requires <task-id> [artifact-path]");
+      assertNoExtraArgs(resultArgs, "results artifact", 2);
       const resolvedTaskId = taskId === "latest" ? await latestResultTaskId(store) : taskId;
       const artifact = await store.readResultArtifactText(resolvedTaskId, resultArgs[1]);
       io.stdout(artifact.content);
@@ -307,6 +317,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
     if (subcommand === "show") {
       const receiptId = receiptArgs[0];
       if (!receiptId) throw new Error("receipts show requires <receipt-id|latest>");
+      assertNoExtraArgs(receiptArgs, "receipts show", 1);
       const receipt = receiptId === "latest" ? (await store.listReceipts())[0] : await store.getReceiptForDisplay(receiptId);
       if (!receipt) throw new Error(`Receipt not found: ${receiptId}`);
       io.stdout(JSON.stringify(receipt, null, 2));
@@ -328,6 +339,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
     if (subcommand === "show") {
       const sessionId = sessionArgs[0];
       if (!sessionId) throw new Error("sessions show requires <session-id|latest>");
+      assertNoExtraArgs(sessionArgs, "sessions show", 1);
       const session = sessionId === "latest" ? (await store.listSessions())[0] : await store.getSession(sessionId);
       if (!session) throw new Error(`Session not found: ${sessionId}`);
       io.stdout(formatSession(session));
@@ -344,6 +356,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
     if (subcommand === "browser") {
       const [browserSubcommand, ...browserArgs] = proArgs;
       if (browserSubcommand === "login") {
+        assertOnlyOptions(browserArgs, "pro browser login", ["--profile-dir", "--port", "--url"], ["--dry-run"]);
         if (browserArgs.includes("--dry-run")) {
           printBrowserLoginGuide(io.stdout, {
             opened: false,
@@ -372,6 +385,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
         return runCli(["chatgpt", browserSubcommand, ...browserArgs], io);
       }
       if (browserSubcommand === "check" || browserSubcommand === "doctor") {
+        assertOnlyOptions(browserArgs, "pro browser check", ["--port", "--timeout-ms"]);
         await printProductCheck(store, io, browserArgs);
         return 0;
       }
@@ -381,6 +395,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       throw new Error(`Use \`gptprouse pro browser ${subcommand === "doctor" ? "check" : subcommand}\` for explicit browser automation.`);
     }
     if (subcommand === "list") {
+      assertNoExtraArgs(proArgs, "pro list", 0);
       const consults = await listConsults(store);
       for (const consult of consults) {
         io.stdout(`${consult.task.id}\t${consult.result.status}\t${firstLine(consult.result.summary)}`);
@@ -388,6 +403,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       return 0;
     }
     if (subcommand === "latest") {
+      assertNoExtraArgs(proArgs, "pro latest", 0);
       const consult = (await listConsults(store))[0];
       if (!consult) throw new Error("No GPT Pro answers found");
       io.stdout(formatProAnswer(consult));
@@ -396,6 +412,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
     if (subcommand === "show") {
       const taskId = proArgs[0];
       if (!taskId) throw new Error("pro show requires <task-id|latest>");
+      assertNoExtraArgs(proArgs, "pro show", 1);
       const consult = taskId === "latest" ? (await listConsults(store))[0] : await getConsult(store, taskId);
       if (!consult) throw new Error(`GPT Pro answer not found: ${taskId}`);
       io.stdout(formatProAnswer(consult));
@@ -406,6 +423,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
   if (command === "consults") {
     const [subcommand, ...consultArgs] = rest;
     if (subcommand === "list") {
+      assertNoExtraArgs(consultArgs, "consults list", 0);
       const consults = await listConsults(store);
       for (const consult of consults) {
         io.stdout(`${consult.task.id}\t${consult.result.status}\t${firstLine(consult.result.summary)}`);
@@ -413,6 +431,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       return 0;
     }
     if (subcommand === "latest") {
+      assertNoExtraArgs(consultArgs, "consults latest", 0);
       const consult = (await listConsults(store))[0];
       if (!consult) throw new Error("No consult results found");
       io.stdout(formatConsult(consult));
@@ -421,6 +440,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
     if (subcommand === "show") {
       const taskId = consultArgs[0];
       if (!taskId) throw new Error("consults show requires <task-id|latest>");
+      assertNoExtraArgs(consultArgs, "consults show", 1);
       const consult = taskId === "latest" ? (await listConsults(store))[0] : await getConsult(store, taskId);
       if (!consult) throw new Error(`Consult not found: ${taskId}`);
       io.stdout(formatConsult(consult));
@@ -1309,8 +1329,9 @@ function readRepeatedFlag(args: string[], flag: string): string[] {
   return values;
 }
 
-function assertOnlyOptions(args: string[], command: string, valueFlags: readonly string[]): void {
+function assertOnlyOptions(args: string[], command: string, valueFlags: readonly string[], booleanFlags: readonly string[] = []): void {
   const valueFlagSet = new Set(valueFlags);
+  const booleanFlagSet = new Set(booleanFlags);
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
     if (valueFlagSet.has(arg)) {
@@ -1318,6 +1339,16 @@ function assertOnlyOptions(args: string[], command: string, valueFlags: readonly
       index += 1;
       continue;
     }
+    if (booleanFlagSet.has(arg)) continue;
+    if (arg.startsWith("-")) {
+      throw new Error(`Unknown option for ${command}: ${arg}`);
+    }
+    throw new Error(`Unexpected argument for ${command}: ${arg}`);
+  }
+}
+
+function assertNoExtraArgs(args: string[], command: string, maxPositionals: number): void {
+  for (const arg of args.slice(maxPositionals)) {
     if (arg.startsWith("-")) {
       throw new Error(`Unknown option for ${command}: ${arg}`);
     }
