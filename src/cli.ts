@@ -224,10 +224,17 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
 
   if (command === "claude") {
     const [subcommand, ...claudeArgs] = rest;
-    if (subcommand !== "prompt") throw new Error("claude requires prompt");
-    assertOnlyOptions(claudeArgs, "claude prompt", ["--cwd"]);
-    io.stdout(formatClaudeVerificationPrompt(resolveCwdFlag(io.cwd, claudeArgs)));
-    return 0;
+    if (subcommand === "prompt") {
+      assertOnlyOptions(claudeArgs, "claude prompt", ["--cwd"]);
+      io.stdout(formatClaudeVerificationPrompt(resolveCwdFlag(io.cwd, claudeArgs)));
+      return 0;
+    }
+    if (subcommand === "config") {
+      assertOnlyOptions(claudeArgs, "claude config", ["--cwd", "--source-cli"]);
+      io.stdout(formatClaudeConfig(resolveCwdFlag(io.cwd, claudeArgs), resolveOptionalPathFlag(io.cwd, claudeArgs, "--source-cli")));
+      return 0;
+    }
+    throw new Error("claude requires prompt or config");
   }
 
   if (command === "chatgpt") {
@@ -689,6 +696,7 @@ Commands:
   gptprouse release status [--cwd /absolute/path/to/repo]
   gptprouse project prompt [--cwd /absolute/path/to/repo]
   gptprouse claude prompt [--cwd /absolute/path/to/repo]
+  gptprouse claude config [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]
   gptprouse ask-pro --dry-run|--send [--file path] "prompt"
   gptprouse pro ask [--file path] "prompt"  # dry-run preview
   gptprouse pro browser login
@@ -770,6 +778,20 @@ Local follow-up after Claude replies:
 cd ${shellQuote(cwd)}
 gptprouse tasks list --status new
 gptprouse tasks show <task-id>`;
+}
+
+function formatClaudeConfig(cwd: string, sourceCli: string | undefined): string {
+  return JSON.stringify(
+    {
+      mcpServers: {
+        gptprouse: sourceCli
+          ? { command: "node", args: [sourceCli, "mcp", "--cwd", cwd] }
+          : { command: "gptprouse", args: ["mcp", "--cwd", cwd] }
+      }
+    },
+    null,
+    2
+  );
 }
 
 function shellQuote(value: string): string {
@@ -1616,6 +1638,11 @@ function resolveCwdFlag(defaultCwd: string, args: string[]): string {
   const cwd = readFlag(args, "--cwd");
   if (!cwd) return defaultCwd;
   return realpathSync(path.resolve(defaultCwd, cwd));
+}
+
+function resolveOptionalPathFlag(defaultCwd: string, args: string[], flag: string): string | undefined {
+  const value = readFlag(args, flag);
+  return value ? realpathSync(path.resolve(defaultCwd, value)) : undefined;
 }
 
 function assertOnlyOptions(args: string[], command: string, valueFlags: readonly string[], booleanFlags: readonly string[] = []): void {

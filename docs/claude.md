@@ -20,7 +20,13 @@ npm run build
 
 ## Claude Desktop
 
-Add this server to your Claude Desktop MCP config:
+Generate a Claude Desktop MCP config:
+
+```bash
+gptprouse claude config --cwd /absolute/path/to/your/repo
+```
+
+It prints this token-free JSON:
 
 ```json
 {
@@ -33,7 +39,13 @@ Add this server to your Claude Desktop MCP config:
 }
 ```
 
-For a source checkout instead of an installed package, use:
+For a source checkout instead of an installed package, first build the project, then generate a `node dist/cli.js` config:
+
+```bash
+gptprouse claude config --cwd /absolute/path/to/your/repo --source-cli /absolute/path/to/gptprouse/dist/cli.js
+```
+
+It prints this shape:
 
 ```json
 {

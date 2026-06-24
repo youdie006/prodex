@@ -1021,6 +1021,9 @@ describe("runCli", () => {
 
     expect(out.join("\n")).toContain("gptprouse project prompt [--cwd /absolute/path/to/repo]");
     expect(out.join("\n")).toContain("gptprouse claude prompt [--cwd /absolute/path/to/repo]");
+    expect(out.join("\n")).toContain(
+      "gptprouse claude config [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]"
+    );
   });
 
   it("project prompt prints a paste-ready ChatGPT Project MCP verification prompt", async () => {
@@ -1090,7 +1093,48 @@ describe("runCli", () => {
         stdout: () => {},
         stderr: () => {}
       })
-    ).rejects.toThrow("claude requires prompt");
+    ).rejects.toThrow("claude requires prompt or config");
+  });
+
+  it("claude config prints installed-package Claude MCP JSON", async () => {
+    const launcherCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-launcher-"));
+    const targetCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-target-"));
+    const out: string[] = [];
+
+    await runCli(["claude", "config", "--cwd", targetCwd], {
+      cwd: launcherCwd,
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    const parsed = JSON.parse(out.join("\n")) as {
+      mcpServers?: { gptprouse?: { command?: string; args?: string[] } };
+    };
+    expect(parsed.mcpServers?.gptprouse?.command).toBe("gptprouse");
+    expect(parsed.mcpServers?.gptprouse?.args).toEqual(["mcp", "--cwd", targetCwd]);
+    expect(out.join("\n")).not.toContain("gptprouse_token=");
+  });
+
+  it("claude config can print source-checkout Claude MCP JSON", async () => {
+    const launcherCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-launcher-"));
+    const targetCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-target-"));
+    const sourceCli = path.join(launcherCwd, "dist", "cli.js");
+    await mkdir(path.dirname(sourceCli), { recursive: true });
+    await writeFile(sourceCli, "#!/usr/bin/env node\n", "utf8");
+    const out: string[] = [];
+
+    await runCli(["claude", "config", "--cwd", targetCwd, "--source-cli", sourceCli], {
+      cwd: launcherCwd,
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    const parsed = JSON.parse(out.join("\n")) as {
+      mcpServers?: { gptprouse?: { command?: string; args?: string[] } };
+    };
+    expect(parsed.mcpServers?.gptprouse?.command).toBe("node");
+    expect(parsed.mcpServers?.gptprouse?.args).toEqual([sourceCli, "mcp", "--cwd", targetCwd]);
+    expect(out.join("\n")).not.toContain("gptprouse_token=");
   });
 
   it("describes token TTL as an explicit help placeholder", async () => {

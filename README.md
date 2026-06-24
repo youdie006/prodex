@@ -256,7 +256,13 @@ Until the license is chosen, `release:check` fails with a metadata error instead
 
 ## Claude MCP
 
-If `gptprouse` is installed and on your PATH, point Claude at the stdio server:
+If `gptprouse` is installed and on your PATH, generate the Claude MCP config JSON:
+
+```bash
+gptprouse claude config --cwd /absolute/path/to/your/repo
+```
+
+It prints this token-free config:
 
 ```json
 {
@@ -269,7 +275,14 @@ If `gptprouse` is installed and on your PATH, point Claude at the stdio server:
 }
 ```
 
-For a source checkout, first run `npm install && npm run build`, then use `node` with your own absolute path to `dist/cli.js` and the same `mcp --cwd /absolute/path/to/your/repo` args. See [docs/claude.md](docs/claude.md) for Claude Desktop and Claude Code notes.
+For a source checkout, first run `npm install && npm run build`, then generate a `node dist/cli.js` config:
+
+```bash
+gptprouse claude config --cwd /absolute/path/to/your/repo --source-cli /absolute/path/to/gptprouse/dist/cli.js
+```
+
+See [docs/claude.md](docs/claude.md) for Claude Desktop and Claude Code notes.
+Both generated configs point Claude at the same `mcp --cwd /absolute/path/to/your/repo` server args.
 
 After adding the MCP server in Claude, generate a paste-ready verification prompt:
 

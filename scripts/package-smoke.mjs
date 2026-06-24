@@ -58,6 +58,7 @@ try {
   assertIncludes(help.stdout, "gptprouse release status", "installed help output");
   assertIncludes(help.stdout, "gptprouse project prompt", "installed help output");
   assertIncludes(help.stdout, "gptprouse claude prompt", "installed help output");
+  assertIncludes(help.stdout, "gptprouse claude config", "installed help output");
   assertIncludes(help.stdout, `gptprouse v${installedPackageJson.version}`, "installed help output");
   const installedPackageDir = path.join(consumerDir, "node_modules", "gptprouse");
   const releaseStatus = await run(binPath, ["release", "status", "--cwd", installedPackageDir], { cwd: consumerDir });
@@ -75,6 +76,15 @@ try {
   assertIncludes(claudePrompt.stdout, "bridge_create_task", "installed Claude prompt output");
   assertIncludes(claudePrompt.stdout, "gptprouse tasks list --status new", "installed Claude prompt output");
   assertNotIncludes(claudePrompt.stdout, "gptprouse_token=", "installed Claude prompt output");
+  const claudeConfig = await run(binPath, ["claude", "config", "--cwd", consumerDir], { cwd: path.dirname(consumerDir) });
+  const parsedClaudeConfig = JSON.parse(claudeConfig.stdout);
+  if (parsedClaudeConfig?.mcpServers?.gptprouse?.command !== "gptprouse") {
+    throw new Error(`Installed Claude config command mismatch: ${claudeConfig.stdout}`);
+  }
+  if (JSON.stringify(parsedClaudeConfig?.mcpServers?.gptprouse?.args) !== JSON.stringify(["mcp", "--cwd", consumerDir])) {
+    throw new Error(`Installed Claude config args mismatch: ${claudeConfig.stdout}`);
+  }
+  assertNotIncludes(claudeConfig.stdout, "gptprouse_token=", "installed Claude config output");
   const browserLoginGuide = await run(binPath, ["pro", "browser", "login", "--dry-run"], { cwd: consumerDir });
   assertIncludes(browserLoginGuide.stdout, "gptprouse pro browser check", "installed browser login guide");
   assertIncludes(browserLoginGuide.stdout, "gptprouse pro browser smoke", "installed browser login guide");
@@ -151,6 +161,7 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertIncludes(readme, "mcp --cwd", "installed README");
   assertIncludes(readme, "gptprouse project prompt", "installed README");
   assertIncludes(readme, "gptprouse claude prompt", "installed README");
+  assertIncludes(readme, "gptprouse claude config", "installed README");
   assertIncludes(readme, "gptprouse release status", "installed README");
   assertIncludes(readme, "npm run release:verify", "installed README");
   assertIncludes(readme, "configured `doctor`", "installed README");
@@ -166,6 +177,7 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertIncludes(claudeDoc, "ripgrep", "installed Claude docs");
   assertIncludes(claudeDoc, "mcp --cwd", "installed Claude docs");
   assertIncludes(claudeDoc, "gptprouse claude prompt", "installed Claude docs");
+  assertIncludes(claudeDoc, "gptprouse claude config", "installed Claude docs");
 }
 
 async function assertInstalledPackageImportBoundary(consumerDir, packedFiles) {
