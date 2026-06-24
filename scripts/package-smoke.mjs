@@ -179,9 +179,16 @@ async function assertInstalledDocsArePortable(consumerDir) {
   const readme = await readFile(path.join(packageDir, "README.md"), "utf8");
   const httpMcpDoc = await readFile(path.join(packageDir, "docs", "http-mcp.md"), "utf8");
   const claudeDoc = await readFile(path.join(packageDir, "docs", "claude.md"), "utf8");
-  assertNotIncludes(readme, "/absolute/path/to/project", "installed README");
-  assertNotIncludes(httpMcpDoc, "/absolute/path/to/project", "installed HTTP MCP docs");
-  assertNotIncludes(claudeDoc, "/absolute/path/to/project", "installed Claude docs");
+  const installedDocs = [
+    ["installed README", readme],
+    ["installed HTTP MCP docs", httpMcpDoc],
+    ["installed Claude docs", claudeDoc]
+  ];
+  for (const leakedPath of portablePathLeakCandidates()) {
+    for (const [label, text] of installedDocs) {
+      assertNotIncludes(text, leakedPath, label);
+    }
+  }
   assertIncludes(readme, "For an installed package", "installed README");
   assertIncludes(readme, "gptprouse onboard", "installed README");
   assertIncludes(readme, "gptprouse pro browser login --dry-run", "installed README");
@@ -771,6 +778,20 @@ function assertNotIncludes(text, unexpected, label) {
   if (text.includes(unexpected)) {
     throw new Error(`${label} unexpectedly included ${unexpected}. Output was:\n${text.slice(0, 1000)}`);
   }
+}
+
+function portablePathLeakCandidates() {
+  const candidates = [repoRoot, path.dirname(repoRoot), process.env.HOME, process.env.USERPROFILE];
+  const useful = candidates.map(normalizeUsefulAbsolutePath).filter((candidate) => candidate !== undefined);
+  return [...new Set(useful.flatMap((candidate) => [candidate, candidate.split(path.sep).join(path.posix.sep)]))];
+}
+
+function normalizeUsefulAbsolutePath(candidate) {
+  if (typeof candidate !== "string") return undefined;
+  const normalized = path.resolve(candidate);
+  const parsed = path.parse(normalized);
+  if (!path.isAbsolute(normalized) || normalized === parsed.root || normalized.length < 8) return undefined;
+  return normalized;
 }
 
 function assertAppearsBefore(text, earlier, later, label) {
