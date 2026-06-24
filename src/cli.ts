@@ -424,8 +424,11 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
   if (command === "pro") {
     const [subcommand, ...proArgs] = rest;
     if (subcommand === "ask") {
-      const hasMode = hasAskProMode(proArgs);
-      return runCli(["ask-pro", ...(hasMode ? [] : ["--dry-run"]), ...proArgs], io);
+      if (hasAskProSendMode(proArgs)) {
+        throw new Error("gptprouse pro ask is a dry-run preview. Use `gptprouse pro browser ask` for visible-browser sends.");
+      }
+      const hasDryRun = hasAskProDryRunMode(proArgs);
+      return runCli(["ask-pro", ...(hasDryRun ? [] : ["--dry-run"]), ...proArgs], io);
     }
     if (subcommand === "browser") {
       const [browserSubcommand, ...browserArgs] = proArgs;
@@ -1529,9 +1532,14 @@ function browserReadinessNextStep(input: { loggedInLikely: boolean; hasComposer:
 }
 
 async function printProductCheck(store: BridgeStore, io: CliIO, args: string[]): Promise<void> {
-  await store.ensure();
   io.stdout("gptprouse product check");
-  io.stdout("bridge: ok (.bridge)");
+  let bridgeReady = false;
+  try {
+    bridgeReady = await store.hasReadyBridgeStorageReadOnly();
+    io.stdout(bridgeReady ? "bridge: ok (.bridge)" : "bridge: missing (.bridge) - run `gptprouse init` when you need local task/result storage");
+  } catch (error) {
+    io.stdout(`bridge: blocked - ${errorMessage(error)}`);
+  }
 
   try {
     const config = await loadLocalConfig(io.cwd);
@@ -1568,7 +1576,7 @@ async function printProductCheck(store: BridgeStore, io: CliIO, args: string[]):
   const modelHints = formatBrowserModelHints(browserStatus.modelHints);
   if (modelHints) io.stdout(`model_hints: ${modelHints}`);
 
-  const latest = (await listConsults(store))[0];
+  const latest = bridgeReady ? (await listConsults(store, { readOnly: true }))[0] : undefined;
   if (latest) {
     const latestLabel = latest.result.status === "blocked" ? "blocked" : "ok";
     io.stdout(`latest_pro: ${latestLabel} ${latest.task.id} ${latest.result.status} ${latest.result.created_at}`);
@@ -1582,8 +1590,10 @@ type ConsultRecord = {
   result: Awaited<ReturnType<BridgeStore["listResults"]>>[number];
 };
 
-async function listConsults(store: BridgeStore): Promise<ConsultRecord[]> {
-  const [tasks, results] = await Promise.all([store.listTasks(), store.listResults()]);
+async function listConsults(store: BridgeStore, options: { readOnly?: boolean } = {}): Promise<ConsultRecord[]> {
+  const [tasks, results] = options.readOnly
+    ? await Promise.all([store.listTasksReadOnly(), store.listResultsReadOnly()])
+    : await Promise.all([store.listTasks(), store.listResults()]);
   const tasksById = new Map(tasks.map((task) => [task.id, task]));
   return results
     .map((result) => {
@@ -1856,10 +1866,22 @@ function parseAskProArgs(args: string[]): { optionArgs: string[]; promptParts: s
   return { optionArgs, promptParts: [...positionalPromptParts, ...promptTail] };
 }
 
-function hasAskProMode(args: string[]): boolean {
+function askProOptionArgs(args: string[]): string[] {
   const delimiterIndex = args.indexOf("--");
-  const optionArgs = delimiterIndex === -1 ? args : args.slice(0, delimiterIndex);
+  return delimiterIndex === -1 ? args : args.slice(0, delimiterIndex);
+}
+
+function hasAskProMode(args: string[]): boolean {
+  const optionArgs = askProOptionArgs(args);
   return optionArgs.includes("--send") || optionArgs.includes("--dry-run");
+}
+
+function hasAskProSendMode(args: string[]): boolean {
+  return askProOptionArgs(args).includes("--send");
+}
+
+function hasAskProDryRunMode(args: string[]): boolean {
+  return askProOptionArgs(args).includes("--dry-run");
 }
 
 function readFlagValue(args: string[], index: number, flag: string): string {

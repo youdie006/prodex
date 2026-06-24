@@ -39,7 +39,7 @@ export async function readVerifiedUtf8File(
     if (options.maxBytes !== undefined && stat.size > options.maxBytes) {
       throw new Error(`Path ${filePath} is too large (${stat.size} bytes)`);
     }
-    const content = await handle.readFile("utf8");
+    const content = await readHandleUtf8(handle, filePath, options.maxBytes);
     if (options.mode !== undefined) {
       await handle.chmod(options.mode);
     }
@@ -137,12 +137,15 @@ async function readHandleUtf8(handle: FileHandle, filePath: string, maxBytes?: n
   if (maxBytes !== undefined && stat.size > maxBytes) {
     throw new Error(`Path ${filePath} is too large (${stat.size} bytes)`);
   }
-  const buffer = Buffer.alloc(stat.size);
+  const buffer = Buffer.alloc(maxBytes === undefined ? stat.size : maxBytes + 1);
   let offset = 0;
   while (offset < buffer.length) {
     const { bytesRead } = await handle.read(buffer, offset, buffer.length - offset, offset);
     if (bytesRead === 0) break;
     offset += bytesRead;
+    if (maxBytes !== undefined && offset > maxBytes) {
+      throw new Error(`Path ${filePath} is too large (${offset} bytes)`);
+    }
   }
   return buffer.subarray(0, offset).toString("utf8");
 }

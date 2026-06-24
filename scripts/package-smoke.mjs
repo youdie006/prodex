@@ -138,6 +138,13 @@ try {
   assertIncludes(browserLoginGuide.stdout, "gptprouse pro browser check", "installed browser login guide");
   assertIncludes(browserLoginGuide.stdout, "gptprouse pro browser smoke", "installed browser login guide");
   assertNotIncludes(browserLoginGuide.stdout, "node dist/cli.js", "installed browser login guide");
+  await assertMissingFile(path.join(consumerDir, ".bridge"), "installed consumer bridge before pro ask alias guard");
+  const proAskSendAlias = await runExpectFailure(binPath, ["pro", "ask", "--send", "--timeout-ms", "1", "Review this"], {
+    cwd: consumerDir
+  });
+  assertIncludes(proAskSendAlias.stderr, "pro ask is a dry-run preview", "installed pro ask send alias guard");
+  assertIncludes(proAskSendAlias.stderr, "pro browser ask", "installed pro ask send alias guard");
+  await assertMissingFile(path.join(consumerDir, ".bridge"), "installed consumer bridge after pro ask alias guard");
 
   const launcherDir = path.dirname(consumerDir);
   const init = await run(binPath, ["init", "--cwd", consumerDir], { cwd: launcherDir });

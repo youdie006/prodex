@@ -1,7 +1,7 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { execFile } from "node:child_process";
-import { chmod, mkdir, mkdtemp, readFile, readdir, symlink, writeFile } from "node:fs/promises";
+import { chmod, link, mkdir, mkdtemp, readFile, readdir, symlink, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { createRequire } from "node:module";
@@ -898,7 +898,7 @@ describe("runCli", () => {
     expect(latest.commands).toEqual(["visible consult"]);
   });
 
-  it("keeps pro ask as a dry-run preview unless browser send is explicit", async () => {
+  it("keeps pro ask as a dry-run preview", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
     await writeFile(path.join(cwd, "notes.md"), "manual bridge first\n", "utf8");
     const out: string[] = [];
@@ -913,6 +913,20 @@ describe("runCli", () => {
     expect(text).toContain("DRY RUN");
     expect(text).toContain("## File: notes.md");
     expect(text).toContain("manual bridge first");
+  });
+
+  it("rejects browser send mode on the pro ask preview alias without bridge side effects", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+
+    await expect(
+      runCli(["pro", "ask", "--send", "--timeout-ms", "1", "Review this"], {
+        cwd,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.toThrow(/pro browser ask/);
+
+    expect(await readdir(cwd)).not.toContain(".bridge");
   });
 
   it("labels pro ask as a dry-run preview in help", async () => {
@@ -1884,6 +1898,7 @@ describe("runCli", () => {
     });
 
     expect(out.join("\n")).toContain("pro browser login");
+    expect(await readdir(cwd)).not.toContain(".bridge");
   });
 
   it("does not keep old pro browser aliases at the top level", async () => {
@@ -1921,10 +1936,47 @@ describe("runCli", () => {
     });
 
     const text = out.join("\n");
-    expect(text).toContain("bridge: ok");
+    expect(text).toContain("bridge: missing");
     expect(text).toContain("config: missing");
     expect(text).toContain("chatgpt: browser_unreachable");
     expect(text).toContain("latest_pro: missing");
+  });
+
+  it("recovers stale bridge temp hard links during browser checks without bootstrapping fresh storage", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const store = new BridgeStore(cwd);
+    const task = await store.createTask({
+      source: "codex",
+      title: "GPT Pro consult",
+      prompt: "Recover stale consult records.",
+      repo_id: "default",
+      files: [],
+      provenance: { adapter: "chatgpt-control", warnings: [] }
+    });
+    await store.completeTask(task.id, {
+      status: "blocked",
+      summary: "Visible browser login is required.",
+      commands: ["visible ChatGPT browser consult"],
+      blocker: {
+        code: "browser_send_failed",
+        message: "Visible browser login is required.",
+        retryable: true,
+        next_step: "Log in manually, then retry."
+      }
+    });
+    const taskRecord = path.join(cwd, ".bridge", "tasks", `${task.id}.json`);
+    const staleTaskTemp = path.join(cwd, ".bridge", "tasks", `.${task.id}.json.${process.pid}.stale.tmp`);
+    await link(taskRecord, staleTaskTemp);
+    const out: string[] = [];
+
+    await runCli(["pro", "browser", "check", "--port", "65534", "--timeout-ms", "10"], {
+      cwd,
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    expect(out.join("\n")).toContain(`latest_pro: blocked ${task.id}`);
+    expect(await readdir(path.join(cwd, ".bridge", "tasks"))).not.toContain(path.basename(staleTaskTemp));
   });
 
   it("redacts the local MCP token in product checks", async () => {

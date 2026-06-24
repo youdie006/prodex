@@ -144,6 +144,14 @@ export class BridgeStore {
       .sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id));
   }
 
+  async listTasksReadOnly(status?: Task["status"]): Promise<Task[]> {
+    await this.assertStorageDirsAreRealDirectories();
+    const tasks = await this.readAll("tasks", TaskSchema);
+    return tasks
+      .filter((task) => (status ? task.status === status : true))
+      .sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id));
+  }
+
   async getTask(taskId: string): Promise<Task> {
     return TaskSchema.parse(await this.readRecordJson("tasks", taskId));
   }
@@ -211,6 +219,13 @@ export class BridgeStore {
 
   async listResults(): Promise<Result[]> {
     await this.ensure();
+    return (await this.readAll("results", ResultSchema)).sort(
+      (a, b) => a.created_at.localeCompare(b.created_at) || a.task_id.localeCompare(b.task_id)
+    );
+  }
+
+  async listResultsReadOnly(): Promise<Result[]> {
+    await this.assertStorageDirsAreRealDirectories();
     return (await this.readAll("results", ResultSchema)).sort(
       (a, b) => a.created_at.localeCompare(b.created_at) || a.task_id.localeCompare(b.task_id)
     );
@@ -338,6 +353,16 @@ export class BridgeStore {
     return receipt;
   }
 
+  async hasReadyBridgeStorageReadOnly(): Promise<boolean> {
+    try {
+      await this.assertStorageDirsAreRealDirectories();
+      return true;
+    } catch (error) {
+      if (isErrorCode(error, "ENOENT")) return false;
+      throw error;
+    }
+  }
+
   private async uniqueId(prefix: "task" | "sess" | "receipt", title: string, kind: "tasks" | "sessions" | "receipts"): Promise<string> {
     let id = makeBridgeId(prefix, title);
     let counter = 2;
@@ -353,7 +378,11 @@ export class BridgeStore {
     return path.join(this.dir(kind), `${id}.json`);
   }
 
-  private async readAll<T>(kind: "tasks" | "results" | "sessions" | "receipts", schema: { parse(value: unknown): T }): Promise<T[]> {
+  private async readAll<T>(
+    kind: "tasks" | "results" | "sessions" | "receipts",
+    schema: { parse(value: unknown): T },
+    options: { cleanupTempHardLinks?: boolean } = {}
+  ): Promise<T[]> {
     const dir = this.dir(kind);
     const entries = await readdir(dir, { withFileTypes: true });
     const items: T[] = [];
@@ -361,15 +390,21 @@ export class BridgeStore {
       if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
       const id = entry.name.replace(/\.json$/, "");
       if (!isBridgeRecordId(kind, id)) continue;
-      items.push(schema.parse(await this.readRecordJson(kind, id)));
+      items.push(schema.parse(await this.readRecordJson(kind, id, options)));
     }
     return items;
   }
 
-  private async readRecordJson(kind: BridgeRecordKind, id: string): Promise<unknown> {
+  private async readRecordJson(
+    kind: BridgeRecordKind,
+    id: string,
+    options: { cleanupTempHardLinks?: boolean } = {}
+  ): Promise<unknown> {
     const filePath = this.pathFor(kind, id);
     await this.assertStorageDirIsRealDirectory(kind);
-    await this.cleanupRecordTempHardLinks(kind, filePath);
+    if (options.cleanupTempHardLinks ?? true) {
+      await this.cleanupRecordTempHardLinks(kind, filePath);
+    }
     return JSON.parse(await readVerifiedUtf8File(filePath, () => this.assertRecordTargetInside(kind, filePath)));
   }
 
