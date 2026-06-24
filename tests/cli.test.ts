@@ -594,6 +594,7 @@ describe("runCli", () => {
       summary: "Legacy dry-run write",
       metadata: {
         path: "notes.md",
+        diff: "--- a/notes.md\n+++ b/notes.md\n-legacy secret before\n+safe after",
         new_content: "sensitive replacement payload",
         new_sha256: "abc123"
       }
@@ -623,10 +624,13 @@ describe("runCli", () => {
     const shown = JSON.parse(showOut.join("\n")) as { id?: string; metadata?: Record<string, unknown> };
     expect(shown.id).toBe(receipt.id);
     expect(showOut.join("\n")).not.toContain("sensitive replacement payload");
+    expect(showOut.join("\n")).not.toContain("legacy secret before");
     expect(shown.metadata?.new_content).toBeUndefined();
     expect(shown.metadata?.new_content_redacted).toEqual(
       expect.objectContaining({ reason: "legacy inline replacement content" })
     );
+    expect(shown.metadata?.diff).toBeUndefined();
+    expect(shown.metadata?.diff_redacted).toEqual(expect.objectContaining({ reason: "write preview diff" }));
   });
 
   it("rejects invalid receipt kind filters", async () => {
@@ -1170,6 +1174,9 @@ describe("runCli", () => {
     expect(text).toContain(`gptprouse start --cwd ${targetCwd}`);
     expect(text).toContain(`gptprouse status --cwd ${targetCwd} --show-token --url-only`);
     expect(text).toContain(`gptprouse project prompt --cwd ${targetCwd}`);
+    expect(text.indexOf("HTTP MCP uses a short-lived token")).toBeLessThan(
+      text.indexOf(`gptprouse status --cwd ${targetCwd} --show-token --url-only`)
+    );
     expect(text).toContain('gptprouse pro ask --file README.md "Review this repo"  # dry-run/manual preview');
     expect(text).toContain("gptprouse pro browser login --dry-run  # preview, no browser opens");
     expect(text).toContain("gptprouse pro browser login  # opens visible browser");
@@ -1660,10 +1667,10 @@ describe("runCli", () => {
     const fakeChrome = path.join(cwd, "fake-chrome");
     const out: string[] = [];
     const previousChrome = process.env.GPTPROUSE_CHROME;
-    let devtoolsReady = false;
+    let devtoolsRequests = 0;
     const server = createServer((request, response) => {
       response.setHeader("content-type", "application/json");
-      if (!devtoolsReady) {
+      if (request.url === "/json/list" && ++devtoolsRequests < 3) {
         response.statusCode = 503;
         response.end("{}");
         return;
@@ -1686,9 +1693,6 @@ describe("runCli", () => {
     await chmod(fakeChrome, 0o755);
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     const port = (server.address() as AddressInfo).port;
-    const readyTimer = setTimeout(() => {
-      devtoolsReady = true;
-    }, 2_300);
     process.env.GPTPROUSE_CHROME = fakeChrome;
     try {
       await expect(
@@ -1699,7 +1703,6 @@ describe("runCli", () => {
         })
       ).resolves.toBe(0);
     } finally {
-      clearTimeout(readyTimer);
       await new Promise<void>((resolve) => server.close(() => resolve()));
       if (previousChrome === undefined) delete process.env.GPTPROUSE_CHROME;
       else process.env.GPTPROUSE_CHROME = previousChrome;

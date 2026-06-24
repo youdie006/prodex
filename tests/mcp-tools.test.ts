@@ -245,6 +245,7 @@ describe("MCP tool handlers", () => {
       summary: "Legacy dry-run write",
       metadata: {
         path: "notes.md",
+        diff: "--- a/notes.md\n+++ b/notes.md\n-legacy secret before\n+safe after",
         new_content: "sensitive replacement payload",
         new_sha256: "abc123"
       }
@@ -256,10 +257,13 @@ describe("MCP tool handlers", () => {
 
     expect(listed.receipts.map((item) => item.id)).toEqual([receipt.id]);
     expect(JSON.stringify(fetched)).not.toContain("sensitive replacement payload");
+    expect(JSON.stringify(fetched)).not.toContain("legacy secret before");
     expect(fetched.receipt.metadata.new_content).toBeUndefined();
     expect(fetched.receipt.metadata.new_content_redacted).toEqual(
       expect.objectContaining({ reason: "legacy inline replacement content" })
     );
+    expect(fetched.receipt.metadata.diff).toBeUndefined();
+    expect(fetched.receipt.metadata.diff_redacted).toEqual(expect.objectContaining({ reason: "write preview diff" }));
   });
 
   it("fetches only result-listed artifacts through bridge handlers", async () => {

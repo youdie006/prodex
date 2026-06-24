@@ -773,6 +773,7 @@ repo: ${cwd}
    gptprouse claude prompt --cwd ${quotedCwd}
 
 3. ChatGPT Project HTTP MCP:
+   Note: HTTP MCP uses a short-lived token. Paste token-bearing URLs only into your own trusted private MCP client.
    gptprouse setup --cwd ${quotedCwd} --token-ttl-hours 24
    gptprouse start --cwd ${quotedCwd}
    gptprouse status --cwd ${quotedCwd} --show-token --url-only
@@ -788,7 +789,6 @@ repo: ${cwd}
 
 Safety notes:
 - This command only prints commands; it does not start servers, open browsers, or write files.
-- HTTP MCP uses a short-lived token. Paste token-bearing URLs only into your own trusted private MCP client.
 - Visible-browser sends require a manual, visible browser session and stop on login, captcha, Cloudflare, permission, rate-limit, or usage-limit blockers.`;
 }
 

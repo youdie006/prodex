@@ -91,6 +91,12 @@ try {
   assertIncludes(onboard.stdout, `gptprouse claude config --cwd ${consumerDir}`, "installed onboard output");
   assertIncludes(onboard.stdout, `gptprouse setup --cwd ${consumerDir} --token-ttl-hours 24`, "installed onboard output");
   assertIncludes(onboard.stdout, `gptprouse project prompt --cwd ${consumerDir}`, "installed onboard output");
+  assertAppearsBefore(
+    onboard.stdout,
+    "HTTP MCP uses a short-lived token",
+    `gptprouse status --cwd ${consumerDir} --show-token --url-only`,
+    "installed onboard output"
+  );
   assertIncludes(onboard.stdout, 'gptprouse pro ask --file README.md "Review this repo"  # dry-run/manual preview', "installed onboard output");
   assertIncludes(onboard.stdout, "gptprouse pro browser login --dry-run  # preview, no browser opens", "installed onboard output");
   assertIncludes(onboard.stdout, "gptprouse pro browser login  # opens visible browser", "installed onboard output");

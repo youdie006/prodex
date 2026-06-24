@@ -834,5 +834,13 @@ function redactReceiptForDisplay(receipt: Receipt): Receipt {
       ...(typeof inlineContent === "string" ? { bytes: Buffer.byteLength(inlineContent, "utf8") } : {})
     };
   }
+  if (Object.hasOwn(metadata, "diff")) {
+    const diff = metadata.diff;
+    delete metadata.diff;
+    metadata.diff_redacted = {
+      reason: "write preview diff",
+      ...(typeof diff === "string" ? { bytes: Buffer.byteLength(diff, "utf8") } : {})
+    };
+  }
   return ReceiptSchema.parse({ ...receipt, metadata });
 }
