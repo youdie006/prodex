@@ -742,36 +742,90 @@ async function formatReleaseStatus(cwd: string): Promise<string> {
   const version = typeof packageJson.version === "string" && packageJson.version.trim() ? packageJson.version : "<unversioned>";
   const lines = ["gptprouse release status", `package: ${name}@${version}`];
   const license = typeof packageJson.license === "string" ? packageJson.license.trim() : "";
+  let metadataNext = "run `npm run release:check` before publishing";
 
   if (!license) {
     lines.push("metadata: blocked package.json must include an explicit license before publishing");
-    lines.push("next: choose a license, add LICENSE, then run `npm run release:check`");
-    lines.push("verification: run `npm run release:verify` anytime without weakening the publish guard");
-    return lines.join("\n");
-  }
-
-  if (license === "UNLICENSED") {
+    metadataNext = "choose a license, add LICENSE, then run `npm run release:check`";
+  } else if (license === "UNLICENSED") {
     if (packageJson.private === true) {
       lines.push('metadata: ok private package license=UNLICENSED');
-      lines.push("next: keep this package private, or choose a public license before publishing");
+      metadataNext = "keep this package private, or choose a public license before publishing";
     } else {
       lines.push('metadata: blocked license "UNLICENSED" requires "private": true to prevent public publishing');
-      lines.push("next: set `private: true`, or choose a public license and add LICENSE");
+      metadataNext = "set `private: true`, or choose a public license and add LICENSE";
     }
-    lines.push("verification: run `npm run release:verify` anytime without weakening the publish guard");
-    return lines.join("\n");
-  }
-
-  const hasLicenseFile = await fileExists(path.join(cwd, "LICENSE"));
-  if (!hasLicenseFile) {
-    lines.push(`metadata: blocked license=${license} license_file=missing`);
-    lines.push("next: add LICENSE, then run `npm run release:check`");
   } else {
-    lines.push(`metadata: ok license=${license} license_file=present`);
-    lines.push("next: run `npm run release:check` before publishing");
+    const hasLicenseFile = await fileExists(path.join(cwd, "LICENSE"));
+    if (!hasLicenseFile) {
+      lines.push(`metadata: blocked license=${license} license_file=missing`);
+      metadataNext = "add LICENSE, then run `npm run release:check`";
+    } else {
+      lines.push(`metadata: ok license=${license} license_file=present`);
+    }
   }
+  const gitStatus = await readReleaseGitStatus(cwd);
+  lines.push(gitStatus.line);
+  if (gitStatus.next) lines.push(`git_next: ${gitStatus.next}`);
+  lines.push(`next: ${metadataNext}`);
   lines.push("verification: run `npm run release:verify` anytime without weakening the publish guard");
   return lines.join("\n");
+}
+
+type ReleaseGitStatus = {
+  line: string;
+  next?: string;
+};
+
+async function readReleaseGitStatus(cwd: string): Promise<ReleaseGitStatus> {
+  try {
+    const insideWorkTree = (await gitStdout(cwd, ["rev-parse", "--is-inside-work-tree"])).trim();
+    if (insideWorkTree !== "true") {
+      return {
+        line: "git: blocked not a git worktree",
+        next: "initialize a git repo and commit the release state before public release"
+      };
+    }
+  } catch {
+    return {
+      line: "git: blocked not a git worktree",
+      next: "initialize a git repo and commit the release state before public release"
+    };
+  }
+
+  const [branch, commit, statusOutput, remoteOutput] = await Promise.all([
+    gitStdout(cwd, ["rev-parse", "--abbrev-ref", "HEAD"]).then((value) => value.trim() || "unknown", () => "unknown"),
+    gitStdout(cwd, ["rev-parse", "--short", "HEAD"]).then((value) => value.trim() || "unknown", () => "unknown"),
+    gitStdout(cwd, ["status", "--porcelain"]).then((value) => value.trim(), () => ""),
+    gitStdout(cwd, ["remote"]).then((value) => value.trim(), () => "")
+  ]);
+  const dirtyCount = statusOutput ? statusOutput.split(/\r?\n/).filter(Boolean).length : 0;
+  const remotes = remoteOutput ? remoteOutput.split(/\r?\n/).map((remote) => remote.trim()).filter(Boolean) : [];
+  const remoteText = remotes.length > 0 ? remotes.join(",") : "none";
+  const gitContext = `branch=${branch} commit=${commit}`;
+
+  if (dirtyCount > 0) {
+    return {
+      line: `git: blocked worktree has uncommitted changes files=${dirtyCount} ${gitContext} remote=${remoteText}`,
+      next: "commit or stash local changes before release"
+    };
+  }
+
+  if (remotes.length === 0) {
+    return {
+      line: `git: blocked no remote configured ${gitContext}`,
+      next: "add a git remote before public release"
+    };
+  }
+
+  return {
+    line: `git: ok ${gitContext} remote=${remoteText}`
+  };
+}
+
+async function gitStdout(cwd: string, args: string[]): Promise<string> {
+  const { stdout } = await execFileAsync("git", args, { cwd });
+  return stdout;
 }
 
 async function fileExists(filePath: string): Promise<boolean> {

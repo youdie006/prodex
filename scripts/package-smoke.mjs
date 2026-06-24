@@ -63,6 +63,7 @@ try {
   assertIncludes(releaseStatus.stdout, "gptprouse release status", "installed release status output");
   assertIncludes(releaseStatus.stdout, "metadata: blocked", "installed release status output");
   assertIncludes(releaseStatus.stdout, "explicit license", "installed release status output");
+  assertIncludes(releaseStatus.stdout, "git:", "installed release status output");
   const projectPrompt = await run(binPath, ["project", "prompt", "--cwd", consumerDir], { cwd: path.dirname(consumerDir) });
   assertIncludes(projectPrompt.stdout, "ChatGPT Project MCP verification prompt", "installed project prompt output");
   assertIncludes(projectPrompt.stdout, "bridge_create_task", "installed project prompt output");

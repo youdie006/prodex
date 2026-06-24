@@ -1,15 +1,18 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { execFile } from "node:child_process";
 import { chmod, mkdir, mkdtemp, readFile, readdir, symlink, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
 import { runCli } from "../src/cli.js";
 import { setSafeFileTestHooks } from "../src/safe-file.js";
 import { BridgeStore } from "../src/store.js";
 
 const requireFromTest = createRequire(import.meta.url);
+const execFileAsync = promisify(execFile);
 
 describe("runCli", () => {
   afterEach(() => {
@@ -1102,6 +1105,7 @@ describe("runCli", () => {
     expect(text).toContain("package: demo@1.0.0");
     expect(text).toContain("metadata: blocked");
     expect(text).toContain("package.json must include an explicit license");
+    expect(text).toContain("git: blocked not a git worktree");
     expect(text).toContain("next: choose a license, add LICENSE, then run `npm run release:check`");
     expect(text).not.toContain("metadata: ok");
   });
@@ -1126,6 +1130,96 @@ describe("runCli", () => {
     expect(text).toContain("package: demo@1.0.0");
     expect(text).toContain("metadata: ok license=MIT license_file=present");
     expect(text).toContain("next: run `npm run release:check` before publishing");
+  });
+
+  it("release status reports a clean git worktree without a remote as blocked", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-release-"));
+    await writeFile(
+      path.join(cwd, "package.json"),
+      `${JSON.stringify({ name: "demo", version: "1.0.0", license: "MIT" }, null, 2)}\n`,
+      "utf8"
+    );
+    await writeFile(path.join(cwd, "LICENSE"), "MIT License\n", "utf8");
+    await execFileAsync("git", ["init"], { cwd });
+    await execFileAsync("git", ["config", "user.email", "release@example.com"], { cwd });
+    await execFileAsync("git", ["config", "user.name", "Release Test"], { cwd });
+    await execFileAsync("git", ["add", "package.json", "LICENSE"], { cwd });
+    await execFileAsync("git", ["commit", "-m", "initial"], { cwd });
+    const branch = (await execFileAsync("git", ["rev-parse", "--abbrev-ref", "HEAD"], { cwd })).stdout.trim();
+    const commit = (await execFileAsync("git", ["rev-parse", "--short", "HEAD"], { cwd })).stdout.trim();
+    const out: string[] = [];
+
+    await runCli(["release", "status", "--cwd", cwd], {
+      cwd: "/tmp",
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    const text = out.join("\n");
+    expect(text).toContain("metadata: ok license=MIT license_file=present");
+    expect(text).toContain(`git: blocked no remote configured branch=${branch} commit=${commit}`);
+    expect(text).toContain("git_next: add a git remote before public release");
+  });
+
+  it("release status reports dirty git worktrees before release", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-release-"));
+    await writeFile(
+      path.join(cwd, "package.json"),
+      `${JSON.stringify({ name: "demo", version: "1.0.0", license: "MIT" }, null, 2)}\n`,
+      "utf8"
+    );
+    await writeFile(path.join(cwd, "LICENSE"), "MIT License\n", "utf8");
+    await execFileAsync("git", ["init"], { cwd });
+    await execFileAsync("git", ["config", "user.email", "release@example.com"], { cwd });
+    await execFileAsync("git", ["config", "user.name", "Release Test"], { cwd });
+    await execFileAsync("git", ["add", "package.json", "LICENSE"], { cwd });
+    await execFileAsync("git", ["commit", "-m", "initial"], { cwd });
+    await execFileAsync("git", ["remote", "add", "origin", "https://example.com/demo.git"], { cwd });
+    const branch = (await execFileAsync("git", ["rev-parse", "--abbrev-ref", "HEAD"], { cwd })).stdout.trim();
+    const commit = (await execFileAsync("git", ["rev-parse", "--short", "HEAD"], { cwd })).stdout.trim();
+    await writeFile(path.join(cwd, "README.md"), "dirty\n", "utf8");
+    const out: string[] = [];
+
+    await runCli(["release", "status", "--cwd", cwd], {
+      cwd: "/tmp",
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    const text = out.join("\n");
+    expect(text).toContain("git: blocked worktree has uncommitted changes");
+    expect(text).toContain("files=1");
+    expect(text).toContain(`branch=${branch}`);
+    expect(text).toContain(`commit=${commit}`);
+    expect(text).toContain("remote=origin");
+    expect(text).toContain("git_next: commit or stash local changes before release");
+  });
+
+  it("release status reports git readiness when worktree and remote are ready", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-release-"));
+    await writeFile(
+      path.join(cwd, "package.json"),
+      `${JSON.stringify({ name: "demo", version: "1.0.0", license: "MIT" }, null, 2)}\n`,
+      "utf8"
+    );
+    await writeFile(path.join(cwd, "LICENSE"), "MIT License\n", "utf8");
+    await execFileAsync("git", ["init"], { cwd });
+    await execFileAsync("git", ["config", "user.email", "release@example.com"], { cwd });
+    await execFileAsync("git", ["config", "user.name", "Release Test"], { cwd });
+    await execFileAsync("git", ["add", "package.json", "LICENSE"], { cwd });
+    await execFileAsync("git", ["commit", "-m", "initial"], { cwd });
+    await execFileAsync("git", ["remote", "add", "origin", "https://example.com/demo.git"], { cwd });
+    const branch = (await execFileAsync("git", ["rev-parse", "--abbrev-ref", "HEAD"], { cwd })).stdout.trim();
+    const commit = (await execFileAsync("git", ["rev-parse", "--short", "HEAD"], { cwd })).stdout.trim();
+    const out: string[] = [];
+
+    await runCli(["release", "status", "--cwd", cwd], {
+      cwd: "/tmp",
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    expect(out.join("\n")).toContain(`git: ok branch=${branch} commit=${commit} remote=origin`);
   });
 
   it("release status rejects unknown release helper subcommands", async () => {

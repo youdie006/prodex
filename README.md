@@ -244,6 +244,8 @@ To see the current publish blocker and next step from the CLI:
 gptprouse release status
 ```
 
+It reports package metadata blockers plus local git readiness, including a dirty worktree or missing git remote.
+
 Before publishing to npm, choose an explicit license and add the matching `LICENSE` file. `npm publish` is intentionally guarded by `prepublishOnly`; it runs:
 
 ```bash
