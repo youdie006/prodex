@@ -26,6 +26,51 @@ describe("pro browser ask persistence", () => {
     setSafeFileTestHooks({});
   });
 
+  it("rejects conflicting dry-run and send modes before touching the browser", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-pro-send-"));
+
+    await expect(
+      runCli(["pro", "browser", "ask", "--dry-run", "--send", "Review this"], {
+        cwd,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.toThrow(/dry-run.*send|send.*dry-run/i);
+
+    expect(sendChatGptPromptMock).not.toHaveBeenCalled();
+    await expect(readdir(path.join(cwd, ".bridge"))).rejects.toThrow();
+  });
+
+  it("runs the advertised pro browser smoke command through the visible-browser adapter", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-pro-send-"));
+    sendChatGptPromptMock.mockResolvedValueOnce({
+      url: "https://chatgpt.com/c/smoke",
+      title: "ChatGPT",
+      answer: "GPTPROUSE_PRO_SMOKE_OK",
+      modelHints: ["GPT-5 Pro"],
+      warnings: []
+    });
+    const out: string[] = [];
+
+    await runCli(["pro", "browser", "smoke", "--port", "65530", "--timeout-ms", "123"], {
+      cwd,
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    expect(sendChatGptPromptMock).toHaveBeenCalledWith({
+      port: 65530,
+      prompt: "This is a one-time gptprouse smoke test. Reply exactly: GPTPROUSE_PRO_SMOKE_OK",
+      timeoutMs: 123
+    });
+    expect(JSON.parse(out.join("\n"))).toEqual(
+      expect.objectContaining({
+        url: "https://chatgpt.com/c/smoke",
+        answer: "GPTPROUSE_PRO_SMOKE_OK"
+      })
+    );
+  });
+
   it("records a blocked consult when the visible browser send fails", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-pro-send-"));
     sendChatGptPromptMock.mockRejectedValueOnce(new Error("ChatGPT is asking you to log in."));

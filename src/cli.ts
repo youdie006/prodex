@@ -528,19 +528,24 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
 
   if (command === "ask-pro") {
     const parsedAskPro = parseAskProArgs(rest);
-    if (!parsedAskPro.optionArgs.includes("--dry-run") && !parsedAskPro.optionArgs.includes("--send")) {
+    const hasDryRunMode = parsedAskPro.optionArgs.includes("--dry-run");
+    const hasSendMode = parsedAskPro.optionArgs.includes("--send");
+    if (!hasDryRunMode && !hasSendMode) {
       throw new Error("ask-pro requires --dry-run or --send");
+    }
+    if (hasDryRunMode && hasSendMode) {
+      throw new Error("ask-pro cannot combine --dry-run and --send");
     }
     const files = readRepeatedFlag(parsedAskPro.optionArgs, "--file");
     const targetUrl = readFlag(parsedAskPro.optionArgs, "--target-url");
     const normalizedTargetUrl = targetUrl ? normalizeChatGptTargetUrl(targetUrl) : undefined;
-    if (normalizedTargetUrl && parsedAskPro.optionArgs.includes("--send") && !parsedAskPro.optionArgs.includes("--confirm-target")) {
+    if (normalizedTargetUrl && hasSendMode && !parsedAskPro.optionArgs.includes("--confirm-target")) {
       throw new Error("--target-url requires --confirm-target after you manually verify the visible ChatGPT tab is the intended Project/thread.");
     }
     const prompt = parsedAskPro.promptParts.join(" ").trim();
     if (!prompt) throw new Error("ask-pro requires a prompt");
     const bundle = await buildDryRunBundle(io.cwd, { prompt, files });
-    if (parsedAskPro.optionArgs.includes("--send")) {
+    if (hasSendMode) {
       const task = await store.createTask({
         source: "codex",
         title: "GPT Pro consult",

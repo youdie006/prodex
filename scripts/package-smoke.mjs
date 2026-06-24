@@ -150,6 +150,16 @@ try {
   });
   assertIncludes(proAskSendAlias.stderr, "pro ask is a dry-run preview", "installed pro ask send alias guard");
   assertIncludes(proAskSendAlias.stderr, "pro browser ask", "installed pro ask send alias guard");
+  const conflictingProBrowserAsk = await runExpectFailure(binPath, ["pro", "browser", "ask", "--dry-run", "--send", "Review this"], {
+    cwd: consumerDir
+  });
+  assertIncludes(conflictingProBrowserAsk.stderr, "cannot combine --dry-run and --send", "installed pro browser ask mode guard");
+  const browserSmoke = await runExpectFailure(binPath, ["pro", "browser", "smoke", "--port", "65534", "--timeout-ms", "10"], {
+    cwd: consumerDir,
+    timeout: 60_000
+  });
+  assertIncludes(browserSmoke.stderr, "No Chrome DevTools endpoint is reachable", "installed pro browser smoke output");
+  assertIncludes(browserSmoke.stderr, "gptprouse pro browser login", "installed pro browser smoke output");
   await assertMissingFile(path.join(consumerDir, ".bridge"), "installed consumer bridge after pro ask alias guard");
 
   const launcherDir = path.dirname(consumerDir);
