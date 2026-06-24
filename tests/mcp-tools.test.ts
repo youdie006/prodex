@@ -518,6 +518,57 @@ describe("MCP tool handlers", () => {
     expect(await readFile(path.join(cwd, storedReceipt.metadata.new_content_artifact), "utf8")).toBe("new\n");
   });
 
+  it("rejects oversized result artifacts before returning them through MCP", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    const store = new BridgeStore(cwd);
+    const task = await store.createTask({
+      source: "codex",
+      title: "Large artifact",
+      prompt: "Fetch the artifact.",
+      provenance: { adapter: "cli" }
+    });
+    const artifactPath = await store.writeArtifactText(".bridge/artifacts/results/large.txt", "x".repeat(100_001));
+    await store.completeTask(task.id, {
+      status: "done",
+      summary: "Large result artifact",
+      artifacts: [{ path: artifactPath, role: "result" }]
+    });
+    const handlers = createMcpToolHandlers({ cwd });
+
+    await expect(handlers.bridge_fetch_result_artifact({ task_id: task.id })).rejects.toThrow(/too large|100000/i);
+  });
+
+  it("rejects oversized repo write payload artifacts before applying them", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    await writeFile(path.join(cwd, "notes.md"), "old\n", "utf8");
+    const head = await initGitRepo(cwd);
+    const oversizedContent = "x".repeat(1_000_001);
+    const store = new BridgeStore(cwd);
+    const artifactPath = await store.writeArtifactText(".bridge/artifacts/repo-writes/oversized.txt", oversizedContent);
+    const receipt = await store.writeReceipt({
+      kind: "repo_write_dry_run",
+      summary: "Forged oversized write payload",
+      metadata: {
+        path: "notes.md",
+        expected_head: head,
+        preimage_sha256: sha256("old\n"),
+        new_sha256: sha256(oversizedContent),
+        diff: "--- a/notes.md\n+++ b/notes.md\n-old\n+oversized",
+        new_content_artifact: artifactPath
+      }
+    });
+    const handlers = createMcpToolHandlers({ cwd });
+
+    await expect(
+      handlers.repo_write_file_apply({
+        receipt_id: receipt.id,
+        expected_head: head,
+        preimage_sha256: sha256("old\n")
+      })
+    ).rejects.toThrow(/Path .*too large|1000000/i);
+    expect(await readFile(path.join(cwd, "notes.md"), "utf8")).toBe("old\n");
+  });
+
   it("rejects write apply when the stored payload artifact was changed", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
     await writeFile(path.join(cwd, "notes.md"), "old\n", "utf8");

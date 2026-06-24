@@ -41,6 +41,21 @@ describe("pro browser ask persistence", () => {
     await expect(readdir(path.join(cwd, ".bridge"))).rejects.toThrow();
   });
 
+  it("rejects direct raw ask-pro sends before touching the browser", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-pro-send-"));
+
+    await expect(
+      runCli(["ask-pro", "--send", "--timeout-ms", "1", "Review this"], {
+        cwd,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.toThrow(/pro browser ask/);
+
+    expect(sendChatGptPromptMock).not.toHaveBeenCalled();
+    await expect(readdir(path.join(cwd, ".bridge"))).rejects.toThrow();
+  });
+
   it("runs the advertised pro browser smoke command through the visible-browser adapter", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-pro-send-"));
     sendChatGptPromptMock.mockResolvedValueOnce({

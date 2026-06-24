@@ -1,7 +1,7 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { execFile } from "node:child_process";
-import { chmod, link, mkdir, mkdtemp, readFile, readdir, symlink, writeFile } from "node:fs/promises";
+import { chmod, link, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { createRequire } from "node:module";
@@ -932,6 +932,72 @@ describe("runCli", () => {
         stderr: () => {}
       })
     ).rejects.toThrow(/pro browser ask/);
+
+    expect(await readdir(cwd)).not.toContain(".bridge");
+  });
+
+  it("does not initialize bridge storage for empty-repo inspection commands", async () => {
+    const commands = [
+      ["tasks", "list"],
+      ["tasks", "show", "latest"],
+      ["results", "show", "latest"],
+      ["results", "artifact", "latest"],
+      ["receipts", "list"],
+      ["receipts", "show", "latest"],
+      ["sessions", "list"],
+      ["sessions", "show", "latest"],
+      ["pro", "list"],
+      ["pro", "latest"],
+      ["pro", "show", "latest"]
+    ];
+
+    for (const command of commands) {
+      const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+      await runCli(command, { cwd, stdout: () => {}, stderr: () => {} }).catch(() => undefined);
+
+      expect(await readdir(cwd), command.join(" ")).not.toContain(".bridge");
+    }
+  });
+
+  it("keeps existing bridge inspection commands read-only", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    await runCli(["init"], { cwd, stdout: () => {}, stderr: () => {} });
+    const receipt = await new BridgeStore(cwd).writeReceipt({ kind: "consult_preview", summary: "Keep temp links" });
+    const receiptPath = path.join(cwd, ".bridge", "receipts", `${receipt.id}.json`);
+    const receiptTempPath = path.join(cwd, ".bridge", "receipts", `.${receipt.id}.json.${process.pid}.tmp`);
+    await link(receiptPath, receiptTempPath);
+
+    await runCli(["receipts", "list"], { cwd, stdout: () => {}, stderr: () => {} }).catch(() => undefined);
+    await runCli(["receipts", "show", receipt.id], { cwd, stdout: () => {}, stderr: () => {} }).catch(() => undefined);
+
+    await expect(readFile(receiptTempPath, "utf8")).resolves.toContain("Keep temp links");
+  });
+
+  it("does not hide task data when an unrelated bridge directory is missing", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    await runCli(["tasks", "create", "--title", "Visible task", "--prompt", "Read this"], {
+      cwd,
+      stdout: () => {},
+      stderr: () => {}
+    });
+    await rm(path.join(cwd, ".bridge", "artifacts"), { recursive: true, force: true });
+    const out: string[] = [];
+
+    await runCli(["tasks", "list"], { cwd, stdout: (line) => out.push(line), stderr: () => {} });
+
+    expect(out.join("\n")).toContain("Visible task");
+  });
+
+  it("rejects the legacy consults alias in favor of pro commands without bridge side effects", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+
+    await expect(
+      runCli(["consults", "list"], {
+        cwd,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.toThrow(/gptprouse pro list/);
 
     expect(await readdir(cwd)).not.toContain(".bridge");
   });

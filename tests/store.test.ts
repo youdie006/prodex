@@ -625,6 +625,35 @@ describe("BridgeStore", () => {
       Object.defineProperty(process, "platform", { value: originalPlatform });
     }
   });
+
+  it("rejects non-Linux record writes when storage is swapped before rename", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
+    const outside = await mkdtemp(path.join(tmpdir(), "gptprouse-outside-"));
+    const movedReceiptsDir = path.join(root, ".bridge", "receipts-real");
+    const store = new BridgeStore(root);
+    await store.ensure();
+    const originalPlatform = process.platform;
+    Object.defineProperty(process, "platform", { value: "darwin" });
+    let swapped = false;
+    setBridgeStoreTestHooks({
+      beforeRecordRename: async (kind) => {
+        if (swapped || kind !== "receipts") return;
+        swapped = true;
+        await rename(path.join(root, ".bridge", "receipts"), movedReceiptsDir);
+        await symlink(outside, path.join(root, ".bridge", "receipts"));
+      }
+    });
+
+    try {
+      await expect(store.writeReceipt({ kind: "consult_preview", summary: "Should not rename outside" })).rejects.toThrow(
+        /changed|symlink|Bridge storage directory/i
+      );
+      expect(await readdir(outside)).toEqual([]);
+    } finally {
+      Object.defineProperty(process, "platform", { value: originalPlatform });
+      setBridgeStoreTestHooks({});
+    }
+  });
 });
 
 async function expectMode(filePath: string, expectedMode: number): Promise<void> {

@@ -381,7 +381,7 @@ function parseDryRunMetadata(value: Record<string, unknown>): DryRunMetadata {
 
 async function readDryRunReplacementContent(store: BridgeStore, metadata: DryRunMetadata): Promise<string> {
   const newContent = metadata.new_content_artifact
-    ? await store.readArtifactText(metadata.new_content_artifact)
+    ? await store.readArtifactText(metadata.new_content_artifact, { maxBytes: MAX_WRITE_BYTES })
     : metadata.new_content;
   if (typeof newContent !== "string") {
     throw new Error(`Dry-run receipt metadata is missing replacement content`);

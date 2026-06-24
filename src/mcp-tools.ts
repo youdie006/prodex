@@ -44,12 +44,12 @@ export function createMcpToolHandlers(context: McpToolContext) {
     },
 
     async bridge_list_tasks(input: { status?: "new" | "claimed" | "done" | "blocked" }) {
-      return { tasks: await store.listTasks(input.status) };
+      return { tasks: await store.listTasksReadOnly(input.status) };
     },
 
     async bridge_get_task(input: { task_id: string }) {
       assertMcpTextField(input.task_id, "task_id", MAX_MCP_SHORT_TEXT_BYTES);
-      return { task: await store.getTask(input.task_id) };
+      return { task: await store.getTaskReadOnly(input.task_id) };
     },
 
     async bridge_claim_task(input: { task_id: string; claimed_by?: string }) {
@@ -110,37 +110,37 @@ export function createMcpToolHandlers(context: McpToolContext) {
     },
 
     async bridge_list_results() {
-      return { results: await store.listResults() };
+      return { results: await store.listResultsReadOnly() };
     },
 
     async bridge_fetch_result(input: { task_id: string }) {
       assertMcpTextField(input.task_id, "task_id", MAX_MCP_SHORT_TEXT_BYTES);
-      return { result: await store.getResult(input.task_id) };
+      return { result: await store.getResultReadOnly(input.task_id) };
     },
 
     async bridge_fetch_result_artifact(input: { task_id: string; path?: string }) {
       assertMcpTextField(input.task_id, "task_id", MAX_MCP_SHORT_TEXT_BYTES);
       assertMcpTextField(input.path, "path", MAX_MCP_SHORT_TEXT_BYTES);
-      return store.readResultArtifactText(input.task_id, input.path);
+      return store.readResultArtifactText(input.task_id, input.path, { maxBytes: MAX_MCP_BRIDGE_TEXT_BYTES, readOnly: true });
     },
 
     async bridge_list_receipts(input: ListReceiptsInput) {
       assertMcpTextField(input.task_id, "task_id", MAX_MCP_SHORT_TEXT_BYTES);
-      return { receipts: await store.listReceipts(input) };
+      return { receipts: await store.listReceiptsReadOnly(input) };
     },
 
     async bridge_get_receipt(input: { receipt_id: string }) {
       assertMcpTextField(input.receipt_id, "receipt_id", MAX_MCP_SHORT_TEXT_BYTES);
-      return { receipt: await store.getReceiptForDisplay(input.receipt_id) };
+      return { receipt: await store.getReceiptForDisplayReadOnly(input.receipt_id) };
     },
 
     async bridge_list_sessions(input: { status?: "preview" | "running" | "done" | "blocked" }) {
-      return { sessions: await store.listSessions(input.status) };
+      return { sessions: await store.listSessionsReadOnly(input.status) };
     },
 
     async bridge_get_session(input: { session_id: string }) {
       assertMcpTextField(input.session_id, "session_id", MAX_MCP_SHORT_TEXT_BYTES);
-      return { session: await store.getSession(input.session_id) };
+      return { session: await store.getSessionReadOnly(input.session_id) };
     },
 
     async repo_read_file(input: { path: string; start_line?: number; max_lines?: number }) {

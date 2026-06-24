@@ -30,6 +30,7 @@ type BridgeRecordKind = Exclude<BridgeStorageKind, "artifacts">;
 
 export type BridgeStoreTestHooks = {
   beforeRecordTempCleanup?: (kind: BridgeRecordKind, filePath: string) => Promise<void> | void;
+  beforeRecordRename?: (kind: BridgeRecordKind, filePath: string) => Promise<void> | void;
 };
 
 let storeTestHooks: BridgeStoreTestHooks = {};
@@ -44,6 +45,7 @@ const RECEIPT_ID_PATTERN = /^receipt_\d{8}_\d{6}_[a-z0-9-]+$/;
 const BRIDGE_DIRECTORY_MODE = 0o700;
 const BRIDGE_FILE_MODE = 0o600;
 const FETCHABLE_RESULT_ARTIFACT_PREFIXES = [".bridge/artifacts/pro-consults/", ".bridge/artifacts/results/"];
+const MAX_BRIDGE_ARTIFACT_READ_BYTES = 1_000_000;
 
 export interface CreateTaskInput {
   source: Source;
@@ -145,8 +147,8 @@ export class BridgeStore {
   }
 
   async listTasksReadOnly(status?: Task["status"]): Promise<Task[]> {
-    await this.assertStorageDirsAreRealDirectories();
-    const tasks = await this.readAll("tasks", TaskSchema);
+    if (!(await this.hasReadyStorageDirReadOnly("tasks"))) return [];
+    const tasks = await this.readAll("tasks", TaskSchema, { cleanupTempHardLinks: false });
     return tasks
       .filter((task) => (status ? task.status === status : true))
       .sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id));
@@ -154,6 +156,10 @@ export class BridgeStore {
 
   async getTask(taskId: string): Promise<Task> {
     return TaskSchema.parse(await this.readRecordJson("tasks", taskId));
+  }
+
+  async getTaskReadOnly(taskId: string): Promise<Task> {
+    return TaskSchema.parse(await this.readRecordJson("tasks", taskId, { cleanupTempHardLinks: false }));
   }
 
   async claimTask(taskId: string, claimedBy: string): Promise<Task> {
@@ -226,8 +232,8 @@ export class BridgeStore {
   }
 
   async listResultsReadOnly(): Promise<Result[]> {
-    await this.assertStorageDirsAreRealDirectories();
-    return (await this.readAll("results", ResultSchema)).sort(
+    if (!(await this.hasReadyStorageDirReadOnly("results"))) return [];
+    return (await this.readAll("results", ResultSchema, { cleanupTempHardLinks: false })).sort(
       (a, b) => a.created_at.localeCompare(b.created_at) || a.task_id.localeCompare(b.task_id)
     );
   }
@@ -236,8 +242,16 @@ export class BridgeStore {
     return ResultSchema.parse(await this.readRecordJson("results", taskId));
   }
 
-  async readResultArtifactText(taskId: string, artifactPath?: string): Promise<{ artifact: BridgeFile; content: string }> {
-    const result = await this.getResult(taskId);
+  async getResultReadOnly(taskId: string): Promise<Result> {
+    return ResultSchema.parse(await this.readRecordJson("results", taskId, { cleanupTempHardLinks: false }));
+  }
+
+  async readResultArtifactText(
+    taskId: string,
+    artifactPath?: string,
+    options: { maxBytes?: number; readOnly?: boolean } = {}
+  ): Promise<{ artifact: BridgeFile; content: string }> {
+    const result = options.readOnly ? await this.getResultReadOnly(taskId) : await this.getResult(taskId);
     const artifacts = result.artifacts.filter((artifact) => artifact.role === "result");
     const artifact = artifactPath ? artifacts.find((item) => item.path === artifactPath) : artifacts.length === 1 ? artifacts[0] : undefined;
     if (!artifact) {
@@ -249,7 +263,7 @@ export class BridgeStore {
     if (!isFetchableResultArtifactPath(normalizedArtifactPath) || normalizedArtifactPath !== artifact.path) {
       throw new Error(`Artifact is not a fetchable result artifact for ${taskId}: ${artifact.path}`);
     }
-    return { artifact, content: await this.readArtifactText(artifact.path) };
+    return { artifact, content: await this.readArtifactText(artifact.path, options) };
   }
 
   async writeSession(input: WriteSessionInput): Promise<Session> {
@@ -279,6 +293,10 @@ export class BridgeStore {
     return SessionSchema.parse(await this.readRecordJson("sessions", sessionId));
   }
 
+  async getSessionReadOnly(sessionId: string): Promise<Session> {
+    return SessionSchema.parse(await this.readRecordJson("sessions", sessionId, { cleanupTempHardLinks: false }));
+  }
+
   async listSessions(status?: Session["status"]): Promise<Session[]> {
     await this.ensure();
     const sessions = await this.readAll("sessions", SessionSchema);
@@ -287,8 +305,20 @@ export class BridgeStore {
       .sort((a, b) => b.last_used_at.localeCompare(a.last_used_at) || b.id.localeCompare(a.id));
   }
 
+  async listSessionsReadOnly(status?: Session["status"]): Promise<Session[]> {
+    if (!(await this.hasReadyStorageDirReadOnly("sessions"))) return [];
+    const sessions = await this.readAll("sessions", SessionSchema, { cleanupTempHardLinks: false });
+    return sessions
+      .filter((session) => (status ? session.status === status : true))
+      .sort((a, b) => b.last_used_at.localeCompare(a.last_used_at) || b.id.localeCompare(a.id));
+  }
+
   async getReceipt(receiptId: string): Promise<Receipt> {
     return ReceiptSchema.parse(await this.readRecordJson("receipts", receiptId));
+  }
+
+  async getReceiptReadOnly(receiptId: string): Promise<Receipt> {
+    return ReceiptSchema.parse(await this.readRecordJson("receipts", receiptId, { cleanupTempHardLinks: false }));
   }
 
   async listReceipts(input: ListReceiptsInput = {}): Promise<Receipt[]> {
@@ -300,8 +330,21 @@ export class BridgeStore {
       .map((receipt) => redactReceiptForDisplay(receipt));
   }
 
+  async listReceiptsReadOnly(input: ListReceiptsInput = {}): Promise<Receipt[]> {
+    if (!(await this.hasReadyStorageDirReadOnly("receipts"))) return [];
+    return (await this.readAll("receipts", ReceiptSchema, { cleanupTempHardLinks: false }))
+      .filter((receipt) => (input.kind ? receipt.kind === input.kind : true))
+      .filter((receipt) => (input.task_id ? receipt.task_id === input.task_id : true))
+      .sort((a, b) => b.created_at.localeCompare(a.created_at) || b.id.localeCompare(a.id))
+      .map((receipt) => redactReceiptForDisplay(receipt));
+  }
+
   async getReceiptForDisplay(receiptId: string): Promise<Receipt> {
     return redactReceiptForDisplay(await this.getReceipt(receiptId));
+  }
+
+  async getReceiptForDisplayReadOnly(receiptId: string): Promise<Receipt> {
+    return redactReceiptForDisplay(await this.getReceiptReadOnly(receiptId));
   }
 
   private async hasTaskCompletionReceipt(taskId: string): Promise<boolean> {
@@ -334,12 +377,14 @@ export class BridgeStore {
     return this.relativeToRoot(artifactPath);
   }
 
-  async readArtifactText(relativePath: string): Promise<string> {
+  async readArtifactText(relativePath: string, options: { maxBytes?: number } = {}): Promise<string> {
     await this.assertBridgeDirIsRealDirectory();
     await this.assertArtifactsDirIsRealDirectory();
     const artifactPath = this.resolveArtifactPath(relativePath);
     await this.assertArtifactParentDirectory(path.dirname(artifactPath));
-    return readVerifiedUtf8File(artifactPath, () => this.assertArtifactTargetInside(artifactPath));
+    return readVerifiedUtf8File(artifactPath, () => this.assertArtifactTargetInside(artifactPath), {
+      maxBytes: options.maxBytes ?? MAX_BRIDGE_ARTIFACT_READ_BYTES
+    });
   }
 
   async writeReceipt(input: WriteReceiptInput): Promise<Receipt> {
@@ -357,6 +402,16 @@ export class BridgeStore {
   async hasReadyBridgeStorageReadOnly(): Promise<boolean> {
     try {
       await this.assertStorageDirsAreRealDirectories();
+      return true;
+    } catch (error) {
+      if (isErrorCode(error, "ENOENT")) return false;
+      throw error;
+    }
+  }
+
+  private async hasReadyStorageDirReadOnly(kind: BridgeStorageKind): Promise<boolean> {
+    try {
+      await this.assertStorageDirIsRealDirectory(kind);
       return true;
     } catch (error) {
       if (isErrorCode(error, "ENOENT")) return false;
@@ -439,7 +494,7 @@ export class BridgeStore {
       await this.writeTextByStableStorageRename(kind, filePath, content);
       return;
     }
-    await this.writeTextByPathRename(kind, filePath, content);
+    await this.writeTextByCheckedPathRename(kind, filePath, content);
   }
 
   private async writeTextByCreateExclusive(kind: BridgeRecordKind, filePath: string, content: string): Promise<boolean> {
@@ -548,14 +603,46 @@ export class BridgeStore {
     return true;
   }
 
-  private async writeTextByPathRename(kind: BridgeRecordKind, filePath: string, content: string): Promise<void> {
-    const tmp = `${filePath}.${process.pid}.${Date.now()}.${randomUUID()}.tmp`;
-    try {
-      await writeVerifiedUtf8File(tmp, content, () => this.assertStorageDirIsRealDirectory(kind), { create: true, mode: BRIDGE_FILE_MODE });
-      await rename(tmp, filePath);
+  private async writeTextByCheckedPathRename(kind: BridgeRecordKind, filePath: string, content: string): Promise<void> {
+    const fileName = path.basename(filePath);
+    const expectedDir = this.dir(kind);
+    if (path.dirname(filePath) !== expectedDir) {
+      throw new Error(`Bridge record path must stay under .bridge/${kind}`);
+    }
+    const storageRealPath = await realpath(expectedDir);
+    const assertStableStorage = async () => {
       await this.assertStorageDirIsRealDirectory(kind);
+      if ((await realpath(expectedDir)) !== storageRealPath) {
+        throw new Error(`Bridge storage directory .bridge/${kind} changed during record write`);
+      }
+    };
+    const tmp = path.join(expectedDir, `.${fileName}.${process.pid}.${Date.now()}.${randomUUID()}.tmp`);
+    const cleanupTmpIfStorageStable = async () => {
+      try {
+        await assertStableStorage();
+        await rm(tmp, { force: true });
+      } catch {
+        // If storage moved or was swapped, do not follow the now-unstable path for cleanup.
+      }
+    };
+    try {
+      await writeVerifiedUtf8File(
+        tmp,
+        content,
+        async () => {
+          await assertStableStorage();
+          await this.assertRecordTargetInsideIfExists(kind, filePath);
+        },
+        { create: true, exclusive: true, mode: BRIDGE_FILE_MODE }
+      );
+      await storeTestHooks.beforeRecordRename?.(kind, filePath);
+      await assertStableStorage();
+      await this.assertRecordTargetInsideIfExists(kind, filePath);
+      await rename(tmp, filePath);
+      await assertStableStorage();
+      await this.assertRecordTargetInside(kind, filePath);
     } catch (error) {
-      await rm(tmp, { force: true }).catch(() => undefined);
+      await cleanupTmpIfStorageStable();
       throw error;
     }
   }

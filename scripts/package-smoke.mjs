@@ -150,6 +150,11 @@ try {
   });
   assertIncludes(proAskSendAlias.stderr, "pro ask is a dry-run preview", "installed pro ask send alias guard");
   assertIncludes(proAskSendAlias.stderr, "pro browser ask", "installed pro ask send alias guard");
+  const rawAskProSend = await runExpectFailure(binPath, ["ask-pro", "--send", "--timeout-ms", "1", "Review this"], {
+    cwd: consumerDir
+  });
+  assertIncludes(rawAskProSend.stderr, "Direct ask-pro --send is disabled", "installed raw ask-pro send guard");
+  assertIncludes(rawAskProSend.stderr, "pro browser ask", "installed raw ask-pro send guard");
   const conflictingProBrowserAsk = await runExpectFailure(binPath, ["pro", "browser", "ask", "--dry-run", "--send", "Review this"], {
     cwd: consumerDir
   });
@@ -160,6 +165,17 @@ try {
   });
   assertIncludes(browserSmoke.stderr, "No Chrome DevTools endpoint is reachable", "installed pro browser smoke output");
   assertIncludes(browserSmoke.stderr, "gptprouse pro browser login", "installed pro browser smoke output");
+  for (const command of [
+    ["tasks", "list"],
+    ["receipts", "list"],
+    ["sessions", "list"],
+    ["pro", "list"]
+  ]) {
+    await run(binPath, command, { cwd: consumerDir });
+  }
+  const legacyConsults = await runExpectFailure(binPath, ["consults", "list"], { cwd: consumerDir });
+  assertIncludes(legacyConsults.stderr, "legacy `consults` alias is retired", "installed consults alias guard");
+  assertIncludes(legacyConsults.stderr, "gptprouse pro list", "installed consults alias guard");
   await assertMissingFile(path.join(consumerDir, ".bridge"), "installed consumer bridge after pro ask alias guard");
 
   const launcherDir = path.dirname(consumerDir);

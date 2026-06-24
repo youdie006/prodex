@@ -57,6 +57,7 @@ export interface CliIO {
   cwd: string;
   stdout: (line: string) => void;
   stderr: (line: string) => void;
+  allowAskProBrowserSend?: boolean;
 }
 
 export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<number> {
@@ -297,7 +298,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
     if (subcommand === "list") {
       assertOnlyOptions(taskArgs, "tasks list", ["--status"]);
       const status = readTaskStatusFlag(taskArgs);
-      const tasks = await store.listTasks(status);
+      const tasks = await listTasksForInspection(store, status);
       for (const task of tasks) {
         io.stdout(`${task.id}\t${task.status}\t${task.title}`);
       }
@@ -307,7 +308,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       const taskId = taskArgs[0];
       if (!taskId) throw new Error("tasks show requires <task-id|latest>");
       assertNoExtraArgs(taskArgs, "tasks show", 1);
-      const task = taskId === "latest" ? await latestTask(store) : await store.getTask(taskId);
+      const task = taskId === "latest" ? await latestTask(store, { readOnly: true }) : await store.getTaskReadOnly(taskId);
       if (!task) throw new Error(`Task not found: ${taskId}`);
       io.stdout(JSON.stringify(task, null, 2));
       return 0;
@@ -359,16 +360,16 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       const taskId = resultArgs[0];
       if (!taskId) throw new Error("results show requires <task-id|latest>");
       assertNoExtraArgs(resultArgs, "results show", 1);
-      const resolvedTaskId = taskId === "latest" ? await latestResultTaskId(store) : taskId;
-      io.stdout(JSON.stringify(await store.getResult(resolvedTaskId), null, 2));
+      const resolvedTaskId = taskId === "latest" ? await latestResultTaskId(store, { readOnly: true }) : taskId;
+      io.stdout(JSON.stringify(await store.getResultReadOnly(resolvedTaskId), null, 2));
       return 0;
     }
     if (subcommand === "artifact") {
       const taskId = resultArgs[0];
       if (!taskId) throw new Error("results artifact requires <task-id> [artifact-path]");
       assertNoExtraArgs(resultArgs, "results artifact", 2);
-      const resolvedTaskId = taskId === "latest" ? await latestResultTaskId(store) : taskId;
-      const artifact = await store.readResultArtifactText(resolvedTaskId, resultArgs[1]);
+      const resolvedTaskId = taskId === "latest" ? await latestResultTaskId(store, { readOnly: true }) : taskId;
+      const artifact = await store.readResultArtifactText(resolvedTaskId, resultArgs[1], { readOnly: true });
       io.stdout(artifact.content);
       return 0;
     }
@@ -378,7 +379,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
     const [subcommand, ...receiptArgs] = rest;
     if (subcommand === "list") {
       assertOnlyOptions(receiptArgs, "receipts list", ["--kind", "--task-id"]);
-      const receipts = await store.listReceipts({
+      const receipts = await listReceiptsForInspection(store, {
         kind: readReceiptKindFlag(receiptArgs),
         task_id: readFlag(receiptArgs, "--task-id")
       });
@@ -391,7 +392,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       const receiptId = receiptArgs[0];
       if (!receiptId) throw new Error("receipts show requires <receipt-id|latest>");
       assertNoExtraArgs(receiptArgs, "receipts show", 1);
-      const receipt = receiptId === "latest" ? (await store.listReceipts())[0] : await store.getReceiptForDisplay(receiptId);
+      const receipt = receiptId === "latest" ? (await listReceiptsForInspection(store))[0] : await store.getReceiptForDisplayReadOnly(receiptId);
       if (!receipt) throw new Error(`Receipt not found: ${receiptId}`);
       io.stdout(JSON.stringify(receipt, null, 2));
       return 0;
@@ -403,7 +404,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
     if (subcommand === "list") {
       assertOnlyOptions(sessionArgs, "sessions list", ["--status"]);
       const status = readSessionStatusFlag(sessionArgs);
-      const sessions = await store.listSessions(status);
+      const sessions = await listSessionsForInspection(store, status);
       for (const session of sessions) {
         io.stdout(`${session.id}\t${session.status}\t${session.backend}\t${session.direction}`);
       }
@@ -413,7 +414,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       const sessionId = sessionArgs[0];
       if (!sessionId) throw new Error("sessions show requires <session-id|latest>");
       assertNoExtraArgs(sessionArgs, "sessions show", 1);
-      const session = sessionId === "latest" ? (await store.listSessions())[0] : await store.getSession(sessionId);
+      const session = sessionId === "latest" ? (await listSessionsForInspection(store))[0] : await store.getSessionReadOnly(sessionId);
       if (!session) throw new Error(`Session not found: ${sessionId}`);
       io.stdout(formatSession(session));
       return 0;
@@ -457,7 +458,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       }
       if (browserSubcommand === "ask") {
         const hasMode = hasAskProMode(browserArgs);
-        return runCli(["ask-pro", ...(hasMode ? [] : ["--send"]), ...browserArgs], io);
+        return runCli(["ask-pro", ...(hasMode ? [] : ["--send"]), ...browserArgs], { ...io, allowAskProBrowserSend: true });
       }
       if (browserSubcommand === "open" || browserSubcommand === "status" || browserSubcommand === "smoke") {
         return runCli(["chatgpt", browserSubcommand, ...browserArgs], io);
@@ -474,7 +475,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
     }
     if (subcommand === "list") {
       assertNoExtraArgs(proArgs, "pro list", 0);
-      const consults = await listConsults(store);
+      const consults = await listConsults(store, { readOnly: true });
       for (const consult of consults) {
         io.stdout(`${consult.task.id}\t${consult.result.status}\t${firstLine(consult.result.summary)}`);
       }
@@ -482,7 +483,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
     }
     if (subcommand === "latest") {
       assertNoExtraArgs(proArgs, "pro latest", 0);
-      const consult = (await listConsults(store))[0];
+      const consult = (await listConsults(store, { readOnly: true }))[0];
       if (!consult) throw new Error("No GPT Pro answers found");
       io.stdout(formatProAnswer(consult));
       return 0;
@@ -491,7 +492,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       const taskId = proArgs[0];
       if (!taskId) throw new Error("pro show requires <task-id|latest>");
       assertNoExtraArgs(proArgs, "pro show", 1);
-      const consult = taskId === "latest" ? (await listConsults(store))[0] : await getConsult(store, taskId);
+      const consult = taskId === "latest" ? (await listConsults(store, { readOnly: true }))[0] : await getConsult(store, taskId, { readOnly: true });
       if (!consult) throw new Error(`GPT Pro answer not found: ${taskId}`);
       io.stdout(formatProAnswer(consult));
       return 0;
@@ -499,31 +500,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
   }
 
   if (command === "consults") {
-    const [subcommand, ...consultArgs] = rest;
-    if (subcommand === "list") {
-      assertNoExtraArgs(consultArgs, "consults list", 0);
-      const consults = await listConsults(store);
-      for (const consult of consults) {
-        io.stdout(`${consult.task.id}\t${consult.result.status}\t${firstLine(consult.result.summary)}`);
-      }
-      return 0;
-    }
-    if (subcommand === "latest") {
-      assertNoExtraArgs(consultArgs, "consults latest", 0);
-      const consult = (await listConsults(store))[0];
-      if (!consult) throw new Error("No consult results found");
-      io.stdout(formatConsult(consult));
-      return 0;
-    }
-    if (subcommand === "show") {
-      const taskId = consultArgs[0];
-      if (!taskId) throw new Error("consults show requires <task-id|latest>");
-      assertNoExtraArgs(consultArgs, "consults show", 1);
-      const consult = taskId === "latest" ? (await listConsults(store))[0] : await getConsult(store, taskId);
-      if (!consult) throw new Error(`Consult not found: ${taskId}`);
-      io.stdout(formatConsult(consult));
-      return 0;
-    }
+    throw new Error("The legacy `consults` alias is retired. Use `gptprouse pro list`, `gptprouse pro latest`, or `gptprouse pro show <task-id|latest>`.");
   }
 
   if (command === "ask-pro") {
@@ -535,6 +512,9 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
     }
     if (hasDryRunMode && hasSendMode) {
       throw new Error("ask-pro cannot combine --dry-run and --send");
+    }
+    if (hasSendMode && !io.allowAskProBrowserSend) {
+      throw new Error("Direct ask-pro --send is disabled. Use `gptprouse pro browser ask` for explicit visible-browser sends.");
     }
     const files = readRepeatedFlag(parsedAskPro.optionArgs, "--file");
     const targetUrl = readFlag(parsedAskPro.optionArgs, "--target-url");
@@ -1580,7 +1560,7 @@ async function printProductCheck(store: BridgeStore, io: CliIO, args: string[]):
   const modelHints = formatBrowserModelHints(browserStatus.modelHints);
   if (modelHints) io.stdout(`model_hints: ${modelHints}`);
 
-  const latest = bridgeReady ? (await listConsults(store, { readOnly: true }))[0] : undefined;
+  const latest = bridgeReady ? (await listConsults(store))[0] : undefined;
   if (latest) {
     const latestLabel = latest.result.status === "blocked" ? "blocked" : "ok";
     io.stdout(`latest_pro: ${latestLabel} ${latest.task.id} ${latest.result.status} ${latest.result.created_at}`);
@@ -1594,9 +1574,31 @@ type ConsultRecord = {
   result: Awaited<ReturnType<BridgeStore["listResults"]>>[number];
 };
 
+async function listTasksForInspection(
+  store: BridgeStore,
+  status?: Parameters<BridgeStore["listTasks"]>[0]
+): Promise<Awaited<ReturnType<BridgeStore["listTasks"]>>> {
+  return store.listTasksReadOnly(status);
+}
+
+async function listResultsForInspection(store: BridgeStore): Promise<Awaited<ReturnType<BridgeStore["listResults"]>>> {
+  return store.listResultsReadOnly();
+}
+
+async function listReceiptsForInspection(store: BridgeStore, input: ListReceiptsInput = {}): Promise<Awaited<ReturnType<BridgeStore["listReceipts"]>>> {
+  return store.listReceiptsReadOnly(input);
+}
+
+async function listSessionsForInspection(
+  store: BridgeStore,
+  status?: Parameters<BridgeStore["listSessions"]>[0]
+): Promise<Awaited<ReturnType<BridgeStore["listSessions"]>>> {
+  return store.listSessionsReadOnly(status);
+}
+
 async function listConsults(store: BridgeStore, options: { readOnly?: boolean } = {}): Promise<ConsultRecord[]> {
   const [tasks, results] = options.readOnly
-    ? await Promise.all([store.listTasksReadOnly(), store.listResultsReadOnly()])
+    ? await Promise.all([listTasksForInspection(store), listResultsForInspection(store)])
     : await Promise.all([store.listTasks(), store.listResults()]);
   const tasksById = new Map(tasks.map((task) => [task.id, task]));
   return results
@@ -1608,18 +1610,25 @@ async function listConsults(store: BridgeStore, options: { readOnly?: boolean } 
     .sort((a, b) => b.result.created_at.localeCompare(a.result.created_at));
 }
 
-async function latestResultTaskId(store: BridgeStore): Promise<string> {
-  const result = (await store.listResults()).at(-1);
+async function latestResultTaskId(store: BridgeStore, options: { readOnly?: boolean } = {}): Promise<string> {
+  const results = options.readOnly ? await listResultsForInspection(store) : await store.listResults();
+  const result = results.at(-1);
   if (!result) throw new Error("No results found");
   return result.task_id;
 }
 
-async function latestTask(store: BridgeStore): Promise<Awaited<ReturnType<BridgeStore["listTasks"]>>[number] | undefined> {
-  return (await store.listTasks()).sort((a, b) => b.created_at.localeCompare(a.created_at) || b.id.localeCompare(a.id))[0];
+async function latestTask(
+  store: BridgeStore,
+  options: { readOnly?: boolean } = {}
+): Promise<Awaited<ReturnType<BridgeStore["listTasks"]>>[number] | undefined> {
+  const tasks = options.readOnly ? await listTasksForInspection(store) : await store.listTasks();
+  return tasks.sort((a, b) => b.created_at.localeCompare(a.created_at) || b.id.localeCompare(a.id))[0];
 }
 
-async function getConsult(store: BridgeStore, taskId: string): Promise<ConsultRecord | undefined> {
-  const [task, result] = await Promise.all([store.getTask(taskId), store.getResult(taskId)]).catch(() => [undefined, undefined] as const);
+async function getConsult(store: BridgeStore, taskId: string, options: { readOnly?: boolean } = {}): Promise<ConsultRecord | undefined> {
+  const [task, result] = await Promise.all(
+    options.readOnly ? [store.getTaskReadOnly(taskId), store.getResultReadOnly(taskId)] : [store.getTask(taskId), store.getResult(taskId)]
+  ).catch(() => [undefined, undefined] as const);
   if (!task || !result) return undefined;
   const record = { task, result };
   return isConsultRecord(record) ? record : undefined;
@@ -1630,21 +1639,6 @@ function isConsultRecord(record: ConsultRecord): boolean {
     record.task.provenance.adapter === "chatgpt-control" ||
     record.task.title.toLowerCase() === "gpt pro consult" ||
     record.result.commands.includes("visible ChatGPT browser consult")
-  );
-}
-
-function formatConsult(consult: ConsultRecord): string {
-  return JSON.stringify(
-    {
-      task_id: consult.task.id,
-      status: consult.result.status,
-      thread: consult.task.provenance.thread,
-      created_at: consult.result.created_at,
-      summary: consult.result.summary,
-      warnings: consult.result.warnings
-    },
-    null,
-    2
   );
 }
 
