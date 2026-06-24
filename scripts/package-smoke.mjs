@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 
 const execFileAsync = promisify(execFile);
 const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
@@ -32,6 +33,8 @@ const REQUIRED_MCP_TOOLS = [
   "repo_write_file_apply",
   "repo_stage_reviewed_paths"
 ];
+
+assertSmokeRedaction();
 
 const tmp = await mkdtemp(path.join(tmpdir(), "gptprouse-package-smoke-"));
 
@@ -141,7 +144,7 @@ try {
   }
   await smokeInstalledStdioTaskFinalizers(binPath, consumerDir);
 
-  console.log(`package_smoke: ok tarball=${path.basename(packed.filename)} http_onboarding=ok configured_doctor=ok tunnel_url=ok package_boundary=ok stdio_task_flow=ok stdio_task_finalizers=ok tools=${REQUIRED_MCP_TOOLS.join(",")}`);
+  console.log(`package_smoke: ok tarball=${path.basename(packed.filename)} http_onboarding=ok installed_http_mcp=ok configured_doctor=ok tunnel_url=ok package_boundary=ok stdio_task_flow=ok stdio_task_finalizers=ok tools=${REQUIRED_MCP_TOOLS.join(",")}`);
 } finally {
   await rm(tmp, { recursive: true, force: true });
 }
@@ -520,7 +523,9 @@ async function smokeInstalledHttpOnboarding(binPath, cwd) {
 
   const pasteReady = await run(binPath, ["status", "--cwd", cwd, "--show-token", "--url-only"], { cwd: launcherCwd });
   if (pasteReady.stdout.trim() !== expectedUrl) {
-    throw new Error(`Installed status --show-token --url-only returned ${pasteReady.stdout.trim()}, expected ${expectedUrl}`);
+    throw new Error(
+      `Installed status --show-token --url-only returned ${redactSmokeSecrets(pasteReady.stdout.trim())}, expected ${redactSmokeSecrets(expectedUrl)}`
+    );
   }
 
   const tunnelUrl = await run(
@@ -530,7 +535,7 @@ async function smokeInstalledHttpOnboarding(binPath, cwd) {
   );
   const expectedTunnelUrl = `https://gptprouse-package-smoke.example/mcp?gptprouse_token=${token}`;
   if (tunnelUrl.stdout.trim() !== expectedTunnelUrl) {
-    throw new Error(`Installed tunnel url returned ${tunnelUrl.stdout.trim()}, expected ${expectedTunnelUrl}`);
+    throw new Error(`Installed tunnel url returned ${redactSmokeSecrets(tunnelUrl.stdout.trim())}, expected ${redactSmokeSecrets(expectedTunnelUrl)}`);
   }
 
   const child = spawn(binPath, ["start", "--cwd", cwd], {
@@ -545,10 +550,19 @@ async function smokeInstalledHttpOnboarding(binPath, cwd) {
   child.stderr.on("data", (chunk) => {
     stderr += chunk.toString();
   });
+  let smokeFailed = false;
   try {
     await waitForHttpHealth(`http://127.0.0.1:${port}/health`, 20_000);
+    await smokeInstalledHttpMcpEndpoint(expectedUrl, cwd);
+  } catch (error) {
+    smokeFailed = true;
+    throw error;
   } finally {
-    await terminateChild(child, stdout, stderr);
+    try {
+      await terminateChild(child, stdout, stderr);
+    } catch (error) {
+      if (!smokeFailed) throw error;
+    }
   }
   const startOutput = `${stdout}\n${stderr}`;
   assertIncludes(startOutput, "gptprouse_token=***", "installed start output");
@@ -599,10 +613,41 @@ async function waitForHttpHealth(url, timeoutMs) {
   throw new Error(`Timed out waiting for installed HTTP health at ${url}: ${lastError instanceof Error ? lastError.message : String(lastError)}`);
 }
 
+async function smokeInstalledHttpMcpEndpoint(mcpUrl, cwd) {
+  const client = new Client({ name: "gptprouse-package-http-smoke", version: "0.2.0" });
+  let failed = false;
+  try {
+    await withTimeout(
+      client.connect(new StreamableHTTPClientTransport(new URL(mcpUrl))),
+      20_000,
+      "Timed out connecting to installed HTTP MCP server"
+    );
+    const result = await withTimeout(client.listTools(), 20_000, "Timed out listing installed HTTP MCP tools");
+    const names = result.tools.map((tool) => tool.name);
+    for (const tool of REQUIRED_MCP_TOOLS) {
+      if (!names.includes(tool)) throw new Error(`Installed HTTP MCP catalog is missing ${tool}`);
+    }
+    const created = await callJsonTool(client, "bridge_create_task", {
+      title: "Installed HTTP MCP",
+      prompt: "Verify installed HTTP MCP endpoint"
+    });
+    await assertBridgeTaskStoredInCwd(cwd, created.task.id);
+  } catch (error) {
+    failed = true;
+    throw error;
+  } finally {
+    try {
+      await closeClient(client, "installed HTTP MCP client");
+    } catch (error) {
+      if (!failed) throw error;
+    }
+  }
+}
+
 async function terminateChild(child, stdout, stderr) {
   if (child.exitCode !== null) {
     if (child.exitCode !== 0) {
-      throw new Error(`Installed HTTP server exited early with ${child.exitCode}. stdout:\n${stdout}\nstderr:\n${stderr}`);
+      throw new Error(`Installed HTTP server exited early with ${child.exitCode}. stdout:\n${redactSmokeSecrets(stdout)}\nstderr:\n${redactSmokeSecrets(stderr)}`);
     }
     return;
   }
@@ -614,7 +659,9 @@ async function terminateChild(child, stdout, stderr) {
     "Timed out stopping installed HTTP server"
   );
   if (result.code !== 0 && result.signal !== "SIGTERM") {
-    throw new Error(`Installed HTTP server exited unexpectedly with code=${result.code} signal=${result.signal}. stdout:\n${stdout}\nstderr:\n${stderr}`);
+    throw new Error(
+      `Installed HTTP server exited unexpectedly with code=${result.code} signal=${result.signal}. stdout:\n${redactSmokeSecrets(stdout)}\nstderr:\n${redactSmokeSecrets(stderr)}`
+    );
   }
 }
 
@@ -629,7 +676,9 @@ async function run(command, args, options = {}) {
 async function runExpectFailure(command, args, options = {}) {
   try {
     const result = await run(command, args, options);
-    throw new Error(`Expected command to fail but it exited successfully. stdout:\n${result.stdout}\nstderr:\n${result.stderr}`);
+    throw new Error(
+      `Expected command to fail but it exited successfully. stdout:\n${redactSmokeSecrets(result.stdout)}\nstderr:\n${redactSmokeSecrets(result.stderr)}`
+    );
   } catch (error) {
     if (error && typeof error === "object" && "stdout" in error && "stderr" in error) {
       return {
@@ -659,10 +708,10 @@ async function callJsonTool(client, name, args) {
   const result = await withTimeout(
     client.callTool({ name, arguments: args }),
     20_000,
-    `Timed out calling installed stdio MCP tool ${name}`
+    `Timed out calling installed MCP tool ${name}`
   );
   const text = result.content.find((item) => item.type === "text")?.text;
-  if (!text) throw new Error(`Installed stdio MCP tool ${name} did not return text content`);
+  if (!text) throw new Error(`Installed MCP tool ${name} did not return text content`);
   return JSON.parse(text);
 }
 
@@ -677,6 +726,12 @@ async function closeStdioClient(client, transport, label) {
     await waitForStdioProcessExit(processRef, 2_000).catch(() => undefined);
     throw error;
   }
+}
+
+async function closeClient(client, label) {
+  const closePromise = client.close();
+  closePromise.catch(() => undefined);
+  await withTimeout(closePromise, 10_000, `Timed out closing ${label}`);
 }
 
 function captureStdioTransportProcess(transport) {
@@ -770,13 +825,31 @@ function assertResultInList(results, expected) {
 
 function assertIncludes(text, expected, label) {
   if (!text.includes(expected)) {
-    throw new Error(`${label} did not include ${expected}. Output was:\n${text.slice(0, 1000)}`);
+    throw new Error(`${label} did not include ${redactSmokeSecrets(expected)}. Output was:\n${redactSmokeSecrets(text).slice(0, 1000)}`);
   }
 }
 
 function assertNotIncludes(text, unexpected, label) {
   if (text.includes(unexpected)) {
-    throw new Error(`${label} unexpectedly included ${unexpected}. Output was:\n${text.slice(0, 1000)}`);
+    throw new Error(`${label} unexpectedly included ${redactSmokeSecrets(unexpected)}. Output was:\n${redactSmokeSecrets(text).slice(0, 1000)}`);
+  }
+}
+
+function redactSmokeSecrets(value) {
+  return String(value)
+    .replace(/gptprouse_token=([^&\s"'`<>]+)/g, "gptprouse_token=***")
+    .replace(/\b(?:non-expiring-package-smoke-token|expired-package-smoke-token|package-smoke-token)\b/g, "***");
+}
+
+function assertSmokeRedaction() {
+  const sample =
+    "http://127.0.0.1:8787/mcp?gptprouse_token=package-smoke-token non-expiring-package-smoke-token expired-package-smoke-token";
+  const redacted = redactSmokeSecrets(sample);
+  if (redacted.includes("package-smoke-token") || redacted.includes("non-expiring-package-smoke-token") || redacted.includes("expired-package-smoke-token")) {
+    throw new Error(`Smoke redaction failed: ${redacted}`);
+  }
+  if (!redacted.includes("gptprouse_token=***")) {
+    throw new Error(`Smoke redaction did not preserve token marker: ${redacted}`);
   }
 }
 
@@ -797,14 +870,14 @@ function normalizeUsefulAbsolutePath(candidate) {
 function assertAppearsBefore(text, earlier, later, label) {
   const earlierIndex = text.indexOf(earlier);
   if (earlierIndex === -1) {
-    throw new Error(`${label} did not include ${earlier}. Output was:\n${text.slice(0, 1000)}`);
+    throw new Error(`${label} did not include ${redactSmokeSecrets(earlier)}. Output was:\n${redactSmokeSecrets(text).slice(0, 1000)}`);
   }
   const laterIndex = text.indexOf(later);
   if (laterIndex === -1) {
-    throw new Error(`${label} did not include ${later}. Output was:\n${text.slice(0, 1000)}`);
+    throw new Error(`${label} did not include ${redactSmokeSecrets(later)}. Output was:\n${redactSmokeSecrets(text).slice(0, 1000)}`);
   }
   if (earlierIndex >= laterIndex) {
-    throw new Error(`${label} must put ${earlier} before ${later}`);
+    throw new Error(`${label} must put ${redactSmokeSecrets(earlier)} before ${redactSmokeSecrets(later)}`);
   }
 }
 
