@@ -73,7 +73,7 @@ Not implemented:
 
 ## Quick Start
 
-Requires Node.js 20 or newer and `git` on PATH. The optional visible-browser adapter also needs a Chromium-family browser (`google-chrome`, `chromium`, `chromium-browser`, `microsoft-edge`, `brave-browser`) or `GPTPROUSE_CHROME=/path/to/browser`.
+Requires Node.js 20 or newer, `git`, and `ripgrep` (`rg`) on PATH. The optional visible-browser adapter also needs a Chromium-family browser (`google-chrome`, `chromium`, `chromium-browser`, `microsoft-edge`, `brave-browser`) or `GPTPROUSE_CHROME=/path/to/browser`.
 
 For an installed package:
 

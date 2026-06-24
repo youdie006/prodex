@@ -20,7 +20,7 @@ HTTP MCP requests are bounded: malformed JSON returns `400`, and request bodies 
 
 ## Build And Prepare
 
-Requires Node.js 20 or newer and `git` on PATH.
+Requires Node.js 20 or newer, `git`, and `ripgrep` (`rg`) on PATH.
 
 For an installed package:
 

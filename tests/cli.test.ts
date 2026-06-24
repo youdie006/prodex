@@ -1429,6 +1429,7 @@ describe("runCli", () => {
     expect(text).toContain("http_mcp_smoke: ok");
     expect(text).toContain("task_flow=ok");
     expect(text).toContain("finalizers=ok");
+    expect(text).toContain("search=ok");
     expect(text).toContain("bridge_create_task");
     expect(text).toContain("bridge_list_tasks");
     expect(text).toContain("bridge_get_task");

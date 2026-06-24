@@ -109,6 +109,7 @@ export async function searchRepo(root: string, query: string, glob?: string): Pr
     "!dist/**",
     "--glob",
     "!**/dist/**",
+    "-e",
     query
   ];
   args.push(".");
@@ -127,7 +128,10 @@ export async function searchRepo(root: string, query: string, glob?: string): Pr
         return { path: file.replace(/^\.\//, ""), line: Number(lineNo), text: rest.join(":") };
       });
   } catch (error) {
-    const maybe = error as { code?: number; stdout?: string };
+    const maybe = error as { code?: number | string; stdout?: string };
+    if (maybe.code === "ENOENT") {
+      throw new Error("ripgrep (rg) is required on PATH for repo_search");
+    }
     if (maybe.code === 1) return [];
     throw error;
   }

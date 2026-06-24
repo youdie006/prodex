@@ -127,16 +127,19 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertIncludes(readme, "For an installed package", "installed README");
   assertIncludes(readme, "gptprouse init", "installed README");
   assertIncludes(readme, "CLI-only", "installed README");
+  assertIncludes(readme, "ripgrep", "installed README");
   assertIncludes(readme, "setup --cwd", "installed README");
   assertIncludes(readme, "mcp --cwd", "installed README");
   assertIncludes(readme, "npm run release:verify", "installed README");
   assertIncludes(readme, "configured `doctor`", "installed README");
   assertIncludes(httpMcpDoc, "For an installed package", "installed HTTP MCP docs");
+  assertIncludes(httpMcpDoc, "ripgrep", "installed HTTP MCP docs");
   assertIncludes(httpMcpDoc, "setup --cwd", "installed HTTP MCP docs");
   assertIncludes(httpMcpDoc, "gptprouse setup --token-ttl-hours 24", "installed HTTP MCP docs");
   assertIncludes(httpMcpDoc, "Keep `gptprouse start` running", "installed HTTP MCP docs");
   assertIncludes(httpMcpDoc, "CLI-only", "installed HTTP MCP docs");
   assertIncludes(claudeDoc, "CLI-only", "installed Claude docs");
+  assertIncludes(claudeDoc, "ripgrep", "installed Claude docs");
   assertIncludes(claudeDoc, "mcp --cwd", "installed Claude docs");
 }
 
@@ -179,6 +182,7 @@ async function assertPackageSpecifierBlocked(consumerDir, specifier, mode, nodeA
 }
 
 async function smokeStdioMcp(binPath, cwd) {
+  await writeFile(path.join(cwd, "search-smoke.txt"), "before\n--package-rg-literal ok\nafter\n", "utf8");
   const client = new Client({ name: "gptprouse-package-smoke", version: "0.2.0" });
   const transport = new StdioClientTransport({
     command: binPath,
@@ -189,6 +193,14 @@ async function smokeStdioMcp(binPath, cwd) {
   try {
     await withTimeout(client.connect(transport), 20_000, "Timed out connecting to installed stdio MCP server");
     const result = await withTimeout(client.listTools(), 20_000, "Timed out listing installed stdio MCP tools");
+    const search = await callJsonTool(client, "repo_search", {
+      query: "--package-rg-literal"
+    });
+    assertSearchResult(search, {
+      path: "search-smoke.txt",
+      line: 2,
+      text: "--package-rg-literal ok"
+    });
     return result.tools.map((tool) => tool.name);
   } finally {
     await closeStdioClient(client, transport, "installed stdio MCP client");
@@ -546,6 +558,18 @@ function assertResult(result, expected) {
   }
   if (expected.nextStep !== undefined && result?.blocker?.next_step !== expected.nextStep) {
     throw new Error(`Unexpected result blocker next_step: ${JSON.stringify(result?.blocker)} expected ${expected.nextStep}`);
+  }
+}
+
+function assertSearchResult(result, expected) {
+  if (
+    !Array.isArray(result?.matches) ||
+    result.matches.length !== 1 ||
+    result.matches[0]?.path !== expected.path ||
+    result.matches[0]?.line !== expected.line ||
+    result.matches[0]?.text !== expected.text
+  ) {
+    throw new Error(`Unexpected search result: ${JSON.stringify(result)} expected ${JSON.stringify(expected)}`);
   }
 }
 

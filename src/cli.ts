@@ -699,7 +699,9 @@ async function runDoctor(store: BridgeStore, io: CliIO): Promise<number> {
 
   try {
     const smoke = await runHttpMcpCatalogSmoke();
-    io.stdout(`http_mcp_smoke: ok task_flow=${smoke.taskFlow} finalizers=${smoke.finalizers} tools=${smoke.tools.join(",")}`);
+    io.stdout(
+      `http_mcp_smoke: ok task_flow=${smoke.taskFlow} finalizers=${smoke.finalizers} search=${smoke.search} tools=${smoke.tools.join(",")}`
+    );
   } catch (error) {
     ok = false;
     io.stdout(`http_mcp_smoke: failed ${errorMessage(error)}`);
@@ -708,12 +710,13 @@ async function runDoctor(store: BridgeStore, io: CliIO): Promise<number> {
   return ok ? 0 : 1;
 }
 
-async function runHttpMcpCatalogSmoke(): Promise<{ tools: string[]; taskFlow: "ok"; finalizers: "ok" }> {
+async function runHttpMcpCatalogSmoke(): Promise<{ tools: string[]; taskFlow: "ok"; finalizers: "ok"; search: "ok" }> {
   const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-http-doctor-"));
   let running: Awaited<ReturnType<typeof startHttpMcpServer>> | undefined;
   let client: Client | undefined;
   let smokeFailed = false;
   try {
+    await writeFile(path.join(cwd, "search-smoke.txt"), "before\n--doctor-rg-literal ok\nafter\n", "utf8");
     running = await startHttpMcpServer({
       cwd,
       host: "127.0.0.1",
@@ -730,8 +733,9 @@ async function runHttpMcpCatalogSmoke(): Promise<{ tools: string[]; taskFlow: "o
     const names = result.tools.map((tool) => tool.name);
     const missing = DOCTOR_REQUIRED_MCP_TOOLS.filter((tool) => !names.includes(tool));
     if (missing.length > 0) throw new Error(`missing MCP tools: ${missing.join(",")}`);
+    await runHttpMcpSearchSmoke(client);
     await runHttpMcpFinalizerSmoke(client);
-    return { tools: [...DOCTOR_REQUIRED_MCP_TOOLS], taskFlow: "ok", finalizers: "ok" };
+    return { tools: [...DOCTOR_REQUIRED_MCP_TOOLS], taskFlow: "ok", finalizers: "ok", search: "ok" };
   } catch (error) {
     smokeFailed = true;
     throw error;
@@ -759,6 +763,20 @@ async function runHttpMcpCatalogSmoke(): Promise<{ tools: string[]; taskFlow: "o
     if (cleanupErrors.length > 0 && !smokeFailed) {
       throw new Error(`HTTP MCP smoke cleanup failed: ${cleanupErrors.join("; ")}`);
     }
+  }
+}
+
+async function runHttpMcpSearchSmoke(client: Client): Promise<void> {
+  const result = await callHttpMcpJsonTool<{ matches: Array<{ path?: unknown; line?: unknown; text?: unknown }> }>(client, "repo_search", {
+    query: "--doctor-rg-literal"
+  });
+  if (
+    result.matches.length !== 1 ||
+    result.matches[0]?.path !== "search-smoke.txt" ||
+    result.matches[0]?.line !== 2 ||
+    result.matches[0]?.text !== "--doctor-rg-literal ok"
+  ) {
+    throw new Error(`unexpected HTTP MCP search result: ${JSON.stringify(result)}`);
   }
 }
 

@@ -91,6 +91,29 @@ describe("repo path policy", () => {
     await expect(searchRepo(root, "needle", ".bridge/**")).rejects.toThrow(/sensitive/);
   });
 
+  it("treats search queries that start with dashes as literal text", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-repo-"));
+    await writeFile(path.join(root, "README.md"), "before\n--not-a-real-rg-option literal flag text\nafter\n", "utf8");
+
+    await expect(searchRepo(root, "--not-a-real-rg-option")).resolves.toEqual([
+      { path: "README.md", line: 2, text: "--not-a-real-rg-option literal flag text" }
+    ]);
+  });
+
+  it("reports a clear prerequisite error when ripgrep is missing", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-repo-"));
+    const emptyPath = await mkdtemp(path.join(tmpdir(), "gptprouse-empty-path-"));
+    await writeFile(path.join(root, "README.md"), "needle\n", "utf8");
+    const previousPath = process.env.PATH;
+    process.env.PATH = emptyPath;
+    try {
+      await expect(searchRepo(root, "needle")).rejects.toThrow(/ripgrep.*rg.*PATH/i);
+    } finally {
+      if (previousPath === undefined) delete process.env.PATH;
+      else process.env.PATH = previousPath;
+    }
+  });
+
   it("blocks nested env files from repo reads and searches", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "gptprouse-repo-"));
     await mkdir(path.join(root, "services", "api"), { recursive: true });

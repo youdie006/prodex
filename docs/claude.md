@@ -4,6 +4,8 @@
 
 ## Build
 
+Requires Node.js 20 or newer, `git`, and `ripgrep` (`rg`) on PATH.
+
 If `gptprouse` is installed and on your PATH, you can use the `gptprouse mcp` command directly.
 
 The installed npm package is CLI-only. Use the `gptprouse` command and MCP server surfaces; JavaScript imports from `gptprouse` or `gptprouse/dist/*` are unsupported until a library API is designed and documented.
