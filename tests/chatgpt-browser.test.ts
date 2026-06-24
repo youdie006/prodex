@@ -5,6 +5,7 @@ import {
   chatGptUrlsReferToSameTarget,
   chatGptBlockerErrorFromAnswerState,
   CHATGPT_RUNTIME_BLOCKER_TEXT_EXCLUDED_ANCESTORS,
+  chatGptVisibilityBlocker,
   computePageDiscoveryTimeout,
   computePromptAcceptanceDeadline,
   detectChatGptBlocker,
@@ -243,6 +244,16 @@ describe("ChatGPT browser adapter", () => {
   it("requires a visible ChatGPT tab before sending prompts", () => {
     expect(() => assertVisibleChatGptTab("hidden", "https://chatgpt.com/c/background")).toThrow(/active visible tab/i);
     expect(() => assertVisibleChatGptTab("visible", "https://chatgpt.com/c/current")).not.toThrow();
+  });
+
+  it("turns non-visible ChatGPT tabs into a browser status blocker", () => {
+    expect(chatGptVisibilityBlocker("visible", "https://chatgpt.com/")).toBeUndefined();
+
+    const blocker = chatGptVisibilityBlocker("hidden", "https://chatgpt.com/c/background");
+
+    expect(blocker?.code).toBe("tab_not_visible");
+    expect(blocker?.message).toContain("not the active visible tab");
+    expect(blocker?.next_step).toContain("Select https://chatgpt.com/c/background");
   });
 });
 

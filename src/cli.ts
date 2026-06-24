@@ -10,7 +10,14 @@ import { promisify } from "node:util";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { buildDryRunBundle } from "./bundle.js";
-import { defaultChatGptProfileDir, getChatGptBrowserStatus, normalizeChatGptTargetUrl, openChatGptBrowser, sendChatGptPrompt } from "./chatgpt-browser.js";
+import {
+  chatGptVisibilityBlocker,
+  defaultChatGptProfileDir,
+  getChatGptBrowserStatus,
+  normalizeChatGptTargetUrl,
+  openChatGptBrowser,
+  sendChatGptPrompt
+} from "./chatgpt-browser.js";
 import { assertTokenNotExpired, getTokenExpiryStatus, loadLocalConfig, writeLocalConfig } from "./config.js";
 import { startHttpMcpServer } from "./http-mcp.js";
 import { createMcpToolHandlers } from "./mcp-tools.js";
@@ -1279,12 +1286,16 @@ async function printProductCheck(store: BridgeStore, io: CliIO, args: string[]):
     port: readNumberFlag(args, "--port") ?? 9333,
     timeoutMs: readNumberFlag(args, "--timeout-ms") ?? 1500
   });
+  const visibilityBlocker = chatGptVisibilityBlocker(browserStatus.visibilityState, browserStatus.url);
   if (!browserStatus.reachable) {
     io.stdout(`chatgpt: ${browserStatus.blocker?.code ?? "unreachable"} - ${browserStatus.blocker?.message ?? "browser is not reachable"}`);
     if (browserStatus.blocker?.next_step) io.stdout(`next: ${browserStatus.blocker.next_step}`);
   } else if (browserStatus.blocker) {
     io.stdout(`chatgpt: blocked ${browserStatus.blocker.code} - ${browserStatus.blocker.message}`);
     if (browserStatus.blocker.next_step) io.stdout(`next: ${browserStatus.blocker.next_step}`);
+  } else if (visibilityBlocker) {
+    io.stdout(`chatgpt: blocked ${visibilityBlocker.code} visibility=${browserStatus.visibilityState ?? "unknown"} - ${visibilityBlocker.message}`);
+    if (visibilityBlocker.next_step) io.stdout(`next: ${visibilityBlocker.next_step}`);
   } else if (browserStatus.loggedInLikely && browserStatus.hasComposer) {
     io.stdout(`chatgpt: ok logged_in=true composer=true${browserStatus.url ? ` url=${browserStatus.url}` : ""}`);
   } else {

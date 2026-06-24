@@ -13,6 +13,7 @@ export interface ChatGptBrowserStatus {
   reachable: boolean;
   loggedInLikely: boolean;
   hasComposer: boolean;
+  visibilityState?: string;
   url?: string;
   title?: string;
   modelHints: string[];
@@ -255,6 +256,19 @@ export function assertVisibleChatGptTab(visibilityState: string, url: string, ta
   throw new Error(`Selected ChatGPT tab is not the active visible tab. Select ${url} in the dedicated browser or pass --target-url with --confirm-target.`);
 }
 
+export function chatGptVisibilityBlocker(
+  visibilityState: string | undefined,
+  url: string | undefined
+): ChatGptBrowserStatus["blocker"] | undefined {
+  if (!visibilityState || visibilityState === "visible") return undefined;
+  return {
+    code: "tab_not_visible",
+    message: `Selected ChatGPT tab is ${visibilityState}, not the active visible tab.`,
+    retryable: true,
+    next_step: `Select ${url ?? "the ChatGPT tab"} in the dedicated browser, then retry.`
+  };
+}
+
 export function openChatGptBrowser(options: ChatGptBrowserOptions = {}): { command: string; args: string[]; profileDir: string; port: number } {
   const command = resolveChromeCommand();
   const port = options.port ?? 9333;
@@ -300,15 +314,17 @@ export async function getChatGptBrowserStatus(options: { port?: number; timeoutM
     url: string;
     loggedInLikely: boolean;
     hasComposer: boolean;
+    visibilityState: string;
     modelHints: string[];
     textSample: string;
     visibleButtonLabels: string[];
   }>(page.page, statusExpression());
-  const blocker = detectChatGptBlocker(state.textSample, state.visibleButtonLabels);
+  const blocker = chatGptVisibilityBlocker(state.visibilityState, state.url) ?? detectChatGptBlocker(state.textSample, state.visibleButtonLabels);
   return {
     reachable: true,
     loggedInLikely: state.loggedInLikely,
     hasComposer: state.hasComposer,
+    visibilityState: state.visibilityState,
     url: state.url,
     title: state.title,
     modelHints: state.modelHints,

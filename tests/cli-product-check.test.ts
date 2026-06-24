@@ -8,6 +8,7 @@ const browserStatusFixture = vi.hoisted(() => ({
     reachable: true,
     loggedInLikely: true,
     hasComposer: true,
+    visibilityState: "visible",
     url: "https://chatgpt.com/",
     title: "ChatGPT",
     modelHints: ["ChatGPT Pro"],
@@ -56,6 +57,7 @@ describe("browser product check", () => {
       reachable: true,
       loggedInLikely: true,
       hasComposer: true,
+      visibilityState: "visible",
       url: "https://chatgpt.com/",
       title: "ChatGPT",
       modelHints: ["GPT-5 Pro", "gptprouse v0.2 review", "Thinking", "GPTPROUSE smoke test", "Extra High"]
@@ -68,11 +70,31 @@ describe("browser product check", () => {
     expect(text).not.toContain("GPTPROUSE smoke test");
   });
 
+  it("does not report ok when the selected ChatGPT tab is hidden", async () => {
+    browserStatusFixture.status = {
+      reachable: true,
+      loggedInLikely: true,
+      hasComposer: true,
+      visibilityState: "hidden",
+      url: "https://chatgpt.com/c/background",
+      title: "ChatGPT",
+      modelHints: ["GPT-5 Pro", "Thinking"]
+    };
+
+    const text = await runBrowserCheck();
+
+    expect(text).toContain("chatgpt: blocked tab_not_visible visibility=hidden");
+    expect(text).toContain("Select https://chatgpt.com/c/background in the dedicated browser");
+    expect(text).toContain("model_hints: GPT-5 Pro | Thinking");
+    expect(text).not.toContain("chatgpt: ok");
+  });
+
   it("prints a concrete next step when ChatGPT is reachable but not ready", async () => {
     browserStatusFixture.status = {
       reachable: true,
       loggedInLikely: true,
       hasComposer: false,
+      visibilityState: "visible",
       url: "https://chatgpt.com/",
       title: "ChatGPT",
       modelHints: ["ChatGPT", "Auto"]
