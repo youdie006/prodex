@@ -9,6 +9,20 @@ export interface ChatGptBrowserOptions {
   url?: string;
 }
 
+export interface ChatGptBrowserLaunch {
+  command: string;
+  args: string[];
+  profileDir: string;
+  port: number;
+  waitForEarlyExit: (timeoutMs?: number) => Promise<ChatGptBrowserEarlyExit | undefined>;
+}
+
+export interface ChatGptBrowserEarlyExit {
+  code?: number | null;
+  signal?: NodeJS.Signals | null;
+  error?: string;
+}
+
 export interface ChatGptBrowserStatus {
   reachable: boolean;
   loggedInLikely: boolean;
@@ -346,7 +360,7 @@ export function chatGptVisibilityBlocker(
   };
 }
 
-export function openChatGptBrowser(options: ChatGptBrowserOptions = {}): { command: string; args: string[]; profileDir: string; port: number } {
+export function openChatGptBrowser(options: ChatGptBrowserOptions = {}): ChatGptBrowserLaunch {
   const command = resolveChromeCommand();
   const port = options.port ?? 9333;
   const profileDir = options.profileDir ?? defaultChatGptProfileDir();
@@ -356,8 +370,37 @@ export function openChatGptBrowser(options: ChatGptBrowserOptions = {}): { comma
     url: options.url ?? "https://chatgpt.com/"
   });
   const child = spawn(command, args, { detached: true, stdio: "ignore" });
+  let earlyExit: ChatGptBrowserEarlyExit | undefined;
+  const earlyExitWaiters = new Set<(exit: ChatGptBrowserEarlyExit) => void>();
+  const recordEarlyExit = (exit: ChatGptBrowserEarlyExit) => {
+    if (earlyExit) return;
+    earlyExit = exit;
+    for (const waiter of earlyExitWaiters) waiter(exit);
+    earlyExitWaiters.clear();
+  };
+  child.once("exit", (code, signal) => recordEarlyExit({ code, signal }));
+  child.once("error", (error) => recordEarlyExit({ error: error.message }));
   child.unref();
-  return { command, args, profileDir, port };
+  return {
+    command,
+    args,
+    profileDir,
+    port,
+    waitForEarlyExit: (timeoutMs = 1000) => {
+      if (earlyExit) return Promise.resolve(earlyExit);
+      return new Promise((resolve) => {
+        const resolveExit = (exit: ChatGptBrowserEarlyExit) => {
+          clearTimeout(timer);
+          resolve(exit);
+        };
+        const timer = setTimeout(() => {
+          earlyExitWaiters.delete(resolveExit);
+          resolve(undefined);
+        }, timeoutMs);
+        earlyExitWaiters.add(resolveExit);
+      });
+    }
+  };
 }
 
 export async function getChatGptBrowserStatus(options: { port?: number; timeoutMs?: number } = {}): Promise<ChatGptBrowserStatus> {

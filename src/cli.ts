@@ -15,6 +15,7 @@ import {
   defaultChatGptProfileDir,
   getChatGptBrowserStatus,
   normalizeChatGptTargetUrl,
+  type ChatGptBrowserLaunch,
   openChatGptBrowser,
   sendChatGptPrompt
 } from "./chatgpt-browser.js";
@@ -252,6 +253,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
         profileDir: readFlag(chatgptArgs, "--profile-dir"),
         url: readFlag(chatgptArgs, "--url") ?? "https://chatgpt.com/"
       });
+      await assertBrowserLaunchStayedAlive(opened);
       io.stdout(`Opened ChatGPT browser via ${opened.command}.`);
       io.stdout(`Profile: ${opened.profileDir}`);
       io.stdout(`Debug: http://127.0.0.1:${opened.port}`);
@@ -442,6 +444,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
           profileDir: readFlag(browserArgs, "--profile-dir"),
           url: readFlag(browserArgs, "--url") ?? "https://chatgpt.com/"
         });
+        await assertBrowserLaunchStayedAlive(opened);
         printBrowserLoginGuide(io.stdout, {
           opened: true,
           profileDir: opened.profileDir,
@@ -1417,6 +1420,49 @@ function printBrowserLoginGuide(
   stdout(`Profile: ${input.profileDir}`);
   stdout(`Debug: http://127.0.0.1:${input.port}`);
   stdout("You can close this Chrome window after login. The dedicated profile is reused next time.");
+}
+
+async function assertBrowserLaunchStayedAlive(opened: ChatGptBrowserLaunch): Promise<void> {
+  const outcome = await waitForBrowserLaunchReady(opened);
+  if (outcome.reachable) return;
+  if (outcome.earlyExit) {
+    const detail = formatBrowserEarlyExit(outcome.earlyExit);
+    throw new Error(
+      `Chrome/Chromium exited before DevTools became reachable (${detail}). Check the visible browser environment, profile lock, display access, or GPTPROUSE_CHROME, then retry.`
+    );
+  }
+  throw new Error(
+    `Chrome/Chromium did not expose a reachable DevTools endpoint after launch. Check the visible browser environment, profile lock, display access, or GPTPROUSE_CHROME, then retry.`
+  );
+}
+
+async function waitForBrowserLaunchReady(
+  opened: ChatGptBrowserLaunch,
+  timeoutMs = 5_000
+): Promise<{ reachable: true } | { reachable: false; earlyExit?: Awaited<ReturnType<ChatGptBrowserLaunch["waitForEarlyExit"]>> }> {
+  const deadline = Date.now() + timeoutMs;
+  let earlyExit: Awaited<ReturnType<ChatGptBrowserLaunch["waitForEarlyExit"]>>;
+  while (Date.now() <= deadline) {
+    const remainingMs = Math.max(1, deadline - Date.now());
+    const status = await getChatGptBrowserStatus({ port: opened.port, timeoutMs: Math.min(250, remainingMs) });
+    if (status.reachable) return { reachable: true };
+    earlyExit ??= await opened.waitForEarlyExit(1);
+    if (earlyExit && (earlyExit.code !== 0 || earlyExit.signal || earlyExit.error)) {
+      return { reachable: false, earlyExit };
+    }
+    if (Date.now() >= deadline) break;
+    await sleep(Math.min(100, Math.max(1, deadline - Date.now())));
+  }
+  return { reachable: false, ...(earlyExit ? { earlyExit } : {}) };
+}
+
+function formatBrowserEarlyExit(exit: Awaited<ReturnType<ChatGptBrowserLaunch["waitForEarlyExit"]>>): string {
+  if (!exit) return "no exit details";
+  return exit.error ?? `exit code ${exit.code ?? "null"}${exit.signal ? ` signal ${exit.signal}` : ""}`;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function formatBrowserModelHints(modelHints: string[]): string | undefined {

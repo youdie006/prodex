@@ -2,6 +2,8 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { execFile } from "node:child_process";
 import { chmod, mkdir, mkdtemp, readFile, readdir, symlink, writeFile } from "node:fs/promises";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -1532,6 +1534,215 @@ describe("runCli", () => {
     }
 
     expect(out.join("\n")).not.toContain("ChatGPT Pro browser login");
+  });
+
+  it("fails browser login before printing the guide when Chrome exits immediately", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const fakeChrome = path.join(cwd, "fake-chrome");
+    const out: string[] = [];
+    const previousChrome = process.env.GPTPROUSE_CHROME;
+    await writeFile(
+      fakeChrome,
+      [
+        "#!/bin/sh",
+        'if [ "$1" = "--version" ]; then',
+        '  echo "Google Chrome 123.0.0.0"',
+        "  exit 0",
+        "fi",
+        "exit 42",
+        ""
+      ].join("\n"),
+      "utf8"
+    );
+    await chmod(fakeChrome, 0o755);
+    process.env.GPTPROUSE_CHROME = fakeChrome;
+    try {
+      await expect(
+        runCli(["pro", "browser", "login", "--profile-dir", path.join(cwd, "profile"), "--port", "65529"], {
+          cwd,
+          stdout: (line) => out.push(line),
+          stderr: () => {}
+        })
+      ).rejects.toThrow(/exited immediately|Chrome|browser/i);
+    } finally {
+      if (previousChrome === undefined) delete process.env.GPTPROUSE_CHROME;
+      else process.env.GPTPROUSE_CHROME = previousChrome;
+    }
+
+    expect(out.join("\n")).not.toContain("ChatGPT Pro browser login");
+    expect(out.join("\n")).not.toContain("Opened the dedicated Chrome window");
+  });
+
+  it("fails browser login before printing the guide when Chrome exits after the initial grace window", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const fakeChrome = path.join(cwd, "fake-chrome");
+    const out: string[] = [];
+    const previousChrome = process.env.GPTPROUSE_CHROME;
+    await writeFile(
+      fakeChrome,
+      [
+        "#!/bin/sh",
+        'if [ "$1" = "--version" ]; then',
+        '  echo "Google Chrome 123.0.0.0"',
+        "  exit 0",
+        "fi",
+        "sleep 1.2",
+        "exit 42",
+        ""
+      ].join("\n"),
+      "utf8"
+    );
+    await chmod(fakeChrome, 0o755);
+    process.env.GPTPROUSE_CHROME = fakeChrome;
+    try {
+      await expect(
+        runCli(["pro", "browser", "login", "--profile-dir", path.join(cwd, "profile"), "--port", "65527"], {
+          cwd,
+          stdout: (line) => out.push(line),
+          stderr: () => {}
+        })
+      ).rejects.toThrow(/exited|DevTools|Chrome|browser/i);
+    } finally {
+      if (previousChrome === undefined) delete process.env.GPTPROUSE_CHROME;
+      else process.env.GPTPROUSE_CHROME = previousChrome;
+    }
+
+    expect(out.join("\n")).not.toContain("ChatGPT Pro browser login");
+    expect(out.join("\n")).not.toContain("Opened the dedicated Chrome window");
+  });
+
+  it("allows browser login handoff when DevTools is already reachable", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const fakeChrome = path.join(cwd, "fake-chrome");
+    const out: string[] = [];
+    const previousChrome = process.env.GPTPROUSE_CHROME;
+    const server = createServer((request, response) => {
+      response.setHeader("content-type", "application/json");
+      response.end(request.url === "/json/list" ? "[]" : "{}");
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const port = (server.address() as AddressInfo).port;
+    await writeFile(
+      fakeChrome,
+      [
+        "#!/bin/sh",
+        'if [ "$1" = "--version" ]; then',
+        '  echo "Google Chrome 123.0.0.0"',
+        "  exit 0",
+        "fi",
+        "exit 0",
+        ""
+      ].join("\n"),
+      "utf8"
+    );
+    await chmod(fakeChrome, 0o755);
+    process.env.GPTPROUSE_CHROME = fakeChrome;
+    try {
+      await expect(
+        runCli(["pro", "browser", "login", "--profile-dir", path.join(cwd, "profile"), "--port", String(port)], {
+          cwd,
+          stdout: (line) => out.push(line),
+          stderr: () => {}
+        })
+      ).resolves.toBe(0);
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      if (previousChrome === undefined) delete process.env.GPTPROUSE_CHROME;
+      else process.env.GPTPROUSE_CHROME = previousChrome;
+    }
+
+    expect(out.join("\n")).toContain("ChatGPT Pro browser login");
+    expect(out.join("\n")).toContain("Opened the dedicated Chrome window");
+  });
+
+  it("allows browser login handoff when DevTools becomes reachable shortly after Chrome exits", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const fakeChrome = path.join(cwd, "fake-chrome");
+    const out: string[] = [];
+    const previousChrome = process.env.GPTPROUSE_CHROME;
+    let devtoolsReady = false;
+    const server = createServer((request, response) => {
+      response.setHeader("content-type", "application/json");
+      if (!devtoolsReady) {
+        response.statusCode = 503;
+        response.end("{}");
+        return;
+      }
+      response.end(request.url === "/json/list" ? "[]" : "{}");
+    });
+    await writeFile(
+      fakeChrome,
+      [
+        "#!/bin/sh",
+        'if [ "$1" = "--version" ]; then',
+        '  echo "Google Chrome 123.0.0.0"',
+        "  exit 0",
+        "fi",
+        "exit 0",
+        ""
+      ].join("\n"),
+      "utf8"
+    );
+    await chmod(fakeChrome, 0o755);
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const port = (server.address() as AddressInfo).port;
+    const readyTimer = setTimeout(() => {
+      devtoolsReady = true;
+    }, 2_300);
+    process.env.GPTPROUSE_CHROME = fakeChrome;
+    try {
+      await expect(
+        runCli(["pro", "browser", "login", "--profile-dir", path.join(cwd, "profile"), "--port", String(port)], {
+          cwd,
+          stdout: (line) => out.push(line),
+          stderr: () => {}
+        })
+      ).resolves.toBe(0);
+    } finally {
+      clearTimeout(readyTimer);
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      if (previousChrome === undefined) delete process.env.GPTPROUSE_CHROME;
+      else process.env.GPTPROUSE_CHROME = previousChrome;
+    }
+
+    expect(out.join("\n")).toContain("ChatGPT Pro browser login");
+    expect(out.join("\n")).toContain("Opened the dedicated Chrome window");
+  });
+
+  it("fails legacy browser open before printing success when Chrome exits immediately", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const fakeChrome = path.join(cwd, "fake-chrome");
+    const out: string[] = [];
+    const previousChrome = process.env.GPTPROUSE_CHROME;
+    await writeFile(
+      fakeChrome,
+      [
+        "#!/bin/sh",
+        'if [ "$1" = "--version" ]; then',
+        '  echo "Google Chrome 123.0.0.0"',
+        "  exit 0",
+        "fi",
+        "exit 42",
+        ""
+      ].join("\n"),
+      "utf8"
+    );
+    await chmod(fakeChrome, 0o755);
+    process.env.GPTPROUSE_CHROME = fakeChrome;
+    try {
+      await expect(
+        runCli(["chatgpt", "open", "--profile-dir", path.join(cwd, "profile"), "--port", "65528"], {
+          cwd,
+          stdout: (line) => out.push(line),
+          stderr: () => {}
+        })
+      ).rejects.toThrow(/exited immediately|Chrome|browser/i);
+    } finally {
+      if (previousChrome === undefined) delete process.env.GPTPROUSE_CHROME;
+      else process.env.GPTPROUSE_CHROME = previousChrome;
+    }
+
+    expect(out.join("\n")).not.toContain("Opened ChatGPT browser");
   });
 
   it("rejects fake Chrome-compatible commands found on PATH", async () => {
