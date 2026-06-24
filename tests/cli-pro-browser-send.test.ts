@@ -47,9 +47,22 @@ describe("pro browser ask persistence", () => {
 
     const text = out.join("\n");
     expect(text).toContain("status: blocked");
+    expect(text).toContain("blocker:");
+    expect(text).toContain("- code: browser_send_failed");
+    expect(text).toContain("- retryable: true");
+    expect(text).toContain("- next_step: Resolve the visible browser issue manually, then rerun the consult if needed.");
     expect(text).toContain("ChatGPT is asking you to log in.");
     const taskId = text.match(/task_id: (task_[^\n]+)/)?.[1];
     expect(taskId).toBeDefined();
+
+    const checkOut: string[] = [];
+    await runCli(["pro", "browser", "check", "--port", "65534", "--timeout-ms", "10"], {
+      cwd,
+      stdout: (line) => checkOut.push(line),
+      stderr: () => {}
+    });
+    expect(checkOut.join("\n")).toContain(`latest_pro: blocked ${taskId}`);
+
     const task = JSON.parse(await readFile(path.join(cwd, ".bridge", "tasks", `${taskId}.json`), "utf8")) as {
       status: string;
       provenance: { session_id: string };

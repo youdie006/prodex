@@ -142,7 +142,7 @@ gptprouse sessions show latest
 
 This uses the currently available ChatGPT web session and model selection. It is not a hidden API client, and it does not read cookies, tokens, localStorage, or sessionStorage.
 
-Each explicit browser consult creates a `.bridge` task and `.bridge/sessions` record before sending. If the visible browser is blocked by login, captcha, permission, or usage limits, the task is completed as a blocked consult so `gptprouse pro latest` still shows what happened. Successful answers are also saved as result artifacts under `.bridge/artifacts/pro-consults/` before the task result is finalized. Generic MCP handoff result artifacts can be stored under `.bridge/artifacts/results/`; `bridge_fetch_result_artifact` only reads artifacts explicitly listed on the result record.
+Each explicit browser consult creates a `.bridge` task and `.bridge/sessions` record before sending. If the visible browser is blocked by login, captcha, permission, or usage limits, the task is completed as a blocked consult so `gptprouse pro latest` still shows what happened, including the blocker code and next step. Successful answers are also saved as result artifacts under `.bridge/artifacts/pro-consults/` before the task result is finalized. Generic MCP handoff result artifacts can be stored under `.bridge/artifacts/results/`; `bridge_fetch_result_artifact` only reads artifacts explicitly listed on the result record.
 
 To send into a specific visible Project or thread, open that ChatGPT URL in the dedicated browser first, confirm it is the right destination, then pass the same URL:
 

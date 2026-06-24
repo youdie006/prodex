@@ -1529,7 +1529,8 @@ async function printProductCheck(store: BridgeStore, io: CliIO, args: string[]):
 
   const latest = (await listConsults(store))[0];
   if (latest) {
-    io.stdout(`latest_pro: ok ${latest.task.id} ${latest.result.status} ${latest.result.created_at}`);
+    const latestLabel = latest.result.status === "blocked" ? "blocked" : "ok";
+    io.stdout(`latest_pro: ${latestLabel} ${latest.task.id} ${latest.result.status} ${latest.result.created_at}`);
   } else {
     io.stdout("latest_pro: missing");
   }
@@ -1601,6 +1602,10 @@ function formatProAnswer(consult: ConsultRecord): string {
     "",
     consult.result.summary
   ].filter((line): line is string => line !== undefined);
+  if (consult.result.blocker) {
+    lines.push("", "blocker:", `- code: ${consult.result.blocker.code}`, `- retryable: ${consult.result.blocker.retryable}`);
+    if (consult.result.blocker.next_step) lines.push(`- next_step: ${consult.result.blocker.next_step}`);
+  }
   if (consult.result.warnings.length > 0) {
     lines.push("", "warnings:");
     for (const warning of consult.result.warnings) lines.push(`- ${warning}`);

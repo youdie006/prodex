@@ -150,6 +150,7 @@ try {
   assertIncludes(doctor.stdout, "http_mcp_smoke: ok", "installed doctor output");
   assertIncludes(doctor.stdout, "task_flow=ok", "installed doctor output");
   assertIncludes(doctor.stdout, "finalizers=ok", "installed doctor output");
+  await smokeInstalledProBlockedConsult(binPath, consumerDir);
 
   await smokeInstalledHttpOnboarding(binPath, consumerDir);
   await assertInstalledDocsArePortable(consumerDir);
@@ -229,6 +230,7 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertIncludes(readme, ".bridge/artifacts/results/", "installed README");
   assertIncludes(readme, "generic MCP handoff artifacts", "installed README");
   assertIncludes(readme, "more than one ChatGPT tab or window is visible", "installed README");
+  assertIncludes(readme, "blocker code and next step", "installed README");
   assertIncludes(readme, "connects to the installed `/mcp` endpoint", "installed README");
   assertIncludes(readme, "verifies explicit `--cwd` task storage", "installed README");
   assertNotIncludes(readme, "Read-only result artifact fetch for Pro consult artifacts explicitly listed", "installed README");
@@ -322,6 +324,46 @@ async function assertPackageSpecifierBlocked(consumerDir, specifier, mode, nodeA
     return;
   }
   throw new Error(`Installed package unexpectedly allowed ${mode}(${specifier}); the npm package should expose only the CLI for now`);
+}
+
+async function smokeInstalledProBlockedConsult(binPath, cwd) {
+  const created = await run(
+    binPath,
+    ["tasks", "create", "--title", "GPT Pro consult", "--prompt", "Installed blocked consult smoke"],
+    { cwd }
+  );
+  const taskId = created.stdout.split("\t")[0];
+  if (!taskId?.startsWith("task_")) {
+    throw new Error(`Installed blocked consult smoke could not parse task id: ${created.stdout}`);
+  }
+  await run(binPath, ["tasks", "claim", taskId, "--by", "chatgpt-pro"], { cwd });
+  await run(
+    binPath,
+    [
+      "tasks",
+      "block",
+      taskId,
+      "--summary",
+      "Visible browser login is required.",
+      "--code",
+      "browser_send_failed",
+      "--next-step",
+      "Log in manually, then retry.",
+      "--retryable",
+      "--command",
+      "visible ChatGPT browser consult"
+    ],
+    { cwd }
+  );
+  const latest = await run(binPath, ["pro", "latest"], { cwd });
+  assertIncludes(latest.stdout, "status: blocked", "installed pro latest blocked output");
+  assertIncludes(latest.stdout, "blocker:", "installed pro latest blocked output");
+  assertIncludes(latest.stdout, "- code: browser_send_failed", "installed pro latest blocked output");
+  assertIncludes(latest.stdout, "- retryable: true", "installed pro latest blocked output");
+  assertIncludes(latest.stdout, "- next_step: Log in manually, then retry.", "installed pro latest blocked output");
+  const check = await run(binPath, ["pro", "browser", "check", "--port", "65534", "--timeout-ms", "10"], { cwd, timeout: 60_000 });
+  assertIncludes(check.stdout, `latest_pro: blocked ${taskId}`, "installed pro browser check blocked output");
+  assertNotIncludes(check.stdout, `latest_pro: ok ${taskId} blocked`, "installed pro browser check blocked output");
 }
 
 async function smokeStdioMcp(binPath, cwd) {
