@@ -62,6 +62,7 @@ export interface ChatGptPageTextState {
 interface ChatGptPageStatus extends ChatGptPageTextState {
   title: string;
   hasComposer: boolean;
+  generating: boolean;
   modelHints: string[];
   url: string;
   visibilityState: string;
@@ -92,6 +93,7 @@ interface CdpResponse {
 
 const MAX_PAGE_DISCOVERY_TIMEOUT_MS = 5_000;
 const PAGE_VISIBILITY_PROBE_TIMEOUT_MS = 1_000;
+const CHATGPT_GENERATING_CONTROL_PATTERN = /\bstop\s+(?:generating|responding|response)\b|응답\s*중지|생성\s*중지/i;
 
 export function defaultChatGptProfileDir(): string {
   return path.join(os.homedir(), ".local", "share", "gptprouse", "chrome-chatgpt-pro");
@@ -138,9 +140,30 @@ export function hasFreshChatGptAnswer(
   return state.assistantMessageCount > previousAssistantMessageCount && isUsableChatGptAnswer(state.answer) && !state.generating;
 }
 
+export function hasChatGptPromptAcceptance(
+  previous: Pick<ChatGptAnswerState, "assistantMessageCount" | "userMessageCount">,
+  state: Pick<ChatGptAnswerState, "assistantMessageCount" | "generating" | "userMessageCount">
+): boolean {
+  return state.userMessageCount > previous.userMessageCount || state.assistantMessageCount > previous.assistantMessageCount;
+}
+
+export function chatGptBusyBlocker(generating: boolean): ChatGptBrowserStatus["blocker"] | undefined {
+  if (!generating) return undefined;
+  return {
+    code: "response_in_progress",
+    message: "ChatGPT is still generating a previous response.",
+    retryable: true,
+    next_step: "Wait for the visible response to finish, or stop it manually in the browser, then retry."
+  };
+}
+
 export function isLikelyChatGptSubmitButton(label: string, dataTestId: string | null): boolean {
   const normalized = label.trim().toLowerCase();
   return dataTestId === "send-button" || /\b(send|submit)\b|보내기|전송/.test(normalized);
+}
+
+export function isLikelyChatGptGeneratingControl(label: string): boolean {
+  return CHATGPT_GENERATING_CONTROL_PATTERN.test(label.trim());
 }
 
 export function detectChatGptBlocker(
@@ -323,7 +346,7 @@ export async function getChatGptBrowserStatus(options: { port?: number; timeoutM
   }
   const state = await evaluateOnPage<ChatGptPageStatus>(page.page, statusExpression());
   const loggedInLikely = inferChatGptPageLoggedInLikely(state);
-  const blocker = chatGptVisibilityBlocker(state.visibilityState, state.url) ?? detectChatGptPageBlocker(state);
+  const blocker = chatGptVisibilityBlocker(state.visibilityState, state.url) ?? detectChatGptPageBlocker(state) ?? chatGptBusyBlocker(state.generating);
   return {
     reachable: true,
     loggedInLikely,
@@ -365,6 +388,10 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
     );
   }
   assertVisibleChatGptTab(status.visibilityState, status.url, normalizedTargetUrl);
+  const busyBlocker = chatGptBusyBlocker(status.generating);
+  if (busyBlocker) {
+    throw new Error(formatBlockerError(busyBlocker));
+  }
   const beforeSubmit = await evaluateOnPage<ChatGptAnswerState>(page, answerExpression());
   const cdp = await connectCdp(page.webSocketDebuggerUrl);
   try {
@@ -390,11 +417,7 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
     finalState = await evaluateOnPage<ChatGptAnswerState>(page, answerExpression());
     const runtimeBlocker = chatGptBlockerErrorFromAnswerState(finalState);
     if (runtimeBlocker) throw new Error(runtimeBlocker);
-    if (
-      finalState.userMessageCount > beforeSubmit.userMessageCount ||
-      finalState.assistantMessageCount > beforeSubmit.assistantMessageCount ||
-      finalState.generating
-    ) {
+    if (hasChatGptPromptAcceptance(beforeSubmit, finalState)) {
       accepted = true;
       break;
     }
@@ -568,9 +591,12 @@ async function connectCdp(webSocketUrl: string, timeoutMs?: number): Promise<{
 
 function statusExpression(): string {
   const excludedTextSelector = JSON.stringify(CHATGPT_RUNTIME_BLOCKER_TEXT_EXCLUDED_ANCESTORS);
+  const generatingControlPattern = JSON.stringify(CHATGPT_GENERATING_CONTROL_PATTERN.source);
+  const generatingControlFlags = JSON.stringify(CHATGPT_GENERATING_CONTROL_PATTERN.flags);
   return `(() => {
     const text = document.body?.innerText || "";
     const excludedTextSelector = ${excludedTextSelector};
+    const generatingControlPattern = new RegExp(${generatingControlPattern}, ${generatingControlFlags});
     const visibleTextOutsideMessages = () => {
       if (!document.body) return "";
       const parts = [];
@@ -595,6 +621,13 @@ function statusExpression(): string {
       .filter((el) => !el.closest(excludedTextSelector))
       .map((el) => (el.innerText || el.getAttribute("aria-label") || el.getAttribute("data-testid") || "").trim())
       .filter(Boolean);
+    const messages = [...document.querySelectorAll('[data-message-author-role]')].map((node) => ({
+      role: node.getAttribute('data-message-author-role'),
+      text: node.innerText || ""
+    }));
+    const assistant = messages.filter((message) => message.role === "assistant").at(-1);
+    const answer = assistant?.text || "";
+    const placeholder = /^(생각 중|thinking|thought for|thought about)/i.test(answer.trim().replace(/\\.+$/, ""));
     const hasComposer = [...document.querySelectorAll('div[role="textbox"], textarea, [contenteditable="true"]')]
       .some((el) => !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length));
     return {
@@ -605,6 +638,7 @@ function statusExpression(): string {
       blockerTextSample: blockerText.slice(0, 12000),
       visibleButtonLabels,
       hasComposer,
+      generating: placeholder || visibleButtonLabels.some((label) => generatingControlPattern.test(label)),
       modelHints: lines.filter((line) => /GPT|Pro|Thinking|ChatGPT|Extra High|Auto/i.test(line)).slice(0, 30)
     };
   })()`;
@@ -663,9 +697,12 @@ function submitExpression(): string {
 
 function answerExpression(): string {
   const excludedTextSelector = JSON.stringify(CHATGPT_RUNTIME_BLOCKER_TEXT_EXCLUDED_ANCESTORS);
+  const generatingControlPattern = JSON.stringify(CHATGPT_GENERATING_CONTROL_PATTERN.source);
+  const generatingControlFlags = JSON.stringify(CHATGPT_GENERATING_CONTROL_PATTERN.flags);
   return `(() => {
     const text = document.body?.innerText || "";
     const excludedTextSelector = ${excludedTextSelector};
+    const generatingControlPattern = new RegExp(${generatingControlPattern}, ${generatingControlFlags});
     const visibleTextOutsideMessages = () => {
       if (!document.body) return "";
       const parts = [];
@@ -705,7 +742,7 @@ function answerExpression(): string {
       textSample: text.slice(0, 12000),
       blockerTextSample: visibleTextOutsideMessages().slice(0, 12000),
       visibleButtonLabels: buttons,
-      generating: placeholder || buttons.some((label) => /stop|cancel|중지|취소|응답 중지/i.test(label)),
+      generating: placeholder || buttons.some((label) => generatingControlPattern.test(label)),
       assistantMessageCount: assistantMessages.length,
       userMessageCount: userMessages.length,
       modelHints: lines.filter((line) => /GPT|Pro|Thinking|ChatGPT|Extra High|Auto/i.test(line)).slice(0, 30)

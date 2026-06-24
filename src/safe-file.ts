@@ -23,7 +23,7 @@ export function setSafeFileTestHooks(hooks: SafeFileTestHooks): void {
 export async function readVerifiedUtf8File(
   filePath: string,
   validate: () => Promise<void>,
-  options: { maxBytes?: number } = {}
+  options: { maxBytes?: number; mode?: number } = {}
 ): Promise<string> {
   await validate();
   const parentSnapshot = await captureParentSnapshot(filePath);
@@ -39,6 +39,9 @@ export async function readVerifiedUtf8File(
       throw new Error(`Path ${filePath} is too large (${stat.size} bytes)`);
     }
     const content = await handle.readFile("utf8");
+    if (options.mode !== undefined) {
+      await handle.chmod(options.mode);
+    }
     await validate();
     return content;
   } finally {

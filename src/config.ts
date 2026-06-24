@@ -1,5 +1,5 @@
 import { constants } from "node:fs";
-import { chmod, lstat, mkdir, open, type FileHandle } from "node:fs/promises";
+import { lstat, mkdir, open, type FileHandle } from "node:fs/promises";
 import { randomBytes } from "node:crypto";
 import path from "node:path";
 import { z } from "zod";
@@ -63,7 +63,6 @@ export async function writeLocalConfig(cwd: string, input: WriteLocalConfigInput
     create: true,
     mode: 0o600
   });
-  await chmod(localConfigPath(cwd), 0o600);
   return config;
 }
 
@@ -71,9 +70,12 @@ export async function loadLocalConfig(cwd: string): Promise<LocalConfig> {
   await assertLocalConfigTargetSafe(cwd, { allowMissing: false });
   await chmodPrivateBridgeDirectory(cwd);
   const config = LocalConfigSchema.parse(
-    JSON.parse(await readVerifiedUtf8File(localConfigPath(cwd), () => assertLocalConfigTargetSafe(cwd, { allowMissing: false })))
+    JSON.parse(
+      await readVerifiedUtf8File(localConfigPath(cwd), () => assertLocalConfigTargetSafe(cwd, { allowMissing: false }), {
+        mode: 0o600
+      })
+    )
   );
-  await chmod(localConfigPath(cwd), 0o600);
   return config;
 }
 

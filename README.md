@@ -54,7 +54,7 @@ Implemented:
 - `sessions list` and `sessions show` for inspecting dry-run, running, done, or blocked consult sessions.
 - `receipts list` and `receipts show` for inspecting the local action ledger without exposing legacy inline write payloads.
 - Ledger MCP tools for creating, claiming, completing, blocking, and inspecting task/result/session/receipt records from Claude or ChatGPT Projects.
-- Read-only result artifact fetch for Pro consult artifacts explicitly listed on a result record.
+- Read-only result artifact fetch for Pro consult and generic MCP handoff artifacts explicitly listed on result records.
 - `ask-pro --dry-run` and `ask-pro --send` as explicit lower-level aliases.
 - `pro browser login/check/smoke/ask` for the optional visible browser adapter.
 - Claude-compatible stdio MCP server through `gptprouse mcp`.
@@ -235,7 +235,7 @@ Before sharing a package tarball, run:
 npm run smoke:package
 ```
 
-This packs the project, installs the tarball into a temporary consumer project, runs the installed `gptprouse` binary, verifies HTTP MCP onboarding through installed token-TTL `setup`/`status`/configured `doctor`/`tunnel url`/`start` plus `/health`, verifies the package is CLI-only by blocking unsupported deep imports, verifies the installed stdio MCP server exposes the expected tool catalog, and calls the installed stdio task completion/blocking tools.
+This packs the project, installs the tarball into a temporary consumer project, runs the installed `gptprouse` binary, verifies HTTP MCP onboarding through installed token-TTL `setup`/`status`/configured `doctor`/`tunnel url`/`start`, checks `/health`, connects to the installed `/mcp` endpoint, lists tools, calls `bridge_create_task`, verifies explicit `--cwd` task storage, verifies the package is CLI-only by blocking unsupported deep imports, verifies the installed stdio MCP server exposes the expected tool catalog, and calls the installed stdio task completion/blocking tools.
 
 To run the full release verification sequence before choosing a public license:
 

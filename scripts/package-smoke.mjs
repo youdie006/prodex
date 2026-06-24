@@ -208,6 +208,10 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertIncludes(readme, "private: true", "installed README");
   assertIncludes(readme, "configured `doctor`", "installed README");
   assertIncludes(readme, ".bridge/artifacts/results/", "installed README");
+  assertIncludes(readme, "generic MCP handoff artifacts", "installed README");
+  assertIncludes(readme, "connects to the installed `/mcp` endpoint", "installed README");
+  assertIncludes(readme, "verifies explicit `--cwd` task storage", "installed README");
+  assertNotIncludes(readme, "Read-only result artifact fetch for Pro consult artifacts explicitly listed", "installed README");
   assertAppearsBefore(
     readme,
     "Token-bearing MCP URLs are secrets",

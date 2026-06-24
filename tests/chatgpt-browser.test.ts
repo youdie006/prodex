@@ -6,15 +6,18 @@ import {
   chatGptBlockerErrorFromAnswerState,
   CHATGPT_RUNTIME_BLOCKER_TEXT_EXCLUDED_ANCESTORS,
   chatGptVisibilityBlocker,
+  chatGptBusyBlocker,
   computePageDiscoveryTimeout,
   computePromptAcceptanceDeadline,
   detectChatGptBlocker,
   detectChatGptPageBlocker,
   type DevtoolsPage,
   getChatGptBrowserStatus,
+  hasChatGptPromptAcceptance,
   hasFreshChatGptAnswer,
   inferChatGptPageLoggedInLikely,
   inferLoggedInLikely,
+  isLikelyChatGptGeneratingControl,
   isLikelyChatGptSubmitButton,
   normalizeChatGptTargetUrl,
   selectChatGptPage,
@@ -81,11 +84,59 @@ describe("ChatGPT browser adapter", () => {
     ).toBe(true);
   });
 
+  it("reports an in-flight response as a browser busy blocker", () => {
+    const blocker = chatGptBusyBlocker(true);
+
+    expect(blocker).toEqual(
+      expect.objectContaining({
+        code: "response_in_progress",
+        retryable: true
+      })
+    );
+    expect(blocker?.message).toContain("still generating");
+    expect(blocker?.next_step).toContain("visible");
+  });
+
+  it("does not treat pre-existing generation as prompt acceptance", () => {
+    const before = { userMessageCount: 2, assistantMessageCount: 1 };
+
+    expect(
+      hasChatGptPromptAcceptance(before, {
+        userMessageCount: 2,
+        assistantMessageCount: 1,
+        generating: true
+      })
+    ).toBe(false);
+    expect(
+      hasChatGptPromptAcceptance(before, {
+        userMessageCount: 3,
+        assistantMessageCount: 1,
+        generating: true
+      })
+    ).toBe(true);
+    expect(
+      hasChatGptPromptAcceptance(before, {
+        userMessageCount: 2,
+        assistantMessageCount: 2,
+        generating: true
+      })
+    ).toBe(true);
+  });
+
   it("recognizes current English and Korean ChatGPT submit buttons", () => {
     expect(isLikelyChatGptSubmitButton("Send prompt", null)).toBe(true);
     expect(isLikelyChatGptSubmitButton("프롬프트 보내기", null)).toBe(true);
     expect(isLikelyChatGptSubmitButton("", "send-button")).toBe(true);
     expect(isLikelyChatGptSubmitButton("시작하기", null)).toBe(false);
+  });
+
+  it("recognizes generating controls without treating generic cancel buttons as busy", () => {
+    expect(isLikelyChatGptGeneratingControl("Stop generating")).toBe(true);
+    expect(isLikelyChatGptGeneratingControl("Stop response")).toBe(true);
+    expect(isLikelyChatGptGeneratingControl("응답 중지")).toBe(true);
+    expect(isLikelyChatGptGeneratingControl("Cancel")).toBe(false);
+    expect(isLikelyChatGptGeneratingControl("취소")).toBe(false);
+    expect(isLikelyChatGptGeneratingControl("Stop sharing")).toBe(false);
   });
 
   it("excludes current composer text from runtime blocker scans", () => {
