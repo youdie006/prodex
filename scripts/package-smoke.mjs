@@ -195,6 +195,18 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertIncludes(readme, "npm run release:verify", "installed README");
   assertIncludes(readme, "private: true", "installed README");
   assertIncludes(readme, "configured `doctor`", "installed README");
+  assertAppearsBefore(
+    readme,
+    "Token-bearing MCP URLs are secrets",
+    "gptprouse status --show-token --url-only",
+    "installed README token URL warning"
+  );
+  assertAppearsBefore(
+    readme,
+    "Public tunnel MCP URLs are also secrets",
+    "gptprouse tunnel url --public-url \"https://your-tunnel.example\" --show-token --url-only",
+    "installed README tunnel token URL warning"
+  );
   assertIncludes(httpMcpDoc, "For an installed package", "installed HTTP MCP docs");
   assertIncludes(httpMcpDoc, "ripgrep", "installed HTTP MCP docs");
   assertIncludes(httpMcpDoc, "setup --cwd", "installed HTTP MCP docs");
@@ -203,6 +215,30 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertIncludes(httpMcpDoc, "Verify In ChatGPT", "installed HTTP MCP docs");
   assertIncludes(httpMcpDoc, "Keep `gptprouse start` running", "installed HTTP MCP docs");
   assertIncludes(httpMcpDoc, "CLI-only", "installed HTTP MCP docs");
+  assertAppearsBefore(
+    httpMcpDoc,
+    "Token-bearing MCP URLs are secrets",
+    "gptprouse status --show-token --url-only",
+    "installed HTTP MCP docs token URL warning"
+  );
+  assertAppearsBefore(
+    httpMcpDoc,
+    "Token-bearing MCP URLs are secrets",
+    "gptprouse status --cwd /absolute/path/to/your/repo --show-token --url-only",
+    "installed HTTP MCP docs cwd token URL warning"
+  );
+  assertAppearsBefore(
+    httpMcpDoc,
+    "Public tunnel MCP URLs are also secrets",
+    "gptprouse tunnel url --public-url \"https://your-tunnel.example\" --show-token --url-only",
+    "installed HTTP MCP docs tunnel token URL warning"
+  );
+  assertAppearsBefore(
+    httpMcpDoc,
+    "Public tunnel MCP URLs are also secrets",
+    "gptprouse tunnel url --cwd /absolute/path/to/your/repo --public-url \"https://your-tunnel.example\" --show-token --url-only",
+    "installed HTTP MCP docs cwd tunnel token URL warning"
+  );
   assertIncludes(claudeDoc, "CLI-only", "installed Claude docs");
   assertIncludes(claudeDoc, "ripgrep", "installed Claude docs");
   assertIncludes(claudeDoc, "mcp --cwd", "installed Claude docs");
@@ -729,6 +765,20 @@ function assertIncludes(text, expected, label) {
 function assertNotIncludes(text, unexpected, label) {
   if (text.includes(unexpected)) {
     throw new Error(`${label} unexpectedly included ${unexpected}. Output was:\n${text.slice(0, 1000)}`);
+  }
+}
+
+function assertAppearsBefore(text, earlier, later, label) {
+  const earlierIndex = text.indexOf(earlier);
+  if (earlierIndex === -1) {
+    throw new Error(`${label} did not include ${earlier}. Output was:\n${text.slice(0, 1000)}`);
+  }
+  const laterIndex = text.indexOf(later);
+  if (laterIndex === -1) {
+    throw new Error(`${label} did not include ${later}. Output was:\n${text.slice(0, 1000)}`);
+  }
+  if (earlierIndex >= laterIndex) {
+    throw new Error(`${label} must put ${earlier} before ${later}`);
   }
 }
 

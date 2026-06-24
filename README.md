@@ -168,13 +168,13 @@ gptprouse setup --cwd /absolute/path/to/your/repo --token-ttl-hours 24
 gptprouse start --cwd /absolute/path/to/your/repo
 ```
 
-When you are ready to paste the MCP URL into ChatGPT Developer Mode / Apps, run:
+Token-bearing MCP URLs are secrets. Use the next command only when you are ready to paste the URL into your own trusted private ChatGPT Project/App configuration:
 
 ```bash
 gptprouse status --show-token --url-only
 ```
 
-`status --show-token` requires a token with an expiry, so run `setup --token-ttl-hours <hours>` before asking for a paste-ready URL. The URL token is stored only in `.bridge/config.local.json`, which is ignored by git. Treat the full `--show-token` URL like a password: paste it only into your own private ChatGPT Project/App configuration, then rotate it with `setup` when you no longer need that URL. If you intentionally created a non-expiring token for local-only debugging, `status --show-token` refuses to reveal it unless you also pass `--unsafe-show-non-expiring-token`.
+`status --show-token` requires a token with an expiry, so run `setup --token-ttl-hours <hours>` before asking for a paste-ready URL. The URL token is stored only in `.bridge/config.local.json`, which is ignored by git. Rotate it with `setup` when you no longer need that URL. If you intentionally created a non-expiring token for local-only debugging, `status --show-token` refuses to reveal it unless you also pass `--unsafe-show-non-expiring-token`.
 
 After adding the MCP URL to ChatGPT, generate a paste-ready verification prompt:
 
@@ -189,7 +189,9 @@ gptprouse tasks list --status new
 gptprouse tasks show <task-id>
 ```
 
-If ChatGPT cannot reach `127.0.0.1` from its app runtime, keep `gptprouse start` local and put your own tunnel in front of it only after creating a short-lived token. `gptprouse` does not create the tunnel for you, but it can format the public MCP URL safely:
+If ChatGPT cannot reach `127.0.0.1` from its app runtime, keep `gptprouse start` local and put your own tunnel in front of it only after creating a short-lived token. `gptprouse` does not create the tunnel for you, but it can format the public MCP URL safely.
+
+Public tunnel MCP URLs are also secrets. Use the next command only when you are ready to paste the public URL into your own trusted private MCP client configuration:
 
 ```bash
 gptprouse tunnel url --public-url "https://your-tunnel.example" --show-token --url-only
