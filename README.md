@@ -217,6 +217,14 @@ npm run smoke:package
 
 This packs the project, installs the tarball into a temporary consumer project, runs the installed `gptprouse` binary, verifies HTTP MCP onboarding through installed token-TTL `setup`/`status`/configured `doctor`/`tunnel url`/`start` plus `/health`, verifies the package is CLI-only by blocking unsupported deep imports, verifies the installed stdio MCP server exposes the expected tool catalog, and calls the installed stdio task completion/blocking tools.
 
+To run the full release verification sequence before choosing a public license:
+
+```bash
+npm run release:verify
+```
+
+This runs tests, typecheck, build, package smoke, and `doctor` without weakening the publish guard.
+
 Before publishing to npm, choose an explicit license and add the matching `LICENSE` file. `npm publish` is intentionally guarded by `prepublishOnly`; it runs:
 
 ```bash

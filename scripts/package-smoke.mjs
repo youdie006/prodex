@@ -129,6 +129,7 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertIncludes(readme, "CLI-only", "installed README");
   assertIncludes(readme, "setup --cwd", "installed README");
   assertIncludes(readme, "mcp --cwd", "installed README");
+  assertIncludes(readme, "npm run release:verify", "installed README");
   assertIncludes(readme, "configured `doctor`", "installed README");
   assertIncludes(httpMcpDoc, "For an installed package", "installed HTTP MCP docs");
   assertIncludes(httpMcpDoc, "setup --cwd", "installed HTTP MCP docs");

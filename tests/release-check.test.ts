@@ -61,6 +61,29 @@ describe("release-check", () => {
     );
   });
 
+  it("runs release verification without license metadata when explicitly requested", async () => {
+    const root = await copyPackageJsonToTemp();
+    const fakeCommands = await createFakeReleaseCommands(root);
+    const npmCommand = expectedNpmCommand();
+
+    const result = await runReleaseCheck(root, { verificationOnly: true, pathPrefix: fakeCommands.binDir, logPath: fakeCommands.logPath });
+
+    expect(result.code).toBe(0);
+    expect(result.stdout).not.toContain("release_metadata=ok");
+    expect(result.stdout).toContain(`release_check: ${npmCommand} test`);
+    expect(result.stdout).toContain("release_verification=ok");
+    await expect(readFile(fakeCommands.logPath, "utf8")).resolves.toBe(
+      [
+        `${npmCommand}\ttest\t${root}`,
+        `${npmCommand}\trun typecheck\t${root}`,
+        `${npmCommand}\trun build\t${root}`,
+        `${npmCommand}\trun smoke:package\t${root}`,
+        `node\tdist/cli.js doctor\t${root}`,
+        ""
+      ].join("\n")
+    );
+  });
+
   it("stops the full release verification sequence when a child check fails", async () => {
     const root = await copyPackageJsonToTemp();
     const packageJson = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
@@ -136,10 +159,11 @@ async function writeWindowsCommandWrapper(filePath: string, moduleFileName: stri
 
 async function runReleaseCheck(
   root: string,
-  options: { metadataOnly?: boolean; pathPrefix?: string; logPath?: string } = {}
+  options: { metadataOnly?: boolean; verificationOnly?: boolean; pathPrefix?: string; logPath?: string } = {}
 ): Promise<{ code: number; stdout: string; stderr: string }> {
   const args = [path.join(repoRoot, "scripts", "release-check.mjs")];
-  if (options.metadataOnly ?? true) args.push("--metadata-only");
+  if (options.verificationOnly) args.push("--verification-only");
+  if (!options.verificationOnly && (options.metadataOnly ?? true)) args.push("--metadata-only");
   args.push("--root", root);
   const env = {
     ...process.env,

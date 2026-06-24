@@ -18,6 +18,7 @@
     "build": "tsc -p tsconfig.json",
     "dev": "tsx src/cli.ts",
     "release:check": "node scripts/release-check.mjs",
+    "release:verify": "node scripts/release-check.mjs --verification-only",
     "smoke:package": "node scripts/package-smoke.mjs",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit",

@@ -10,10 +10,16 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."
 const args = process.argv.slice(2);
 const root = readFlag(args, "--root") ?? repoRoot;
 const metadataOnly = args.includes("--metadata-only");
+const verificationOnly = args.includes("--verification-only");
 
 try {
-  await checkReleaseMetadata(root);
-  console.log("release_metadata=ok");
+  if (metadataOnly && verificationOnly) {
+    throw new Error("release check flags failed: --metadata-only and --verification-only cannot be combined");
+  }
+  if (!verificationOnly) {
+    await checkReleaseMetadata(root);
+    console.log("release_metadata=ok");
+  }
   if (!metadataOnly) {
     await runFullReleaseVerification(root);
     console.log("release_verification=ok");
