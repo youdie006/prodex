@@ -39,7 +39,7 @@ npm run build
 node dist/cli.js setup --token-ttl-hours 24
 ```
 
-The examples below use the installed `gptprouse` binary. In a source checkout, replace `gptprouse` with `node dist/cli.js` after building.
+The examples below use the installed `gptprouse` binary. In a source checkout, replace `gptprouse` with `node dist/cli.js` after building, and pass `--source-cli /absolute/path/to/gptprouse/dist/cli.js` to local MCP troubleshooting commands so their recovery hints stay in source-checkout form.
 
 `setup` writes a local server profile to `.bridge/config.local.json`. The file is ignored by git.
 It also ensures `.bridge/.gitignore` covers local task, result, session, receipt, artifact, and config files.
@@ -118,7 +118,7 @@ For a source checkout, include the built CLI path so the generated local follow-
 node dist/cli.js project prompt --cwd /absolute/path/to/your/repo --source-cli /absolute/path/to/gptprouse/dist/cli.js
 ```
 
-Paste the generated prompt into the ChatGPT Project. It asks ChatGPT to call `bridge_create_task`, `bridge_list_tasks`, and `bridge_get_task`, then reply with the created task id. It deliberately does not ask for any repo write or staging tools. It also includes local `status --cwd ...` and `doctor --cwd ...` troubleshooting commands in case the Project cannot see or call the MCP tools.
+Paste the generated prompt into the ChatGPT Project. It asks ChatGPT to call `bridge_create_task`, `bridge_list_tasks`, and `bridge_get_task`, then reply with the created task id. It deliberately does not ask for any repo write or staging tools. It also includes local `status --cwd ...` and `doctor --cwd ...` troubleshooting commands in case the Project cannot see or call the MCP tools. Source-checkout prompts keep `--source-cli` on those troubleshooting commands too.
 
 After ChatGPT replies, confirm the task locally:
 

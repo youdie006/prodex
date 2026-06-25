@@ -59,7 +59,18 @@ try {
     throw new Error(`Installed --version returned ${version.stdout.trim()}, expected ${installedPackageJson.version}`);
   }
   const help = await run(binPath, ["help"], { cwd: consumerDir });
-  assertIncludes(help.stdout, "gptprouse doctor", "installed help output");
+  assertIncludes(help.stdout, "gptprouse doctor [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]", "installed help output");
+  assertIncludes(help.stdout, "gptprouse start [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]", "installed help output");
+  assertIncludes(
+    help.stdout,
+    "gptprouse status [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]",
+    "installed help output"
+  );
+  assertIncludes(
+    help.stdout,
+    "gptprouse tunnel url [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]",
+    "installed help output"
+  );
   assertIncludes(help.stdout, "gptprouse onboard [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]", "installed help output");
   assertIncludes(help.stdout, "gptprouse release status", "installed help output");
   assertIncludes(help.stdout, "gptprouse project prompt", "installed help output");
@@ -209,6 +220,11 @@ try {
   assertIncludes(sourceOnboard.stdout, `${sourcePrefix} init --cwd ${consumerDir}`, "installed source onboard output");
   assertIncludes(
     sourceOnboard.stdout,
+    `${sourcePrefix} doctor --cwd ${consumerDir} --source-cli ${installedSourceCli}`,
+    "installed source onboard output"
+  );
+  assertIncludes(
+    sourceOnboard.stdout,
     `${sourcePrefix} claude config --cwd ${consumerDir} --source-cli ${installedSourceCli}`,
     "installed source onboard output"
   );
@@ -218,6 +234,16 @@ try {
     "installed source onboard output"
   );
   assertIncludes(sourceOnboard.stdout, `${sourcePrefix} setup --cwd ${consumerDir} --token-ttl-hours 24`, "installed source onboard output");
+  assertIncludes(
+    sourceOnboard.stdout,
+    `${sourcePrefix} start --cwd ${consumerDir} --source-cli ${installedSourceCli}`,
+    "installed source onboard output"
+  );
+  assertIncludes(
+    sourceOnboard.stdout,
+    `${sourcePrefix} status --cwd ${consumerDir} --show-token --url-only --source-cli ${installedSourceCli}`,
+    "installed source onboard output"
+  );
   assertIncludes(sourceOnboard.stdout, `${sourcePrefix} project prompt --cwd ${consumerDir} --source-cli ${installedSourceCli}`, "installed source onboard output");
   assertIncludes(
     sourceOnboard.stdout,
@@ -270,6 +296,13 @@ try {
   const missingSetupStatus = await runExpectFailure(binPath, ["status"], { cwd: consumerDir });
   assertIncludes(missingSetupStatus.stderr, "Run `gptprouse setup` first.", "installed missing setup status output");
   assertNotIncludes(missingSetupStatus.stderr, "Run `gptprouse setup --token-ttl-hours <hours>` first.", "installed missing setup status output");
+  const missingSetupSourceStatus = await runExpectFailure(binPath, ["status", "--source-cli", installedSourceCli], { cwd: consumerDir });
+  assertIncludes(
+    missingSetupSourceStatus.stderr,
+    `Run \`node ${installedSourceCli} setup\` first.`,
+    "installed source missing setup status output"
+  );
+  assertNotIncludes(missingSetupSourceStatus.stderr, "Run `gptprouse setup`", "installed source missing setup status output");
   const missingSetupTunnel = await runExpectFailure(
     binPath,
     ["tunnel", "url", "--public-url", "https://gptprouse-package-smoke.example", "--show-token", "--url-only"],
@@ -277,6 +310,17 @@ try {
   );
   assertIncludes(missingSetupTunnel.stderr, "tunnel url requires local MCP setup. Run `gptprouse setup` first.", "installed missing setup tunnel output");
   assertNotIncludes(missingSetupTunnel.stderr, "ENOENT", "installed missing setup tunnel output");
+  const missingSetupSourceTunnel = await runExpectFailure(
+    binPath,
+    ["tunnel", "url", "--public-url", "https://gptprouse-package-smoke.example", "--source-cli", installedSourceCli],
+    { cwd: consumerDir }
+  );
+  assertIncludes(
+    missingSetupSourceTunnel.stderr,
+    `tunnel url requires local MCP setup. Run \`node ${installedSourceCli} setup\` first.`,
+    "installed source missing setup tunnel output"
+  );
+  assertNotIncludes(missingSetupSourceTunnel.stderr, "Run `gptprouse setup`", "installed source missing setup tunnel output");
   const projectPrompt = await run(binPath, ["project", "prompt", "--cwd", consumerDir], { cwd: path.dirname(consumerDir) });
   assertIncludes(projectPrompt.stdout, "ChatGPT Project MCP verification prompt", "installed project prompt output");
   assertIncludes(projectPrompt.stdout, "bridge_create_task", "installed project prompt output");
@@ -293,6 +337,16 @@ try {
   assertIncludes(sourceProjectPrompt.stdout, `${sourcePrefix} tasks show <task-id>`, "installed source project prompt output");
   assertIncludes(sourceProjectPrompt.stdout, `${sourcePrefix} status --cwd ${consumerDir}`, "installed source project prompt output");
   assertIncludes(sourceProjectPrompt.stdout, `${sourcePrefix} doctor --cwd ${consumerDir}`, "installed source project prompt output");
+  assertIncludes(
+    sourceProjectPrompt.stdout,
+    `${sourcePrefix} status --cwd ${consumerDir} --source-cli ${installedSourceCli}`,
+    "installed source project prompt output"
+  );
+  assertIncludes(
+    sourceProjectPrompt.stdout,
+    `${sourcePrefix} doctor --cwd ${consumerDir} --source-cli ${installedSourceCli}`,
+    "installed source project prompt output"
+  );
   assertNotIncludes(sourceProjectPrompt.stdout, "gptprouse tasks list --status new", "installed source project prompt output");
   assertNotIncludes(sourceProjectPrompt.stdout, "gptprouse_token=", "installed source project prompt output");
   const claudePrompt = await run(binPath, ["claude", "prompt", "--cwd", consumerDir], { cwd: path.dirname(consumerDir) });
@@ -311,6 +365,11 @@ try {
   assertIncludes(sourceClaudePrompt.stdout, `${sourcePrefix} tasks show <task-id>`, "installed source Claude prompt output");
   assertIncludes(sourceClaudePrompt.stdout, `${sourcePrefix} claude config --cwd ${consumerDir} --source-cli ${installedSourceCli}`, "installed source Claude prompt output");
   assertIncludes(sourceClaudePrompt.stdout, `${sourcePrefix} doctor --cwd ${consumerDir}`, "installed source Claude prompt output");
+  assertIncludes(
+    sourceClaudePrompt.stdout,
+    `${sourcePrefix} doctor --cwd ${consumerDir} --source-cli ${installedSourceCli}`,
+    "installed source Claude prompt output"
+  );
   assertNotIncludes(sourceClaudePrompt.stdout, "gptprouse tasks list --status new", "installed source Claude prompt output");
   assertNotIncludes(sourceClaudePrompt.stdout, "gptprouse_token=", "installed source Claude prompt output");
   const claudeConfig = await run(binPath, ["claude", "config", "--cwd", consumerDir], { cwd: path.dirname(consumerDir) });
@@ -606,6 +665,8 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertIncludes(readme, "For an installed package", "installed README");
   assertIncludes(readme, "gptprouse onboard", "installed README");
   assertIncludes(readme, "onboard --source-cli", "installed README");
+  assertIncludes(readme, 'doctor --source-cli "$SOURCE_CLI"', "installed README");
+  assertIncludes(readme, "local MCP troubleshooting commands so their follow-up guidance stays in source-checkout form", "installed README");
   assertIncludes(readme, 'gptprouse pro ask "Review the project positioning"', "installed README");
   assertIncludes(readme, "gptprouse pro browser login --dry-run", "installed README");
   assertIncludes(readme, "pro browser login --dry-run --source-cli", "installed README");
@@ -619,6 +680,7 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertIncludes(readme, "mcp --cwd", "installed README");
   assertIncludes(readme, "gptprouse project prompt", "installed README");
   assertIncludes(readme, "project prompt --source-cli", "installed README");
+  assertIncludes(readme, "Source-checkout prompts keep `--source-cli` on those troubleshooting commands too.", "installed README");
   assertIncludes(readme, "status --cwd ...", "installed README");
   assertIncludes(readme, "doctor --cwd ...", "installed README");
   assertIncludes(readme, "gptprouse claude prompt", "installed README");
@@ -684,6 +746,8 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertIncludes(httpMcpDoc, "gptprouse setup --token-ttl-hours 24", "installed HTTP MCP docs");
   assertIncludes(httpMcpDoc, "gptprouse project prompt", "installed HTTP MCP docs");
   assertIncludes(httpMcpDoc, "project prompt --cwd /absolute/path/to/your/repo --source-cli", "installed HTTP MCP docs");
+  assertIncludes(httpMcpDoc, "recovery hints stay in source-checkout form", "installed HTTP MCP docs");
+  assertIncludes(httpMcpDoc, "Source-checkout prompts keep `--source-cli` on those troubleshooting commands too.", "installed HTTP MCP docs");
   assertIncludes(httpMcpDoc, "status --cwd ...", "installed HTTP MCP docs");
   assertIncludes(httpMcpDoc, "doctor --cwd ...", "installed HTTP MCP docs");
   assertIncludes(httpMcpDoc, "Verify In ChatGPT", "installed HTTP MCP docs");
@@ -729,6 +793,7 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertIncludes(claudeDoc, "mcp --cwd", "installed Claude docs");
   assertIncludes(claudeDoc, "gptprouse claude prompt", "installed Claude docs");
   assertIncludes(claudeDoc, "claude prompt --cwd /absolute/path/to/your/repo --source-cli", "installed Claude docs");
+  assertIncludes(claudeDoc, "Source-checkout prompts keep `--source-cli` on those troubleshooting commands too.", "installed Claude docs");
   assertIncludes(claudeDoc, "claude config --cwd ...", "installed Claude docs");
   assertIncludes(claudeDoc, "doctor --cwd ...", "installed Claude docs");
   assertIncludes(claudeDoc, "gptprouse claude config", "installed Claude docs");

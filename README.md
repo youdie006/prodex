@@ -91,11 +91,11 @@ npm run build
 SOURCE_CLI="$(pwd)/dist/cli.js"
 node dist/cli.js onboard --source-cli "$SOURCE_CLI"
 node dist/cli.js init
-node dist/cli.js doctor
+node dist/cli.js doctor --source-cli "$SOURCE_CLI"
 node dist/cli.js pro ask "Review the project positioning"
 ```
 
-The examples below use the installed `gptprouse` binary. In a source checkout, replace `gptprouse` with `node dist/cli.js` after building, or pass `--source-cli "$(pwd)/dist/cli.js"` to `onboard` so it prints source-checkout commands.
+The examples below use the installed `gptprouse` binary. In a source checkout, replace `gptprouse` with `node dist/cli.js` after building, and pass `--source-cli "$(pwd)/dist/cli.js"` to onboarding, browser, prompt, and local MCP troubleshooting commands so their follow-up guidance stays in source-checkout form.
 `onboard` prints the Claude, ChatGPT Project, and optional ChatGPT Pro consult commands without changing local state.
 
 `init` creates the local `.bridge/` ledger directories and ignore rules. On a source checkout it may also add `node_modules/` and `dist/` to the repo root `.gitignore` so local dependencies and build output stay out of git.
@@ -211,7 +211,7 @@ gptprouse tasks list --status new
 gptprouse tasks show <task-id>
 ```
 
-The generated prompt also includes local `status --cwd ...` and `doctor --cwd ...` troubleshooting commands in case the Project cannot see or call the MCP tools.
+The generated prompt also includes local `status --cwd ...` and `doctor --cwd ...` troubleshooting commands in case the Project cannot see or call the MCP tools. Source-checkout prompts keep `--source-cli` on those troubleshooting commands too.
 
 If ChatGPT cannot reach `127.0.0.1` from its app runtime, keep `gptprouse start` local and put your own tunnel in front of it only after creating a short-lived token. `gptprouse` does not create the tunnel for you, but it can format the public MCP URL safely.
 
@@ -335,4 +335,4 @@ For a source checkout, include the built CLI path:
 node dist/cli.js claude prompt --cwd /absolute/path/to/your/repo --source-cli /absolute/path/to/gptprouse/dist/cli.js
 ```
 
-The generated prompt asks Claude to create and read a bridge task only; it does not request write, stage, shell, browser, or tunnel actions. It also includes local `claude config --cwd ...` and `doctor --cwd ...` troubleshooting commands in case Claude cannot see or call the MCP tools.
+The generated prompt asks Claude to create and read a bridge task only; it does not request write, stage, shell, browser, or tunnel actions. It also includes local `claude config --cwd ...` and `doctor --cwd ...` troubleshooting commands in case Claude cannot see or call the MCP tools. Source-checkout prompts keep `--source-cli` on those troubleshooting commands too.

@@ -1367,10 +1367,14 @@ describe("runCli", () => {
 
     const text = out.join("\n");
     expect(text).toContain("gptprouse setup [--cwd /absolute/path/to/repo]");
-    expect(text).toContain("gptprouse start [--cwd /absolute/path/to/repo]");
-    expect(text).toContain("gptprouse status [--cwd /absolute/path/to/repo]");
-    expect(text).toContain("gptprouse tunnel url [--cwd /absolute/path/to/repo]");
-    expect(text).toContain("gptprouse doctor [--cwd /absolute/path/to/repo]");
+    expect(text).toContain("gptprouse start [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]");
+    expect(text).toContain(
+      "gptprouse status [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]"
+    );
+    expect(text).toContain(
+      "gptprouse tunnel url [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]"
+    );
+    expect(text).toContain("gptprouse doctor [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]");
     expect(text).toContain("gptprouse onboard [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]");
     expect(text).toContain("gptprouse mcp [--cwd /absolute/path/to/repo]");
   });
@@ -3468,6 +3472,65 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     ).rejects.toThrow("tunnel url requires local MCP setup. Run `gptprouse setup` first.");
   });
 
+  it("prints source-checkout setup hints before local MCP commands", async () => {
+    const launcherCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-launcher-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-target-"));
+    const sourceCli = path.join(launcherCwd, "dist", "cli.js");
+    await mkdir(path.dirname(sourceCli), { recursive: true });
+    await writeFile(sourceCli, "#!/usr/bin/env node\n", "utf8");
+    const setupCommand = `node ${sourceCli} setup`;
+
+    await expect(
+      runCli(["status", "--source-cli", sourceCli], {
+        cwd,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.toThrow(`status requires local MCP setup. Run \`${setupCommand}\` first.`);
+    await expect(
+      runCli(["start", "--source-cli", sourceCli], {
+        cwd,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.toThrow(`start requires local MCP setup. Run \`${setupCommand}\` first.`);
+    await expect(
+      runCli(["tunnel", "url", "--source-cli", sourceCli, "--public-url", "https://example.com"], {
+        cwd,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.toThrow(`tunnel url requires local MCP setup. Run \`${setupCommand}\` first.`);
+  });
+
+  it("prints source-checkout token rotation hints before revealing local MCP URLs", async () => {
+    const launcherCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-launcher-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-target-"));
+    const sourceCli = path.join(launcherCwd, "dist", "cli.js");
+    await mkdir(path.dirname(sourceCli), { recursive: true });
+    await writeFile(sourceCli, "#!/usr/bin/env node\n", "utf8");
+    await runCli(["setup", "--token", "non-expiring-token"], {
+      cwd,
+      stdout: () => {},
+      stderr: () => {}
+    });
+
+    await expect(
+      runCli(["status", "--show-token", "--source-cli", sourceCli], {
+        cwd,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.toThrow(`Run \`node ${sourceCli} setup --token-ttl-hours <hours>\` first`);
+    await expect(
+      runCli(["tunnel", "url", "--public-url", "https://example.com", "--source-cli", sourceCli], {
+        cwd,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.toThrow(`Run \`node ${sourceCli} setup --token-ttl-hours <hours>\` first.`);
+  });
+
   it("refuses to start with an expired configured token", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
     await writeExpiredLocalConfig(cwd);
@@ -3583,6 +3646,27 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     expect(text).toContain("repo_stage_reviewed_paths");
   });
 
+  it("doctor can print source-checkout remediation commands", async () => {
+    const launcherCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-launcher-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-target-"));
+    const sourceCli = path.join(launcherCwd, "dist", "cli.js");
+    await mkdir(path.dirname(sourceCli), { recursive: true });
+    await writeFile(sourceCli, "#!/usr/bin/env node\n", "utf8");
+    const out: string[] = [];
+
+    await runCli(["doctor", "--source-cli", sourceCli], {
+      cwd,
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    const text = out.join("\n");
+    expect(text).toContain(`bridge: missing/incomplete (.bridge) - run \`node ${sourceCli} init\``);
+    expect(text).toContain(`config: missing - run \`node ${sourceCli} setup\``);
+    expect(text).not.toContain("run `gptprouse init`");
+    expect(text).not.toContain("run `gptprouse setup`");
+  });
+
   it("does not bootstrap bridge storage when doctor runs in a fresh directory", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
 
@@ -3633,6 +3717,28 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     expect(text).not.toContain("config: missing");
     expect(text).not.toContain("Expected property name or '}' in JSON");
     expect(text).toContain("mcp_write_smoke: ok");
+  });
+
+  it("doctor rewrites corrupt config remediation for source-checkout users", async () => {
+    const launcherCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-launcher-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-target-"));
+    const sourceCli = path.join(launcherCwd, "dist", "cli.js");
+    await mkdir(path.dirname(sourceCli), { recursive: true });
+    await writeFile(sourceCli, "#!/usr/bin/env node\n", "utf8");
+    await mkdir(path.join(cwd, ".bridge"), { recursive: true });
+    await writeFile(path.join(cwd, ".bridge", "config.local.json"), "{not json", "utf8");
+    const out: string[] = [];
+
+    const code = await runCli(["doctor", "--source-cli", sourceCli], {
+      cwd,
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    const text = out.join("\n");
+    expect(code).toBe(1);
+    expect(text).toContain(`config: failed local MCP config is corrupt. Run \`node ${sourceCli} setup\` to replace .bridge/config.local.json.`);
+    expect(text).not.toContain("Run `gptprouse setup`");
   });
 
   it("reports expired local MCP config as a doctor failure", async () => {

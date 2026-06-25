@@ -19,7 +19,7 @@ import {
   openChatGptBrowser,
   sendChatGptPrompt
 } from "./chatgpt-browser.js";
-import { assertTokenNotExpired, getTokenExpiryStatus, loadLocalConfig, writeLocalConfig } from "./config.js";
+import { getTokenExpiryStatus, loadLocalConfig, writeLocalConfig, type LocalConfig } from "./config.js";
 import { startHttpMcpServer } from "./http-mcp.js";
 import { createMcpToolHandlers } from "./mcp-tools.js";
 import { runMcpServer } from "./mcp.js";
@@ -103,10 +103,11 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
   }
 
   if (command === "start") {
-    assertOnlyOptions(rest, "start", ["--cwd"]);
+    assertOnlyOptions(rest, "start", ["--cwd", "--source-cli"]);
     const targetCwd = resolveCwdFlag(io.cwd, rest);
-    const config = await loadLocalConfigForCommand(targetCwd, "start");
-    assertTokenNotExpired(config);
+    const sourceCli = resolveOptionalFileFlag(io.cwd, rest, "--source-cli");
+    const config = await loadLocalConfigForCommand(targetCwd, "start", sourceCli);
+    assertTokenNotExpiredForCommand(config, sourceCli);
     const running = await startHttpMcpServer({
       cwd: targetCwd,
       host: config.host,
@@ -121,29 +122,38 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
   }
 
   if (command === "status") {
-    assertOnlyOptions(rest, "status", ["--cwd"], ["--show-token", "--url-only", "--unsafe-show-non-expiring-token"]);
+    assertOnlyOptions(rest, "status", ["--cwd", "--source-cli"], ["--show-token", "--url-only", "--unsafe-show-non-expiring-token"]);
     const targetCwd = resolveCwdFlag(io.cwd, rest);
-    const config = await loadLocalConfigForCommand(targetCwd, "status");
+    const sourceCli = resolveOptionalFileFlag(io.cwd, rest, "--source-cli");
+    const config = await loadLocalConfigForCommand(targetCwd, "status", sourceCli);
     const showToken = rest.includes("--show-token");
     const allowNonExpiringTokenReveal = rest.includes("--unsafe-show-non-expiring-token");
     const tokenStatus = getTokenExpiryStatus(config);
     if (showToken && tokenStatus.status === "non_expiring" && !allowNonExpiringTokenReveal) {
       throw new Error(
-        "status --show-token requires a token with expiry. Run `gptprouse setup --token-ttl-hours <hours>` first, or pass --unsafe-show-non-expiring-token for local-only debugging."
+        sourceAwareSetupMessage(
+          "status --show-token requires a token with expiry. Run `gptprouse setup --token-ttl-hours <hours>` first, or pass --unsafe-show-non-expiring-token for local-only debugging.",
+          sourceCli
+        )
       );
     }
     if (showToken && tokenStatus.status === "expired") {
-      throw new Error(`token expired at ${tokenStatus.token_expires_at}. Run \`gptprouse setup --token-ttl-hours <hours>\`.`);
+      throw new Error(
+        sourceAwareSetupMessage(`token expired at ${tokenStatus.token_expires_at}. Run \`gptprouse setup --token-ttl-hours <hours>\`.`, sourceCli)
+      );
     }
     const serverUrl = formatServerUrlForOutput(config.server_url, { showToken });
     if (rest.includes("--url-only")) {
       io.stdout(serverUrl);
       return 0;
     }
-    const warnings = tokenStatus.warning ? [tokenStatus.warning] : [];
+    const warnings = tokenStatus.warning ? [sourceAwareSetupMessage(tokenStatus.warning, sourceCli)] : [];
     if (showToken && allowNonExpiringTokenReveal && tokenStatus.status === "non_expiring") {
       warnings.push(
-        "Showing a non-expiring token. Keep this local-only and rotate it with `gptprouse setup --token-ttl-hours <hours>` before any tunnel or ChatGPT Project use."
+        sourceAwareSetupMessage(
+          "Showing a non-expiring token. Keep this local-only and rotate it with `gptprouse setup --token-ttl-hours <hours>` before any tunnel or ChatGPT Project use.",
+          sourceCli
+        )
       );
     }
     io.stdout(
@@ -165,15 +175,20 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
   if (command === "tunnel") {
     const [subcommand, ...tunnelArgs] = rest;
     if (subcommand !== "url") throw new Error("tunnel requires url");
-    assertOnlyOptions(tunnelArgs, "tunnel url", ["--cwd", "--public-url"], ["--show-token", "--url-only"]);
+    assertOnlyOptions(tunnelArgs, "tunnel url", ["--cwd", "--public-url", "--source-cli"], ["--show-token", "--url-only"]);
     const targetCwd = resolveCwdFlag(io.cwd, tunnelArgs);
-    const config = await loadLocalConfigForCommand(targetCwd, "tunnel url");
+    const sourceCli = resolveOptionalFileFlag(io.cwd, tunnelArgs, "--source-cli");
+    const config = await loadLocalConfigForCommand(targetCwd, "tunnel url", sourceCli);
     const tokenStatus = getTokenExpiryStatus(config);
     if (tokenStatus.status === "non_expiring") {
-      throw new Error("tunnel url requires a short-lived token. Run `gptprouse setup --token-ttl-hours <hours>` first.");
+      throw new Error(
+        sourceAwareSetupMessage("tunnel url requires a short-lived token. Run `gptprouse setup --token-ttl-hours <hours>` first.", sourceCli)
+      );
     }
     if (tokenStatus.status === "expired") {
-      throw new Error(`token expired at ${tokenStatus.token_expires_at}. Run \`gptprouse setup --token-ttl-hours <hours>\`.`);
+      throw new Error(
+        sourceAwareSetupMessage(`token expired at ${tokenStatus.token_expires_at}. Run \`gptprouse setup --token-ttl-hours <hours>\`.`, sourceCli)
+      );
     }
     const publicUrl = readFlag(tunnelArgs, "--public-url");
     if (!publicUrl) throw new Error("tunnel url requires --public-url <https-url>");
@@ -203,9 +218,10 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
   }
 
   if (command === "doctor") {
-    assertOnlyOptions(rest, "doctor", ["--cwd"]);
+    assertOnlyOptions(rest, "doctor", ["--cwd", "--source-cli"]);
     const targetCwd = resolveCwdFlag(io.cwd, rest);
-    return runDoctor(new BridgeStore(targetCwd), { ...io, cwd: targetCwd });
+    const sourceCli = resolveOptionalFileFlag(io.cwd, rest, "--source-cli");
+    return runDoctor(new BridgeStore(targetCwd), { ...io, cwd: targetCwd }, sourceCli);
   }
 
   if (command === "release") {
@@ -796,11 +812,11 @@ function printHelp(stdout: (line: string) => void): void {
 Commands:
   gptprouse --version
   gptprouse init [--cwd /absolute/path/to/repo]
-  gptprouse doctor [--cwd /absolute/path/to/repo]
+  gptprouse doctor [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]
   gptprouse setup [--cwd /absolute/path/to/repo] [--host 127.0.0.1] [--port 8787] [--token-ttl-hours <hours>]
-  gptprouse start [--cwd /absolute/path/to/repo]
-  gptprouse status [--cwd /absolute/path/to/repo] [--show-token] [--url-only] [--unsafe-show-non-expiring-token]
-  gptprouse tunnel url [--cwd /absolute/path/to/repo] --public-url https://... [--show-token] [--url-only]
+  gptprouse start [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]
+  gptprouse status [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js] [--show-token] [--url-only] [--unsafe-show-non-expiring-token]
+  gptprouse tunnel url [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js] --public-url https://... [--show-token] [--url-only]
   gptprouse release status [--cwd /absolute/path/to/repo]
   gptprouse onboard [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]
   gptprouse project prompt [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]
@@ -832,6 +848,7 @@ Commands:
 function formatProjectVerificationPrompt(cwd: string, sourceCli?: string): string {
   const cli = formatCliCommand(sourceCli);
   const quotedCwd = shellQuote(cwd);
+  const sourceCliOption = formatSourceCliOption(sourceCli);
   return `ChatGPT Project MCP verification prompt
 
 Paste this into the ChatGPT Project after adding the gptprouse MCP server URL.
@@ -862,8 +879,8 @@ ${cli} tasks show <task-id>
 
 If ChatGPT cannot see or call the MCP tools, keep the server terminal running and check locally:
 
-${cli} status --cwd ${quotedCwd}
-${cli} doctor --cwd ${quotedCwd}`;
+${cli} status --cwd ${quotedCwd}${sourceCliOption}
+${cli} doctor --cwd ${quotedCwd}${sourceCliOption}`;
 }
 
 function formatOnboardingGuide(cwd: string, hasReadme: boolean, sourceCli?: string): string {
@@ -880,7 +897,7 @@ repo: ${cwd}
 
 1. Prepare the local bridge:
    ${cli} init --cwd ${quotedCwd}
-   ${cli} doctor --cwd ${quotedCwd}
+   ${cli} doctor --cwd ${quotedCwd}${sourceCliOption}
 
 2. Claude stdio MCP:
    ${cli} claude config --cwd ${quotedCwd}${sourceCliOption}
@@ -889,9 +906,9 @@ repo: ${cwd}
 3. ChatGPT Project HTTP MCP:
    Note: HTTP MCP uses a short-lived token. Paste token-bearing URLs only into your own trusted private MCP client.
    ${cli} setup --cwd ${quotedCwd} --token-ttl-hours 24
-   ${cli} start --cwd ${quotedCwd}
+   ${cli} start --cwd ${quotedCwd}${sourceCliOption}
    Keep this terminal open while ChatGPT uses the bridge; run the next commands in a second terminal.
-   ${cli} status --cwd ${quotedCwd} --show-token --url-only
+   ${cli} status --cwd ${quotedCwd} --show-token --url-only${sourceCliOption}
    ${cli} project prompt --cwd ${quotedCwd}${sourceCliOption}
 
 4. Optional ChatGPT Pro consults:
@@ -954,7 +971,7 @@ ${cli} tasks show <task-id>
 If Claude cannot see or call the MCP tools, regenerate the config and run the local health check:
 
 ${cli} claude config --cwd ${quotedCwd}${sourceCliOption}
-${cli} doctor --cwd ${quotedCwd}`;
+${cli} doctor --cwd ${quotedCwd}${sourceCliOption}`;
 }
 
 function formatClaudeConfig(cwd: string, sourceCli: string | undefined): string {
@@ -1434,8 +1451,9 @@ async function readLicenseFileStatus(filePath: string): Promise<{ status: "prese
   }
 }
 
-async function runDoctor(store: BridgeStore, io: CliIO): Promise<number> {
+async function runDoctor(store: BridgeStore, io: CliIO, sourceCli?: string): Promise<number> {
   let ok = true;
+  const cli = formatCliCommand(sourceCli);
   io.stdout("gptprouse doctor");
 
   try {
@@ -1443,7 +1461,7 @@ async function runDoctor(store: BridgeStore, io: CliIO): Promise<number> {
     io.stdout(
       bridgeReady
         ? "bridge: ok (.bridge)"
-        : "bridge: missing/incomplete (.bridge) - run `gptprouse init` when you need local task/result storage"
+        : `bridge: missing/incomplete (.bridge) - run \`${cli} init\` when you need local task/result storage`
     );
   } catch (error) {
     ok = false;
@@ -1455,16 +1473,16 @@ async function runDoctor(store: BridgeStore, io: CliIO): Promise<number> {
     const tokenStatus = getTokenExpiryStatus(config);
     if (tokenStatus.status === "expired") {
       ok = false;
-      io.stdout(`config: failed token expired at ${tokenStatus.token_expires_at} - run \`gptprouse setup\``);
+      io.stdout(`config: failed token expired at ${tokenStatus.token_expires_at} - run \`${cli} setup\``);
     } else {
       io.stdout(`config: ok ${redactServerUrl(config.server_url)} token_status=${tokenStatus.status}`);
     }
   } catch (error) {
     if (isMissingFileError(error)) {
-      io.stdout("config: missing - run `gptprouse setup`");
+      io.stdout(`config: missing - run \`${cli} setup\``);
     } else {
       ok = false;
-      io.stdout(`config: failed ${errorMessage(error)}`);
+      io.stdout(`config: failed ${sourceAwareSetupMessage(errorMessage(error), sourceCli)}`);
     }
   }
 
@@ -2256,14 +2274,24 @@ function isMissingFileError(error: unknown): boolean {
   return typeof error === "object" && error !== null && "code" in error && (error as { code?: unknown }).code === "ENOENT";
 }
 
-async function loadLocalConfigForCommand(cwd: string, command: "start" | "status" | "tunnel url") {
+function assertTokenNotExpiredForCommand(config: LocalConfig, sourceCli?: string): void {
+  const tokenStatus = getTokenExpiryStatus(config);
+  if (tokenStatus.status === "expired") {
+    throw new Error(sourceAwareSetupMessage(tokenStatus.warning.toLowerCase(), sourceCli));
+  }
+}
+
+async function loadLocalConfigForCommand(cwd: string, command: "start" | "status" | "tunnel url", sourceCli?: string) {
   return loadLocalConfig(cwd).catch(async (error) => {
     if (isMissingFileError(error)) {
       throw new Error(
-        `${command} requires local MCP setup. Run \`gptprouse setup\` first. Add \`--token-ttl-hours <hours>\` before revealing token URLs, using tunnels, or connecting ChatGPT Projects.`
+        sourceAwareSetupMessage(
+          `${command} requires local MCP setup. Run \`gptprouse setup\` first. Add \`--token-ttl-hours <hours>\` before revealing token URLs, using tunnels, or connecting ChatGPT Projects.`,
+          sourceCli
+        )
       );
     }
-    throw error;
+    throw new Error(sourceAwareSetupMessage(errorMessage(error), sourceCli));
   });
 }
 
