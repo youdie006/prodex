@@ -176,7 +176,7 @@ The HTTP server exposes the same tool catalog as stdio MCP:
 
 ## Write Flow
 
-Writes are deliberately gated:
+Writes are deliberately gated and require a git worktree with a committed HEAD:
 
 1. `repo_write_file_dry_run` previews replacing an existing repo-relative text file. It records the diff, git HEAD, preimage hash, and a replacement-text artifact under `.bridge/artifacts/repo-writes/`.
 2. `repo_write_file_apply` applies that exact receipt only if git HEAD, file path, preimage hash, and artifact content still match.

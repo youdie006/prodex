@@ -501,6 +501,7 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertIncludes(readme, "installed HTTP MCP repo write dry-run/apply/stage flow", "installed README");
   assertIncludes(readme, "installed HTTP MCP task completion/blocking/result/artifact fetch flow", "installed README");
   assertIncludes(readme, "installed stdio repo write dry-run/apply/stage flow", "installed README");
+  assertIncludes(readme, "installed stdio non-git write failure output", "installed README");
   assertIncludes(readme, "installed stdio task completion/blocking/result/artifact fetch flow", "installed README");
   assertIncludes(readme, "loopback-only", "installed README");
   assertIncludes(readme, "`start` reads the saved setup profile when the server process starts", "installed README");
@@ -552,6 +553,7 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertIncludes(httpMcpDoc, "fetch rejects the artifact if its content changed afterward", "installed HTTP MCP docs");
   assertIncludes(httpMcpDoc, "oversized result artifacts", "installed HTTP MCP docs");
   assertIncludes(httpMcpDoc, "too large for `bridge_fetch_result_artifact`", "installed HTTP MCP docs");
+  assertIncludes(httpMcpDoc, "git worktree with a committed HEAD", "installed HTTP MCP docs");
   assertNotIncludes(httpMcpDoc, "start --host", "installed HTTP MCP docs");
   assertAppearsBefore(
     httpMcpDoc,
@@ -587,6 +589,7 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertIncludes(claudeDoc, "fetch rejects the artifact if its content changed afterward", "installed Claude docs");
   assertIncludes(claudeDoc, "oversized result artifacts", "installed Claude docs");
   assertIncludes(claudeDoc, "too large for `bridge_fetch_result_artifact`", "installed Claude docs");
+  assertIncludes(claudeDoc, "git worktree with a committed HEAD", "installed Claude docs");
 }
 
 async function assertInstalledPackageImportBoundary(consumerDir, packedFiles) {
