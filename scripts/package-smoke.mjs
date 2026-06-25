@@ -762,7 +762,10 @@ try {
   assertIncludes(projectPrompt.stdout, "bridge_create_task", "installed project prompt output");
   assertIncludes(projectPrompt.stdout, "bridge_list_tasks", "installed project prompt output");
   assertIncludes(projectPrompt.stdout, "bridge_get_task", "installed project prompt output");
+  assertIncludes(projectPrompt.stdout, "bridge_fetch_result", "installed project prompt output");
   assertIncludes(projectPrompt.stdout, "gptprouse tasks list --status new", "installed project prompt output");
+  assertIncludes(projectPrompt.stdout, 'gptprouse tasks complete <task-id> --summary "gptprouse MCP verification result"', "installed project prompt output");
+  assertIncludes(projectPrompt.stdout, "local completion done", "installed project prompt output");
   assertIncludes(projectPrompt.stdout, `gptprouse status --cwd ${consumerDir}`, "installed project prompt output");
   assertIncludes(projectPrompt.stdout, `gptprouse doctor --cwd ${consumerDir}`, "installed project prompt output");
   assertNotIncludes(projectPrompt.stdout, "gptprouse_token=", "installed project prompt output");
@@ -771,6 +774,11 @@ try {
   });
   assertIncludes(sourceProjectPrompt.stdout, `${sourcePrefix} tasks list --status new`, "installed source project prompt output");
   assertIncludes(sourceProjectPrompt.stdout, `${sourcePrefix} tasks show <task-id>`, "installed source project prompt output");
+  assertIncludes(
+    sourceProjectPrompt.stdout,
+    `${sourcePrefix} tasks complete <task-id> --summary "gptprouse MCP verification result"`,
+    "installed source project prompt output"
+  );
   assertIncludes(sourceProjectPrompt.stdout, `${sourcePrefix} status --cwd ${consumerDir}`, "installed source project prompt output");
   assertIncludes(sourceProjectPrompt.stdout, `${sourcePrefix} doctor --cwd ${consumerDir}`, "installed source project prompt output");
   assertIncludes(
@@ -1362,6 +1370,8 @@ async function assertInstalledDocsArePortable(consumerDir) {
   );
   assertNotIncludes(readme, 'node dist/cli.js project prompt --source-cli "$(pwd)/dist/cli.js"', "installed README");
   assertIncludes(readme, "project prompt --cwd /absolute/path/to/your/repo --source-cli", "installed README");
+  assertIncludes(readme, "bridge_fetch_result", "installed README");
+  assertNotIncludes(readme, "`bridge_get_task` only", "installed README");
   assertIncludes(readme, "Source-checkout prompts keep `--source-cli` on those troubleshooting commands too.", "installed README");
   assertIncludes(readme, "status --cwd ...", "installed README");
   assertIncludes(readme, "doctor --cwd ...", "installed README");
@@ -1460,6 +1470,8 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertNotIncludes(httpMcpDoc, "node dist/cli.js setup --token-ttl-hours 24", "installed HTTP MCP docs");
   assertIncludes(httpMcpDoc, "gptprouse project prompt", "installed HTTP MCP docs");
   assertIncludes(httpMcpDoc, "project prompt --cwd /absolute/path/to/your/repo --source-cli", "installed HTTP MCP docs");
+  assertIncludes(httpMcpDoc, "bridge_fetch_result", "installed HTTP MCP docs");
+  assertNotIncludes(httpMcpDoc, "then reply with the created task id", "installed HTTP MCP docs");
   assertIncludes(httpMcpDoc, "recovery hints stay in source-checkout form", "installed HTTP MCP docs");
   assertIncludes(httpMcpDoc, "Source-checkout prompts keep `--source-cli` on those troubleshooting commands too.", "installed HTTP MCP docs");
   assertIncludes(httpMcpDoc, "status --cwd ...", "installed HTTP MCP docs");

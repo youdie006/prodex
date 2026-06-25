@@ -227,12 +227,15 @@ For a source checkout, pass the same built CLI path so the prompt's local follow
 node dist/cli.js project prompt --cwd /absolute/path/to/your/repo --source-cli /absolute/path/to/gptprouse/dist/cli.js
 ```
 
-Paste that prompt into the ChatGPT Project. It asks ChatGPT to call `bridge_create_task`, `bridge_list_tasks`, and `bridge_get_task` only, then you can confirm the created task locally:
+Paste that prompt into the ChatGPT Project. It asks ChatGPT to call `bridge_create_task`, `bridge_list_tasks`, and `bridge_get_task`, then wait while you complete the verification task locally:
 
 ```bash
 gptprouse tasks list --status new
 gptprouse tasks show <task-id>
+gptprouse tasks complete <task-id> --summary "gptprouse MCP verification result"
 ```
+
+After the local completion command succeeds, reply to ChatGPT with `local completion done`. The generated prompt then asks ChatGPT to call `bridge_fetch_result` for the same task id and report whether it can read the verification result summary.
 
 The generated prompt also includes local `status --cwd ...` and `doctor --cwd ...` troubleshooting commands in case the Project cannot see or call the MCP tools. Source-checkout prompts keep `--source-cli` on those troubleshooting commands too.
 

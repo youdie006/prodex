@@ -679,12 +679,13 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
     if (subcommand === "ask") {
       if (
         printHelpIfRequested(proArgs, "pro ask", io.stdout, printProHelp, {
-          valueFlags: [...ASK_PRO_VALUE_FLAGS],
+          valueFlags: [...ASK_PRO_PREVIEW_VALUE_FLAGS],
           booleanFlags: [...ASK_PRO_BOOLEAN_FLAGS]
         })
       ) {
         return 0;
       }
+      parseAskProArgs(proArgs, ASK_PRO_PREVIEW_VALUE_FLAGS);
       if (hasAskProSendMode(proArgs)) {
         throw new Error("gptprouse pro ask is a dry-run preview. Use `gptprouse pro browser ask` for visible-browser sends.");
       }
@@ -1408,13 +1409,24 @@ Please verify the gptprouse MCP bridge for this private project:
 
 3. Call \`bridge_get_task\` with the task_id returned by \`bridge_create_task\`.
 
-4. Reply with the task_id and whether all three MCP calls succeeded. Do not call repo_write_file_dry_run, repo_write_file_apply, repo_stage_reviewed_paths, or any write/stage tool for this verification.
+4. Reply with the task_id and whether all three MCP calls succeeded. Ask me to run the local completion command below, then wait.
+
+5. After I reply exactly \`local completion done\`, call \`bridge_fetch_result\` with:
+
+   { "task_id": "<task-id>" }
+
+6. Reply with whether \`bridge_fetch_result\` returned the verification result summary. Do not call repo_write_file_dry_run, repo_write_file_apply, repo_stage_reviewed_paths, or any write/stage tool for this verification.
 
 Local follow-up after ChatGPT replies:
 
 cd ${quotedCwd}
 ${cli} tasks list --status new
 ${cli} tasks show <task-id>
+${cli} tasks complete <task-id> --summary "gptprouse MCP verification result"
+
+Then reply to ChatGPT with:
+
+local completion done
 
 If ChatGPT cannot see or call the MCP tools, keep the server terminal running and check locally:
 
@@ -3330,8 +3342,9 @@ function readRequiredLeadingArgument(args: string[], command: string, placeholde
 
 const ASK_PRO_BOOLEAN_FLAGS = new Set(["--dry-run", "--send", "--confirm-target"]);
 const ASK_PRO_VALUE_FLAGS = new Set(["--file", "--port", "--timeout-ms", "--target-url", "--source-cli"]);
+const ASK_PRO_PREVIEW_VALUE_FLAGS = new Set(["--file", "--port", "--timeout-ms", "--target-url"]);
 
-function parseAskProArgs(args: string[]): { optionArgs: string[]; promptParts: string[] } {
+function parseAskProArgs(args: string[], valueFlags = ASK_PRO_VALUE_FLAGS): { optionArgs: string[]; promptParts: string[] } {
   const delimiterIndex = args.indexOf("--");
   const optionArgs = delimiterIndex === -1 ? args : args.slice(0, delimiterIndex);
   const promptTail = delimiterIndex === -1 ? [] : args.slice(delimiterIndex + 1);
@@ -3340,17 +3353,17 @@ function parseAskProArgs(args: string[]): { optionArgs: string[]; promptParts: s
   for (let index = 0; index < optionArgs.length; index += 1) {
     const arg = optionArgs[index];
     if (!arg.startsWith("--")) {
-      if (arg.startsWith("-")) throw unknownOptionError(arg, undefined, [...ASK_PRO_VALUE_FLAGS, ...ASK_PRO_BOOLEAN_FLAGS]);
+      if (arg.startsWith("-")) throw unknownOptionError(arg, undefined, [...valueFlags, ...ASK_PRO_BOOLEAN_FLAGS]);
       positionalPromptParts.push(arg);
       continue;
     }
     if (ASK_PRO_BOOLEAN_FLAGS.has(arg)) continue;
-    if (ASK_PRO_VALUE_FLAGS.has(arg)) {
+    if (valueFlags.has(arg)) {
       readFlagValue(optionArgs, index, arg);
       index += 1;
       continue;
     }
-    throw unknownOptionError(arg, undefined, [...ASK_PRO_VALUE_FLAGS, ...ASK_PRO_BOOLEAN_FLAGS]);
+    throw unknownOptionError(arg, undefined, [...valueFlags, ...ASK_PRO_BOOLEAN_FLAGS]);
   }
 
   return { optionArgs, promptParts: [...positionalPromptParts, ...promptTail] };

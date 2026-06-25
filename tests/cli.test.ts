@@ -1539,6 +1539,23 @@ describe("runCli", () => {
     expect(await readdir(cwd)).not.toContain(".bridge");
   });
 
+  it("rejects source checkout flags on the pro ask preview alias without bridge side effects", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const sourceCli = path.join(cwd, "dist", "cli.js");
+    await mkdir(path.dirname(sourceCli), { recursive: true });
+    await writeFile(sourceCli, "console.log('cli')\n", "utf8");
+
+    await expect(
+      runCli(["pro", "ask", "--source-cli", sourceCli, "--dry-run", "Review this"], {
+        cwd,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.toThrow(/Unknown option: --source-cli/);
+
+    expect(await readdir(cwd)).not.toContain(".bridge");
+  });
+
   it("uses collection-level no-record messages for empty latest inspection aliases", async () => {
     const cases: Array<{ command: string[]; message: RegExp }> = [
       { command: ["tasks", "show", "latest"], message: /No tasks found/ },
@@ -2190,6 +2207,9 @@ describe("runCli", () => {
     expect(text).toContain("bridge_create_task");
     expect(text).toContain("bridge_list_tasks");
     expect(text).toContain("bridge_get_task");
+    expect(text).toContain("bridge_fetch_result");
+    expect(text).toContain('gptprouse tasks complete <task-id> --summary "gptprouse MCP verification result"');
+    expect(text).toContain("local completion done");
     expect(text).toContain(`cd ${targetCwd}`);
     expect(text).toContain("gptprouse tasks list --status new");
     expect(text).toContain(`gptprouse status --cwd ${targetCwd}`);
@@ -2215,6 +2235,7 @@ describe("runCli", () => {
     const text = out.join("\n");
     expect(text).toContain(`node ${sourceCli} tasks list --status new`);
     expect(text).toContain(`node ${sourceCli} tasks show <task-id>`);
+    expect(text).toContain(`node ${sourceCli} tasks complete <task-id> --summary "gptprouse MCP verification result"`);
     expect(text).toContain(`node ${sourceCli} status --cwd ${targetCwd}`);
     expect(text).toContain(`node ${sourceCli} doctor --cwd ${targetCwd}`);
     expect(text).not.toContain("gptprouse tasks list --status new");

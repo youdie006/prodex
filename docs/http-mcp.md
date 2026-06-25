@@ -118,14 +118,17 @@ For a source checkout, include the built CLI path so the generated local follow-
 node dist/cli.js project prompt --cwd /absolute/path/to/your/repo --source-cli /absolute/path/to/gptprouse/dist/cli.js
 ```
 
-Paste the generated prompt into the ChatGPT Project. It asks ChatGPT to call `bridge_create_task`, `bridge_list_tasks`, and `bridge_get_task`, then reply with the created task id. It deliberately does not ask for any repo write or staging tools. It also includes local `status --cwd ...` and `doctor --cwd ...` troubleshooting commands in case the Project cannot see or call the MCP tools. Source-checkout prompts keep `--source-cli` on those troubleshooting commands too.
+Paste the generated prompt into the ChatGPT Project. It asks ChatGPT to call `bridge_create_task`, `bridge_list_tasks`, and `bridge_get_task`, then wait while you complete the verification task locally. It deliberately does not ask for any repo write or staging tools. It also includes local `status --cwd ...` and `doctor --cwd ...` troubleshooting commands in case the Project cannot see or call the MCP tools. Source-checkout prompts keep `--source-cli` on those troubleshooting commands too.
 
-After ChatGPT replies, confirm the task locally:
+After ChatGPT replies with the created task id, confirm and complete the task locally:
 
 ```bash
 gptprouse tasks list --status new
 gptprouse tasks show <task-id>
+gptprouse tasks complete <task-id> --summary "gptprouse MCP verification result"
 ```
+
+Then reply to ChatGPT with `local completion done`. The generated prompt asks ChatGPT to call `bridge_fetch_result` for the same task id and report whether it can read the verification result summary.
 
 If the ChatGPT app runtime cannot reach `127.0.0.1`, this project intentionally does not create a tunnel automatically. Put your own explicit tunnel in front of the local server only after you understand the token exposure risk, and create a short-lived replacement URL first:
 

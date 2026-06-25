@@ -168,7 +168,7 @@ export async function applyRepoWriteDryRun(
 
   const newContent = await readDryRunReplacementContent(store, metadata);
 
-  let receipt: Receipt;
+  let receipt: Receipt | undefined;
   try {
     await replaceVerifiedUtf8File(
       current.resolved,
@@ -198,14 +198,25 @@ export async function applyRepoWriteDryRun(
         new_sha256: metadata.new_sha256
       }
     });
+    await assertGitHead(root, input.expected_head);
   } catch (error) {
+    const cleanupErrors: string[] = [];
+    if (receipt) {
+      try {
+        await store.deleteReceiptIfPresent(receipt.id);
+      } catch (cleanupError) {
+        cleanupErrors.push(`failed to delete applied receipt ${receipt.id}: ${errorMessage(cleanupError)}`);
+      }
+    }
     try {
       await rollbackReplacementIfPresent(root, current.resolved, metadata.path, current.content, metadata.new_sha256);
     } catch (rollbackError) {
-      throw new Error(`${errorMessage(error)} (also failed to roll back replacement: ${errorMessage(rollbackError)})`);
+      cleanupErrors.push(`failed to roll back replacement: ${errorMessage(rollbackError)}`);
     }
+    if (cleanupErrors.length > 0) throw new Error(`${errorMessage(error)} (also ${cleanupErrors.join("; ")})`);
     throw error;
   }
+  if (!receipt) throw new Error("Applied write receipt was not stored");
   return {
     receipt,
     path: metadata.path,
@@ -250,6 +261,7 @@ export async function stageReviewedPaths(
   const stagedPaths = Array.from(paths).sort();
   const originalIndexEntries = await readGitIndexEntries(root, stagedPaths);
   let staged = false;
+  let receipt: Receipt | undefined;
   try {
     await testHooks.beforeGitAdd?.(stagedPaths);
     await assertGitHead(root, input.expected_head);
@@ -258,7 +270,7 @@ export async function stageReviewedPaths(
     await verifyStagedContent(root, expectedObjectIdByPath);
     await testHooks.beforeStageReceipt?.(stagedPaths);
     await assertGitHead(root, input.expected_head);
-    const receipt = await store.writeReceipt({
+    receipt = await store.writeReceipt({
       kind: "repo_stage_reviewed_paths",
       summary: `Staged reviewed paths: ${stagedPaths.join(", ")}`,
       metadata: {
@@ -267,6 +279,7 @@ export async function stageReviewedPaths(
         paths: stagedPaths
       }
     });
+    await assertGitHead(root, input.expected_head);
     return {
       receipt,
       paths: stagedPaths,
@@ -274,9 +287,22 @@ export async function stageReviewedPaths(
       expected_head: input.expected_head
     };
   } catch (error) {
-    if (staged) {
-      await restoreGitIndexEntries(root, originalIndexEntries);
+    const cleanupErrors: string[] = [];
+    if (receipt) {
+      try {
+        await store.deleteReceiptIfPresent(receipt.id);
+      } catch (cleanupError) {
+        cleanupErrors.push(`failed to delete stage receipt ${receipt.id}: ${errorMessage(cleanupError)}`);
+      }
     }
+    if (staged) {
+      try {
+        await restoreGitIndexEntries(root, originalIndexEntries);
+      } catch (restoreError) {
+        cleanupErrors.push(`failed to restore git index: ${errorMessage(restoreError)}`);
+      }
+    }
+    if (cleanupErrors.length > 0) throw new Error(`${errorMessage(error)} (also ${cleanupErrors.join("; ")})`);
     throw error;
   }
 }

@@ -449,6 +449,11 @@ export class BridgeStore {
     return receipt;
   }
 
+  async deleteReceiptIfPresent(receiptId: string): Promise<void> {
+    await this.ensure();
+    await this.deleteRecordIfPresent("receipts", receiptId);
+  }
+
   async getReceiptReadOnly(receiptId: string): Promise<Receipt> {
     return this.parseRecord("receipts", receiptId, await this.readRecordJson("receipts", receiptId, { cleanupTempHardLinks: false }), parseReceiptRecord);
   }
