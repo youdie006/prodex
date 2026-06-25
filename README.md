@@ -267,6 +267,8 @@ npm run dev -- tasks list
 
 ## Release Checks
 
+GitHub Actions runs `npm ci` and `npm run release:verify` on pushes to `main` and pull requests. The workflow installs `ripgrep` because the repo-search smoke checks require `rg`. It verifies release readiness only; it does not publish anything.
+
 Before sharing a package tarball, run:
 
 ```bash
