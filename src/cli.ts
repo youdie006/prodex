@@ -1726,19 +1726,27 @@ function printBrowserLoginGuide(
   stdout(input.opened ? "Opened the dedicated Chrome window for ChatGPT." : "Dry run: no browser was opened.");
   stdout("");
   stdout("Steps:");
-  stdout("1. Log in manually at https://chatgpt.com/ in the dedicated Chrome window.");
-  stdout("2. If ChatGPT asks for captcha, Cloudflare/human verification, permission, account verification, or usage limit handling, complete it in the browser.");
-  stdout("3. Select the Pro/Thinking model you want in the ChatGPT UI.");
-  stdout("4. Run `gptprouse pro browser check` to confirm the session is reachable.");
-  stdout("5. Run `gptprouse pro browser smoke` to verify a real Pro response path.");
+  if (input.opened) {
+    stdout("1. Log in manually at https://chatgpt.com/ in the dedicated Chrome window.");
+    stdout("2. If ChatGPT asks for captcha, Cloudflare/human verification, permission, account verification, or usage limit handling, complete it in the browser.");
+    stdout("3. Select the Pro/Thinking model you want in the ChatGPT UI.");
+    stdout("4. Run `gptprouse pro browser check` to confirm the session is reachable.");
+    stdout("5. Run `gptprouse pro browser smoke` to verify a real Pro response path.");
+  } else {
+    stdout("1. Run `gptprouse pro browser login` without `--dry-run` to open the dedicated Chrome window.");
+    stdout("2. Log in manually at https://chatgpt.com/ in that Chrome window.");
+    stdout("3. If ChatGPT asks for captcha, Cloudflare/human verification, permission, account verification, or usage limit handling, complete it in the browser.");
+    stdout("4. Select the Pro/Thinking model you want in the ChatGPT UI.");
+    stdout("5. Run `gptprouse pro browser check` to confirm the session is reachable.");
+    stdout("6. Run `gptprouse pro browser smoke` to verify a real Pro response path.");
+  }
   stdout("");
   stdout(`Profile: ${input.profileDir}`);
   stdout(`Debug: http://127.0.0.1:${input.port}`);
   if (input.opened) {
     stdout("You can close this Chrome window after login. The dedicated profile is reused next time.");
   } else {
-    stdout("Run `gptprouse pro browser login` without `--dry-run` to open the dedicated Chrome window.");
-    stdout("The dedicated profile path above is reused next time.");
+    stdout("The dedicated profile path above will be reused by the real login command.");
   }
 }
 

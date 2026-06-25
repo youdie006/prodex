@@ -203,7 +203,14 @@ try {
   assertIncludes(browserLoginGuide.stdout, "gptprouse pro browser smoke", "installed browser login guide");
   assertIncludes(
     browserLoginGuide.stdout,
-    "Run `gptprouse pro browser login` without `--dry-run` to open the dedicated Chrome window.",
+    "1. Run `gptprouse pro browser login` without `--dry-run` to open the dedicated Chrome window.",
+    "installed browser login guide"
+  );
+  assertIncludes(browserLoginGuide.stdout, "2. Log in manually at https://chatgpt.com/ in that Chrome window.", "installed browser login guide");
+  assertAppearsBefore(
+    browserLoginGuide.stdout,
+    "Run `gptprouse pro browser login` without `--dry-run`",
+    "Log in manually",
     "installed browser login guide"
   );
   assertNotIncludes(browserLoginGuide.stdout, "You can close this Chrome window after login", "installed browser login guide");

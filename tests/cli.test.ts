@@ -2241,7 +2241,9 @@ describe("runCli", () => {
     expect(text).toContain("gptprouse pro browser smoke");
     expect(text).not.toContain("node dist/cli.js");
     expect(text).toContain("Dry run: no browser was opened.");
-    expect(text).toContain("Run `gptprouse pro browser login` without `--dry-run` to open the dedicated Chrome window.");
+    expect(text).toContain("1. Run `gptprouse pro browser login` without `--dry-run` to open the dedicated Chrome window.");
+    expect(text).toContain("2. Log in manually at https://chatgpt.com/ in that Chrome window.");
+    expect(text.indexOf("Run `gptprouse pro browser login` without `--dry-run`")).toBeLessThan(text.indexOf("Log in manually"));
     expect(text).not.toContain("You can close this Chrome window after login");
   });
 
