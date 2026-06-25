@@ -263,7 +263,9 @@ function commandFailureDetail(error) {
   if (stderr) return stderr;
   const stdout = firstOutputLine(failed.stdout);
   if (stdout) return stdout;
-  return errorMessage(error);
+  if (typeof failed.code === "number") return `exit code ${failed.code}`;
+  if (typeof failed.signal === "string" && failed.signal) return `signal ${failed.signal}`;
+  return "failed without output";
 }
 
 function firstOutputLine(value) {
