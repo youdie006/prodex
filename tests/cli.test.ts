@@ -1839,6 +1839,82 @@ describe("runCli", () => {
     }
   });
 
+  it("prints help after valid options before help flags", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const sourceCli = path.resolve(import.meta.dirname, "..", "package.json");
+    const packDestination = await mkdtemp(path.join(tmpdir(), "gptprouse-pack-help-"));
+    const cases = [
+      {
+        args: ["status", "--source-cli", sourceCli, "--help"],
+        expected:
+          "gptprouse status [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js] [--show-token] [--url-only] [--unsafe-show-non-expiring-token]"
+      },
+      {
+        args: ["release", "status", "--cwd", cwd, "--source-cli", sourceCli, "--help"],
+        expected: "gptprouse release status [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]"
+      },
+      {
+        args: ["release", "pack", "--source-cli", sourceCli, "--pack-destination", packDestination, "--help"],
+        expected:
+          "gptprouse release pack [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js] --pack-destination /absolute/path [--keep-workdir]"
+      },
+      {
+        args: ["tunnel", "url", "--public-url", "https://gptprouse.example", "--source-cli", sourceCli, "--help"],
+        expected: "This command does not create a tunnel."
+      },
+      {
+        args: ["project", "prompt", "--source-cli", sourceCli, "--help"],
+        expected: "gptprouse project prompt [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]"
+      },
+      {
+        args: ["mcp", "--cwd", cwd, "--help"],
+        expected: "gptprouse mcp [--cwd /absolute/path/to/repo]"
+      },
+      {
+        args: ["tasks", "list", "--status", "new", "--help"],
+        expected: "gptprouse tasks list [--status new|claimed|done|blocked]"
+      },
+      {
+        args: ["pro", "browser", "ask", "--source-cli", sourceCli, "--help"],
+        expected: "gptprouse pro browser ask [--source-cli /absolute/path/to/dist/cli.js]"
+      },
+      {
+        args: ["pro", "show", "latest", "--source-cli", sourceCli, "--help"],
+        expected: "gptprouse pro show <task-id|latest> [--source-cli /absolute/path/to/dist/cli.js]"
+      }
+    ];
+
+    for (const item of cases) {
+      const out: string[] = [];
+
+      const code = await runCli(item.args, {
+        cwd,
+        stdout: (line) => out.push(line),
+        stderr: () => {}
+      });
+
+      expect(code).toBe(0);
+      expect(out.join("\n")).toContain(item.expected);
+    }
+  });
+
+  it("keeps help-looking prompt text behind the prompt delimiter", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const out: string[] = [];
+
+    const code = await runCli(["pro", "ask", "--", "--help"], {
+      cwd,
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    const text = out.join("\n");
+    expect(code).toBe(0);
+    expect(text).toContain("# gptprouse consult dry run");
+    expect(text).toContain("--help");
+    expect(text).not.toContain("Commands:");
+  });
+
   it("lists task blocking command in help", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
     const out: string[] = [];

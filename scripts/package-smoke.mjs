@@ -188,6 +188,44 @@ try {
     const commandHelp = await run(binPath, item.args, { cwd: consumerDir });
     assertIncludes(commandHelp.stdout, item.expected, `installed ${item.args.join(" ")} output`);
   }
+  const trailingHelpCases = [
+    {
+      args: ["status", "--source-cli", installedSourceCli, "--help"],
+      expected: "gptprouse status [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]"
+    },
+    {
+      args: ["release", "pack", "--source-cli", installedSourceCli, "--pack-destination", consumerDir, "--help"],
+      expected: "gptprouse release pack [--cwd /absolute/path/to/repo]"
+    },
+    {
+      args: ["tunnel", "url", "--public-url", "https://gptprouse-package-smoke.example", "--source-cli", installedSourceCli, "--help"],
+      expected: "This command does not create a tunnel."
+    },
+    {
+      args: ["project", "prompt", "--source-cli", installedSourceCli, "--help"],
+      expected: "gptprouse project prompt [--cwd /absolute/path/to/repo]"
+    },
+    {
+      args: ["mcp", "--cwd", consumerDir, "--help"],
+      expected: "gptprouse mcp [--cwd /absolute/path/to/repo]"
+    },
+    {
+      args: ["tasks", "list", "--status", "new", "--help"],
+      expected: "gptprouse tasks list [--status new|claimed|done|blocked]"
+    },
+    {
+      args: ["pro", "browser", "ask", "--source-cli", installedSourceCli, "--help"],
+      expected: "gptprouse pro browser ask [--source-cli /absolute/path/to/dist/cli.js]"
+    },
+    {
+      args: ["pro", "show", "latest", "--source-cli", installedSourceCli, "--help"],
+      expected: "gptprouse pro show <task-id|latest> [--source-cli /absolute/path/to/dist/cli.js]"
+    }
+  ];
+  for (const item of trailingHelpCases) {
+    const commandHelp = await run(binPath, item.args, { cwd: consumerDir });
+    assertIncludes(commandHelp.stdout, item.expected, `installed trailing help ${item.args.join(" ")} output`);
+  }
   const unknownTopLevel = await runExpectFailure(binPath, ["statuz"], { cwd: consumerDir });
   assertIncludes(
     unknownTopLevel.stderr,

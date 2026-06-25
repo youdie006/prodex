@@ -98,11 +98,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
   }
 
   if (command === "init") {
-    if (isHelpArgs(rest)) {
-      assertNoExtraArgs(rest.slice(1), "init help", 0);
-      printInitHelp(io.stdout);
-      return 0;
-    }
+    if (printHelpIfRequested(rest, "init", io.stdout, printInitHelp, { valueFlags: ["--cwd"] })) return 0;
     assertOnlyOptions(rest, "init", ["--cwd"]);
     const targetCwd = resolveCwdFlag(io.cwd, rest);
     const targetStore = new BridgeStore(targetCwd);
@@ -113,11 +109,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
   }
 
   if (command === "setup") {
-    if (isHelpArgs(rest)) {
-      assertNoExtraArgs(rest.slice(1), "setup help", 0);
-      printSetupHelp(io.stdout);
-      return 0;
-    }
+    if (printHelpIfRequested(rest, "setup", io.stdout, printSetupHelp, { valueFlags: ["--cwd", "--host", "--port", "--token", "--token-ttl-hours"] })) return 0;
     assertOnlyOptions(rest, "setup", ["--cwd", "--host", "--port", "--token", "--token-ttl-hours"]);
     const targetCwd = resolveCwdFlag(io.cwd, rest);
     const config = await writeLocalConfig(targetCwd, {
@@ -134,11 +126,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
   }
 
   if (command === "start") {
-    if (isHelpArgs(rest)) {
-      assertNoExtraArgs(rest.slice(1), "start help", 0);
-      printStartHelp(io.stdout);
-      return 0;
-    }
+    if (printHelpIfRequested(rest, "start", io.stdout, printStartHelp, { valueFlags: ["--cwd", "--source-cli"] })) return 0;
     assertOnlyOptions(rest, "start", ["--cwd", "--source-cli"]);
     const targetCwd = resolveCwdFlag(io.cwd, rest);
     const sourceCli = resolveOptionalFileFlag(io.cwd, rest, "--source-cli");
@@ -158,9 +146,12 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
   }
 
   if (command === "status") {
-    if (isHelpArgs(rest)) {
-      assertNoExtraArgs(rest.slice(1), "status help", 0);
-      printStatusHelp(io.stdout);
+    if (
+      printHelpIfRequested(rest, "status", io.stdout, printStatusHelp, {
+        valueFlags: ["--cwd", "--source-cli"],
+        booleanFlags: ["--show-token", "--url-only", "--unsafe-show-non-expiring-token"]
+      })
+    ) {
       return 0;
     }
     assertOnlyOptions(rest, "status", ["--cwd", "--source-cli"], ["--show-token", "--url-only", "--unsafe-show-non-expiring-token"]);
@@ -221,9 +212,12 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       return 0;
     }
     if (subcommand !== "url") throw unknownSubcommandError("tunnel", subcommand, ["url"]);
-    if (isHelpArgs(tunnelArgs)) {
-      assertNoExtraArgs(tunnelArgs.slice(1), "tunnel url help", 0);
-      printTunnelUrlHelp(io.stdout);
+    if (
+      printHelpIfRequested(tunnelArgs, "tunnel url", io.stdout, printTunnelUrlHelp, {
+        valueFlags: ["--cwd", "--public-url", "--source-cli"],
+        booleanFlags: ["--show-token", "--url-only"]
+      })
+    ) {
       return 0;
     }
     assertOnlyOptions(tunnelArgs, "tunnel url", ["--cwd", "--public-url", "--source-cli"], ["--show-token", "--url-only"]);
@@ -270,11 +264,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
   }
 
   if (command === "doctor") {
-    if (isHelpArgs(rest)) {
-      assertNoExtraArgs(rest.slice(1), "doctor help", 0);
-      printDoctorHelp(io.stdout);
-      return 0;
-    }
+    if (printHelpIfRequested(rest, "doctor", io.stdout, printDoctorHelp, { valueFlags: ["--cwd", "--source-cli"] })) return 0;
     assertOnlyOptions(rest, "doctor", ["--cwd", "--source-cli"]);
     const targetCwd = resolveCwdFlag(io.cwd, rest);
     const sourceCli = resolveOptionalFileFlag(io.cwd, rest, "--source-cli");
@@ -289,7 +279,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       return 0;
     }
     if (subcommand === "status") {
-      if (printHelpIfRequested(releaseArgs, "release status", io.stdout, printReleaseHelp)) return 0;
+      if (printHelpIfRequested(releaseArgs, "release status", io.stdout, printReleaseHelp, { valueFlags: ["--cwd", "--source-cli"] })) return 0;
       assertOnlyOptions(releaseArgs, "release status", ["--cwd", "--source-cli"]);
       const targetCwd = resolveCwdFlag(io.cwd, releaseArgs);
       const sourceCli = resolveOptionalFileFlag(io.cwd, releaseArgs, "--source-cli");
@@ -297,7 +287,14 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       return 0;
     }
     if (subcommand === "pack") {
-      if (printHelpIfRequested(releaseArgs, "release pack", io.stdout, printReleaseHelp)) return 0;
+      if (
+        printHelpIfRequested(releaseArgs, "release pack", io.stdout, printReleaseHelp, {
+          valueFlags: ["--cwd", "--pack-destination", "--source-cli"],
+          booleanFlags: ["--keep-workdir"]
+        })
+      ) {
+        return 0;
+      }
       assertOnlyOptions(releaseArgs, "release pack", ["--cwd", "--pack-destination", "--source-cli"], ["--keep-workdir"]);
       const targetCwd = resolveCwdFlag(io.cwd, releaseArgs);
       const sourceCli = resolveOptionalFileFlag(io.cwd, releaseArgs, "--source-cli");
@@ -318,11 +315,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
   }
 
   if (command === "onboard") {
-    if (isHelpArgs(rest)) {
-      assertNoExtraArgs(rest.slice(1), "onboard help", 0);
-      printOnboardHelp(io.stdout);
-      return 0;
-    }
+    if (printHelpIfRequested(rest, "onboard", io.stdout, printOnboardHelp, { valueFlags: ["--cwd", "--source-cli"] })) return 0;
     assertOnlyOptions(rest, "onboard", ["--cwd", "--source-cli"]);
     const targetCwd = resolveCwdFlag(io.cwd, rest);
     io.stdout(formatOnboardingGuide(targetCwd, await hasOnboardingReadme(targetCwd), resolveOptionalFileFlag(io.cwd, rest, "--source-cli")));
@@ -337,7 +330,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       return 0;
     }
     if (subcommand !== "prompt") throw unknownSubcommandError("project", subcommand, ["prompt"]);
-    if (printHelpIfRequested(projectArgs, "project prompt", io.stdout, printProjectHelp)) return 0;
+    if (printHelpIfRequested(projectArgs, "project prompt", io.stdout, printProjectHelp, { valueFlags: ["--cwd", "--source-cli"] })) return 0;
     assertOnlyOptions(projectArgs, "project prompt", ["--cwd", "--source-cli"]);
     io.stdout(formatProjectVerificationPrompt(resolveCwdFlag(io.cwd, projectArgs), resolveOptionalFileFlag(io.cwd, projectArgs, "--source-cli")));
     return 0;
@@ -351,13 +344,13 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       return 0;
     }
     if (subcommand === "prompt") {
-      if (printHelpIfRequested(claudeArgs, "claude prompt", io.stdout, printClaudeHelp)) return 0;
+      if (printHelpIfRequested(claudeArgs, "claude prompt", io.stdout, printClaudeHelp, { valueFlags: ["--cwd", "--source-cli"] })) return 0;
       assertOnlyOptions(claudeArgs, "claude prompt", ["--cwd", "--source-cli"]);
       io.stdout(formatClaudeVerificationPrompt(resolveCwdFlag(io.cwd, claudeArgs), resolveOptionalFileFlag(io.cwd, claudeArgs, "--source-cli")));
       return 0;
     }
     if (subcommand === "config") {
-      if (printHelpIfRequested(claudeArgs, "claude config", io.stdout, printClaudeHelp)) return 0;
+      if (printHelpIfRequested(claudeArgs, "claude config", io.stdout, printClaudeHelp, { valueFlags: ["--cwd", "--source-cli"] })) return 0;
       assertOnlyOptions(claudeArgs, "claude config", ["--cwd", "--source-cli"]);
       io.stdout(formatClaudeConfig(resolveCwdFlag(io.cwd, claudeArgs), resolveOptionalFileFlag(io.cwd, claudeArgs, "--source-cli")));
       return 0;
@@ -480,7 +473,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       return 0;
     }
     if (subcommand === "create") {
-      if (printHelpIfRequested(taskArgs, "tasks create", io.stdout, printTasksHelp)) return 0;
+      if (printHelpIfRequested(taskArgs, "tasks create", io.stdout, printTasksHelp, { valueFlags: ["--title", "--prompt", "--repo-id", "--file"] })) return 0;
       assertOnlyOptions(taskArgs, "tasks create", ["--title", "--prompt", "--repo-id", "--file"]);
       const title = readFlag(taskArgs, "--title");
       const prompt = readFlag(taskArgs, "--prompt");
@@ -497,7 +490,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       return 0;
     }
     if (subcommand === "list") {
-      if (printHelpIfRequested(taskArgs, "tasks list", io.stdout, printTasksHelp)) return 0;
+      if (printHelpIfRequested(taskArgs, "tasks list", io.stdout, printTasksHelp, { valueFlags: ["--cwd", "--status"] })) return 0;
       assertOnlyOptions(taskArgs, "tasks list", ["--cwd", "--status"]);
       const targetStore = new BridgeStore(resolveCwdFlag(io.cwd, taskArgs));
       const status = readTaskStatusFlag(taskArgs);
@@ -508,7 +501,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       return 0;
     }
     if (subcommand === "show") {
-      if (printHelpIfRequested(taskArgs, "tasks show", io.stdout, printTasksHelp)) return 0;
+      if (printHelpIfRequested(taskArgs, "tasks show", io.stdout, printTasksHelp, { valueFlags: ["--cwd"], maxPositionals: 1 })) return 0;
       const [taskId] = readPositionalsWithOptions(taskArgs, "tasks show", 1, ["--cwd"]);
       if (!taskId) throw new Error("tasks show requires <task-id|latest>");
       const targetStore = new BridgeStore(resolveCwdFlag(io.cwd, taskArgs));
@@ -518,7 +511,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       return 0;
     }
     if (subcommand === "claim") {
-      if (printHelpIfRequested(taskArgs, "tasks claim", io.stdout, printTasksHelp)) return 0;
+      if (printHelpIfRequested(taskArgs, "tasks claim", io.stdout, printTasksHelp, { valueFlags: ["--by"], maxPositionals: 1 })) return 0;
       const taskId = readRequiredLeadingArgument(taskArgs, "tasks claim", "<task-id>");
       assertOnlyOptions(taskArgs.slice(1), "tasks claim", ["--by"]);
       const task = await store.claimTask(taskId, readFlag(taskArgs, "--by") ?? "codex");
@@ -526,7 +519,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       return 0;
     }
     if (subcommand === "complete") {
-      if (printHelpIfRequested(taskArgs, "tasks complete", io.stdout, printTasksHelp)) return 0;
+      if (printHelpIfRequested(taskArgs, "tasks complete", io.stdout, printTasksHelp, { valueFlags: ["--summary", "--command"], maxPositionals: 1 })) return 0;
       const taskId = readRequiredLeadingArgument(taskArgs, "tasks complete", "<task-id>");
       assertOnlyOptions(taskArgs.slice(1), "tasks complete", ["--summary", "--command"]);
       const summary = readFlag(taskArgs, "--summary");
@@ -540,7 +533,15 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       return 0;
     }
     if (subcommand === "block") {
-      if (printHelpIfRequested(taskArgs, "tasks block", io.stdout, printTasksHelp)) return 0;
+      if (
+        printHelpIfRequested(taskArgs, "tasks block", io.stdout, printTasksHelp, {
+          valueFlags: ["--summary", "--code", "--next-step", "--command"],
+          booleanFlags: ["--retryable"],
+          maxPositionals: 1
+        })
+      ) {
+        return 0;
+      }
       const taskId = readRequiredLeadingArgument(taskArgs, "tasks block", "<task-id>");
       assertOnlyOptions(taskArgs.slice(1), "tasks block", ["--summary", "--code", "--next-step", "--command"], ["--retryable"]);
       const summary = readFlag(taskArgs, "--summary");
@@ -570,7 +571,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       return 0;
     }
     if (subcommand === "show") {
-      if (printHelpIfRequested(resultArgs, "results show", io.stdout, printResultsHelp)) return 0;
+      if (printHelpIfRequested(resultArgs, "results show", io.stdout, printResultsHelp, { valueFlags: ["--cwd"], maxPositionals: 1 })) return 0;
       const [taskId] = readPositionalsWithOptions(resultArgs, "results show", 1, ["--cwd"]);
       if (!taskId) throw new Error("results show requires <task-id|latest>");
       const targetStore = new BridgeStore(resolveCwdFlag(io.cwd, resultArgs));
@@ -579,7 +580,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       return 0;
     }
     if (subcommand === "artifact") {
-      if (printHelpIfRequested(resultArgs, "results artifact", io.stdout, printResultsHelp)) return 0;
+      if (printHelpIfRequested(resultArgs, "results artifact", io.stdout, printResultsHelp, { valueFlags: ["--cwd"], maxPositionals: 2 })) return 0;
       const [taskId, artifactPath] = readPositionalsWithOptions(resultArgs, "results artifact", 2, ["--cwd"]);
       if (!taskId) throw new Error("results artifact requires <task-id> [artifact-path]");
       const targetStore = new BridgeStore(resolveCwdFlag(io.cwd, resultArgs));
@@ -599,7 +600,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       return 0;
     }
     if (subcommand === "list") {
-      if (printHelpIfRequested(receiptArgs, "receipts list", io.stdout, printReceiptsHelp)) return 0;
+      if (printHelpIfRequested(receiptArgs, "receipts list", io.stdout, printReceiptsHelp, { valueFlags: ["--cwd", "--kind", "--task-id"] })) return 0;
       assertOnlyOptions(receiptArgs, "receipts list", ["--cwd", "--kind", "--task-id"]);
       const targetStore = new BridgeStore(resolveCwdFlag(io.cwd, receiptArgs));
       const receipts = await listReceiptsForInspection(targetStore, {
@@ -612,7 +613,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       return 0;
     }
     if (subcommand === "show") {
-      if (printHelpIfRequested(receiptArgs, "receipts show", io.stdout, printReceiptsHelp)) return 0;
+      if (printHelpIfRequested(receiptArgs, "receipts show", io.stdout, printReceiptsHelp, { valueFlags: ["--cwd"], maxPositionals: 1 })) return 0;
       const [receiptId] = readPositionalsWithOptions(receiptArgs, "receipts show", 1, ["--cwd"]);
       if (!receiptId) throw new Error("receipts show requires <receipt-id|latest>");
       const targetStore = new BridgeStore(resolveCwdFlag(io.cwd, receiptArgs));
@@ -633,7 +634,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       return 0;
     }
     if (subcommand === "list") {
-      if (printHelpIfRequested(sessionArgs, "sessions list", io.stdout, printSessionsHelp)) return 0;
+      if (printHelpIfRequested(sessionArgs, "sessions list", io.stdout, printSessionsHelp, { valueFlags: ["--cwd", "--status"] })) return 0;
       assertOnlyOptions(sessionArgs, "sessions list", ["--cwd", "--status"]);
       const targetStore = new BridgeStore(resolveCwdFlag(io.cwd, sessionArgs));
       const status = readSessionStatusFlag(sessionArgs);
@@ -644,7 +645,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       return 0;
     }
     if (subcommand === "show") {
-      if (printHelpIfRequested(sessionArgs, "sessions show", io.stdout, printSessionsHelp)) return 0;
+      if (printHelpIfRequested(sessionArgs, "sessions show", io.stdout, printSessionsHelp, { valueFlags: ["--cwd"], maxPositionals: 1 })) return 0;
       const [sessionId] = readPositionalsWithOptions(sessionArgs, "sessions show", 1, ["--cwd"]);
       if (!sessionId) throw new Error("sessions show requires <session-id|latest>");
       const targetStore = new BridgeStore(resolveCwdFlag(io.cwd, sessionArgs));
@@ -664,7 +665,14 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       return 0;
     }
     if (subcommand === "ask") {
-      if (printHelpIfRequested(proArgs, "pro ask", io.stdout, printProHelp)) return 0;
+      if (
+        printHelpIfRequested(proArgs, "pro ask", io.stdout, printProHelp, {
+          valueFlags: [...ASK_PRO_VALUE_FLAGS],
+          booleanFlags: [...ASK_PRO_BOOLEAN_FLAGS]
+        })
+      ) {
+        return 0;
+      }
       if (hasAskProSendMode(proArgs)) {
         throw new Error("gptprouse pro ask is a dry-run preview. Use `gptprouse pro browser ask` for visible-browser sends.");
       }
@@ -680,7 +688,14 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
         return 0;
       }
       if (browserSubcommand === "login") {
-        if (printHelpIfRequested(browserArgs, "pro browser login", io.stdout, printProBrowserHelp)) return 0;
+        if (
+          printHelpIfRequested(browserArgs, "pro browser login", io.stdout, printProBrowserHelp, {
+            valueFlags: ["--profile-dir", "--port", "--url", "--source-cli", "--launch-timeout-ms"],
+            booleanFlags: ["--dry-run"]
+          })
+        ) {
+          return 0;
+        }
         assertOnlyOptions(browserArgs, "pro browser login", ["--profile-dir", "--port", "--url", "--source-cli", "--launch-timeout-ms"], ["--dry-run"]);
         const loginUrl = readChatGptBrowserUrlFlag(browserArgs);
         const sourceCli = resolveOptionalFileFlag(io.cwd, browserArgs, "--source-cli");
@@ -719,7 +734,14 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
         return 0;
       }
       if (browserSubcommand === "ask") {
-        if (printHelpIfRequested(browserArgs, "pro browser ask", io.stdout, printProBrowserHelp)) return 0;
+        if (
+          printHelpIfRequested(browserArgs, "pro browser ask", io.stdout, printProBrowserHelp, {
+            valueFlags: [...ASK_PRO_VALUE_FLAGS],
+            booleanFlags: [...ASK_PRO_BOOLEAN_FLAGS]
+          })
+        ) {
+          return 0;
+        }
         if (hasAskProDryRunMode(browserArgs) && hasAskProSendMode(browserArgs)) {
           throw new Error("ask-pro cannot combine --dry-run and --send");
         }
@@ -734,11 +756,11 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
         throw new Error(`Use \`gptprouse pro browser ${replacement}\` for explicit browser automation.`);
       }
       if (browserSubcommand === "smoke") {
-        if (printHelpIfRequested(browserArgs, "pro browser smoke", io.stdout, printProBrowserHelp)) return 0;
+        if (printHelpIfRequested(browserArgs, "pro browser smoke", io.stdout, printProBrowserHelp, { valueFlags: ["--port", "--timeout-ms", "--source-cli"] })) return 0;
         return runCli(["chatgpt", browserSubcommand, ...browserArgs], io);
       }
       if (browserSubcommand === "check") {
-        if (printHelpIfRequested(browserArgs, "pro browser check", io.stdout, printProBrowserHelp)) return 0;
+        if (printHelpIfRequested(browserArgs, "pro browser check", io.stdout, printProBrowserHelp, { valueFlags: ["--cwd", "--port", "--timeout-ms", "--source-cli"] })) return 0;
         assertOnlyOptions(browserArgs, "pro browser check", ["--cwd", "--port", "--timeout-ms", "--source-cli"]);
         const targetCwd = resolveCwdFlag(io.cwd, browserArgs);
         readPortFlag(browserArgs, "--port");
@@ -752,7 +774,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       throw new Error(`Use \`gptprouse pro browser ${subcommand === "doctor" ? "check" : subcommand}\` for explicit browser automation.`);
     }
     if (subcommand === "list") {
-      if (printHelpIfRequested(proArgs, "pro list", io.stdout, printProHelp)) return 0;
+      if (printHelpIfRequested(proArgs, "pro list", io.stdout, printProHelp, { valueFlags: ["--cwd", "--source-cli"] })) return 0;
       assertOnlyOptions(proArgs, "pro list", ["--cwd", "--source-cli"]);
       const targetStore = new BridgeStore(resolveCwdFlag(io.cwd, proArgs));
       const sourceCli = resolveOptionalFileFlag(io.cwd, proArgs, "--source-cli");
@@ -763,7 +785,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       return 0;
     }
     if (subcommand === "latest") {
-      if (printHelpIfRequested(proArgs, "pro latest", io.stdout, printProHelp)) return 0;
+      if (printHelpIfRequested(proArgs, "pro latest", io.stdout, printProHelp, { valueFlags: ["--cwd", "--source-cli"] })) return 0;
       assertOnlyOptions(proArgs, "pro latest", ["--cwd", "--source-cli"]);
       const targetStore = new BridgeStore(resolveCwdFlag(io.cwd, proArgs));
       const sourceCli = resolveOptionalFileFlag(io.cwd, proArgs, "--source-cli");
@@ -773,7 +795,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       return 0;
     }
     if (subcommand === "show") {
-      if (printHelpIfRequested(proArgs, "pro show", io.stdout, printProHelp)) return 0;
+      if (printHelpIfRequested(proArgs, "pro show", io.stdout, printProHelp, { valueFlags: ["--cwd", "--source-cli"], maxPositionals: 1 })) return 0;
       const [taskId] = readPositionalsWithOptions(proArgs, "pro show", 1, ["--cwd", "--source-cli"]);
       if (!taskId) throw new Error("pro show requires <task-id|latest>");
       const targetStore = new BridgeStore(resolveCwdFlag(io.cwd, proArgs));
@@ -996,11 +1018,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
   }
 
   if (command === "mcp") {
-    if (isHelpArgs(rest)) {
-      assertNoExtraArgs(rest.slice(1), "mcp help", 0);
-      printMcpHelp(io.stdout);
-      return 0;
-    }
+    if (printHelpIfRequested(rest, "mcp", io.stdout, printMcpHelp, { valueFlags: ["--cwd"] })) return 0;
     assertOnlyOptions(rest, "mcp", ["--cwd"]);
     await runMcpServer(resolveCwdFlag(io.cwd, rest));
     return 0;
@@ -1230,11 +1248,60 @@ function isHelpArgs(args: string[]): boolean {
   return args.length > 0 && isHelpSubcommand(args[0]);
 }
 
-function printHelpIfRequested(args: string[], command: string, stdout: (line: string) => void, printHelp: (stdout: (line: string) => void) => void): boolean {
-  if (!isHelpArgs(args)) return false;
-  assertNoExtraArgs(args.slice(1), `${command} help`, 0);
+interface HelpRequestOptions {
+  valueFlags?: readonly string[];
+  booleanFlags?: readonly string[];
+  maxPositionals?: number;
+}
+
+function printHelpIfRequested(
+  args: string[],
+  command: string,
+  stdout: (line: string) => void,
+  printHelp: (stdout: (line: string) => void) => void,
+  options: HelpRequestOptions = {}
+): boolean {
+  const helpIndex = findHelpFlagIndexBeforePromptDelimiter(args);
+  if (helpIndex === -1) return false;
+  assertHelpRequestArgs(args, command, options);
   printHelp(stdout);
   return true;
+}
+
+function findHelpFlagIndexBeforePromptDelimiter(args: string[]): number {
+  const delimiterIndex = args.indexOf("--");
+  const limit = delimiterIndex === -1 ? args.length : delimiterIndex;
+  return args.findIndex((arg, index) => index < limit && isHelpSubcommand(arg));
+}
+
+function assertHelpRequestArgs(args: string[], command: string, options: HelpRequestOptions): void {
+  const delimiterIndex = args.indexOf("--");
+  const commandArgs = delimiterIndex === -1 ? args : args.slice(0, delimiterIndex);
+  const valueFlagSet = new Set(options.valueFlags ?? []);
+  const booleanFlagSet = new Set(options.booleanFlags ?? []);
+  const maxPositionals = options.maxPositionals ?? 0;
+  let positionals = 0;
+
+  for (let index = 0; index < commandArgs.length; index += 1) {
+    const arg = commandArgs[index];
+    if (isHelpSubcommand(arg)) continue;
+    if (valueFlagSet.has(arg)) {
+      const next = commandArgs[index + 1];
+      if (next && !isHelpSubcommand(next)) {
+        readFlagValue(commandArgs, index, arg);
+        index += 1;
+      }
+      continue;
+    }
+    if (booleanFlagSet.has(arg)) continue;
+    if (arg.startsWith("-")) {
+      throw unknownOptionError(arg, command, [...valueFlagSet, ...booleanFlagSet]);
+    }
+    if (positionals >= maxPositionals) {
+      throw new Error(`Unexpected argument for ${command}: ${arg}`);
+    }
+    positionals += 1;
+  }
 }
 
 function unknownSubcommandError(command: string, subcommand: string, expected: readonly string[]): Error {
