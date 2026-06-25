@@ -1451,6 +1451,68 @@ describe("runCli", () => {
     }
   });
 
+  it("prints help for advertised subcommands", async () => {
+    const cases = [
+      { args: ["release", "status", "--help"], expected: "gptprouse release status [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]" },
+      {
+        args: ["release", "pack", "--help"],
+        expected: "gptprouse release pack [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js] --pack-destination /absolute/path"
+      },
+      { args: ["project", "prompt", "--help"], expected: "gptprouse project prompt [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]" },
+      { args: ["claude", "prompt", "--help"], expected: "gptprouse claude prompt [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]" },
+      { args: ["claude", "config", "--help"], expected: "gptprouse claude config [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]" },
+      { args: ["tasks", "create", "--help"], expected: 'gptprouse tasks create --title "Title" --prompt "Prompt"' },
+      { args: ["tasks", "list", "--help"], expected: "gptprouse tasks list [--status new|claimed|done|blocked]" },
+      { args: ["tasks", "show", "--help"], expected: "gptprouse tasks show <task-id|latest>" },
+      { args: ["tasks", "claim", "--help"], expected: "gptprouse tasks claim <task-id> [--by codex]" },
+      { args: ["tasks", "complete", "--help"], expected: 'gptprouse tasks complete <task-id> --summary "Summary" [--command "npm test"]' },
+      {
+        args: ["tasks", "block", "--help"],
+        expected: 'gptprouse tasks block <task-id> --summary "Summary" [--code code] [--next-step "Next step"] [--retryable]'
+      },
+      { args: ["results", "show", "--help"], expected: "gptprouse results show <task-id|latest>" },
+      { args: ["results", "artifact", "--help"], expected: "gptprouse results artifact <task-id|latest> [artifact-path]" },
+      { args: ["receipts", "list", "--help"], expected: "gptprouse receipts list [--kind kind] [--task-id task-id]" },
+      { args: ["receipts", "show", "--help"], expected: "gptprouse receipts show <receipt-id|latest>" },
+      { args: ["sessions", "list", "--help"], expected: "gptprouse sessions list [--status preview|running|done|blocked]" },
+      { args: ["sessions", "show", "--help"], expected: "gptprouse sessions show <session-id|latest>" },
+      { args: ["pro", "ask", "--help"], expected: 'gptprouse pro ask [--dry-run] [--file path] "prompt"' },
+      {
+        args: ["pro", "browser", "login", "--help"],
+        expected: "gptprouse pro browser login [--dry-run] [--source-cli /absolute/path/to/dist/cli.js]"
+      },
+      {
+        args: ["pro", "browser", "check", "--help"],
+        expected: "gptprouse pro browser check [--source-cli /absolute/path/to/dist/cli.js]"
+      },
+      {
+        args: ["pro", "browser", "smoke", "--help"],
+        expected: "gptprouse pro browser smoke [--source-cli /absolute/path/to/dist/cli.js]"
+      },
+      {
+        args: ["pro", "browser", "ask", "--help"],
+        expected: "gptprouse pro browser ask [--source-cli /absolute/path/to/dist/cli.js]"
+      },
+      { args: ["pro", "latest", "--help"], expected: "gptprouse pro latest [--source-cli /absolute/path/to/dist/cli.js]" },
+      { args: ["pro", "list", "--help"], expected: "gptprouse pro list [--source-cli /absolute/path/to/dist/cli.js]" },
+      { args: ["pro", "show", "--help"], expected: "gptprouse pro show <task-id|latest> [--source-cli /absolute/path/to/dist/cli.js]" }
+    ];
+
+    for (const item of cases) {
+      const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+      const out: string[] = [];
+
+      const code = await runCli(item.args, {
+        cwd,
+        stdout: (line) => out.push(line),
+        stderr: () => {}
+      });
+
+      expect(code).toBe(0);
+      expect(out.join("\n")).toContain(item.expected);
+    }
+  });
+
   it("lists task blocking command in help", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
     const out: string[] = [];

@@ -167,6 +167,23 @@ try {
   const sessionsHelp = await run(binPath, ["sessions", "--help"], { cwd: consumerDir });
   assertIncludes(sessionsHelp.stdout, "gptprouse sessions", "installed sessions help output");
   assertIncludes(sessionsHelp.stdout, "gptprouse sessions list [--status preview|running|done|blocked]", "installed sessions help output");
+  const advertisedSubcommandHelpCases = [
+    { args: ["release", "status", "--help"], expected: "gptprouse release status [--cwd /absolute/path/to/repo]" },
+    { args: ["release", "pack", "--help"], expected: "gptprouse release pack [--cwd /absolute/path/to/repo]" },
+    { args: ["project", "prompt", "--help"], expected: "gptprouse project prompt [--cwd /absolute/path/to/repo]" },
+    { args: ["claude", "config", "--help"], expected: "gptprouse claude config [--cwd /absolute/path/to/repo]" },
+    { args: ["tasks", "show", "--help"], expected: "gptprouse tasks show <task-id|latest>" },
+    { args: ["results", "artifact", "--help"], expected: "gptprouse results artifact <task-id|latest> [artifact-path]" },
+    { args: ["receipts", "show", "--help"], expected: "gptprouse receipts show <receipt-id|latest>" },
+    { args: ["sessions", "show", "--help"], expected: "gptprouse sessions show <session-id|latest>" },
+    { args: ["pro", "ask", "--help"], expected: "gptprouse pro ask [--dry-run] [--file path]" },
+    { args: ["pro", "browser", "ask", "--help"], expected: "gptprouse pro browser ask [--source-cli /absolute/path/to/dist/cli.js]" },
+    { args: ["pro", "show", "--help"], expected: "gptprouse pro show <task-id|latest> [--source-cli /absolute/path/to/dist/cli.js]" }
+  ];
+  for (const item of advertisedSubcommandHelpCases) {
+    const commandHelp = await run(binPath, item.args, { cwd: consumerDir });
+    assertIncludes(commandHelp.stdout, item.expected, `installed ${item.args.join(" ")} output`);
+  }
   const freshDoctorDir = path.join(tmp, "fresh-doctor");
   await mkdir(freshDoctorDir, { recursive: true });
   const freshDoctor = await run(binPath, ["doctor"], { cwd: freshDoctorDir });
