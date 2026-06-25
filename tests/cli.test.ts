@@ -2877,8 +2877,8 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
       `1. Run \`${sourcePrefix} pro browser login --source-cli ${sourceCli}\` without \`--dry-run\` to open the dedicated Chrome window.`
     );
     expect(text).toContain("Open a normal ChatGPT chat or the intended Project/thread so the prompt composer is visible.");
-    expect(text).toContain(`Run \`${sourcePrefix} pro browser check\` to confirm the session is reachable.`);
-    expect(text).toContain(`Run \`${sourcePrefix} pro browser smoke\` to verify a real Pro response path.`);
+    expect(text).toContain(`Run \`${sourcePrefix} pro browser check --source-cli ${sourceCli}\` to confirm the session is reachable.`);
+    expect(text).toContain(`Run \`${sourcePrefix} pro browser smoke --source-cli ${sourceCli}\` to verify a real Pro response path.`);
     expect(text).not.toContain("Run `gptprouse pro browser login`");
     expect(text).not.toContain("gptprouse pro browser check");
   });

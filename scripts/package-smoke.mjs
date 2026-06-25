@@ -519,12 +519,12 @@ try {
   );
   assertIncludes(
     sourceBrowserLoginGuide.stdout,
-    `Run \`${sourcePrefix} pro browser check\` to confirm the session is reachable.`,
+    `Run \`${sourcePrefix} pro browser check --source-cli ${installedSourceCli}\` to confirm the session is reachable.`,
     "installed source browser login guide"
   );
   assertIncludes(
     sourceBrowserLoginGuide.stdout,
-    `Run \`${sourcePrefix} pro browser smoke\` to verify a real Pro response path.`,
+    `Run \`${sourcePrefix} pro browser smoke --source-cli ${installedSourceCli}\` to verify a real Pro response path.`,
     "installed source browser login guide"
   );
   assertNotIncludes(sourceBrowserLoginGuide.stdout, "Run `gptprouse pro browser login`", "installed source browser login guide");

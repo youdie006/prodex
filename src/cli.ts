@@ -1326,6 +1326,10 @@ function formatBrowserSmokeCommand(sourceCli?: string): string {
   return `${formatCliCommand(sourceCli)} pro browser smoke${formatSourceCliOption(sourceCli)}`;
 }
 
+function formatBrowserCheckCommand(sourceCli?: string): string {
+  return `${formatCliCommand(sourceCli)} pro browser check${formatSourceCliOption(sourceCli)}`;
+}
+
 function formatProShowCommand(taskId: string, sourceCli?: string): string {
   return `${formatCliCommand(sourceCli)} pro show ${shellQuote(taskId)}${formatSourceCliOption(sourceCli)}`;
 }
@@ -2293,8 +2297,9 @@ function printBrowserLoginGuide(
   stdout: (line: string) => void,
   input: { opened: boolean; profileDir: string; port: number; sourceCli?: string }
 ): void {
-  const cli = formatCliCommand(input.sourceCli);
   const loginCommand = formatBrowserLoginCommand(input.sourceCli);
+  const checkCommand = formatBrowserCheckCommand(input.sourceCli);
+  const smokeCommand = formatBrowserSmokeCommand(input.sourceCli);
   stdout("ChatGPT Pro browser login");
   stdout(input.opened ? "Opened the dedicated Chrome window for ChatGPT." : "Dry run: no browser was opened.");
   stdout("");
@@ -2304,16 +2309,16 @@ function printBrowserLoginGuide(
     stdout("2. If ChatGPT asks for captcha, Cloudflare/human verification, permission, account verification, or usage limit handling, complete it in the browser.");
     stdout("3. Open a normal ChatGPT chat or the intended Project/thread so the prompt composer is visible.");
     stdout("4. Select the Pro/Thinking model you want in the ChatGPT UI.");
-    stdout(`5. Run \`${cli} pro browser check\` to confirm the session is reachable.`);
-    stdout(`6. Run \`${cli} pro browser smoke\` to verify a real Pro response path.`);
+    stdout(`5. Run \`${checkCommand}\` to confirm the session is reachable.`);
+    stdout(`6. Run \`${smokeCommand}\` to verify a real Pro response path.`);
   } else {
     stdout(`1. Run \`${loginCommand}\` without \`--dry-run\` to open the dedicated Chrome window.`);
     stdout("2. Log in manually at https://chatgpt.com/ in that Chrome window.");
     stdout("3. If ChatGPT asks for captcha, Cloudflare/human verification, permission, account verification, or usage limit handling, complete it in the browser.");
     stdout("4. Open a normal ChatGPT chat or the intended Project/thread so the prompt composer is visible.");
     stdout("5. Select the Pro/Thinking model you want in the ChatGPT UI.");
-    stdout(`6. Run \`${cli} pro browser check\` to confirm the session is reachable.`);
-    stdout(`7. Run \`${cli} pro browser smoke\` to verify a real Pro response path.`);
+    stdout(`6. Run \`${checkCommand}\` to confirm the session is reachable.`);
+    stdout(`7. Run \`${smokeCommand}\` to verify a real Pro response path.`);
   }
   stdout("");
   stdout(`Profile: ${input.profileDir}`);
