@@ -3392,7 +3392,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
       stderr: () => {}
     });
 
-    expect(out.join("\n")).toContain(`latest_pro: blocked ${task.id}`);
+    expect(out.join("\n")).toContain(`latest_pro: blocked ${task.id} code=browser_send_failed retryable=true`);
     expect(await readdir(path.join(cwd, ".bridge", "tasks"))).not.toContain(path.basename(staleTaskTemp));
   });
 

@@ -2467,8 +2467,7 @@ async function printProductCheck(store: BridgeStore, io: CliIO, args: string[]):
 
   const latest = bridgeReady ? (await listConsults(store))[0] : undefined;
   if (latest) {
-    const latestLabel = latest.result.status === "blocked" ? "blocked" : "ok";
-    io.stdout(`latest_pro: ${latestLabel} ${latest.task.id} ${latest.result.status} ${latest.result.created_at}`);
+    io.stdout(formatProductCheckLatestProLine(latest));
   } else {
     io.stdout("latest_pro: missing");
   }
@@ -2580,6 +2579,15 @@ function formatProAnswer(consult: ConsultRecord, sourceCli?: string): string {
 function formatProListSummary(consult: ConsultRecord, sourceCli?: string): string {
   const blocker = sourceAwareProAnswerBlocker(consult, sourceCli);
   return firstLine(sourceAwareProAnswerSummary(consult.result.summary, consult.result.blocker, blocker));
+}
+
+function formatProductCheckLatestProLine(consult: ConsultRecord): string {
+  if (consult.result.status === "blocked") {
+    const code = consult.result.blocker?.code ?? "unknown";
+    const retryable = consult.result.blocker?.retryable ?? false;
+    return `latest_pro: blocked ${consult.task.id} code=${code} retryable=${retryable} ${consult.result.created_at}`;
+  }
+  return `latest_pro: ok ${consult.task.id} ${consult.result.status} ${consult.result.created_at}`;
 }
 
 function sourceAwareProAnswerBlocker(consult: ConsultRecord, sourceCli?: string): ConsultRecord["result"]["blocker"] {
