@@ -1456,7 +1456,7 @@ describe("runCli", () => {
       { args: ["release", "status", "--help"], expected: "gptprouse release status [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]" },
       {
         args: ["release", "pack", "--help"],
-        expected: "gptprouse release pack [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js] --pack-destination /absolute/path"
+        expected: "gptprouse release pack [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js] --pack-destination /absolute/path [--keep-workdir]"
       },
       { args: ["project", "prompt", "--help"], expected: "gptprouse project prompt [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]" },
       { args: ["claude", "prompt", "--help"], expected: "gptprouse claude prompt [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]" },
@@ -2010,7 +2010,7 @@ describe("runCli", () => {
     const text = out.join("\n");
     expect(text).toContain("gptprouse release status [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]");
     expect(text).toContain(
-      "gptprouse release pack [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js] --pack-destination /absolute/path"
+      "gptprouse release pack [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js] --pack-destination /absolute/path [--keep-workdir]"
     );
   });
 
@@ -2033,7 +2033,7 @@ describe("runCli", () => {
       expect(text).toContain("gptprouse release");
       expect(text).toContain("gptprouse release status [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]");
       expect(text).toContain(
-        "gptprouse release pack [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js] --pack-destination /absolute/path"
+        "gptprouse release pack [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js] --pack-destination /absolute/path [--keep-workdir]"
       );
       expect(text).toContain("Release commands are local checks and package preparation helpers; they do not publish or push.");
     }

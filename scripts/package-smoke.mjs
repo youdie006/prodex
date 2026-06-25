@@ -53,6 +53,9 @@ try {
 
   const binPath = path.join(consumerDir, "node_modules", ".bin", process.platform === "win32" ? "gptprouse.cmd" : "gptprouse");
   const installedPackageJson = JSON.parse(await readFile(path.join(consumerDir, "node_modules", "gptprouse", "package.json"), "utf8"));
+  if (installedPackageJson.scripts?.prepublishOnly !== "node scripts/release-check.mjs") {
+    throw new Error("installed package.json must keep prepublishOnly wired to release-check");
+  }
   const installedSourceCli = path.join(consumerDir, "node_modules", "gptprouse", "dist", "cli.js");
   const version = await run(binPath, ["--version"], { cwd: consumerDir });
   if (version.stdout.trim() !== installedPackageJson.version) {
@@ -79,7 +82,7 @@ try {
   );
   assertIncludes(
     help.stdout,
-    "gptprouse release pack [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js] --pack-destination /absolute/path",
+    "gptprouse release pack [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js] --pack-destination /absolute/path [--keep-workdir]",
     "installed help output"
   );
   assertIncludes(help.stdout, "gptprouse project prompt", "installed help output");
@@ -114,7 +117,7 @@ try {
   assertIncludes(releaseHelp.stdout, "gptprouse release", "installed release help output");
   assertIncludes(
     releaseHelp.stdout,
-    "gptprouse release pack [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js] --pack-destination /absolute/path",
+    "gptprouse release pack [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js] --pack-destination /absolute/path [--keep-workdir]",
     "installed release help output"
   );
   assertIncludes(
@@ -810,6 +813,7 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertIncludes(readme, "gptprouse claude config", "installed README");
   assertIncludes(readme, "gptprouse release status", "installed README");
   assertIncludes(readme, "gptprouse release pack --pack-destination", "installed README");
+  assertIncludes(readme, "--keep-workdir", "installed README");
   assertIncludes(readme, "release status --source-cli", "installed README");
   assertIncludes(readme, "release pack --source-cli", "installed README");
   assertIncludes(readme, "pack file-mode, non-regular file, or hard-link blockers", "installed README");

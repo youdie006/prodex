@@ -292,6 +292,8 @@ npm run release:pack -- --pack-destination /tmp/gptprouse-release
 
 `release pack` does not publish anything. It still refuses missing publish metadata, non-regular or hard-linked packed files, and missing package release checks; it only normalizes packed file modes in the staging copy so package `bin` entries remain executable and other packed files become regular `0644` files. Run `npm run release:verify` and `gptprouse release status` before publishing the tarball it creates. When the tarball is ready, `release pack` prints `release_pack_git` and `release_pack_git_next` lines before publish guidance so git remote/upstream blockers stay visible. It always prints `npm publish --dry-run <tarball>` for inspecting the exact tarball, but prints `npm publish <tarball>` only after git readiness is clear; otherwise it prints `release_pack_publish_blocked`.
 
+Add `--keep-workdir` to `gptprouse release pack` or `npm run release:pack -- ...` when you need to inspect the temporary normalized staging directory.
+
 To see the current publish blocker and next step from the CLI:
 
 ```bash
