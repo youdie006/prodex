@@ -1084,7 +1084,7 @@ describe("runCli", () => {
     });
 
     const text = out.join("\n");
-    expect(text).toContain('gptprouse pro ask [--file path] "prompt"  # dry-run preview');
+    expect(text).toContain('gptprouse pro ask [--dry-run] [--file path] "prompt"  # dry-run preview');
     expect(text).toContain("gptprouse pro browser login [--dry-run]  # preview/open visible browser login");
     expect(text).toContain('gptprouse pro browser ask [--target-url url --confirm-target] [--file path] "prompt"  # explicit visible-browser send');
   });
@@ -1393,13 +1393,31 @@ describe("runCli", () => {
     });
 
     const text = out.join("\n");
-    expect(text).toContain("gptprouse pro ask [--file path]");
+    expect(text).toContain("gptprouse pro ask [--dry-run] [--file path]");
     expect(text).toContain("gptprouse pro browser login [--dry-run]");
     expect(text).toContain("gptprouse pro browser check|smoke");
     expect(text).toContain("gptprouse pro browser ask");
     expect(text).not.toContain("gptprouse ask-pro");
     expect(text).not.toContain("gptprouse pro browser open|status");
     expect(text).not.toContain("gptprouse chatgpt open|status|smoke");
+  });
+
+  it("rejects unadvertised pro browser aliases", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+
+    for (const [alias, replacement] of [
+      ["open", "login"],
+      ["status", "check"],
+      ["doctor", "check"]
+    ] as const) {
+      await expect(
+        runCli(["pro", "browser", alias, "--port", "65534", "--timeout-ms", "1"], {
+          cwd,
+          stdout: () => {},
+          stderr: () => {}
+        })
+      ).rejects.toThrow(`Use \`gptprouse pro browser ${replacement}\``);
+    }
   });
 
   it("lists the release status command in help", async () => {

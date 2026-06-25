@@ -64,6 +64,7 @@ try {
   assertIncludes(help.stdout, "gptprouse project prompt", "installed help output");
   assertIncludes(help.stdout, "gptprouse claude prompt", "installed help output");
   assertIncludes(help.stdout, "gptprouse claude config", "installed help output");
+  assertIncludes(help.stdout, "gptprouse pro ask [--dry-run] [--file path]", "installed help output");
   assertIncludes(help.stdout, "gptprouse pro browser login [--dry-run]", "installed help output");
   assertIncludes(help.stdout, `gptprouse v${installedPackageJson.version}`, "installed help output");
   assertNotIncludes(help.stdout, "gptprouse ask-pro", "installed help output");
@@ -206,6 +207,16 @@ try {
   });
   assertIncludes(browserSmoke.stderr, "No Chrome DevTools endpoint is reachable", "installed pro browser smoke output");
   assertIncludes(browserSmoke.stderr, "gptprouse pro browser login", "installed pro browser smoke output");
+  for (const [alias, replacement] of [
+    ["open", "login"],
+    ["status", "check"],
+    ["doctor", "check"]
+  ]) {
+    const staleAlias = await runExpectFailure(binPath, ["pro", "browser", alias, "--port", "65534", "--timeout-ms", "1"], {
+      cwd: consumerDir
+    });
+    assertIncludes(staleAlias.stderr, `Use \`gptprouse pro browser ${replacement}\``, `installed pro browser ${alias} alias guard`);
+  }
   for (const command of [
     ["tasks", "list"],
     ["receipts", "list"],

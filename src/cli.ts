@@ -467,15 +467,19 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
         const hasMode = hasAskProMode(browserArgs);
         return runCli(["ask-pro", ...(hasMode ? [] : ["--send"]), ...browserArgs], { ...io, allowAskProBrowserSend: true });
       }
-      if (browserSubcommand === "open" || browserSubcommand === "status" || browserSubcommand === "smoke") {
+      if (browserSubcommand === "open" || browserSubcommand === "status" || browserSubcommand === "doctor") {
+        const replacement = browserSubcommand === "open" ? "login" : "check";
+        throw new Error(`Use \`gptprouse pro browser ${replacement}\` for explicit browser automation.`);
+      }
+      if (browserSubcommand === "smoke") {
         return runCli(["chatgpt", browserSubcommand, ...browserArgs], io);
       }
-      if (browserSubcommand === "check" || browserSubcommand === "doctor") {
+      if (browserSubcommand === "check") {
         assertOnlyOptions(browserArgs, "pro browser check", ["--port", "--timeout-ms"]);
         await printProductCheck(store, io, browserArgs);
         return 0;
       }
-      throw new Error("pro browser requires login|ask|open|status|smoke|check");
+      throw new Error("pro browser requires login|ask|smoke|check");
     }
     if (subcommand === "open" || subcommand === "status" || subcommand === "smoke" || subcommand === "check" || subcommand === "doctor") {
       throw new Error(`Use \`gptprouse pro browser ${subcommand === "doctor" ? "check" : subcommand}\` for explicit browser automation.`);
@@ -715,7 +719,7 @@ Commands:
   gptprouse project prompt [--cwd /absolute/path/to/repo]
   gptprouse claude prompt [--cwd /absolute/path/to/repo]
   gptprouse claude config [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]
-  gptprouse pro ask [--file path] "prompt"  # dry-run preview
+  gptprouse pro ask [--dry-run] [--file path] "prompt"  # dry-run preview
   gptprouse pro browser login [--dry-run]  # preview/open visible browser login
   gptprouse pro browser check|smoke
   gptprouse pro browser ask [--target-url url --confirm-target] [--file path] "prompt"  # explicit visible-browser send
