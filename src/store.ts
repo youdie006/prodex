@@ -368,7 +368,7 @@ export class BridgeStore {
     if (!artifact) {
       if (artifactPath) throw new Error(`Result artifact not found for ${taskId}: ${artifactPath}`);
       if (artifacts.length === 0) throw new Error(`Result ${taskId} has no result artifacts`);
-      throw new Error(`Result ${taskId} has multiple result artifacts; pass an artifact path`);
+      throw new Error(`Result ${taskId} has multiple result artifacts; pass one artifact path: ${artifacts.map((item) => item.path).join(", ")}`);
     }
     const normalizedArtifactPath = path.posix.normalize(artifact.path.replaceAll("\\", "/"));
     if (!isFetchableResultArtifactPath(normalizedArtifactPath) || normalizedArtifactPath !== artifact.path) {

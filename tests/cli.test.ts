@@ -434,6 +434,46 @@ describe("runCli", () => {
     expect(artifactOut.join("\n")).toBe("gptprouse MCP verification artifact");
   });
 
+  it("lists available result artifact paths when CLI artifact fetch omits a path for multiple artifacts", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const createOut: string[] = [];
+    await runCli(["tasks", "create", "--title", "Multiple artifacts", "--prompt", "Return multiple artifacts"], {
+      cwd,
+      stdout: (line) => createOut.push(line),
+      stderr: () => {}
+    });
+    const taskId = createOut[0].split("\t")[0];
+
+    await runCli(
+      [
+        "tasks",
+        "complete",
+        taskId,
+        "--summary",
+        "See result artifacts.",
+        "--artifact",
+        ".bridge/artifacts/results/first.md=first",
+        "--artifact",
+        ".bridge/artifacts/results/second.md=second"
+      ],
+      {
+        cwd,
+        stdout: () => {},
+        stderr: () => {}
+      }
+    );
+
+    await expect(
+      runCli(["results", "artifact", taskId], {
+        cwd,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.toThrow(
+      `Result ${taskId} has multiple result artifacts; pass one artifact path: .bridge/artifacts/results/first.md, .bridge/artifacts/results/second.md`
+    );
+  });
+
   it("rejects unknown setup, start, status, and browser options", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
 

@@ -276,6 +276,31 @@ describe("MCP tool handlers", () => {
     });
   });
 
+  it("lists available result artifact paths when fetch omits the path for multiple artifacts", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    const store = new BridgeStore(cwd);
+    const handlers = createMcpToolHandlers({ cwd });
+    const task = await handlers.bridge_create_task({
+      title: "Multiple artifacts",
+      prompt: "Attach multiple result artifacts"
+    });
+    const firstPath = await store.writeArtifactText(".bridge/artifacts/results/first.md", "first\n");
+    const secondPath = await store.writeArtifactText(".bridge/artifacts/results/second.md", "second\n");
+
+    await handlers.bridge_complete_task({
+      task_id: task.task.id,
+      summary: "See multiple artifacts.",
+      artifacts: [
+        { path: firstPath, bytes: "first\n".length },
+        { path: secondPath, bytes: "second\n".length }
+      ]
+    });
+
+    await expect(handlers.bridge_fetch_result_artifact({ task_id: task.task.id })).rejects.toThrow(
+      `Result ${task.task.id} has multiple result artifacts; pass one artifact path: ${firstPath}, ${secondPath}`
+    );
+  });
+
   it("records and verifies result artifact hashes before fetching", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
     const store = new BridgeStore(cwd);
