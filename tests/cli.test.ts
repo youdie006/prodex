@@ -1487,6 +1487,55 @@ describe("runCli", () => {
     expect(text).not.toContain("gptprouse_token=");
   });
 
+  it("quotes source-checkout paths with spaces in prompt and onboard commands", async () => {
+    const launcherCwd = await mkdtemp(path.join(tmpdir(), "gptprouse cli launcher "));
+    const targetCwd = path.join(launcherCwd, "target repo");
+    const sourceCli = path.join(launcherCwd, "dist dir", "cli.js");
+    await mkdir(targetCwd, { recursive: true });
+    await mkdir(path.dirname(sourceCli), { recursive: true });
+    await writeFile(sourceCli, "#!/usr/bin/env node\n", "utf8");
+
+    const projectOut: string[] = [];
+    await runCli(["project", "prompt", "--cwd", targetCwd, "--source-cli", sourceCli], {
+      cwd: launcherCwd,
+      stdout: (line) => projectOut.push(line),
+      stderr: () => {}
+    });
+
+    const claudeOut: string[] = [];
+    await runCli(["claude", "prompt", "--cwd", targetCwd, "--source-cli", sourceCli], {
+      cwd: launcherCwd,
+      stdout: (line) => claudeOut.push(line),
+      stderr: () => {}
+    });
+
+    const onboardOut: string[] = [];
+    await runCli(["onboard", "--cwd", targetCwd, "--source-cli", sourceCli], {
+      cwd: launcherCwd,
+      stdout: (line) => onboardOut.push(line),
+      stderr: () => {}
+    });
+
+    const quotedSource = `'${sourceCli}'`;
+    const quotedTarget = `'${targetCwd}'`;
+    const projectText = projectOut.join("\n");
+    expect(projectText).toContain(`cd ${quotedTarget}`);
+    expect(projectText).toContain(`node ${quotedSource} tasks list --status new`);
+    expect(projectText).toContain(`node ${quotedSource} tasks show <task-id>`);
+
+    const claudeText = claudeOut.join("\n");
+    expect(claudeText).toContain(`node ${quotedSource} tasks list --status new`);
+    expect(claudeText).toContain(`node ${quotedSource} tasks show <task-id>`);
+
+    const onboardText = onboardOut.join("\n");
+    expect(onboardText).toContain(`node ${quotedSource} init --cwd ${quotedTarget}`);
+    expect(onboardText).toContain(`node ${quotedSource} claude config --cwd ${quotedTarget} --source-cli ${quotedSource}`);
+    expect(onboardText).toContain(`node ${quotedSource} claude prompt --cwd ${quotedTarget} --source-cli ${quotedSource}`);
+    expect(onboardText).toContain(`node ${quotedSource} project prompt --cwd ${quotedTarget} --source-cli ${quotedSource}`);
+    expect(onboardText).toContain(`cd ${quotedTarget}`);
+    expect(onboardText).not.toContain("gptprouse_token=");
+  });
+
   it("claude prompt rejects unknown Claude helper subcommands", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
 
