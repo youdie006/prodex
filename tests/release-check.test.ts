@@ -394,7 +394,9 @@ describe("release-check", () => {
     expect(result.stdout).toContain(`release_check: ${npmCommand} test`);
     expect(result.stdout).toContain(`release_check: ${npmCommand} run typecheck`);
     expect(result.stdout).not.toContain(`release_check: ${npmCommand} run build`);
-    expect(result.stderr).toContain("fake release-check command failed");
+    expect(result.stderr).toContain(`release verification failed: ${npmCommand} run typecheck: fake release-check command failed`);
+    expect(result.stderr).not.toContain("Command failed:");
+    expect(result.stderr).not.toContain("Node.js v");
     await expect(readFile(fakeCommands.logPath, "utf8")).resolves.toBe(
       [`${npmCommand}\tpack --json --dry-run --ignore-scripts\t${root}`, `${npmCommand}\ttest\t${root}`, `${npmCommand}\trun typecheck\t${root}`, ""].join("\n")
     );

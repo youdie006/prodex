@@ -242,12 +242,17 @@ function formatPathList(paths) {
 }
 
 async function run(command, commandArgs, cwd) {
-  console.log(`release_check: ${[command, ...commandArgs].join(" ")}`);
-  await execFileAsync(command, commandArgs, {
-    cwd,
-    timeout: 180_000,
-    maxBuffer: 20 * 1024 * 1024
-  });
+  const commandLine = [command, ...commandArgs].join(" ");
+  console.log(`release_check: ${commandLine}`);
+  try {
+    await execFileAsync(command, commandArgs, {
+      cwd,
+      timeout: 180_000,
+      maxBuffer: 20 * 1024 * 1024
+    });
+  } catch (error) {
+    throw new Error(`release verification failed: ${commandLine}: ${commandFailureDetail(error)}`);
+  }
 }
 
 function commandForPlatform(command) {
@@ -289,4 +294,21 @@ function parseArgs(values) {
 
 function isMissingFileError(error) {
   return typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT";
+}
+
+function commandFailureDetail(error) {
+  const failed = error && typeof error === "object" ? error : {};
+  const stderr = firstOutputLine(failed.stderr);
+  if (stderr) return stderr;
+  const stdout = firstOutputLine(failed.stdout);
+  if (stdout) return stdout;
+  return error instanceof Error ? error.message : String(error);
+}
+
+function firstOutputLine(value) {
+  if (typeof value !== "string") return undefined;
+  return value
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find(Boolean);
 }
