@@ -178,11 +178,11 @@ export class BridgeStore {
   }
 
   async getTask(taskId: string): Promise<Task> {
-    return parseTaskRecord(taskId, await this.readRecordJson("tasks", taskId));
+    return this.parseRecord("tasks", taskId, await this.readRecordJson("tasks", taskId), parseTaskRecord);
   }
 
   async getTaskReadOnly(taskId: string): Promise<Task> {
-    return parseTaskRecord(taskId, await this.readRecordJson("tasks", taskId, { cleanupTempHardLinks: false }));
+    return this.parseRecord("tasks", taskId, await this.readRecordJson("tasks", taskId, { cleanupTempHardLinks: false }), parseTaskRecord);
   }
 
   async claimTask(taskId: string, claimedBy: string): Promise<Task> {
@@ -285,11 +285,11 @@ export class BridgeStore {
   }
 
   async getResult(taskId: string): Promise<Result> {
-    return parseResultRecord(taskId, await this.readRecordJson("results", taskId));
+    return this.parseRecord("results", taskId, await this.readRecordJson("results", taskId), parseResultRecord);
   }
 
   async getResultReadOnly(taskId: string): Promise<Result> {
-    return parseResultRecord(taskId, await this.readRecordJson("results", taskId, { cleanupTempHardLinks: false }));
+    return this.parseRecord("results", taskId, await this.readRecordJson("results", taskId, { cleanupTempHardLinks: false }), parseResultRecord);
   }
 
   async readResultArtifactText(
@@ -359,11 +359,11 @@ export class BridgeStore {
   }
 
   async getSession(sessionId: string): Promise<Session> {
-    return parseSessionRecord(sessionId, await this.readRecordJson("sessions", sessionId));
+    return this.parseRecord("sessions", sessionId, await this.readRecordJson("sessions", sessionId), parseSessionRecord);
   }
 
   async getSessionReadOnly(sessionId: string): Promise<Session> {
-    return parseSessionRecord(sessionId, await this.readRecordJson("sessions", sessionId, { cleanupTempHardLinks: false }));
+    return this.parseRecord("sessions", sessionId, await this.readRecordJson("sessions", sessionId, { cleanupTempHardLinks: false }), parseSessionRecord);
   }
 
   async listSessions(status?: Session["status"]): Promise<Session[]> {
@@ -383,7 +383,7 @@ export class BridgeStore {
   }
 
   async getReceipt(receiptId: string): Promise<Receipt> {
-    return parseReceiptRecord(receiptId, await this.readRecordJson("receipts", receiptId));
+    return this.parseRecord("receipts", receiptId, await this.readRecordJson("receipts", receiptId), parseReceiptRecord);
   }
 
   async getTrustedReceipt(receiptId: string): Promise<Receipt> {
@@ -393,7 +393,7 @@ export class BridgeStore {
   }
 
   async getReceiptReadOnly(receiptId: string): Promise<Receipt> {
-    return parseReceiptRecord(receiptId, await this.readRecordJson("receipts", receiptId, { cleanupTempHardLinks: false }));
+    return this.parseRecord("receipts", receiptId, await this.readRecordJson("receipts", receiptId, { cleanupTempHardLinks: false }), parseReceiptRecord);
   }
 
   async listReceipts(input: ListReceiptsInput = {}): Promise<Receipt[]> {
@@ -656,9 +656,17 @@ export class BridgeStore {
       if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
       const id = entry.name.replace(/\.json$/, "");
       if (!isBridgeRecordId(kind, id)) continue;
-      items.push(parseRecord(id, await this.readRecordJson(kind, id, options)));
+      items.push(this.parseRecord(kind, id, await this.readRecordJson(kind, id, options), parseRecord));
     }
     return items;
+  }
+
+  private parseRecord<T>(kind: BridgeRecordKind, id: string, value: unknown, parseRecord: (id: string, value: unknown) => T): T {
+    try {
+      return parseRecord(id, value);
+    } catch (error) {
+      throw recordCorruptError(kind, id, this.pathFor(kind, id), this.root, error);
+    }
   }
 
   private async readRecordJson(
@@ -672,7 +680,12 @@ export class BridgeStore {
       if (options.cleanupTempHardLinks ?? true) {
         await this.cleanupRecordTempHardLinks(kind, filePath);
       }
-      return JSON.parse(await readVerifiedUtf8File(filePath, () => this.assertRecordTargetInside(kind, filePath)));
+      const raw = await readVerifiedUtf8File(filePath, () => this.assertRecordTargetInside(kind, filePath));
+      try {
+        return JSON.parse(raw);
+      } catch (error) {
+        throw recordCorruptError(kind, id, filePath, this.root, error);
+      }
     } catch (error) {
       if (isErrorCode(error, "ENOENT")) {
         throw recordNotFoundError(kind, id);
@@ -1081,6 +1094,19 @@ function recordNotFoundError(kind: BridgeRecordKind, id: string): Error & { code
   const error = new Error(`${recordLabel(kind)} not found: ${id}`) as Error & { code: "ENOENT" };
   error.code = "ENOENT";
   return error;
+}
+
+function recordCorruptError(kind: BridgeRecordKind, id: string, filePath: string, root: string, cause: unknown): Error {
+  assertBridgeRecordId(kind, id);
+  return new Error(`${recordLabel(kind)} record is corrupt: ${formatRecordPath(root, filePath)}. Move it aside or fix the JSON, then retry.`, {
+    cause
+  });
+}
+
+function formatRecordPath(root: string, filePath: string): string {
+  const relative = path.relative(root, filePath);
+  if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) return filePath;
+  return relative.split(path.sep).join("/");
 }
 
 function recordLabel(kind: BridgeRecordKind): string {

@@ -207,8 +207,8 @@ describe("BridgeStore", () => {
       "utf8"
     );
 
-    await expect(store.getResult(task.id)).rejects.toThrow(/does not match result record/i);
-    await expect(store.listResults()).rejects.toThrow(/does not match result record/i);
+    await expect(store.getResult(task.id)).rejects.toThrow(/Result record is corrupt: \.bridge\/results\/.*\.json\. Move it aside or fix the JSON/i);
+    await expect(store.listResults()).rejects.toThrow(/Result record is corrupt: \.bridge\/results\/.*\.json\. Move it aside or fix the JSON/i);
   });
 
   it("rejects task, session, and receipt records whose internal ids do not match the filename", async () => {
@@ -274,12 +274,20 @@ describe("BridgeStore", () => {
       "utf8"
     );
 
-    await expect(store.getTask(taskRecordId)).rejects.toThrow(/does not match task record/i);
-    await expect(store.listTasks()).rejects.toThrow(/does not match task record/i);
-    await expect(store.getSession(sessionRecordId)).rejects.toThrow(/does not match session record/i);
-    await expect(store.listSessions()).rejects.toThrow(/does not match session record/i);
-    await expect(store.getReceipt(receiptRecordId)).rejects.toThrow(/does not match receipt record/i);
-    await expect(store.listReceipts()).rejects.toThrow(/does not match receipt record/i);
+    await expect(store.getTask(taskRecordId)).rejects.toThrow(/Task record is corrupt: \.bridge\/tasks\/.*\.json\. Move it aside or fix the JSON/i);
+    await expect(store.listTasks()).rejects.toThrow(/Task record is corrupt: \.bridge\/tasks\/.*\.json\. Move it aside or fix the JSON/i);
+    await expect(store.getSession(sessionRecordId)).rejects.toThrow(
+      /Session record is corrupt: \.bridge\/sessions\/.*\.json\. Move it aside or fix the JSON/i
+    );
+    await expect(store.listSessions()).rejects.toThrow(
+      /Session record is corrupt: \.bridge\/sessions\/.*\.json\. Move it aside or fix the JSON/i
+    );
+    await expect(store.getReceipt(receiptRecordId)).rejects.toThrow(
+      /Receipt record is corrupt: \.bridge\/receipts\/.*\.json\. Move it aside or fix the JSON/i
+    );
+    await expect(store.listReceipts()).rejects.toThrow(
+      /Receipt record is corrupt: \.bridge\/receipts\/.*\.json\. Move it aside or fix the JSON/i
+    );
   });
 
   it("cleans up a created task record when the creation receipt cannot be stored", async () => {

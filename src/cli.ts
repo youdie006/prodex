@@ -498,9 +498,10 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
     }
     if (subcommand === "list") {
       if (printHelpIfRequested(taskArgs, "tasks list", io.stdout, printTasksHelp)) return 0;
-      assertOnlyOptions(taskArgs, "tasks list", ["--status"]);
+      assertOnlyOptions(taskArgs, "tasks list", ["--cwd", "--status"]);
+      const targetStore = new BridgeStore(resolveCwdFlag(io.cwd, taskArgs));
       const status = readTaskStatusFlag(taskArgs);
-      const tasks = await listTasksForInspection(store, status);
+      const tasks = await listTasksForInspection(targetStore, status);
       for (const task of tasks) {
         io.stdout(`${task.id}\t${task.status}\t${task.title}`);
       }
@@ -508,10 +509,10 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
     }
     if (subcommand === "show") {
       if (printHelpIfRequested(taskArgs, "tasks show", io.stdout, printTasksHelp)) return 0;
-      const taskId = taskArgs[0];
+      const [taskId] = readPositionalsWithOptions(taskArgs, "tasks show", 1, ["--cwd"]);
       if (!taskId) throw new Error("tasks show requires <task-id|latest>");
-      assertNoExtraArgs(taskArgs, "tasks show", 1);
-      const task = taskId === "latest" ? await latestTask(store, { readOnly: true }) : await store.getTaskReadOnly(taskId);
+      const targetStore = new BridgeStore(resolveCwdFlag(io.cwd, taskArgs));
+      const task = taskId === "latest" ? await latestTask(targetStore, { readOnly: true }) : await targetStore.getTaskReadOnly(taskId);
       if (!task) throw new Error(taskId === "latest" ? "No tasks found" : `Task not found: ${taskId}`);
       io.stdout(JSON.stringify(task, null, 2));
       return 0;
@@ -570,20 +571,20 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
     }
     if (subcommand === "show") {
       if (printHelpIfRequested(resultArgs, "results show", io.stdout, printResultsHelp)) return 0;
-      const taskId = resultArgs[0];
+      const [taskId] = readPositionalsWithOptions(resultArgs, "results show", 1, ["--cwd"]);
       if (!taskId) throw new Error("results show requires <task-id|latest>");
-      assertNoExtraArgs(resultArgs, "results show", 1);
-      const resolvedTaskId = taskId === "latest" ? await latestResultTaskId(store, { readOnly: true }) : taskId;
-      io.stdout(JSON.stringify(await store.getResultReadOnly(resolvedTaskId), null, 2));
+      const targetStore = new BridgeStore(resolveCwdFlag(io.cwd, resultArgs));
+      const resolvedTaskId = taskId === "latest" ? await latestResultTaskId(targetStore, { readOnly: true }) : taskId;
+      io.stdout(JSON.stringify(await targetStore.getResultReadOnly(resolvedTaskId), null, 2));
       return 0;
     }
     if (subcommand === "artifact") {
       if (printHelpIfRequested(resultArgs, "results artifact", io.stdout, printResultsHelp)) return 0;
-      const taskId = resultArgs[0];
+      const [taskId, artifactPath] = readPositionalsWithOptions(resultArgs, "results artifact", 2, ["--cwd"]);
       if (!taskId) throw new Error("results artifact requires <task-id> [artifact-path]");
-      assertNoExtraArgs(resultArgs, "results artifact", 2);
-      const resolvedTaskId = taskId === "latest" ? await latestResultTaskId(store, { readOnly: true }) : taskId;
-      const artifact = await store.readResultArtifactText(resolvedTaskId, resultArgs[1], { readOnly: true });
+      const targetStore = new BridgeStore(resolveCwdFlag(io.cwd, resultArgs));
+      const resolvedTaskId = taskId === "latest" ? await latestResultTaskId(targetStore, { readOnly: true }) : taskId;
+      const artifact = await targetStore.readResultArtifactText(resolvedTaskId, artifactPath, { readOnly: true });
       io.stdout(artifact.content);
       return 0;
     }
@@ -599,8 +600,9 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
     }
     if (subcommand === "list") {
       if (printHelpIfRequested(receiptArgs, "receipts list", io.stdout, printReceiptsHelp)) return 0;
-      assertOnlyOptions(receiptArgs, "receipts list", ["--kind", "--task-id"]);
-      const receipts = await listReceiptsForInspection(store, {
+      assertOnlyOptions(receiptArgs, "receipts list", ["--cwd", "--kind", "--task-id"]);
+      const targetStore = new BridgeStore(resolveCwdFlag(io.cwd, receiptArgs));
+      const receipts = await listReceiptsForInspection(targetStore, {
         kind: readReceiptKindFlag(receiptArgs),
         task_id: readFlag(receiptArgs, "--task-id")
       });
@@ -611,10 +613,11 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
     }
     if (subcommand === "show") {
       if (printHelpIfRequested(receiptArgs, "receipts show", io.stdout, printReceiptsHelp)) return 0;
-      const receiptId = receiptArgs[0];
+      const [receiptId] = readPositionalsWithOptions(receiptArgs, "receipts show", 1, ["--cwd"]);
       if (!receiptId) throw new Error("receipts show requires <receipt-id|latest>");
-      assertNoExtraArgs(receiptArgs, "receipts show", 1);
-      const receipt = receiptId === "latest" ? (await listReceiptsForInspection(store))[0] : await store.getReceiptForDisplayReadOnly(receiptId);
+      const targetStore = new BridgeStore(resolveCwdFlag(io.cwd, receiptArgs));
+      const receipt =
+        receiptId === "latest" ? (await listReceiptsForInspection(targetStore))[0] : await targetStore.getReceiptForDisplayReadOnly(receiptId);
       if (!receipt) throw new Error(receiptId === "latest" ? "No receipts found" : `Receipt not found: ${receiptId}`);
       io.stdout(JSON.stringify(receipt, null, 2));
       return 0;
@@ -631,9 +634,10 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
     }
     if (subcommand === "list") {
       if (printHelpIfRequested(sessionArgs, "sessions list", io.stdout, printSessionsHelp)) return 0;
-      assertOnlyOptions(sessionArgs, "sessions list", ["--status"]);
+      assertOnlyOptions(sessionArgs, "sessions list", ["--cwd", "--status"]);
+      const targetStore = new BridgeStore(resolveCwdFlag(io.cwd, sessionArgs));
       const status = readSessionStatusFlag(sessionArgs);
-      const sessions = await listSessionsForInspection(store, status);
+      const sessions = await listSessionsForInspection(targetStore, status);
       for (const session of sessions) {
         io.stdout(`${session.id}\t${session.status}\t${session.backend}\t${session.direction}`);
       }
@@ -641,10 +645,10 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
     }
     if (subcommand === "show") {
       if (printHelpIfRequested(sessionArgs, "sessions show", io.stdout, printSessionsHelp)) return 0;
-      const sessionId = sessionArgs[0];
+      const [sessionId] = readPositionalsWithOptions(sessionArgs, "sessions show", 1, ["--cwd"]);
       if (!sessionId) throw new Error("sessions show requires <session-id|latest>");
-      assertNoExtraArgs(sessionArgs, "sessions show", 1);
-      const session = sessionId === "latest" ? (await listSessionsForInspection(store))[0] : await store.getSessionReadOnly(sessionId);
+      const targetStore = new BridgeStore(resolveCwdFlag(io.cwd, sessionArgs));
+      const session = sessionId === "latest" ? (await listSessionsForInspection(targetStore))[0] : await targetStore.getSessionReadOnly(sessionId);
       if (!session) throw new Error(sessionId === "latest" ? "No sessions found" : `Session not found: ${sessionId}`);
       io.stdout(formatSession(session));
       return 0;
@@ -736,9 +740,10 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
     }
     if (subcommand === "list") {
       if (printHelpIfRequested(proArgs, "pro list", io.stdout, printProHelp)) return 0;
-      assertOnlyOptions(proArgs, "pro list", ["--source-cli"]);
+      assertOnlyOptions(proArgs, "pro list", ["--cwd", "--source-cli"]);
+      const targetStore = new BridgeStore(resolveCwdFlag(io.cwd, proArgs));
       const sourceCli = resolveOptionalFileFlag(io.cwd, proArgs, "--source-cli");
-      const consults = await listConsults(store, { readOnly: true });
+      const consults = await listConsults(targetStore, { readOnly: true });
       for (const consult of consults) {
         io.stdout(`${consult.task.id}\t${consult.result.status}\t${formatProListSummary(consult, sourceCli)}`);
       }
@@ -746,20 +751,22 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
     }
     if (subcommand === "latest") {
       if (printHelpIfRequested(proArgs, "pro latest", io.stdout, printProHelp)) return 0;
-      assertOnlyOptions(proArgs, "pro latest", ["--source-cli"]);
+      assertOnlyOptions(proArgs, "pro latest", ["--cwd", "--source-cli"]);
+      const targetStore = new BridgeStore(resolveCwdFlag(io.cwd, proArgs));
       const sourceCli = resolveOptionalFileFlag(io.cwd, proArgs, "--source-cli");
-      const consult = (await listConsults(store, { readOnly: true }))[0];
+      const consult = (await listConsults(targetStore, { readOnly: true }))[0];
       if (!consult) throw new Error("No GPT Pro answers found");
       io.stdout(formatProAnswer(consult, sourceCli));
       return 0;
     }
     if (subcommand === "show") {
       if (printHelpIfRequested(proArgs, "pro show", io.stdout, printProHelp)) return 0;
-      const taskId = proArgs[0];
+      const [taskId] = readPositionalsWithOptions(proArgs, "pro show", 1, ["--cwd", "--source-cli"]);
       if (!taskId) throw new Error("pro show requires <task-id|latest>");
-      assertOnlyOptions(proArgs.slice(1), "pro show", ["--source-cli"]);
-      const sourceCli = resolveOptionalFileFlag(io.cwd, proArgs.slice(1), "--source-cli");
-      const consult = taskId === "latest" ? (await listConsults(store, { readOnly: true }))[0] : await getConsult(store, taskId, { readOnly: true });
+      const targetStore = new BridgeStore(resolveCwdFlag(io.cwd, proArgs));
+      const sourceCli = resolveOptionalFileFlag(io.cwd, proArgs, "--source-cli");
+      const consult =
+        taskId === "latest" ? (await listConsults(targetStore, { readOnly: true }))[0] : await getConsult(targetStore, taskId, { readOnly: true });
       if (!consult) throw new Error(taskId === "latest" ? "No GPT Pro answers found" : `GPT Pro answer not found: ${taskId}`);
       io.stdout(formatProAnswer(consult, sourceCli));
       return 0;
@@ -811,18 +818,38 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
         }
       });
       await store.claimTask(task.id, "chatgpt-pro");
-      await writeSessionBeforeBrowserSend(
-        store,
-        {
-          id: bundle.id,
-          direction: "codex_to_chatgpt",
-          backend: "chatgpt-control",
-          task_id: task.id,
-          thread: normalizedTargetUrl,
-          status: "running",
-          warnings: []
+      try {
+        await writeSessionBeforeBrowserSend(
+          store,
+          {
+            id: bundle.id,
+            direction: "codex_to_chatgpt",
+            backend: "chatgpt-control",
+            task_id: task.id,
+            thread: normalizedTargetUrl,
+            status: "running",
+            warnings: []
+          }
+        );
+      } catch (error) {
+        const blocker = {
+          code: "session_record_failed",
+          message: `Could not record ChatGPT browser session before send: ${errorMessage(error)}`,
+          retryable: true,
+          next_step: "Fix local .bridge write permissions, then rerun the consult."
+        };
+        try {
+          await store.completeTask(task.id, {
+            status: "blocked",
+            summary: blocker.message,
+            commands: ["visible ChatGPT browser consult"],
+            blocker
+          });
+        } catch (recordError) {
+          throw new Error(`${blocker.message} (also failed to record blocked consult: ${errorMessage(recordError)})`);
         }
-      );
+        throw new Error(formatBlockedConsultRecordedMessage(blocker.message, task.id, sourceCli));
+      }
       let consult: Awaited<ReturnType<typeof sendChatGptPrompt>>;
       try {
         consult = await sendChatGptPrompt({
@@ -996,21 +1023,21 @@ Commands:
   gptprouse pro browser help
   gptprouse pro browser check|smoke [--source-cli /absolute/path/to/dist/cli.js]
   gptprouse pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--target-url url --confirm-target] [--file path] "prompt"  # explicit visible-browser send
-  gptprouse pro latest [--source-cli /absolute/path/to/dist/cli.js]
-  gptprouse pro list [--source-cli /absolute/path/to/dist/cli.js]
-  gptprouse pro show <task-id|latest> [--source-cli /absolute/path/to/dist/cli.js]
+  gptprouse pro latest [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]
+  gptprouse pro list [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]
+  gptprouse pro show <task-id|latest> [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]
   gptprouse tasks create --title "Title" --prompt "Prompt"
-  gptprouse tasks list [--status new|claimed|done|blocked]
-  gptprouse tasks show <task-id|latest>
+  gptprouse tasks list [--status new|claimed|done|blocked] [--cwd /absolute/path/to/repo]
+  gptprouse tasks show <task-id|latest> [--cwd /absolute/path/to/repo]
   gptprouse tasks claim <task-id> [--by codex]
   gptprouse tasks complete <task-id> --summary "Summary" [--command "npm test"]
   gptprouse tasks block <task-id> --summary "Summary" [--code code] [--next-step "Next step"] [--retryable]
-  gptprouse results show <task-id|latest>
-  gptprouse results artifact <task-id|latest> [artifact-path]
-  gptprouse receipts list [--kind kind] [--task-id task-id]
-  gptprouse receipts show <receipt-id|latest>
-  gptprouse sessions list [--status preview|running|done|blocked]
-  gptprouse sessions show <session-id|latest>
+  gptprouse results show <task-id|latest> [--cwd /absolute/path/to/repo]
+  gptprouse results artifact <task-id|latest> [artifact-path] [--cwd /absolute/path/to/repo]
+  gptprouse receipts list [--kind kind] [--task-id task-id] [--cwd /absolute/path/to/repo]
+  gptprouse receipts show <receipt-id|latest> [--cwd /absolute/path/to/repo]
+  gptprouse sessions list [--status preview|running|done|blocked] [--cwd /absolute/path/to/repo]
+  gptprouse sessions show <session-id|latest> [--cwd /absolute/path/to/repo]
   gptprouse mcp [--cwd /absolute/path/to/repo]`);
 }
 
@@ -1115,9 +1142,9 @@ Commands:
   gptprouse pro browser check [--source-cli /absolute/path/to/dist/cli.js]
   gptprouse pro browser smoke [--source-cli /absolute/path/to/dist/cli.js]
   gptprouse pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--target-url url --confirm-target] [--file path] "prompt"
-  gptprouse pro latest [--source-cli /absolute/path/to/dist/cli.js]
-  gptprouse pro list [--source-cli /absolute/path/to/dist/cli.js]
-  gptprouse pro show <task-id|latest> [--source-cli /absolute/path/to/dist/cli.js]
+  gptprouse pro latest [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]
+  gptprouse pro list [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]
+  gptprouse pro show <task-id|latest> [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]
 
 Use \`gptprouse pro ask\` for dry-run/manual previews.
 Use \`gptprouse pro browser ask\` only when you want an explicit visible-browser send.`);
@@ -1147,8 +1174,8 @@ function printTasksHelp(stdout: (line: string) => void): void {
 
 Commands:
   gptprouse tasks create --title "Title" --prompt "Prompt"
-  gptprouse tasks list [--status new|claimed|done|blocked]
-  gptprouse tasks show <task-id|latest>
+  gptprouse tasks list [--status new|claimed|done|blocked] [--cwd /absolute/path/to/repo]
+  gptprouse tasks show <task-id|latest> [--cwd /absolute/path/to/repo]
   gptprouse tasks claim <task-id> [--by codex]
   gptprouse tasks complete <task-id> --summary "Summary" [--command "npm test"]
   gptprouse tasks block <task-id> --summary "Summary" [--code code] [--next-step "Next step"] [--retryable]`);
@@ -1158,24 +1185,24 @@ function printResultsHelp(stdout: (line: string) => void): void {
   stdout(`gptprouse results
 
 Commands:
-  gptprouse results show <task-id|latest>
-  gptprouse results artifact <task-id|latest> [artifact-path]`);
+  gptprouse results show <task-id|latest> [--cwd /absolute/path/to/repo]
+  gptprouse results artifact <task-id|latest> [artifact-path] [--cwd /absolute/path/to/repo]`);
 }
 
 function printReceiptsHelp(stdout: (line: string) => void): void {
   stdout(`gptprouse receipts
 
 Commands:
-  gptprouse receipts list [--kind kind] [--task-id task-id]
-  gptprouse receipts show <receipt-id|latest>`);
+  gptprouse receipts list [--kind kind] [--task-id task-id] [--cwd /absolute/path/to/repo]
+  gptprouse receipts show <receipt-id|latest> [--cwd /absolute/path/to/repo]`);
 }
 
 function printSessionsHelp(stdout: (line: string) => void): void {
   stdout(`gptprouse sessions
 
 Commands:
-  gptprouse sessions list [--status preview|running|done|blocked]
-  gptprouse sessions show <session-id|latest>`);
+  gptprouse sessions list [--status preview|running|done|blocked] [--cwd /absolute/path/to/repo]
+  gptprouse sessions show <session-id|latest> [--cwd /absolute/path/to/repo]`);
 }
 
 function isHelpSubcommand(value: string): boolean {
@@ -1450,7 +1477,8 @@ function sourceAwareBrowserNextStep(nextStep: string | undefined, sourceCli?: st
   if (!nextStep || !sourceCli) return nextStep;
   return nextStep
     .replaceAll("`gptprouse pro browser login`", `\`${formatBrowserLoginCommand(sourceCli)}\``)
-    .replaceAll("`gptprouse pro browser smoke`", `\`${formatBrowserSmokeCommand(sourceCli)}\``);
+    .replaceAll("`gptprouse pro browser smoke`", `\`${formatBrowserSmokeCommand(sourceCli)}\``)
+    .replaceAll("pass --target-url with --confirm-target", `run \`${formatBrowserTargetAskCommand(sourceCli)}\``);
 }
 
 function productCheckBrowserNextStep(nextStep: string | undefined, sourceCli?: string): string | undefined {
@@ -2984,6 +3012,35 @@ function assertOnlyOptions(args: string[], command: string, valueFlags: readonly
     }
     throw new Error(`Unexpected argument for ${command}: ${arg}`);
   }
+}
+
+function readPositionalsWithOptions(
+  args: string[],
+  command: string,
+  maxPositionals: number,
+  valueFlags: readonly string[],
+  booleanFlags: readonly string[] = []
+): string[] {
+  const valueFlagSet = new Set(valueFlags);
+  const booleanFlagSet = new Set(booleanFlags);
+  const positionals: string[] = [];
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (valueFlagSet.has(arg)) {
+      readFlagValue(args, index, arg);
+      index += 1;
+      continue;
+    }
+    if (booleanFlagSet.has(arg)) continue;
+    if (arg.startsWith("-")) {
+      throw unknownOptionError(arg, command, [...valueFlagSet, ...booleanFlagSet]);
+    }
+    if (positionals.length >= maxPositionals) {
+      throw new Error(`Unexpected argument for ${command}: ${arg}`);
+    }
+    positionals.push(arg);
+  }
+  return positionals;
 }
 
 function assertNoExtraArgs(args: string[], command: string, maxPositionals: number): void {

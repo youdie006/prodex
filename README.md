@@ -103,6 +103,7 @@ Run `init` from the repo root, or use `gptprouse init --cwd /absolute/path/to/yo
 
 `pro ask` is a dry-run/manual preview. It does not drive a logged-in browser; `pro ask --send` is rejected so accidental sends do not happen through the preview alias. Use `pro browser ask` when you explicitly want the visible browser adapter.
 Run `pro ask` and `pro browser ask` from the repo root so `--file` paths and `.bridge` records resolve to the intended project. If you generated commands with `onboard --cwd`, use the `cd ...` line in the optional Pro section first.
+Inspection commands such as `pro latest`, `pro show`, `tasks list`, `results show`, `results artifact`, `receipts show`, and `sessions show` can also be run from elsewhere with `--cwd /absolute/path/to/your/repo`.
 When the file exists and you want it included, add it explicitly, for example `gptprouse pro ask --file README.md "Review the project positioning"`.
 If your prompt itself starts with flag-like text, put `--` before the prompt. This applies to both preview and visible-browser sends, for example `gptprouse pro ask -- --strict mode review` or `gptprouse pro browser ask -- --strict mode review`.
 
@@ -188,7 +189,7 @@ gptprouse start
 The HTTP MCP listener is loopback-only: `setup --host` accepts local loopback hosts such as `127.0.0.1` or `localhost`, not public interfaces like `0.0.0.0`.
 `start` reads the saved setup profile when the server process starts. If you rerun `setup` to change the listener or rotate the token, restart `gptprouse start` so the running server uses the new profile. `status --show-token --url-only` prints the saved local MCP URL, while `tunnel url` formats your supplied public tunnel URL with the saved token; it does not create or inspect the tunnel.
 
-Run these commands from the repo root, or add `--cwd /absolute/path/to/your/repo` to `setup`, `start`, `status`, `doctor`, and `tunnel url`. For example:
+Run these commands from the repo root, or add `--cwd /absolute/path/to/your/repo` to `setup`, `start`, `status`, `doctor`, `tunnel url`, and bridge inspection commands. For example:
 
 ```bash
 gptprouse setup --cwd /absolute/path/to/your/repo --token-ttl-hours 24

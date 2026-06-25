@@ -425,6 +425,41 @@ describe("pro browser ask persistence", () => {
     expect(text).not.toContain("gptprouse pro browser login");
   });
 
+  it("prints source-checkout target-url commands when inspecting blocked pro browser asks", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-pro-send-"));
+    const sourceCli = path.join(cwd, "dist", "cli.js");
+    await mkdir(path.dirname(sourceCli), { recursive: true });
+    await writeFile(sourceCli, "#!/usr/bin/env node\n", "utf8");
+    const blocker = {
+      code: "ambiguous_chatgpt_tabs",
+      message: "Multiple visible or unverified ChatGPT tabs or windows are available.",
+      retryable: true,
+      next_step: "Close extra ChatGPT windows, leave only the intended tab visible, or pass --target-url with --confirm-target."
+    };
+    sendChatGptPromptMock.mockRejectedValueOnce(Object.assign(new Error(`${blocker.message} Next: ${blocker.next_step}`), { blocker }));
+
+    await expect(
+      runCli(["pro", "browser", "ask", "Review this"], {
+        cwd,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.toThrow(/Multiple visible/i);
+
+    const out: string[] = [];
+    await runCli(["pro", "latest", "--source-cli", sourceCli], {
+      cwd,
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    const text = out.join("\n");
+    expect(text).toContain(
+      `- next_step: Close extra ChatGPT windows, leave only the intended tab visible, or run \`node ${sourceCli} pro browser ask --source-cli ${sourceCli} --target-url <chatgpt-url> --confirm-target "prompt"\`.`
+    );
+    expect(text).not.toContain("pass --target-url with --confirm-target");
+  });
+
   it("stores successful browser answers as a receipt-backed artifact before result finalization", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-pro-send-"));
     sendChatGptPromptMock.mockResolvedValueOnce({
@@ -686,9 +721,24 @@ describe("pro browser ask persistence", () => {
         stdout: () => {},
         stderr: () => {}
       })
-    ).rejects.toThrow(/record.*session.*before.*send|forced running session write failure/i);
+    ).rejects.toThrow(/blocked consult recorded: task_.*record.*session.*before.*send|forced running session write failure/i);
 
     expect(sendChatGptPromptMock).not.toHaveBeenCalled();
+    const taskFiles = await readdir(path.join(cwd, ".bridge", "tasks"));
+    expect(taskFiles).toHaveLength(1);
+    const taskId = taskFiles[0].replace(/\.json$/, "");
+    const task = JSON.parse(await readFile(path.join(cwd, ".bridge", "tasks", taskFiles[0]), "utf8")) as { status: string };
+    expect(task.status).toBe("blocked");
+    const result = JSON.parse(await readFile(path.join(cwd, ".bridge", "results", `${taskId}.json`), "utf8")) as {
+      blocker?: { code: string; retryable: boolean };
+    };
+    expect(result.blocker).toEqual(
+      expect.objectContaining({
+        code: "session_record_failed",
+        retryable: true
+      })
+    );
+    await expect(readdir(path.join(cwd, ".bridge", "sessions"))).resolves.toEqual([]);
   });
 
   it("completes the browser consult when optional final session writes fail", async () => {

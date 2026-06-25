@@ -843,6 +843,7 @@ try {
     const latestFailure = await runExpectFailure(binPath, command, { cwd: emptyRecordsDir });
     assertIncludes(latestFailure.stderr, expectedMessage, `installed empty ${command.join(" ")} output`);
   }
+  await assertMissingFile(path.join(emptyRecordsDir, ".bridge"), "installed empty inspection bridge directory");
   for (const [command, expectedMessage] of [
     [["tasks", "show", "task_20990101_000000_missing"], "Task not found: task_20990101_000000_missing"],
     [["results", "show", "task_20990101_000000_missing"], "Result not found: task_20990101_000000_missing"],
@@ -854,6 +855,42 @@ try {
     assertNotIncludes(missingRecord.stderr, "ENOENT", `installed missing ${command.join(" ")} output`);
     assertNotIncludes(missingRecord.stderr, "lstat", `installed missing ${command.join(" ")} output`);
     assertNotIncludes(missingRecord.stderr, "no such file", `installed missing ${command.join(" ")} output`);
+  }
+  const corruptRecordsDir = path.join(tmp, "corrupt-records");
+  for (const fixture of [
+    {
+      dir: "tasks",
+      id: "task_20990101_000000_corrupt-task",
+      command: ["tasks", "show", "task_20990101_000000_corrupt-task"],
+      expected: "Task record is corrupt: .bridge/tasks/task_20990101_000000_corrupt-task.json."
+    },
+    {
+      dir: "results",
+      id: "task_20990101_000000_corrupt-result",
+      command: ["results", "show", "task_20990101_000000_corrupt-result"],
+      expected: "Result record is corrupt: .bridge/results/task_20990101_000000_corrupt-result.json."
+    },
+    {
+      dir: "receipts",
+      id: "receipt_20990101_000000_corrupt-receipt",
+      command: ["receipts", "show", "receipt_20990101_000000_corrupt-receipt"],
+      expected: "Receipt record is corrupt: .bridge/receipts/receipt_20990101_000000_corrupt-receipt.json."
+    },
+    {
+      dir: "sessions",
+      id: "sess_20990101_000000_corrupt-session",
+      command: ["sessions", "show", "sess_20990101_000000_corrupt-session"],
+      expected: "Session record is corrupt: .bridge/sessions/sess_20990101_000000_corrupt-session.json."
+    }
+  ]) {
+    await mkdir(path.join(corruptRecordsDir, ".bridge", fixture.dir), { recursive: true });
+    await writeFile(path.join(corruptRecordsDir, ".bridge", fixture.dir, `${fixture.id}.json`), "{not-json\n", "utf8");
+    const corruptRecord = await runExpectFailure(binPath, fixture.command, { cwd: corruptRecordsDir });
+    assertIncludes(corruptRecord.stderr, fixture.expected, `installed corrupt ${fixture.command.join(" ")} output`);
+    assertIncludes(corruptRecord.stderr, "Move it aside or fix the JSON", `installed corrupt ${fixture.command.join(" ")} output`);
+    assertNotIncludes(corruptRecord.stderr, "SyntaxError", `installed corrupt ${fixture.command.join(" ")} output`);
+    assertNotIncludes(corruptRecord.stderr, "Unexpected token", `installed corrupt ${fixture.command.join(" ")} output`);
+    assertNotIncludes(corruptRecord.stderr, "ZodError", `installed corrupt ${fixture.command.join(" ")} output`);
   }
   const legacyConsults = await runExpectFailure(binPath, ["consults", "list"], { cwd: consumerDir });
   assertIncludes(legacyConsults.stderr, "legacy `consults` alias is retired", "installed consults alias guard");
@@ -870,7 +907,8 @@ try {
   assertIncludes(doctor.stdout, "http_mcp_smoke: ok", "installed doctor output");
   assertIncludes(doctor.stdout, "task_flow=ok", "installed doctor output");
   assertIncludes(doctor.stdout, "finalizers=ok", "installed doctor output");
-  await smokeInstalledProBlockedConsult(binPath, consumerDir);
+  const blockedConsultTaskId = await smokeInstalledProBlockedConsult(binPath, consumerDir);
+  await smokeInstalledExplicitCwdInspection(binPath, consumerDir, launcherDir, blockedConsultTaskId);
 
   const httpRepoDir = path.join(tmp, "http-repo");
   await mkdir(httpRepoDir, { recursive: true });
@@ -1199,6 +1237,20 @@ async function smokeInstalledProBlockedConsult(binPath, cwd) {
   const check = await runExpectFailure(binPath, ["pro", "browser", "check", "--port", "65534", "--timeout-ms", "10"], { cwd, timeout: 60_000 });
   assertIncludes(check.stdout, `latest_pro: blocked ${taskId}`, "installed pro browser check blocked output");
   assertNotIncludes(check.stdout, `latest_pro: ok ${taskId} blocked`, "installed pro browser check blocked output");
+  return taskId;
+}
+
+async function smokeInstalledExplicitCwdInspection(binPath, repoCwd, launcherCwd, taskId) {
+  const latest = await run(binPath, ["pro", "latest", "--cwd", repoCwd], { cwd: launcherCwd });
+  assertIncludes(latest.stdout, `task_id: ${taskId}`, "installed explicit --cwd pro latest output");
+  assertIncludes(latest.stdout, "status: blocked", "installed explicit --cwd pro latest output");
+
+  const taskList = await run(binPath, ["tasks", "list", "--cwd", repoCwd], { cwd: launcherCwd });
+  assertIncludes(taskList.stdout, `${taskId}\tblocked\tGPT Pro consult`, "installed explicit --cwd tasks list output");
+
+  const result = await run(binPath, ["results", "show", "latest", "--cwd", repoCwd], { cwd: launcherCwd });
+  assertIncludes(result.stdout, `"task_id": "${taskId}"`, "installed explicit --cwd results show output");
+  await assertMissingFile(path.join(launcherCwd, ".bridge", ".gitignore"), "installed explicit --cwd inspection launcher bridge gitignore");
 }
 
 async function smokeInstalledReleaseGitReadiness(binPath, tmp, launcherCwd) {

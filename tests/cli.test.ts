@@ -1107,6 +1107,102 @@ describe("runCli", () => {
     ).rejects.not.toThrow(/not found/i);
   });
 
+  it("reports corrupt bridge records with repair hints", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const fixtures = [
+      {
+        dir: "tasks",
+        id: "task_20990101_000000_corrupt-task",
+        command: ["tasks", "show", "task_20990101_000000_corrupt-task"],
+        expected: "Task record is corrupt: .bridge/tasks/task_20990101_000000_corrupt-task.json."
+      },
+      {
+        dir: "results",
+        id: "task_20990101_000000_corrupt-result",
+        command: ["results", "show", "task_20990101_000000_corrupt-result"],
+        expected: "Result record is corrupt: .bridge/results/task_20990101_000000_corrupt-result.json."
+      },
+      {
+        dir: "receipts",
+        id: "receipt_20990101_000000_corrupt-receipt",
+        command: ["receipts", "show", "receipt_20990101_000000_corrupt-receipt"],
+        expected: "Receipt record is corrupt: .bridge/receipts/receipt_20990101_000000_corrupt-receipt.json."
+      },
+      {
+        dir: "sessions",
+        id: "sess_20990101_000000_corrupt-session",
+        command: ["sessions", "show", "sess_20990101_000000_corrupt-session"],
+        expected: "Session record is corrupt: .bridge/sessions/sess_20990101_000000_corrupt-session.json."
+      }
+    ];
+
+    for (const fixture of fixtures) {
+      await mkdir(path.join(cwd, ".bridge", fixture.dir), { recursive: true });
+      await writeFile(path.join(cwd, ".bridge", fixture.dir, `${fixture.id}.json`), "{not-json\n", "utf8");
+
+      await expect(
+        runCli(fixture.command, {
+          cwd,
+          stdout: () => {},
+          stderr: () => {}
+        }),
+        fixture.command.join(" ")
+      ).rejects.toThrow(new RegExp(`${escapeRegExp(fixture.expected)}.*Move it aside or fix the JSON`));
+
+      await expect(
+        runCli(fixture.command, {
+          cwd,
+          stdout: () => {},
+          stderr: () => {}
+        }),
+        fixture.command.join(" ")
+      ).rejects.not.toThrow(/SyntaxError|Unexpected token|ZodError|invalid_type/i);
+    }
+  });
+
+  it("reports schema-invalid bridge records with repair hints", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const taskId = "task_20990101_000000_invalid-schema";
+    await mkdir(path.join(cwd, ".bridge", "tasks"), { recursive: true });
+    await writeFile(
+      path.join(cwd, ".bridge", "tasks", `${taskId}.json`),
+      `${JSON.stringify(
+        {
+          schema_version: 1,
+          id: taskId,
+          source: "codex",
+          status: "not-a-real-status",
+          title: "Invalid schema",
+          prompt: "This should not leak zod internals.",
+          repo_id: "default",
+          files: [],
+          provenance: { adapter: "cli", warnings: [] },
+          created_at: "2099-01-01T00:00:00.000Z",
+          updated_at: "2099-01-01T00:00:00.000Z"
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+
+    await expect(
+      runCli(["tasks", "show", taskId], {
+        cwd,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.toThrow(`Task record is corrupt: .bridge/tasks/${taskId}.json. Move it aside or fix the JSON, then retry.`);
+
+    await expect(
+      runCli(["tasks", "show", taskId], {
+        cwd,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.not.toThrow(/ZodError|invalid_enum_value|not-a-real-status/i);
+  });
+
   it("prints result artifact content only from result records", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
     const store = new BridgeStore(cwd);
@@ -1345,6 +1441,72 @@ describe("runCli", () => {
 
       expect(await readdir(cwd), command.join(" ")).not.toContain(".bridge");
     }
+  });
+
+  it("uses an explicit --cwd target for bridge inspection commands", async () => {
+    const launcherCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-launcher-"));
+    const targetCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-target-"));
+    const store = new BridgeStore(targetCwd);
+    const task = await store.createTask({
+      source: "codex",
+      title: "GPT Pro consult",
+      prompt: "Ask Pro from another cwd",
+      provenance: { adapter: "chatgpt-control", warnings: [] }
+    });
+    const artifactPath = await store.writeArtifactText(".bridge/artifacts/pro-consults/cwd-answer.md", "cwd artifact answer");
+    await store.completeTask(task.id, {
+      status: "done",
+      summary: "cwd pro answer",
+      artifacts: [{ path: artifactPath, role: "result", bytes: "cwd artifact answer".length }],
+      commands: ["visible ChatGPT browser consult"]
+    });
+    const receipt = await store.writeReceipt({
+      kind: "consult_answer_saved",
+      task_id: task.id,
+      summary: "cwd receipt"
+    });
+    await store.writeSession({
+      id: "sess_20990101_000000_cwd-inspection",
+      direction: "codex_to_chatgpt",
+      backend: "chatgpt-control",
+      task_id: task.id,
+      status: "done"
+    });
+
+    const outputs: Record<string, string[]> = {};
+    const runFromLauncher = async (name: string, args: string[]): Promise<void> => {
+      outputs[name] = [];
+      await runCli(args, {
+        cwd: launcherCwd,
+        stdout: (line) => outputs[name].push(line),
+        stderr: () => {}
+      });
+    };
+
+    await runFromLauncher("tasks-list", ["tasks", "list", "--cwd", targetCwd]);
+    await runFromLauncher("tasks-show", ["tasks", "show", task.id, "--cwd", targetCwd]);
+    await runFromLauncher("results-show", ["results", "show", "latest", "--cwd", targetCwd]);
+    await runFromLauncher("results-artifact", ["results", "artifact", "latest", "--cwd", targetCwd]);
+    await runFromLauncher("receipts-list", ["receipts", "list", "--cwd", targetCwd]);
+    await runFromLauncher("receipts-show", ["receipts", "show", receipt.id, "--cwd", targetCwd]);
+    await runFromLauncher("sessions-list", ["sessions", "list", "--cwd", targetCwd]);
+    await runFromLauncher("sessions-show", ["sessions", "show", "latest", "--cwd", targetCwd]);
+    await runFromLauncher("pro-list", ["pro", "list", "--cwd", targetCwd]);
+    await runFromLauncher("pro-latest", ["pro", "latest", "--cwd", targetCwd]);
+    await runFromLauncher("pro-show", ["pro", "show", "latest", "--cwd", targetCwd]);
+
+    expect(outputs["tasks-list"].join("\n")).toContain(`${task.id}\tdone\tGPT Pro consult`);
+    expect(JSON.parse(outputs["tasks-show"].join("\n"))).toEqual(expect.objectContaining({ id: task.id }));
+    expect(JSON.parse(outputs["results-show"].join("\n"))).toEqual(expect.objectContaining({ task_id: task.id, summary: "cwd pro answer" }));
+    expect(outputs["results-artifact"]).toEqual(["cwd artifact answer"]);
+    expect(outputs["receipts-list"].join("\n")).toContain(`${receipt.id}\tconsult_answer_saved\tcwd receipt`);
+    expect(JSON.parse(outputs["receipts-show"].join("\n"))).toEqual(expect.objectContaining({ id: receipt.id }));
+    expect(outputs["sessions-list"].join("\n")).toContain("sess_20990101_000000_cwd-inspection\tdone\tchatgpt-control\tcodex_to_chatgpt");
+    expect(JSON.parse(outputs["sessions-show"].join("\n"))).toEqual(expect.objectContaining({ id: "sess_20990101_000000_cwd-inspection" }));
+    expect(outputs["pro-list"].join("\n")).toContain(`${task.id}\tdone\tcwd pro answer`);
+    expect(outputs["pro-latest"].join("\n")).toContain("task_id:");
+    expect(outputs["pro-show"].join("\n")).toContain("cwd pro answer");
+    expect(await readdir(launcherCwd)).not.toContain(".bridge");
   });
 
   it("keeps existing bridge inspection commands read-only", async () => {
@@ -4631,4 +4793,8 @@ async function waitForStdioProcessExit(processRef: CapturedStdioProcess, timeout
     timeoutMs,
     "Timed out waiting for killed stdio MCP process"
   );
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
