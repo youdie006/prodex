@@ -130,8 +130,9 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
     assertOnlyOptions(rest, "start", ["--cwd", "--source-cli"]);
     const targetCwd = resolveCwdFlag(io.cwd, rest);
     const sourceCli = resolveOptionalFileFlag(io.cwd, rest, "--source-cli");
-    const config = await loadLocalConfigForCommand(targetCwd, "start", sourceCli);
-    assertTokenNotExpiredForCommand(config, sourceCli);
+    const setupHintCwd = readFlag(rest, "--cwd") ? targetCwd : undefined;
+    const config = await loadLocalConfigForCommand(targetCwd, "start", sourceCli, setupHintCwd);
+    assertTokenNotExpiredForCommand(config, sourceCli, setupHintCwd);
     const running = await startHttpMcpServer({
       cwd: targetCwd,
       host: config.host,
@@ -157,7 +158,8 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
     assertOnlyOptions(rest, "status", ["--cwd", "--source-cli"], ["--show-token", "--url-only", "--unsafe-show-non-expiring-token"]);
     const targetCwd = resolveCwdFlag(io.cwd, rest);
     const sourceCli = resolveOptionalFileFlag(io.cwd, rest, "--source-cli");
-    const config = await loadLocalConfigForCommand(targetCwd, "status", sourceCli);
+    const setupHintCwd = readFlag(rest, "--cwd") ? targetCwd : undefined;
+    const config = await loadLocalConfigForCommand(targetCwd, "status", sourceCli, setupHintCwd);
     const showToken = rest.includes("--show-token");
     const allowNonExpiringTokenReveal = rest.includes("--unsafe-show-non-expiring-token");
     const tokenStatus = getTokenExpiryStatus(config);
@@ -165,13 +167,16 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       throw new Error(
         sourceAwareSetupMessage(
           "status --show-token requires a token with expiry. Run `gptprouse setup --token-ttl-hours <hours>` first, or pass --unsafe-show-non-expiring-token for local-only debugging.",
-          sourceCli
+          sourceCli,
+          { cwd: setupHintCwd }
         )
       );
     }
     if (showToken && tokenStatus.status === "expired") {
       throw new Error(
-        sourceAwareSetupMessage(`token expired at ${tokenStatus.token_expires_at}. Run \`gptprouse setup --token-ttl-hours <hours>\`.`, sourceCli)
+        sourceAwareSetupMessage(`token expired at ${tokenStatus.token_expires_at}. Run \`gptprouse setup --token-ttl-hours <hours>\`.`, sourceCli, {
+          cwd: setupHintCwd
+        })
       );
     }
     const serverUrl = formatServerUrlForOutput(config.server_url, { showToken });
@@ -179,12 +184,13 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       io.stdout(serverUrl);
       return 0;
     }
-    const warnings = tokenStatus.warning ? [sourceAwareSetupMessage(tokenStatus.warning, sourceCli)] : [];
+    const warnings = tokenStatus.warning ? [sourceAwareSetupMessage(tokenStatus.warning, sourceCli, { cwd: setupHintCwd })] : [];
     if (showToken && allowNonExpiringTokenReveal && tokenStatus.status === "non_expiring") {
       warnings.push(
         sourceAwareSetupMessage(
           "Showing a non-expiring token. Keep this local-only and rotate it with `gptprouse setup --token-ttl-hours <hours>` before any tunnel or ChatGPT Project use.",
-          sourceCli
+          sourceCli,
+          { cwd: setupHintCwd }
         )
       );
     }
@@ -223,19 +229,24 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
     assertOnlyOptions(tunnelArgs, "tunnel url", ["--cwd", "--public-url", "--source-cli"], ["--show-token", "--url-only"]);
     const targetCwd = resolveCwdFlag(io.cwd, tunnelArgs);
     const sourceCli = resolveOptionalFileFlag(io.cwd, tunnelArgs, "--source-cli");
+    const setupHintCwd = readFlag(tunnelArgs, "--cwd") ? targetCwd : undefined;
     const publicUrl = readFlag(tunnelArgs, "--public-url");
     if (!publicUrl) throw new Error("tunnel url requires --public-url <https-url>");
     parseTunnelPublicUrl(publicUrl);
-    const config = await loadLocalConfigForCommand(targetCwd, "tunnel url", sourceCli);
+    const config = await loadLocalConfigForCommand(targetCwd, "tunnel url", sourceCli, setupHintCwd);
     const tokenStatus = getTokenExpiryStatus(config);
     if (tokenStatus.status === "non_expiring") {
       throw new Error(
-        sourceAwareSetupMessage("tunnel url requires a short-lived token. Run `gptprouse setup --token-ttl-hours <hours>` first.", sourceCli)
+        sourceAwareSetupMessage("tunnel url requires a short-lived token. Run `gptprouse setup --token-ttl-hours <hours>` first.", sourceCli, {
+          cwd: setupHintCwd
+        })
       );
     }
     if (tokenStatus.status === "expired") {
       throw new Error(
-        sourceAwareSetupMessage(`token expired at ${tokenStatus.token_expires_at}. Run \`gptprouse setup --token-ttl-hours <hours>\`.`, sourceCli)
+        sourceAwareSetupMessage(`token expired at ${tokenStatus.token_expires_at}. Run \`gptprouse setup --token-ttl-hours <hours>\`.`, sourceCli, {
+          cwd: setupHintCwd
+        })
       );
     }
     const mcpUrl = makeTunnelMcpUrl(publicUrl, config.token);
@@ -268,7 +279,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
     assertOnlyOptions(rest, "doctor", ["--cwd", "--source-cli"]);
     const targetCwd = resolveCwdFlag(io.cwd, rest);
     const sourceCli = resolveOptionalFileFlag(io.cwd, rest, "--source-cli");
-    return runDoctor(new BridgeStore(targetCwd), { ...io, cwd: targetCwd }, sourceCli);
+    return runDoctor(new BridgeStore(targetCwd), { ...io, cwd: targetCwd }, sourceCli, readFlag(rest, "--cwd") ? targetCwd : undefined);
   }
 
   if (command === "release") {
@@ -1521,6 +1532,10 @@ function formatCliCommand(sourceCli?: string): string {
   return sourceCli ? `node ${shellQuote(sourceCli)}` : "gptprouse";
 }
 
+function formatSetupCommand(sourceCli?: string, options: { cwd?: string } = {}): string {
+  return [`${formatCliCommand(sourceCli)} setup`, options.cwd ? `--cwd ${shellQuote(options.cwd)}` : undefined].filter(Boolean).join(" ");
+}
+
 function formatSourceCliOption(sourceCli?: string): string {
   return sourceCli ? ` --source-cli ${shellQuote(sourceCli)}` : "";
 }
@@ -1607,11 +1622,12 @@ function sourceAwareBrowserBlocker<T extends { next_step?: string }>(blocker: T,
   return nextStep === blocker.next_step ? blocker : { ...blocker, next_step: nextStep };
 }
 
-function sourceAwareSetupMessage(message: string, sourceCli?: string): string {
-  if (!sourceCli) return message;
+function sourceAwareSetupMessage(message: string, sourceCli?: string, options: { cwd?: string } = {}): string {
+  if (!sourceCli && !options.cwd) return message;
+  const setupCommand = formatSetupCommand(sourceCli, options);
   return message
-    .replaceAll("`gptprouse setup --token-ttl-hours <hours>`", `\`${formatCliCommand(sourceCli)} setup --token-ttl-hours <hours>\``)
-    .replaceAll("`gptprouse setup`", `\`${formatCliCommand(sourceCli)} setup\``);
+    .replaceAll("`gptprouse setup --token-ttl-hours <hours>`", `\`${setupCommand} --token-ttl-hours <hours>\``)
+    .replaceAll("`gptprouse setup`", `\`${setupCommand}\``);
 }
 
 function sourceAwareReleaseMessage(message: string, sourceCli?: string): string {
@@ -2091,7 +2107,7 @@ async function readLicenseFileStatus(filePath: string): Promise<{ status: "prese
   }
 }
 
-async function runDoctor(store: BridgeStore, io: CliIO, sourceCli?: string): Promise<number> {
+async function runDoctor(store: BridgeStore, io: CliIO, sourceCli?: string, setupHintCwd?: string): Promise<number> {
   let ok = true;
   const cli = formatCliCommand(sourceCli);
   io.stdout("gptprouse doctor");
@@ -2113,18 +2129,18 @@ async function runDoctor(store: BridgeStore, io: CliIO, sourceCli?: string): Pro
     const tokenStatus = getTokenExpiryStatus(config);
     if (tokenStatus.status === "expired") {
       ok = false;
-      io.stdout(`config: failed token expired at ${tokenStatus.token_expires_at} - run \`${cli} setup\``);
+      io.stdout(`config: failed token expired at ${tokenStatus.token_expires_at} - run \`${formatSetupCommand(sourceCli, { cwd: setupHintCwd })}\``);
     } else {
       io.stdout(`config: ok ${redactServerUrl(config.server_url)} token_status=${tokenStatus.status}`);
-      const warningLine = formatConfigWarningLine(tokenStatus, sourceCli);
+      const warningLine = formatConfigWarningLine(tokenStatus, sourceCli, setupHintCwd);
       if (warningLine) io.stdout(warningLine);
     }
   } catch (error) {
     if (isMissingFileError(error)) {
-      io.stdout(`config: missing - run \`${cli} setup\``);
+      io.stdout(`config: missing - run \`${formatSetupCommand(sourceCli, { cwd: setupHintCwd })}\``);
     } else {
       ok = false;
-      io.stdout(`config: failed ${sourceAwareSetupMessage(errorMessage(error), sourceCli)}`);
+      io.stdout(`config: failed ${sourceAwareSetupMessage(errorMessage(error), sourceCli, { cwd: setupHintCwd })}`);
     }
   }
 
@@ -2671,6 +2687,7 @@ function browserReadinessNextStep(input: { loggedInLikely: boolean; hasComposer:
 
 async function printProductCheck(store: BridgeStore, io: CliIO, args: string[], configCwd = io.cwd): Promise<boolean> {
   const sourceCli = resolveOptionalFileFlag(io.cwd, args, "--source-cli");
+  const setupHintCwd = readFlag(args, "--cwd") ? configCwd : undefined;
   const cli = formatCliCommand(sourceCli);
   io.stdout("gptprouse product check");
   let bridgeReady = false;
@@ -2686,18 +2703,18 @@ async function printProductCheck(store: BridgeStore, io: CliIO, args: string[], 
     const config = await loadLocalConfig(configCwd);
     const tokenStatus = getTokenExpiryStatus(config);
     if (tokenStatus.status === "expired") {
-      io.stdout(`config: expired - run \`${cli} setup\``);
+      io.stdout(`config: expired - run \`${formatSetupCommand(sourceCli, { cwd: setupHintCwd })}\``);
     } else {
       io.stdout(`config: ok ${redactServerUrl(config.server_url)} token_status=${tokenStatus.status}`);
-      const warningLine = formatConfigWarningLine(tokenStatus, sourceCli);
+      const warningLine = formatConfigWarningLine(tokenStatus, sourceCli, setupHintCwd);
       if (warningLine) io.stdout(warningLine);
       configReady = true;
     }
   } catch (error) {
     if (isMissingFileError(error)) {
-      io.stdout(`config: missing - run \`${cli} setup\``);
+      io.stdout(`config: missing - run \`${formatSetupCommand(sourceCli, { cwd: setupHintCwd })}\``);
     } else {
-      io.stdout(`config: failed ${sourceAwareSetupMessage(errorMessage(error), sourceCli)}`);
+      io.stdout(`config: failed ${sourceAwareSetupMessage(errorMessage(error), sourceCli, { cwd: setupHintCwd })}`);
     }
   }
 
@@ -3016,24 +3033,25 @@ function isMissingFileError(error: unknown): boolean {
   return typeof error === "object" && error !== null && "code" in error && (error as { code?: unknown }).code === "ENOENT";
 }
 
-function assertTokenNotExpiredForCommand(config: LocalConfig, sourceCli?: string): void {
+function assertTokenNotExpiredForCommand(config: LocalConfig, sourceCli?: string, setupHintCwd?: string): void {
   const tokenStatus = getTokenExpiryStatus(config);
   if (tokenStatus.status === "expired") {
-    throw new Error(sourceAwareSetupMessage(tokenStatus.warning.toLowerCase(), sourceCli));
+    throw new Error(sourceAwareSetupMessage(tokenStatus.warning.toLowerCase(), sourceCli, { cwd: setupHintCwd }));
   }
 }
 
-async function loadLocalConfigForCommand(cwd: string, command: "start" | "status" | "tunnel url", sourceCli?: string) {
+async function loadLocalConfigForCommand(cwd: string, command: "start" | "status" | "tunnel url", sourceCli?: string, setupHintCwd?: string) {
   return loadLocalConfig(cwd).catch(async (error) => {
     if (isMissingFileError(error)) {
       throw new Error(
         sourceAwareSetupMessage(
           `${command} requires local MCP setup. Run \`gptprouse setup\` first. Add \`--token-ttl-hours <hours>\` before revealing token URLs, using tunnels, or connecting ChatGPT Projects.`,
-          sourceCli
+          sourceCli,
+          { cwd: setupHintCwd }
         )
       );
     }
-    throw new Error(sourceAwareSetupMessage(errorMessage(error), sourceCli));
+    throw new Error(sourceAwareSetupMessage(errorMessage(error), sourceCli, { cwd: setupHintCwd }));
   });
 }
 
@@ -3317,8 +3335,8 @@ function formatTokenExpiryLine(config: { token_expires_at?: string }): string {
   return "Token expires: never (local-only; use --token-ttl-hours before exposing through a tunnel).";
 }
 
-function formatConfigWarningLine(tokenStatus: { warning?: string }, sourceCli?: string): string | undefined {
-  return tokenStatus.warning ? `config_warning: ${sourceAwareSetupMessage(tokenStatus.warning, sourceCli)}` : undefined;
+function formatConfigWarningLine(tokenStatus: { warning?: string }, sourceCli?: string, setupHintCwd?: string): string | undefined {
+  return tokenStatus.warning ? `config_warning: ${sourceAwareSetupMessage(tokenStatus.warning, sourceCli, { cwd: setupHintCwd })}` : undefined;
 }
 
 async function ensureBridgeGitignore(cwd: string): Promise<void> {

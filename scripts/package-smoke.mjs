@@ -659,6 +659,12 @@ try {
   const missingSetupStatus = await runExpectFailure(binPath, ["status"], { cwd: consumerDir });
   assertIncludes(missingSetupStatus.stderr, "Run `gptprouse setup` first.", "installed missing setup status output");
   assertNotIncludes(missingSetupStatus.stderr, "Run `gptprouse setup --token-ttl-hours <hours>` first.", "installed missing setup status output");
+  const missingSetupCwdStatus = await runExpectFailure(binPath, ["status", "--cwd", consumerDir], { cwd: path.dirname(consumerDir) });
+  assertIncludes(
+    missingSetupCwdStatus.stderr,
+    `Run \`gptprouse setup --cwd ${consumerDir}\` first.`,
+    "installed missing setup --cwd status output"
+  );
   const missingSetupSourceStatus = await runExpectFailure(binPath, ["status", "--source-cli", installedSourceCli], { cwd: consumerDir });
   assertIncludes(
     missingSetupSourceStatus.stderr,
@@ -666,6 +672,14 @@ try {
     "installed source missing setup status output"
   );
   assertNotIncludes(missingSetupSourceStatus.stderr, "Run `gptprouse setup`", "installed source missing setup status output");
+  const missingSetupSourceCwdStatus = await runExpectFailure(binPath, ["status", "--cwd", consumerDir, "--source-cli", installedSourceCli], {
+    cwd: path.dirname(consumerDir)
+  });
+  assertIncludes(
+    missingSetupSourceCwdStatus.stderr,
+    `Run \`node ${installedSourceCli} setup --cwd ${consumerDir}\` first.`,
+    "installed source missing setup --cwd status output"
+  );
   const missingTunnelPublicUrl = await runExpectFailure(binPath, ["tunnel", "url"], { cwd: consumerDir });
   assertIncludes(missingTunnelPublicUrl.stderr, "tunnel url requires --public-url <https-url>", "installed missing tunnel public URL output");
   assertNotIncludes(missingTunnelPublicUrl.stderr, "requires local MCP setup", "installed missing tunnel public URL output");
@@ -2076,6 +2090,11 @@ async function smokeInstalledHttpOnboarding(binPath, cwd) {
   assertIncludes(
     nonExpiringProductCheckOutput,
     "config_warning: Token has no expiry. Keep this local-only",
+    "installed non-expiring product check output"
+  );
+  assertIncludes(
+    nonExpiringProductCheckOutput,
+    `rerun \`gptprouse setup --cwd ${nonExpiringCwd} --token-ttl-hours <hours>\``,
     "installed non-expiring product check output"
   );
   assertNotIncludes(nonExpiringProductCheckOutput, nonExpiringToken, "installed non-expiring product check output");

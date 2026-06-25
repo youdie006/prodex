@@ -4059,6 +4059,41 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     expect(text).not.toContain("super-secret-token");
   });
 
+  it("keeps explicit --cwd setup hints in product check config warnings", async () => {
+    const launcherCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-launcher-"));
+    const targetCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-target-"));
+    await runCli(["setup", "--cwd", targetCwd, "--port", "8789", "--token", "super-secret-token"], {
+      cwd: launcherCwd,
+      stdout: () => {},
+      stderr: () => {}
+    });
+    const out: string[] = [];
+
+    await runCli(["pro", "browser", "check", "--cwd", targetCwd, "--port", "65534", "--timeout-ms", "10"], {
+      cwd: launcherCwd,
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    const text = out.join("\n");
+    expect(text).toContain(`rerun \`gptprouse setup --cwd ${targetCwd} --token-ttl-hours <hours>\``);
+    expect(text).not.toContain("super-secret-token");
+  });
+
+  it("keeps explicit --cwd setup hints in product check missing-config remediation", async () => {
+    const launcherCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-launcher-"));
+    const targetCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-target-"));
+    const out: string[] = [];
+
+    await runCli(["pro", "browser", "check", "--cwd", targetCwd, "--port", "65534", "--timeout-ms", "10"], {
+      cwd: launcherCwd,
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    expect(out.join("\n")).toContain(`config: missing - run \`gptprouse setup --cwd ${targetCwd}\``);
+  });
+
   it("redacts local MCP tokens from setup, start, and status output by default", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
     const setupOut: string[] = [];
@@ -4508,6 +4543,51 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
         stderr: () => {}
       })
     ).rejects.toThrow(`tunnel url requires local MCP setup. Run \`${setupCommand}\` first.`);
+  });
+
+  it("keeps explicit --cwd setup hints before local MCP commands", async () => {
+    const launcherCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-launcher-"));
+    const targetCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-target-"));
+    const setupCommand = `gptprouse setup --cwd ${targetCwd}`;
+
+    await expect(
+      runCli(["status", "--cwd", targetCwd], {
+        cwd: launcherCwd,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.toThrow(`status requires local MCP setup. Run \`${setupCommand}\` first.`);
+    await expect(
+      runCli(["start", "--cwd", targetCwd], {
+        cwd: launcherCwd,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.toThrow(`start requires local MCP setup. Run \`${setupCommand}\` first.`);
+    await expect(
+      runCli(["tunnel", "url", "--cwd", targetCwd, "--public-url", "https://example.com"], {
+        cwd: launcherCwd,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.toThrow(`tunnel url requires local MCP setup. Run \`${setupCommand}\` first.`);
+  });
+
+  it("keeps source-checkout and explicit --cwd setup hints before local MCP commands", async () => {
+    const launcherCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-launcher-"));
+    const targetCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-target-"));
+    const sourceCli = path.join(launcherCwd, "dist", "cli.js");
+    await mkdir(path.dirname(sourceCli), { recursive: true });
+    await writeFile(sourceCli, "#!/usr/bin/env node\n", "utf8");
+    const setupCommand = `node ${sourceCli} setup --cwd ${targetCwd}`;
+
+    await expect(
+      runCli(["status", "--cwd", targetCwd, "--source-cli", sourceCli], {
+        cwd: launcherCwd,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.toThrow(`status requires local MCP setup. Run \`${setupCommand}\` first.`);
   });
 
   it("prints source-checkout token rotation hints before revealing local MCP URLs", async () => {
