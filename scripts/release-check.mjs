@@ -8,12 +8,12 @@ import { promisify } from "node:util";
 const execFileAsync = promisify(execFile);
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const RESERVED_PACKAGE_NAMES = new Set(["node_modules", "favicon.ico"]);
-const args = process.argv.slice(2);
-const root = readFlag(args, "--root") ?? repoRoot;
-const metadataOnly = args.includes("--metadata-only");
-const verificationOnly = args.includes("--verification-only");
 
 try {
+  const args = parseArgs(process.argv.slice(2));
+  const root = args.root ?? repoRoot;
+  const metadataOnly = args.metadataOnly;
+  const verificationOnly = args.verificationOnly;
   if (metadataOnly && verificationOnly) {
     throw new Error("release check flags failed: --metadata-only and --verification-only cannot be combined");
   }
@@ -236,9 +236,37 @@ function commandForPlatform(command) {
   return process.platform === "win32" && command === "npm" ? "npm.cmd" : command;
 }
 
-function readFlag(values, flag) {
-  const index = values.indexOf(flag);
-  return index === -1 ? undefined : values[index + 1];
+function parseArgs(values) {
+  const parsed = {
+    root: undefined,
+    metadataOnly: false,
+    verificationOnly: false
+  };
+  for (let index = 0; index < values.length; index += 1) {
+    const arg = values[index];
+    if (arg === "--metadata-only") {
+      parsed.metadataOnly = true;
+      continue;
+    }
+    if (arg === "--verification-only") {
+      parsed.verificationOnly = true;
+      continue;
+    }
+    if (arg === "--root") {
+      const value = values[index + 1];
+      if (!value || value.startsWith("-")) {
+        throw new Error("release check flags failed: --root requires a value");
+      }
+      parsed.root = value;
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith("-")) {
+      throw new Error(`release check flags failed: unknown option ${arg}`);
+    }
+    throw new Error(`release check flags failed: unexpected argument ${arg}`);
+  }
+  return parsed;
 }
 
 function isMissingFileError(error) {

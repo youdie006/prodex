@@ -21,6 +21,34 @@ describe("release-check", () => {
     expect(output).not.toContain("ENOENT");
   });
 
+  it("rejects release-check --root without a value before inspecting metadata", async () => {
+    const missingValue = await runReleaseCheckArgs(["--metadata-only", "--root"]);
+
+    expect(missingValue.code).toBe(1);
+    expect(`${missingValue.stdout}\n${missingValue.stderr}`).toContain("release check flags failed: --root requires a value");
+    expect(`${missingValue.stdout}\n${missingValue.stderr}`).not.toContain("release metadata failed");
+    expect(`${missingValue.stdout}\n${missingValue.stderr}`).not.toContain("at parseArgs");
+    expect(`${missingValue.stdout}\n${missingValue.stderr}`).not.toContain("Node.js v");
+
+    const optionValue = await runReleaseCheckArgs(["--root", "--metadata-only"]);
+
+    expect(optionValue.code).toBe(1);
+    expect(`${optionValue.stdout}\n${optionValue.stderr}`).toContain("release check flags failed: --root requires a value");
+    expect(`${optionValue.stdout}\n${optionValue.stderr}`).not.toContain("release metadata failed");
+    expect(`${optionValue.stdout}\n${optionValue.stderr}`).not.toContain("at parseArgs");
+    expect(`${optionValue.stdout}\n${optionValue.stderr}`).not.toContain("Node.js v");
+  });
+
+  it("rejects unknown release-check options before inspecting metadata", async () => {
+    const result = await runReleaseCheckArgs(["--metadata-only", "--bogus"]);
+
+    expect(result.code).toBe(1);
+    expect(`${result.stdout}\n${result.stderr}`).toContain("release check flags failed: unknown option --bogus");
+    expect(`${result.stdout}\n${result.stderr}`).not.toContain("release metadata failed");
+    expect(`${result.stdout}\n${result.stderr}`).not.toContain("at parseArgs");
+    expect(`${result.stdout}\n${result.stderr}`).not.toContain("Node.js v");
+  });
+
   it("fails release metadata when package license is missing", async () => {
     const root = await copyPackageJsonToTemp();
 
@@ -420,6 +448,22 @@ async function runReleaseCheck(
     const result = await execFileAsync(process.execPath, args, {
       cwd: repoRoot,
       env
+    });
+    return { code: 0, stdout: result.stdout, stderr: result.stderr };
+  } catch (error) {
+    const failed = error as { code?: number; stdout?: string; stderr?: string };
+    return {
+      code: typeof failed.code === "number" ? failed.code : 1,
+      stdout: failed.stdout ?? "",
+      stderr: failed.stderr ?? ""
+    };
+  }
+}
+
+async function runReleaseCheckArgs(args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
+  try {
+    const result = await execFileAsync(process.execPath, [path.join(repoRoot, "scripts", "release-check.mjs"), ...args], {
+      cwd: repoRoot
     });
     return { code: 0, stdout: result.stdout, stderr: result.stderr };
   } catch (error) {
