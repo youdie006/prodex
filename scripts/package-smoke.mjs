@@ -339,6 +339,7 @@ try {
   const releasePackTarballPath = path.join(releasePackDestination, releasePackTarballs[0]);
   assertIncludes(releasePackSuccess.stdout, `release_pack_verify: npm publish --dry-run ${releasePackTarballPath}`, "installed release-pack success output");
   await assertInstalledReleasePackTarballModes(releasePackTarballPath, "installed release-pack tarball");
+  await assertNpmPublishDryRun(releasePackTarballPath, consumerDir, "installed release-pack tarball");
   const releasePackCliDestination = path.join(tmp, "installed-release-pack-cli");
   const releasePackCliSuccess = await run(
     binPath,
@@ -361,6 +362,7 @@ try {
   const releasePackCliTarballPath = path.join(releasePackCliDestination, releasePackCliTarballs[0]);
   assertIncludes(releasePackCliSuccess.stdout, `release_pack_verify: npm publish --dry-run ${releasePackCliTarballPath}`, "installed release pack CLI output");
   await assertInstalledReleasePackTarballModes(releasePackCliTarballPath, "installed release pack CLI tarball");
+  await assertNpmPublishDryRun(releasePackCliTarballPath, consumerDir, "installed release pack CLI tarball");
   const releasePackMissingDestination = await runExpectFailure(
     process.execPath,
     [path.join(installedPackageDir, "scripts", "release-pack.mjs"), "--root", installedPackageDir],
@@ -1026,7 +1028,7 @@ try {
   await smokeInstalledStdioTaskFinalizers(binPath, consumerDir);
 
   console.log(
-    `package_smoke: ok tarball=${path.basename(packed.filename)} http_onboarding=ok installed_http_mcp=ok http_write_flow=ok http_task_finalizers=ok http_result_artifact_flow=ok http_result_artifact_tamper=ok http_receipt_session_tools=ok configured_doctor=ok tunnel_url=ok package_boundary=ok installed_release_pack=ok installed_release_pack_cli=ok stdio_write_flow=ok stdio_search_overflow=ok stdio_non_git_write=ok stdio_task_flow=ok stdio_task_finalizers=ok stdio_result_artifact_flow=ok stdio_result_artifact_tamper=ok stdio_receipt_session_tools=ok tools=${REQUIRED_MCP_TOOLS.join(",")}`
+    `package_smoke: ok tarball=${path.basename(packed.filename)} http_onboarding=ok installed_http_mcp=ok http_write_flow=ok http_task_finalizers=ok http_result_artifact_flow=ok http_result_artifact_tamper=ok http_receipt_session_tools=ok configured_doctor=ok tunnel_url=ok package_boundary=ok installed_release_pack=ok installed_release_pack_cli=ok installed_release_pack_publish_dry_run=ok stdio_write_flow=ok stdio_search_overflow=ok stdio_non_git_write=ok stdio_task_flow=ok stdio_task_finalizers=ok stdio_result_artifact_flow=ok stdio_result_artifact_tamper=ok stdio_receipt_session_tools=ok tools=${REQUIRED_MCP_TOOLS.join(",")}`
   );
 } finally {
   await rm(tmp, { recursive: true, force: true });
@@ -1074,6 +1076,18 @@ async function assertInstalledReleasePackTarballModes(tarballPath, label) {
   await assertFileMode(path.join(installedRoot, "README.md"), 0o644, `${label} README.md`);
   await assertFileMode(path.join(installedRoot, "scripts", "release-check.mjs"), 0o644, `${label} scripts/release-check.mjs`);
   await assertFileMode(path.join(installedRoot, "dist", "cli.js"), 0o755, `${label} dist/cli.js`);
+}
+
+async function assertNpmPublishDryRun(tarballPath, cwd, label) {
+  const result = await run(npmCommand, ["publish", "--dry-run", tarballPath], {
+    cwd,
+    timeout: 120_000,
+    maxBuffer: 20 * 1024 * 1024
+  });
+  const output = `${result.stdout}\n${result.stderr}`;
+  assertIncludes(output, "gptprouse@0.2.0", `${label} npm publish dry-run output`);
+  assertIncludes(output, "Publishing to", `${label} npm publish dry-run output`);
+  assertIncludes(output, "(dry-run)", `${label} npm publish dry-run output`);
 }
 
 async function assertFileMode(filePath, expectedMode, label) {
@@ -1149,6 +1163,7 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertIncludes(readme, "branch divergence", "installed README");
   assertIncludes(readme, "behind upstream", "installed README");
   assertIncludes(readme, "installed `release-pack` script and `gptprouse release pack` CLI success paths", "installed README");
+  assertIncludes(readme, "runs `npm publish --dry-run` against those normalized tarballs", "installed README");
   assertIncludes(readme, "regular file", "installed README");
   assertIncludes(readme, "symlinked packed files", "installed README");
   assertIncludes(readme, "hard link", "installed README");
@@ -1158,10 +1173,12 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertIncludes(readme, "npm-publishable `name` and valid semver `version`", "installed README");
   assertIncludes(readme, "installed HTTP MCP repo write dry-run/apply/stage flow", "installed README");
   assertIncludes(readme, "installed HTTP MCP task completion/blocking/result/artifact fetch flow", "installed README");
+  assertIncludes(readme, "installed HTTP MCP receipt/session list/fetch tools", "installed README");
   assertIncludes(readme, "installed stdio repo write dry-run/apply/stage flow", "installed README");
   assertIncludes(readme, "installed stdio oversized repo_search failure output", "installed README");
   assertIncludes(readme, "installed stdio non-git write failure output", "installed README");
   assertIncludes(readme, "installed stdio task completion/blocking/result/artifact fetch flow", "installed README");
+  assertIncludes(readme, "installed stdio MCP receipt/session list/fetch tools", "installed README");
   assertIncludes(readme, "loopback-only", "installed README");
   assertIncludes(readme, "`start` reads the saved setup profile when the server process starts", "installed README");
   assertIncludes(readme, "restart `gptprouse start` so the running server uses the new profile", "installed README");
