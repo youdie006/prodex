@@ -513,6 +513,54 @@ describe("runCli", () => {
     }
   });
 
+  it("does not show raw result records without a trusted completion receipt", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const store = new BridgeStore(cwd);
+    const task = await store.createTask({
+      source: "codex",
+      title: "Raw result",
+      prompt: "Do not trust this result until finalization is receipted.",
+      repo_id: "default",
+      files: [],
+      provenance: { adapter: "chatgpt-control", warnings: [] }
+    });
+    await mkdir(path.join(cwd, ".bridge", "artifacts", "results"), { recursive: true });
+    await writeFile(path.join(cwd, ".bridge", "artifacts", "results", "raw.md"), "raw answer\n", "utf8");
+    await writeFile(
+      path.join(cwd, ".bridge", "results", `${task.id}.json`),
+      `${JSON.stringify(
+        {
+          schema_version: 1,
+          task_id: task.id,
+          status: "done",
+          summary: "Raw unreceipted answer.",
+          artifacts: [{ path: ".bridge/artifacts/results/raw.md", role: "result" }],
+          commands: ["visible ChatGPT browser consult"],
+          warnings: [],
+          created_at: "2099-01-01T00:00:00.000Z"
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+
+    for (const args of [
+      ["results", "show", task.id],
+      ["results", "show", "latest"],
+      ["results", "artifact", task.id],
+      ["pro", "show", task.id]
+    ]) {
+      await expect(
+        runCli(args, {
+          cwd,
+          stdout: () => {},
+          stderr: () => {}
+        })
+      ).rejects.toThrow(/Result record is untrusted: .*task_completed receipt/i);
+    }
+  });
+
   it("runs stdio MCP against an explicit --cwd target instead of the process cwd", async () => {
     const launcherCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-launcher-"));
     const targetCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-target-"));
@@ -4176,6 +4224,49 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
 
     expect(out.join("\n")).toContain(`latest_pro: blocked ${task.id} code=browser_send_failed retryable=true`);
     expect(await readdir(path.join(cwd, ".bridge", "tasks"))).not.toContain(path.basename(staleTaskTemp));
+  });
+
+  it("reports untrusted legacy Pro results in product checks without aborting the check", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const store = new BridgeStore(cwd);
+    const task = await store.createTask({
+      source: "codex",
+      title: "GPT Pro consult",
+      prompt: "Legacy unsigned completion receipt.",
+      repo_id: "default",
+      files: [],
+      provenance: { adapter: "chatgpt-control", warnings: [] }
+    });
+    await store.completeTask(task.id, {
+      status: "blocked",
+      summary: "Legacy browser blocker.",
+      commands: ["visible ChatGPT browser consult"],
+      blocker: {
+        code: "browser_send_failed",
+        message: "Legacy browser blocker.",
+        retryable: true,
+        next_step: "Log in manually, then retry."
+      }
+    });
+    const [completionReceipt] = await store.listReceipts({ kind: "task_completed", task_id: task.id });
+    const receiptPath = path.join(cwd, ".bridge", "receipts", `${completionReceipt.id}.json`);
+    const unsignedReceipt = JSON.parse(await readFile(receiptPath, "utf8")) as Record<string, unknown>;
+    delete unsignedReceipt.integrity;
+    await writeFile(receiptPath, `${JSON.stringify(unsignedReceipt, null, 2)}\n`, "utf8");
+    const out: string[] = [];
+
+    await expect(
+      runCli(["pro", "browser", "check", "--port", "65534", "--timeout-ms", "10"], {
+        cwd,
+        stdout: (line) => out.push(line),
+        stderr: () => {}
+      })
+    ).resolves.toBe(1);
+    const text = out.join("\n");
+
+    expect(text).toContain(`latest_pro: untrusted ${task.id}`);
+    expect(text).toContain("task_completed receipt");
+    expect(text).toContain("chatgpt:");
   });
 
   it("redacts the local MCP token in product checks", async () => {

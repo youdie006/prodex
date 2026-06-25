@@ -110,18 +110,18 @@ export function createMcpToolHandlers(context: McpToolContext) {
     },
 
     async bridge_list_results() {
-      return { results: await store.listResultsReadOnly() };
+      return { results: await store.listFinalizedResultsReadOnly() };
     },
 
     async bridge_fetch_result(input: { task_id: string }) {
       assertMcpTextField(input.task_id, "task_id", MAX_MCP_SHORT_TEXT_BYTES);
-      return { result: await store.getResultReadOnly(input.task_id) };
+      return { result: await store.getFinalizedResultReadOnly(input.task_id) };
     },
 
     async bridge_fetch_result_artifact(input: { task_id: string; path?: string }) {
       assertMcpTextField(input.task_id, "task_id", MAX_MCP_SHORT_TEXT_BYTES);
       assertMcpTextField(input.path, "path", MAX_MCP_SHORT_TEXT_BYTES);
-      return store.readResultArtifactText(input.task_id, input.path, { maxBytes: MAX_MCP_BRIDGE_TEXT_BYTES, readOnly: true });
+      return store.readFinalizedResultArtifactText(input.task_id, input.path, { maxBytes: MAX_MCP_BRIDGE_TEXT_BYTES });
     },
 
     async bridge_list_receipts(input: ListReceiptsInput) {

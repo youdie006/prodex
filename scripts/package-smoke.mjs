@@ -1208,6 +1208,7 @@ try {
   assertIncludes(doctor.stdout, "finalizers=ok", "installed doctor output");
   const blockedConsultTaskId = await smokeInstalledProBlockedConsult(binPath, consumerDir);
   await smokeInstalledExplicitCwdInspection(binPath, consumerDir, launcherDir, blockedConsultTaskId);
+  await smokeInstalledUntrustedResultInspection(binPath, tmp, launcherDir);
 
   const httpRepoDir = path.join(tmp, "http-repo");
   await mkdir(httpRepoDir, { recursive: true });
@@ -1227,7 +1228,7 @@ try {
   await smokeInstalledStdioTaskFinalizers(binPath, consumerDir);
 
   console.log(
-    `package_smoke: ok tarball=${path.basename(packed.filename)} http_onboarding=ok installed_http_mcp=ok http_write_flow=ok http_task_finalizers=ok http_result_artifact_flow=ok http_result_artifact_tamper=ok http_receipt_session_tools=ok configured_doctor=ok tunnel_url=ok package_boundary=ok installed_release_pack=ok installed_release_pack_cli=ok installed_release_pack_source_cli=ok installed_release_pack_publish_dry_run=ok installed_release_pack_publish_command=ok stdio_write_flow=ok stdio_search_overflow=ok stdio_non_git_write=ok stdio_task_flow=ok stdio_task_finalizers=ok stdio_result_artifact_flow=ok stdio_result_artifact_tamper=ok stdio_receipt_session_tools=ok tools=${REQUIRED_MCP_TOOLS.join(",")}`
+    `package_smoke: ok tarball=${path.basename(packed.filename)} http_onboarding=ok installed_http_mcp=ok http_write_flow=ok http_task_finalizers=ok http_result_artifact_flow=ok http_result_artifact_tamper=ok http_receipt_session_tools=ok configured_doctor=ok tunnel_url=ok package_boundary=ok installed_untrusted_result=ok installed_release_pack=ok installed_release_pack_cli=ok installed_release_pack_source_cli=ok installed_release_pack_publish_dry_run=ok installed_release_pack_publish_command=ok stdio_write_flow=ok stdio_search_overflow=ok stdio_non_git_write=ok stdio_task_flow=ok stdio_task_finalizers=ok stdio_result_artifact_flow=ok stdio_result_artifact_tamper=ok stdio_receipt_session_tools=ok tools=${REQUIRED_MCP_TOOLS.join(",")}`
   );
 } finally {
   await rm(tmp, { recursive: true, force: true });
@@ -1577,6 +1578,70 @@ async function smokeInstalledExplicitCwdInspection(binPath, repoCwd, launcherCwd
   const result = await run(binPath, ["results", "show", "latest", "--cwd", repoCwd], { cwd: launcherCwd });
   assertIncludes(result.stdout, `"task_id": "${taskId}"`, "installed explicit --cwd results show output");
   await assertMissingFile(path.join(launcherCwd, ".bridge", ".gitignore"), "installed explicit --cwd inspection launcher bridge gitignore");
+}
+
+async function smokeInstalledUntrustedResultInspection(binPath, tmp, launcherCwd) {
+  const cwd = path.join(tmp, "untrusted-result");
+  const bridgeDir = path.join(cwd, ".bridge");
+  const taskId = "task_20990101_000000_untrusted-result";
+  const timestamp = "2099-01-01T00:00:00.000Z";
+  await mkdir(path.join(bridgeDir, "tasks"), { recursive: true });
+  await mkdir(path.join(bridgeDir, "results"), { recursive: true });
+  await mkdir(path.join(bridgeDir, "artifacts", "results"), { recursive: true });
+  await writeFile(
+    path.join(bridgeDir, "tasks", `${taskId}.json`),
+    `${JSON.stringify(
+      {
+        schema_version: 1,
+        id: taskId,
+        source: "codex",
+        status: "new",
+        title: "GPT Pro consult",
+        prompt: "Do not trust raw results.",
+        repo_id: "default",
+        files: [],
+        provenance: { adapter: "chatgpt-control", warnings: [] },
+        created_at: timestamp,
+        updated_at: timestamp
+      },
+      null,
+      2
+    )}\n`,
+    "utf8"
+  );
+  await writeFile(path.join(bridgeDir, "artifacts", "results", "raw.md"), "raw installed answer\n", "utf8");
+  await writeFile(
+    path.join(bridgeDir, "results", `${taskId}.json`),
+    `${JSON.stringify(
+      {
+        schema_version: 1,
+        task_id: taskId,
+        status: "done",
+        summary: "Raw installed answer.",
+        artifacts: [{ path: ".bridge/artifacts/results/raw.md", role: "result" }],
+        commands: ["visible ChatGPT browser consult"],
+        warnings: [],
+        created_at: timestamp
+      },
+      null,
+      2
+    )}\n`,
+    "utf8"
+  );
+
+  for (const item of [
+    { args: ["results", "show", "latest", "--cwd", cwd], label: "installed untrusted results latest" },
+    { args: ["results", "show", taskId, "--cwd", cwd], label: "installed untrusted results show" },
+    { args: ["results", "artifact", taskId, "--cwd", cwd], label: "installed untrusted results artifact" },
+    { args: ["pro", "show", taskId, "--cwd", cwd], label: "installed untrusted pro show" },
+    { args: ["pro", "latest", "--cwd", cwd], label: "installed untrusted pro latest" }
+  ]) {
+    const failure = await runExpectFailure(binPath, item.args, { cwd: launcherCwd });
+    const output = `${failure.stdout}\n${failure.stderr}`;
+    assertIncludes(output, "Result record is untrusted", item.label);
+    assertIncludes(output, "task_completed receipt", item.label);
+    assertNotIncludes(output, "raw installed answer", item.label);
+  }
 }
 
 async function smokeInstalledReleaseGitReadiness(binPath, tmp, launcherCwd) {

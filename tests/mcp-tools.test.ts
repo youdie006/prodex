@@ -142,6 +142,46 @@ describe("MCP tool handlers", () => {
     );
   });
 
+  it("does not fetch raw result records without a trusted completion receipt", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    const store = new BridgeStore(cwd);
+    const handlers = createMcpToolHandlers({ cwd });
+    const task = await store.createTask({
+      source: "codex",
+      title: "Raw result",
+      prompt: "Do not trust this result until finalization is receipted.",
+      repo_id: "default",
+      files: [],
+      provenance: { adapter: "cli", warnings: [] }
+    });
+    await mkdir(path.join(cwd, ".bridge", "artifacts", "results"), { recursive: true });
+    await writeFile(path.join(cwd, ".bridge", "artifacts", "results", "raw.md"), "raw answer\n", "utf8");
+    await writeFile(
+      path.join(cwd, ".bridge", "results", `${task.id}.json`),
+      `${JSON.stringify(
+        {
+          schema_version: 1,
+          task_id: task.id,
+          status: "done",
+          summary: "Raw unreceipted answer.",
+          artifacts: [{ path: ".bridge/artifacts/results/raw.md", role: "result" }],
+          commands: [],
+          warnings: [],
+          created_at: "2099-01-01T00:00:00.000Z"
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+
+    await expect(handlers.bridge_list_results()).rejects.toThrow(/Result record is untrusted: .*task_completed receipt/i);
+    await expect(handlers.bridge_fetch_result({ task_id: task.id })).rejects.toThrow(/Result record is untrusted: .*task_completed receipt/i);
+    await expect(handlers.bridge_fetch_result_artifact({ task_id: task.id })).rejects.toThrow(
+      /Result record is untrusted: .*task_completed receipt/i
+    );
+  });
+
   it("surfaces repo search truncation metadata through MCP handlers", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
     await writeFile(
@@ -528,6 +568,11 @@ describe("MCP tool handlers", () => {
       )}\n`,
       "utf8"
     );
+    await store.writeReceipt({
+      kind: "task_completed",
+      task_id: task.id,
+      summary: `Completed task ${task.id}`
+    });
     const handlers = createMcpToolHandlers({ cwd });
 
     await expect(handlers.bridge_fetch_result_artifact({ task_id: task.id })).rejects.toThrow(/not a fetchable result artifact/);
@@ -566,6 +611,11 @@ describe("MCP tool handlers", () => {
       )}\n`,
       "utf8"
     );
+    await store.writeReceipt({
+      kind: "task_completed",
+      task_id: task.id,
+      summary: `Completed task ${task.id}`
+    });
     const handlers = createMcpToolHandlers({ cwd });
 
     await expect(handlers.bridge_fetch_result_artifact({ task_id: task.id })).rejects.toThrow(/not a fetchable result artifact/);

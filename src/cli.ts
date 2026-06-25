@@ -588,7 +588,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       if (!taskId) throw new Error("results show requires <task-id|latest>");
       const targetStore = new BridgeStore(resolveCwdFlag(io.cwd, resultArgs));
       const resolvedTaskId = taskId === "latest" ? await latestResultTaskId(targetStore, { readOnly: true }) : taskId;
-      io.stdout(JSON.stringify(await targetStore.getResultReadOnly(resolvedTaskId), null, 2));
+      io.stdout(JSON.stringify(await targetStore.getFinalizedResultReadOnly(resolvedTaskId), null, 2));
       return 0;
     }
     if (subcommand === "artifact") {
@@ -597,7 +597,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       if (!taskId) throw new Error("results artifact requires <task-id> [artifact-path]");
       const targetStore = new BridgeStore(resolveCwdFlag(io.cwd, resultArgs));
       const resolvedTaskId = taskId === "latest" ? await latestResultTaskId(targetStore, { readOnly: true }) : taskId;
-      const artifact = await targetStore.readResultArtifactText(resolvedTaskId, artifactPath, { readOnly: true });
+      const artifact = await targetStore.readFinalizedResultArtifactText(resolvedTaskId, artifactPath);
       io.stdout(artifact.content);
       return 0;
     }
@@ -2767,9 +2767,17 @@ async function printProductCheck(store: BridgeStore, io: CliIO, args: string[], 
   const modelHints = formatBrowserModelHints(browserStatus.modelHints);
   if (modelHints) io.stdout(`model_hints: ${modelHints}`);
 
-  const latest = bridgeReady ? (await listConsults(store))[0] : undefined;
-  if (latest) {
-    io.stdout(formatProductCheckLatestProLine(latest));
+  if (bridgeReady) {
+    try {
+      const latest = (await listConsults(store))[0];
+      io.stdout(latest ? formatProductCheckLatestProLine(latest) : "latest_pro: missing");
+    } catch (error) {
+      if (isUntrustedResultError(error)) {
+        io.stdout(`latest_pro: untrusted ${error.taskId} ${errorMessage(error)}`);
+      } else {
+        throw error;
+      }
+    }
   } else {
     io.stdout("latest_pro: missing");
   }
@@ -2789,6 +2797,10 @@ async function listTasksForInspection(
 }
 
 async function listResultsForInspection(store: BridgeStore): Promise<Awaited<ReturnType<BridgeStore["listResults"]>>> {
+  return store.listFinalizedResultsReadOnly();
+}
+
+async function listRawResultsForInspection(store: BridgeStore): Promise<Awaited<ReturnType<BridgeStore["listResults"]>>> {
   return store.listResultsReadOnly();
 }
 
@@ -2805,18 +2817,23 @@ async function listSessionsForInspection(
 
 async function listConsults(store: BridgeStore, options: { readOnly?: boolean } = {}): Promise<ConsultRecord[]> {
   const [tasks, results] = options.readOnly
-    ? await Promise.all([listTasksForInspection(store), listResultsForInspection(store)])
+    ? await Promise.all([listTasksForInspection(store), listRawResultsForInspection(store)])
     : await Promise.all([store.listTasks(), store.listResults()]);
   const tasksById = new Map(tasks.map((task) => [task.id, task]));
   assertNoMissingTerminalConsultResults(tasks, results);
   assertNoOrphanConsultResults(tasksById, results);
-  return results
+  const records = results
     .map((result) => {
       const task = tasksById.get(result.task_id);
       return task ? { task, result } : undefined;
     })
     .filter((record): record is ConsultRecord => Boolean(record && isConsultRecord(record)))
     .sort((a, b) => b.result.created_at.localeCompare(a.result.created_at));
+  const finalized: ConsultRecord[] = [];
+  for (const record of records) {
+    finalized.push({ ...record, result: await store.getFinalizedResultReadOnly(record.result.task_id) });
+  }
+  return finalized;
 }
 
 function assertNoOrphanConsultResults(
@@ -2852,9 +2869,10 @@ async function getConsult(store: BridgeStore, taskId: string, options: { readOnl
     if (isMissingFileError(error)) return undefined;
     throw error;
   }
+  if (!isConsultTask(task)) return undefined;
   let result: Awaited<ReturnType<BridgeStore["getResult"]>>;
   try {
-    result = options.readOnly ? await store.getResultReadOnly(taskId) : await store.getResult(taskId);
+    result = await store.getFinalizedResultReadOnly(taskId);
   } catch (error) {
     if (isMissingFileError(error)) {
       if (isTerminalTask(task) && isConsultTask(task)) throw missingConsultResultError(task);
@@ -3068,6 +3086,17 @@ function browserSendBlockerFromError(error: unknown): { code: string; message: s
 
 function isMissingFileError(error: unknown): boolean {
   return typeof error === "object" && error !== null && "code" in error && (error as { code?: unknown }).code === "ENOENT";
+}
+
+function isUntrustedResultError(error: unknown): error is Error & { code: "EUNTRUSTED_RESULT"; taskId: string } {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    "taskId" in error &&
+    (error as { code?: unknown }).code === "EUNTRUSTED_RESULT" &&
+    typeof (error as { taskId?: unknown }).taskId === "string"
+  );
 }
 
 function assertTokenNotExpiredForCommand(config: LocalConfig, sourceCli?: string, setupHintCwd?: string): void {

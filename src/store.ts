@@ -296,12 +296,35 @@ export class BridgeStore {
     );
   }
 
+  async listFinalizedResultsReadOnly(): Promise<Result[]> {
+    const results = await this.listResultsReadOnly();
+    for (const result of results) {
+      await this.assertTrustedTaskCompletionReceiptReadOnly(result.task_id);
+    }
+    return results;
+  }
+
   async getResult(taskId: string): Promise<Result> {
     return this.parseRecord("results", taskId, await this.readRecordJson("results", taskId), parseResultRecord);
   }
 
   async getResultReadOnly(taskId: string): Promise<Result> {
     return this.parseRecord("results", taskId, await this.readRecordJson("results", taskId, { cleanupTempHardLinks: false }), parseResultRecord);
+  }
+
+  async getFinalizedResultReadOnly(taskId: string): Promise<Result> {
+    const result = await this.getResultReadOnly(taskId);
+    await this.assertTrustedTaskCompletionReceiptReadOnly(taskId);
+    return result;
+  }
+
+  async readFinalizedResultArtifactText(
+    taskId: string,
+    artifactPath?: string,
+    options: { maxBytes?: number } = {}
+  ): Promise<{ artifact: BridgeFile; content: string }> {
+    await this.assertTrustedTaskCompletionReceiptReadOnly(taskId);
+    return this.readResultArtifactText(taskId, artifactPath, { ...options, readOnly: true });
   }
 
   async readResultArtifactText(
@@ -436,6 +459,28 @@ export class BridgeStore {
 
   private async hasTaskCompletionReceipt(taskId: string): Promise<boolean> {
     return (await this.listReceipts({ kind: "task_completed", task_id: taskId })).length > 0;
+  }
+
+  private async assertTrustedTaskCompletionReceiptReadOnly(taskId: string): Promise<void> {
+    if (!(await this.hasReadyStorageDirReadOnly("receipts"))) {
+      throw untrustedResultError(this.root, taskId, "has no trusted task_completed receipt");
+    }
+    const receipts = (await this.readAll("receipts", parseReceiptRecord, { cleanupTempHardLinks: false })).filter(
+      (receipt) => receipt.kind === "task_completed" && receipt.task_id === taskId
+    );
+    if (receipts.length === 0) {
+      throw untrustedResultError(this.root, taskId, "has no trusted task_completed receipt");
+    }
+    const failures: string[] = [];
+    for (const receipt of receipts) {
+      try {
+        await this.assertReceiptIntegrity(receipt);
+        return;
+      } catch (error) {
+        failures.push(errorMessage(error));
+      }
+    }
+    throw untrustedResultError(this.root, taskId, `has an untrusted task_completed receipt: ${failures[0] ?? "local integrity unavailable"}`);
   }
 
   private async writeTaskCompletionReceipt(taskId: string, status: Result["status"]): Promise<void> {
@@ -1126,6 +1171,15 @@ function recordCorruptError(kind: BridgeRecordKind, id: string, filePath: string
   return new Error(`${recordLabel(kind)} record is corrupt: ${formatRecordPath(root, filePath)}. Move it aside or fix the JSON, then retry.`, {
     cause
   });
+}
+
+function untrustedResultError(root: string, taskId: string, reason: string): Error {
+  const error = new Error(
+    `Result record is untrusted: ${formatRecordPath(root, path.join(root, ".bridge", "results", `${taskId}.json`))} ${reason}. Retry the completion path or move the result record aside, then retry.`
+  ) as Error & { code: "EUNTRUSTED_RESULT"; taskId: string };
+  error.code = "EUNTRUSTED_RESULT";
+  error.taskId = taskId;
+  return error;
 }
 
 function formatRecordPath(root: string, filePath: string): string {
