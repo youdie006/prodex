@@ -1851,7 +1851,8 @@ describe("runCli", () => {
     expect(text).toContain("release_pack=ok");
     expect(text).toContain(`tarball=${path.join(destination, tarballs[0])}`);
     expect(text).toContain("release_pack_verify: npm publish --dry-run");
-    expect(text).toContain("release_pack_publish: npm publish");
+    expect(text).toContain("release_pack_publish_blocked: fix git readiness before npm publish");
+    expect(text).not.toContain("release_pack_publish: npm publish");
     expect(text).not.toContain("gptprouse_token=");
   });
 
@@ -1871,6 +1872,9 @@ describe("runCli", () => {
 
     const text = out.join("\n");
     expect(text).toContain(`release_pack_next: run \`npm run release:verify\` and \`node ${sourceCli} release status --source-cli ${sourceCli}\``);
+    expect(text).toContain(
+      `release_pack_publish_blocked: fix git readiness before npm publish; run \`node ${sourceCli} release status --source-cli ${sourceCli}\``
+    );
     expect(text).not.toContain("`gptprouse release status`");
   });
 
@@ -2191,7 +2195,8 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     expect(text).toContain("pack: blocked packed files have unexpected executable modes");
     expect(text).toContain("README.md");
     expect(text).toContain("gptprouse release pack --pack-destination <dir>");
-    expect(text).toContain("release pack prints `npm publish --dry-run <tarball>` and `npm publish <tarball>`");
+    expect(text).toContain("release pack prints `npm publish --dry-run <tarball>`");
+    expect(text).toContain("prints `npm publish <tarball>` only after git readiness is clear");
     expect(text).not.toContain("pack: ok");
   });
 

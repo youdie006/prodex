@@ -1291,7 +1291,7 @@ async function readReleasePackStatus(cwd: string, packageJson: { bin?: unknown }
       return {
         line: `pack: blocked packed files have unexpected executable modes outside package bin entries: ${formatPathList(invalid)}`,
         next: sourceAwareReleaseMessage(
-          "fix file modes or publish from a filesystem that preserves executable bits, then run `npm run release:check`; on WSL/Windows mounts, create a sanitized tarball with `gptprouse release pack --pack-destination <dir>` after `npm run release:verify`; release pack prints `npm publish --dry-run <tarball>` and `npm publish <tarball>`",
+          "fix file modes or publish from a filesystem that preserves executable bits, then run `npm run release:check`; on WSL/Windows mounts, create a sanitized tarball with `gptprouse release pack --pack-destination <dir>` after `npm run release:verify`; release pack prints `npm publish --dry-run <tarball>` and prints `npm publish <tarball>` only after git readiness is clear",
           sourceCli
         )
       };

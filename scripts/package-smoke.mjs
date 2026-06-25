@@ -146,7 +146,8 @@ try {
   assertIncludes(releasePackSuccess.stdout, "release_pack_next:", "installed release-pack success output");
   assertIncludes(releasePackSuccess.stdout, "release_pack_git: blocked not a git worktree", "installed release-pack success output");
   assertIncludes(releasePackSuccess.stdout, "release_pack_verify: npm publish --dry-run", "installed release-pack success output");
-  assertIncludes(releasePackSuccess.stdout, "release_pack_publish: npm publish", "installed release-pack success output");
+  assertIncludes(releasePackSuccess.stdout, "release_pack_publish_blocked: fix git readiness before npm publish", "installed release-pack success output");
+  assertNotIncludes(releasePackSuccess.stdout, "release_pack_publish: npm publish", "installed release-pack success output");
   const releasePackTarballs = (await readdir(releasePackDestination)).filter((entry) => entry.endsWith(".tgz"));
   if (releasePackTarballs.length !== 1) {
     throw new Error(`installed release-pack expected exactly one tarball, found: ${releasePackTarballs.join(", ")}`);
@@ -160,7 +161,8 @@ try {
   assertIncludes(releasePackCliSuccess.stdout, "release_pack=ok", "installed release pack CLI output");
   assertIncludes(releasePackCliSuccess.stdout, "release_pack_git: blocked not a git worktree", "installed release pack CLI output");
   assertIncludes(releasePackCliSuccess.stdout, "release_pack_verify: npm publish --dry-run", "installed release pack CLI output");
-  assertIncludes(releasePackCliSuccess.stdout, "release_pack_publish: npm publish", "installed release pack CLI output");
+  assertIncludes(releasePackCliSuccess.stdout, "release_pack_publish_blocked: fix git readiness before npm publish", "installed release pack CLI output");
+  assertNotIncludes(releasePackCliSuccess.stdout, "release_pack_publish: npm publish", "installed release pack CLI output");
   const releasePackCliTarballs = (await readdir(releasePackCliDestination)).filter((entry) => entry.endsWith(".tgz"));
   if (releasePackCliTarballs.length !== 1) {
     throw new Error(`installed release pack CLI expected exactly one tarball, found: ${releasePackCliTarballs.join(", ")}`);
@@ -753,7 +755,7 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertIncludes(readme, "npm run release:verify", "installed README");
   assertIncludes(readme, "npm run release:pack", "installed README");
   assertIncludes(readme, "npm publish --dry-run <tarball>", "installed README");
-  assertIncludes(readme, "npm publish <tarball>", "installed README");
+  assertIncludes(readme, "prints `npm publish <tarball>` only after git readiness is clear", "installed README");
   assertIncludes(readme, "git remote add origin <git-url>", "installed README");
   assertIncludes(readme, "git push -u origin <branch>", "installed README");
   assertIncludes(readme, "release_pack_git", "installed README");

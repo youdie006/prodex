@@ -371,7 +371,8 @@ esac
     expect(tarballs).toHaveLength(1);
     const tarballPath = path.join(destination, tarballs[0]);
     expect(result.stdout).toContain(`release_pack_verify: npm publish --dry-run ${tarballPath}`);
-    expect(result.stdout).toContain(`release_pack_publish: npm publish ${tarballPath}`);
+    expect(result.stdout).toContain("release_pack_publish_blocked: fix git readiness before npm publish");
+    expect(result.stdout).not.toContain("release_pack_publish: npm publish");
 
     const consumer = await mkdtemp(path.join(tmpdir(), "gptprouse-release-pack-consumer-"));
     await writeFile(path.join(consumer, "package.json"), `${JSON.stringify({ private: true }, null, 2)}\n`, "utf8");
@@ -406,7 +407,38 @@ esac
       `release_pack_git_next: add a remote, then push with upstream tracking: git remote add origin <git-url>; git push -u origin ${branch}`
     );
     expect(result.stdout.indexOf("release_pack_git:")).toBeLessThan(result.stdout.indexOf("release_pack_verify:"));
-    expect(result.stdout.indexOf("release_pack_git_next:")).toBeLessThan(result.stdout.indexOf("release_pack_publish:"));
+    expect(result.stdout.indexOf("release_pack_git_next:")).toBeLessThan(result.stdout.indexOf("release_pack_publish_blocked:"));
+    expect(result.stdout).toContain("release_pack_publish_blocked: fix git readiness before npm publish");
+    expect(result.stdout).not.toContain("release_pack_publish: npm publish");
+  });
+
+  it("prints the publish command only when git readiness is clear", async () => {
+    const root = await createReleasePackFixture();
+    await execFileAsync("git", ["init"], { cwd: root });
+    await execFileAsync("git", ["config", "user.email", "release@example.com"], { cwd: root });
+    await execFileAsync("git", ["config", "user.name", "Release Test"], { cwd: root });
+    await execFileAsync("git", ["add", "package.json", "README.md", "LICENSE", "dist/cli.js", "scripts/release-check.mjs"], {
+      cwd: root
+    });
+    await execFileAsync("git", ["commit", "-m", "initial"], { cwd: root });
+    const remote = await mkdtemp(path.join(tmpdir(), "gptprouse-release-pack-remote-"));
+    await execFileAsync("git", ["init", "--bare"], { cwd: remote });
+    await execFileAsync("git", ["remote", "add", "origin", remote], { cwd: root });
+    const branch = (await execFileAsync("git", ["rev-parse", "--abbrev-ref", "HEAD"], { cwd: root })).stdout.trim();
+    await execFileAsync("git", ["push", "-u", "origin", branch], { cwd: root });
+    const commit = (await execFileAsync("git", ["rev-parse", "--short", "HEAD"], { cwd: root })).stdout.trim();
+    const destination = await mkdtemp(path.join(tmpdir(), "gptprouse-release-pack-dest-"));
+
+    const result = await runReleasePack(["--root", root, "--pack-destination", destination]);
+
+    const tarballs = (await readdir(destination)).filter((entry) => entry.endsWith(".tgz"));
+    expect(tarballs).toHaveLength(1);
+    const tarballPath = path.join(destination, tarballs[0]);
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain(`release_pack_git: ok branch=${branch} commit=${commit}`);
+    expect(result.stdout).toContain(`release_pack_verify: npm publish --dry-run ${tarballPath}`);
+    expect(result.stdout).toContain(`release_pack_publish: npm publish ${tarballPath}`);
+    expect(result.stdout).not.toContain("release_pack_publish_blocked");
   });
 
   it("rejects hard-linked source package files instead of hiding them in the staging copy", async () => {

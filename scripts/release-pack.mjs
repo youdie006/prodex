@@ -51,7 +51,15 @@ async function releasePack(args) {
   console.log(`release_pack_${gitStatus.line}`);
   if (gitStatus.next) console.log(`release_pack_git_next: ${gitStatus.next}`);
   console.log(`release_pack_verify: npm publish --dry-run ${shellQuote(packedTarball)}`);
-  console.log(`release_pack_publish: npm publish ${shellQuote(packedTarball)}`);
+  if (isReleaseGitReady(gitStatus)) {
+    console.log(`release_pack_publish: npm publish ${shellQuote(packedTarball)}`);
+  } else {
+    console.log("release_pack_publish_blocked: fix git readiness before npm publish; run `gptprouse release status`, then rerun release pack after blockers are clear.");
+  }
+}
+
+function isReleaseGitReady(gitStatus) {
+  return gitStatus.line.startsWith("git: ok ");
 }
 
 function assertPackedReleaseCheck(files) {
