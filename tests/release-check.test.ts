@@ -401,6 +401,28 @@ describe("release-check", () => {
       [`${npmCommand}\tpack --json --dry-run --ignore-scripts\t${root}`, `${npmCommand}\ttest\t${root}`, `${npmCommand}\trun typecheck\t${root}`, ""].join("\n")
     );
   });
+
+  it("reports silent release verification child failures without raw execFile output", async () => {
+    const root = await copyPackageJsonToTemp();
+    const packageJson = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
+    packageJson.license = "MIT";
+    await writeFile(path.join(root, "package.json"), `${JSON.stringify(packageJson, null, 2)}\n`, "utf8");
+    await writeFile(path.join(root, "LICENSE"), "MIT License\n", "utf8");
+    const npmCommand = expectedNpmCommand();
+    const fakeCommands = await createFakeReleaseCommands(root, {
+      failCommand: `${npmCommand}\trun typecheck`,
+      silentFail: true
+    });
+
+    const result = await runReleaseCheck(root, { metadataOnly: false, pathPrefix: fakeCommands.binDir, logPath: fakeCommands.logPath });
+
+    expect(result.code).toBe(1);
+    expect(result.stdout).toContain(`release_check: ${npmCommand} run typecheck`);
+    expect(result.stdout).not.toContain(`release_check: ${npmCommand} run build`);
+    expect(result.stderr).toContain(`release verification failed: ${npmCommand} run typecheck: exit code 42`);
+    expect(result.stderr).not.toContain("Command failed:");
+    expect(result.stderr).not.toContain("Node.js v");
+  });
 });
 
 async function copyPackageJsonToTemp(): Promise<string> {
@@ -433,7 +455,7 @@ function expectedNpmCommand(): "npm" | "npm.cmd" {
 
 async function createFakeReleaseCommands(
   root: string,
-  options: { failCommand?: string; packStdout?: string } = {}
+  options: { failCommand?: string; packStdout?: string; silentFail?: boolean } = {}
 ): Promise<{ binDir: string; logPath: string }> {
   const binDir = path.join(root, "fake-bin");
   const logPath = path.join(root, "release-check-commands.log");
@@ -441,17 +463,17 @@ async function createFakeReleaseCommands(
   await mkdir(path.join(root, "dist"), { recursive: true });
   await writeFile(path.join(root, "dist", "cli.js"), "#!/usr/bin/env node\nconsole.log('doctor')\n", "utf8");
   await Promise.all([
-    writeFakeCommand(path.join(binDir, "npm"), "npm", logPath, options.failCommand, options.packStdout),
-    writeFakeCommand(path.join(binDir, "npm.cmd.mjs"), "npm.cmd", logPath, options.failCommand, options.packStdout),
-    writeFakeCommand(path.join(binDir, "node"), "node", logPath, options.failCommand),
-    writeFakeCommand(path.join(binDir, "node.cmd.mjs"), "node", logPath, options.failCommand),
+    writeFakeCommand(path.join(binDir, "npm"), "npm", logPath, options.failCommand, options.packStdout, options.silentFail),
+    writeFakeCommand(path.join(binDir, "npm.cmd.mjs"), "npm.cmd", logPath, options.failCommand, options.packStdout, options.silentFail),
+    writeFakeCommand(path.join(binDir, "node"), "node", logPath, options.failCommand, undefined, options.silentFail),
+    writeFakeCommand(path.join(binDir, "node.cmd.mjs"), "node", logPath, options.failCommand, undefined, options.silentFail),
     writeWindowsCommandWrapper(path.join(binDir, "npm.cmd"), "npm.cmd.mjs"),
     writeWindowsCommandWrapper(path.join(binDir, "node.cmd"), "node.cmd.mjs")
   ]);
   return { binDir, logPath };
 }
 
-async function writeFakeCommand(filePath: string, command: string, logPath: string, failCommand?: string, packStdout?: string): Promise<void> {
+async function writeFakeCommand(filePath: string, command: string, logPath: string, failCommand?: string, packStdout?: string, silentFail = false): Promise<void> {
   await writeFile(
     filePath,
     [
@@ -460,7 +482,7 @@ async function writeFakeCommand(filePath: string, command: string, logPath: stri
       `const commandLine = ${JSON.stringify(`${command}\t`)} + process.argv.slice(2).join(" ");`,
       `appendFileSync(${JSON.stringify(logPath)}, commandLine + "\\t" + process.cwd() + "\\n");`,
       `if (commandLine === ${JSON.stringify(failCommand ?? "")}) {`,
-      `  console.error("fake release-check command failed: " + commandLine);`,
+      ...(silentFail ? [] : [`  console.error("fake release-check command failed: " + commandLine);`]),
       "  process.exit(42);",
       "}",
       `if (${JSON.stringify(command === "npm" || command === "npm.cmd")} && process.argv[2] === "pack") {`,
