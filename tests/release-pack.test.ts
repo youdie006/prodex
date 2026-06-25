@@ -173,6 +173,42 @@ esac
     expect((await readdir(destination)).filter((entry) => entry.endsWith(".tgz"))).toEqual([]);
   });
 
+  it("fails with a friendly message when packed files omit the release check script", async () => {
+    const root = await createReleasePackFixture();
+    const packageJson = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
+    packageJson.files = ["README.md", "LICENSE", "dist/cli.js"];
+    await writeFile(path.join(root, "package.json"), `${JSON.stringify(packageJson, null, 2)}\n`, "utf8");
+    const destination = await mkdtemp(path.join(tmpdir(), "gptprouse-release-pack-dest-"));
+
+    const result = await runReleasePack(["--root", root, "--pack-destination", destination]);
+
+    const output = `${result.stdout}\n${result.stderr}`;
+    expect(result.code).toBe(1);
+    expect(output).toContain("release pack failed");
+    expect(output).toContain("packed files must include scripts/release-check.mjs");
+    expect(output).not.toContain("MODULE_NOT_FOUND");
+    expect(output).not.toContain("Node.js v");
+    expect((await readdir(destination)).filter((entry) => entry.endsWith(".tgz"))).toEqual([]);
+  });
+
+  it("fails with a friendly message when staging release metadata check fails", async () => {
+    const root = await createReleasePackFixture();
+    const packageJson = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
+    delete packageJson.license;
+    await writeFile(path.join(root, "package.json"), `${JSON.stringify(packageJson, null, 2)}\n`, "utf8");
+    const destination = await mkdtemp(path.join(tmpdir(), "gptprouse-release-pack-dest-"));
+
+    const result = await runReleasePack(["--root", root, "--pack-destination", destination]);
+
+    const output = `${result.stdout}\n${result.stderr}`;
+    expect(result.code).toBe(1);
+    expect(output).toContain("release pack failed");
+    expect(output).toContain("release metadata failed: package.json must include an explicit license before publishing");
+    expect(output).not.toContain("Command failed:");
+    expect(output).not.toContain("scripts/release-check.mjs --metadata-only");
+    expect((await readdir(destination)).filter((entry) => entry.endsWith(".tgz"))).toEqual([]);
+  });
+
   it("creates a sanitized tarball from a package with executable non-bin file modes", async () => {
     const root = await createReleasePackFixture();
     await chmod(path.join(root, "README.md"), 0o755);

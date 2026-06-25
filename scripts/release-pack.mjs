@@ -34,7 +34,8 @@ async function releasePack(args) {
   let packedTarball;
   try {
     await copyPackedFilesToStaging(root, staging, files, binPaths);
-    await run(process.execPath, [path.join(staging, "scripts", "release-check.mjs"), "--metadata-only", "--root", staging], staging);
+    assertPackedReleaseCheck(files);
+    await runReleaseMetadataCheck(staging);
     const { stdout } = await runNpmPack(["pack", "--json", "--ignore-scripts", "--pack-destination", destination], staging, "npm pack");
     packedTarball = resolvePackedTarball(destination, stdout);
   } finally {
@@ -45,6 +46,13 @@ async function releasePack(args) {
 
   console.log(`release_pack=ok tarball=${packedTarball} file_modes=ok staging=${args.keepWorkdir ? staging : "removed"}`);
   console.log("release_pack_next: run `npm run release:verify` and `gptprouse release status` before publishing this tarball.");
+}
+
+function assertPackedReleaseCheck(files) {
+  const hasReleaseCheck = files.some((file) => normalizePackagePath(file.path) === "scripts/release-check.mjs");
+  if (!hasReleaseCheck) {
+    throw new Error("packed files must include scripts/release-check.mjs for release metadata validation");
+  }
 }
 
 async function copyPackedFilesToStaging(root, staging, files, binPaths) {
@@ -129,6 +137,14 @@ async function runNpmPack(commandArgs, cwd, label) {
     return await run(npmCommand, commandArgs, cwd);
   } catch (error) {
     throw new Error(`${label} failed: ${commandFailureDetail(error)}`);
+  }
+}
+
+async function runReleaseMetadataCheck(staging) {
+  try {
+    await run(process.execPath, [path.join(staging, "scripts", "release-check.mjs"), "--metadata-only", "--root", staging], staging);
+  } catch (error) {
+    throw new Error(commandFailureDetail(error));
   }
 }
 
