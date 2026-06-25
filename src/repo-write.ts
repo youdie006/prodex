@@ -80,6 +80,11 @@ interface AppliedMetadata {
   new_sha256: string;
 }
 
+interface GitIndexEntry {
+  mode: string;
+  objectId: string;
+}
+
 export async function createRepoWriteDryRun(
   root: string,
   store: BridgeStore,
@@ -243,6 +248,7 @@ export async function stageReviewedPaths(
   }
 
   const stagedPaths = Array.from(paths).sort();
+  const originalIndexEntries = await readGitIndexEntries(root, stagedPaths);
   let staged = false;
   try {
     await testHooks.beforeGitAdd?.(stagedPaths);
@@ -269,7 +275,7 @@ export async function stageReviewedPaths(
     };
   } catch (error) {
     if (staged) {
-      await unstagePaths(root, stagedPaths);
+      await restoreGitIndexEntries(root, originalIndexEntries);
     }
     throw error;
   }
@@ -301,8 +307,39 @@ async function gitObjectIdForStagedPath(root: string, gitPath: string): Promise<
   return objectId;
 }
 
-async function unstagePaths(root: string, paths: string[]): Promise<void> {
-  await execFileAsync("git", ["restore", "--staged", "--", ...paths], { cwd: root }).catch(() => undefined);
+async function readGitIndexEntries(root: string, paths: string[]): Promise<Map<string, GitIndexEntry | undefined>> {
+  const entries = new Map<string, GitIndexEntry | undefined>();
+  for (const gitPath of paths) {
+    const { stdout } = await execFileAsync("git", ["ls-files", "--stage", "-z", "--", gitPath], {
+      cwd: root,
+      encoding: "buffer",
+      maxBuffer: MAX_WRITE_BYTES + 1024
+    });
+    entries.set(gitPath, parseGitIndexEntry(stdout));
+  }
+  return entries;
+}
+
+function parseGitIndexEntry(stdout: Buffer): GitIndexEntry | undefined {
+  const entry = stdout.toString("utf8").split("\0").find(Boolean);
+  if (!entry) return undefined;
+  const match = /^(\d+)\s+([a-f0-9]{40,64})\s+\d+\t/.exec(entry);
+  if (!match) {
+    throw new Error("Could not parse git index entry for staged path");
+  }
+  return { mode: match[1], objectId: match[2] };
+}
+
+async function restoreGitIndexEntries(root: string, entries: Map<string, GitIndexEntry | undefined>): Promise<void> {
+  for (const [gitPath, entry] of entries) {
+    if (entry) {
+      await execFileAsync("git", ["update-index", "--add", "--cacheinfo", entry.mode, entry.objectId, gitPath], { cwd: root }).catch(
+        () => undefined
+      );
+    } else {
+      await execFileAsync("git", ["rm", "--cached", "--ignore-unmatch", "--", gitPath], { cwd: root }).catch(() => undefined);
+    }
+  }
 }
 
 async function runGitWithStdin(root: string, args: string[], input: string): Promise<string> {

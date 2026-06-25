@@ -357,7 +357,7 @@ function isVisibilityUnknown(page: DevtoolsPage, visibilityByPage: Map<string, s
   return visibilityByPage.get(page.webSocketDebuggerUrl) === undefined;
 }
 
-export function assertVisibleChatGptTab(visibilityState: string, url: string, targetUrl?: string): void {
+export function assertVisibleChatGptTab(visibilityState: string | undefined, url: string, targetUrl?: string): void {
   if (visibilityState === "visible") return;
   const blocker = chatGptVisibilityBlocker(visibilityState, targetUrl ?? url);
   if (blocker) throw new ChatGptBrowserBlockerError(blocker);
@@ -383,12 +383,16 @@ export function assertChatGptTargetTabAvailable(targetUrl: string): void {
 }
 
 export function assertChatGptPageAvailable(): never {
-  throw new ChatGptBrowserBlockerError({
+  throw new ChatGptBrowserBlockerError(chatGptPageMissingBlocker());
+}
+
+function chatGptPageMissingBlocker(): NonNullable<ChatGptBrowserStatus["blocker"]> {
+  return {
     code: "chatgpt_page_missing",
     message: "Chrome debug port is reachable, but no chatgpt.com tab is open.",
     retryable: true,
-    next_step: "Open https://chatgpt.com/ in the dedicated Chrome profile."
-  });
+    next_step: "Open https://chatgpt.com/ in the dedicated Chrome profile, or run `gptprouse pro browser login` to reopen it."
+  };
 }
 
 export function assertChatGptReadyForPrompt(loggedInLikely: boolean, hasComposer: boolean): void {
@@ -409,10 +413,11 @@ export function chatGptVisibilityBlocker(
   visibilityState: string | undefined,
   url: string | undefined
 ): ChatGptBrowserStatus["blocker"] | undefined {
-  if (!visibilityState || visibilityState === "visible") return undefined;
+  if (visibilityState === "visible") return undefined;
+  const visibility = visibilityState ?? "unknown";
   return {
     code: "tab_not_visible",
-    message: `Selected ChatGPT tab is ${visibilityState}, not the active visible tab.`,
+    message: `Selected ChatGPT tab is ${visibility}, not the active visible tab.`,
     retryable: true,
     next_step: `Select ${url ?? "the ChatGPT tab"} in the dedicated browser, then retry.`
   };
@@ -488,12 +493,7 @@ export async function getChatGptBrowserStatus(options: { port?: number; timeoutM
       loggedInLikely: false,
       hasComposer: false,
       modelHints: [],
-      blocker: {
-        code: "chatgpt_page_missing",
-        message: "Chrome debug port is reachable, but no chatgpt.com tab is open.",
-        retryable: true,
-        next_step: "Open https://chatgpt.com/ in the dedicated Chrome profile."
-      }
+      blocker: chatGptPageMissingBlocker()
     };
   }
   const state = await evaluateOnPage<ChatGptPageStatus>(page.page, statusExpression());

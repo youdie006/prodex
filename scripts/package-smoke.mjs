@@ -410,6 +410,39 @@ try {
   assertIncludes(releasePackCliSuccess.stdout, `release_pack_verify: npm publish --dry-run ${releasePackCliTarballPath}`, "installed release pack CLI output");
   await assertInstalledReleasePackTarballModes(releasePackCliTarballPath, "installed release pack CLI tarball");
   await assertNpmPublishDryRun(releasePackCliTarballPath, consumerDir, "installed release pack CLI tarball");
+  const releasePackSourceCliDestination = path.join(tmp, "installed-release-pack-source-cli");
+  const releasePackSourceCliSuccess = await run(
+    binPath,
+    [
+      "release",
+      "pack",
+      "--cwd",
+      installedPackageDir,
+      "--source-cli",
+      installedSourceCli,
+      "--pack-destination",
+      releasePackSourceCliDestination
+    ],
+    { cwd: consumerDir, timeout: 120_000, maxBuffer: 20 * 1024 * 1024 }
+  );
+  assertIncludes(releasePackSourceCliSuccess.stdout, "release_pack=ok", "installed source release pack CLI output");
+  assertIncludes(
+    releasePackSourceCliSuccess.stdout,
+    `release_pack_next: run \`npm run release:verify\` and \`node ${installedSourceCli} release status --source-cli ${installedSourceCli} --cwd ${installedPackageDir}\` before publishing this tarball.`,
+    "installed source release pack CLI output"
+  );
+  assertIncludes(
+    releasePackSourceCliSuccess.stdout,
+    `release_pack_publish_blocked: fix git readiness before npm publish; run \`node ${installedSourceCli} release status --source-cli ${installedSourceCli} --cwd ${installedPackageDir}\`, then rerun release pack after blockers are clear.`,
+    "installed source release pack CLI output"
+  );
+  assertNotIncludes(releasePackSourceCliSuccess.stdout, "release_pack_publish: npm publish", "installed source release pack CLI output");
+  const releasePackSourceCliTarballs = (await readdir(releasePackSourceCliDestination)).filter((entry) => entry.endsWith(".tgz"));
+  if (releasePackSourceCliTarballs.length !== 1) {
+    throw new Error(`installed source release pack CLI expected exactly one tarball, found: ${releasePackSourceCliTarballs.join(", ")}`);
+  }
+  const releasePackSourceCliTarballPath = path.join(releasePackSourceCliDestination, releasePackSourceCliTarballs[0]);
+  await assertInstalledReleasePackTarballModes(releasePackSourceCliTarballPath, "installed source release pack CLI tarball");
   const releasePackGitReadyRoot = path.join(tmp, "installed-release-pack-git-ready-root");
   await cp(installedPackageDir, releasePackGitReadyRoot, { recursive: true });
   const releasePackGitReadyGit = await initPackageSmokeReleaseGitReadyRepo(releasePackGitReadyRoot);
@@ -1194,7 +1227,7 @@ try {
   await smokeInstalledStdioTaskFinalizers(binPath, consumerDir);
 
   console.log(
-    `package_smoke: ok tarball=${path.basename(packed.filename)} http_onboarding=ok installed_http_mcp=ok http_write_flow=ok http_task_finalizers=ok http_result_artifact_flow=ok http_result_artifact_tamper=ok http_receipt_session_tools=ok configured_doctor=ok tunnel_url=ok package_boundary=ok installed_release_pack=ok installed_release_pack_cli=ok installed_release_pack_publish_dry_run=ok installed_release_pack_publish_command=ok stdio_write_flow=ok stdio_search_overflow=ok stdio_non_git_write=ok stdio_task_flow=ok stdio_task_finalizers=ok stdio_result_artifact_flow=ok stdio_result_artifact_tamper=ok stdio_receipt_session_tools=ok tools=${REQUIRED_MCP_TOOLS.join(",")}`
+    `package_smoke: ok tarball=${path.basename(packed.filename)} http_onboarding=ok installed_http_mcp=ok http_write_flow=ok http_task_finalizers=ok http_result_artifact_flow=ok http_result_artifact_tamper=ok http_receipt_session_tools=ok configured_doctor=ok tunnel_url=ok package_boundary=ok installed_release_pack=ok installed_release_pack_cli=ok installed_release_pack_source_cli=ok installed_release_pack_publish_dry_run=ok installed_release_pack_publish_command=ok stdio_write_flow=ok stdio_search_overflow=ok stdio_non_git_write=ok stdio_task_flow=ok stdio_task_finalizers=ok stdio_result_artifact_flow=ok stdio_result_artifact_tamper=ok stdio_receipt_session_tools=ok tools=${REQUIRED_MCP_TOOLS.join(",")}`
   );
 } finally {
   await rm(tmp, { recursive: true, force: true });
@@ -1517,40 +1550,16 @@ async function assertPackageSpecifierBlocked(consumerDir, specifier, mode, nodeA
 }
 
 async function smokeInstalledProBlockedConsult(binPath, cwd) {
-  const created = await run(
-    binPath,
-    ["tasks", "create", "--title", "GPT Pro consult", "--prompt", "Installed blocked consult smoke"],
-    { cwd }
-  );
-  const taskId = created.stdout.split("\t")[0];
-  if (!taskId?.startsWith("task_")) {
-    throw new Error(`Installed blocked consult smoke could not parse task id: ${created.stdout}`);
-  }
-  await run(binPath, ["tasks", "claim", taskId, "--by", "chatgpt-pro"], { cwd });
-  await run(
-    binPath,
-    [
-      "tasks",
-      "block",
-      taskId,
-      "--summary",
-      "Visible browser login is required.",
-      "--code",
-      "browser_send_failed",
-      "--next-step",
-      "Log in manually, then retry.",
-      "--retryable",
-      "--command",
-      "visible ChatGPT browser consult"
-    ],
-    { cwd }
-  );
   const latest = await run(binPath, ["pro", "latest"], { cwd });
+  const taskId = latest.stdout.match(/^task_id: (task_[^\n]+)/m)?.[1];
+  if (!taskId?.startsWith("task_")) {
+    throw new Error(`Installed blocked consult smoke could not parse task id: ${latest.stdout}`);
+  }
   assertIncludes(latest.stdout, "status: blocked", "installed pro latest blocked output");
   assertIncludes(latest.stdout, "blocker:", "installed pro latest blocked output");
-  assertIncludes(latest.stdout, "- code: browser_send_failed", "installed pro latest blocked output");
+  assertIncludes(latest.stdout, "- code: browser_unreachable", "installed pro latest blocked output");
   assertIncludes(latest.stdout, "- retryable: true", "installed pro latest blocked output");
-  assertIncludes(latest.stdout, "- next_step: Log in manually, then retry.", "installed pro latest blocked output");
+  assertIncludes(latest.stdout, "pro browser login", "installed pro latest blocked output");
   const check = await runExpectFailure(binPath, ["pro", "browser", "check", "--port", "65534", "--timeout-ms", "10"], { cwd, timeout: 60_000 });
   assertIncludes(check.stdout, `latest_pro: blocked ${taskId}`, "installed pro browser check blocked output");
   assertNotIncludes(check.stdout, `latest_pro: ok ${taskId} blocked`, "installed pro browser check blocked output");
@@ -1563,7 +1572,7 @@ async function smokeInstalledExplicitCwdInspection(binPath, repoCwd, launcherCwd
   assertIncludes(latest.stdout, "status: blocked", "installed explicit --cwd pro latest output");
 
   const taskList = await run(binPath, ["tasks", "list", "--cwd", repoCwd], { cwd: launcherCwd });
-  assertIncludes(taskList.stdout, `${taskId}\tblocked\tGPT Pro consult`, "installed explicit --cwd tasks list output");
+  assertIncludes(taskList.stdout, `${taskId}\tblocked\tGPT Pro smoke`, "installed explicit --cwd tasks list output");
 
   const result = await run(binPath, ["results", "show", "latest", "--cwd", repoCwd], { cwd: launcherCwd });
   assertIncludes(result.stdout, `"task_id": "${taskId}"`, "installed explicit --cwd results show output");

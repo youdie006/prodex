@@ -369,9 +369,10 @@ describe("ChatGPT browser adapter", () => {
       expect.objectContaining({
         code: "chatgpt_page_missing",
         retryable: true,
-        next_step: "Open https://chatgpt.com/ in the dedicated Chrome profile."
+        next_step: "Open https://chatgpt.com/ in the dedicated Chrome profile, or run `gptprouse pro browser login` to reopen it."
       })
     );
+    expect((thrown as ChatGptBrowserBlockerError).blocker.next_step).toContain("pro browser login");
   });
 
   it("throws a structured blocker when ChatGPT is not ready for prompts", () => {
@@ -490,6 +491,7 @@ describe("ChatGPT browser adapter", () => {
 
   it("requires a visible ChatGPT tab before sending prompts", () => {
     expect(() => assertVisibleChatGptTab("hidden", "https://chatgpt.com/c/background")).toThrow(/active visible tab/i);
+    expect(() => assertVisibleChatGptTab(undefined, "https://chatgpt.com/c/unknown")).toThrow(/active visible tab/i);
     expect(() => assertVisibleChatGptTab("visible", "https://chatgpt.com/c/current")).not.toThrow();
   });
 
@@ -497,10 +499,13 @@ describe("ChatGPT browser adapter", () => {
     expect(chatGptVisibilityBlocker("visible", "https://chatgpt.com/")).toBeUndefined();
 
     const blocker = chatGptVisibilityBlocker("hidden", "https://chatgpt.com/c/background");
+    const unknownBlocker = chatGptVisibilityBlocker(undefined, "https://chatgpt.com/c/unknown");
 
     expect(blocker?.code).toBe("tab_not_visible");
     expect(blocker?.message).toContain("not the active visible tab");
     expect(blocker?.next_step).toContain("Select https://chatgpt.com/c/background");
+    expect(unknownBlocker?.code).toBe("tab_not_visible");
+    expect(unknownBlocker?.message).toContain("unknown");
   });
 
   it("scopes prompt insertion and submit to a ChatGPT composer root", () => {

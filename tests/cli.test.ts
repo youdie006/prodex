@@ -1060,46 +1060,50 @@ describe("runCli", () => {
   it("lists and shows GPT Pro answers with the short pro command", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
     const out: string[] = [];
-
-    const createOut: string[] = [];
-    await runCli(
-      ["tasks", "create", "--title", "GPT Pro consult", "--prompt", "Ask Pro"],
-      { cwd, stdout: (line) => createOut.push(line), stderr: () => {} }
-    );
-    const taskId = createOut[0].split("\t")[0];
-    await runCli(["tasks", "claim", taskId, "--by", "chatgpt-pro"], { cwd, stdout: () => {}, stderr: () => {} });
-    await runCli(
-      ["tasks", "complete", taskId, "--summary", "Use receipt-gated writes next.", "--command", "visible ChatGPT browser consult"],
-      { cwd, stdout: () => {}, stderr: () => {} }
-    );
+    const store = new BridgeStore(cwd);
+    const task = await store.createTask({
+      source: "codex",
+      title: "GPT Pro consult",
+      prompt: "Ask Pro",
+      repo_id: "default",
+      files: [],
+      provenance: { adapter: "chatgpt-control" }
+    });
+    await store.completeTask(task.id, {
+      status: "done",
+      summary: "Use receipt-gated writes next.",
+      commands: ["visible ChatGPT browser consult"]
+    });
 
     await runCli(["pro", "list"], { cwd, stdout: (line) => out.push(line), stderr: () => {} });
     await runCli(["pro", "latest"], { cwd, stdout: (line) => out.push(line), stderr: () => {} });
     await runCli(["pro", "show", "latest"], { cwd, stdout: (line) => out.push(line), stderr: () => {} });
 
-    expect(out.join("\n")).toContain(taskId);
+    expect(out.join("\n")).toContain(task.id);
     expect(out.join("\n")).toContain("task_id:");
     expect(out.join("\n")).toContain("Use receipt-gated writes next.");
   });
 
   it("surfaces corrupt GPT Pro result records instead of hiding them as not found", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
-    const createOut: string[] = [];
-    await runCli(["tasks", "create", "--title", "GPT Pro consult", "--prompt", "Ask Pro"], {
-      cwd,
-      stdout: (line) => createOut.push(line),
-      stderr: () => {}
+    const store = new BridgeStore(cwd);
+    const task = await store.createTask({
+      source: "codex",
+      title: "GPT Pro consult",
+      prompt: "Ask Pro",
+      repo_id: "default",
+      files: [],
+      provenance: { adapter: "chatgpt-control" }
     });
-    const taskId = createOut[0].split("\t")[0];
-    await runCli(["tasks", "complete", taskId, "--summary", "Initial answer", "--command", "visible ChatGPT browser consult"], {
-      cwd,
-      stdout: () => {},
-      stderr: () => {}
+    await store.completeTask(task.id, {
+      status: "done",
+      summary: "Initial answer",
+      commands: ["visible ChatGPT browser consult"]
     });
-    await writeFile(path.join(cwd, ".bridge", "results", `${taskId}.json`), "{not-json\n", "utf8");
+    await writeFile(path.join(cwd, ".bridge", "results", `${task.id}.json`), "{not-json\n", "utf8");
 
     await expect(
-      runCli(["pro", "show", taskId], {
+      runCli(["pro", "show", task.id], {
         cwd,
         stdout: () => {},
         stderr: () => {}
@@ -1109,19 +1113,21 @@ describe("runCli", () => {
 
   it("surfaces missing GPT Pro result files instead of hiding terminal consult tasks", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
-    const createOut: string[] = [];
-    await runCli(["tasks", "create", "--title", "GPT Pro consult", "--prompt", "Ask Pro"], {
-      cwd,
-      stdout: (line) => createOut.push(line),
-      stderr: () => {}
+    const store = new BridgeStore(cwd);
+    const task = await store.createTask({
+      source: "codex",
+      title: "GPT Pro consult",
+      prompt: "Ask Pro",
+      repo_id: "default",
+      files: [],
+      provenance: { adapter: "chatgpt-control" }
     });
-    const taskId = createOut[0].split("\t")[0];
-    await runCli(["tasks", "complete", taskId, "--summary", "Initial answer", "--command", "visible ChatGPT browser consult"], {
-      cwd,
-      stdout: () => {},
-      stderr: () => {}
+    await store.completeTask(task.id, {
+      status: "done",
+      summary: "Initial answer",
+      commands: ["visible ChatGPT browser consult"]
     });
-    await rm(path.join(cwd, ".bridge", "results", `${taskId}.json`));
+    await rm(path.join(cwd, ".bridge", "results", `${task.id}.json`));
 
     await expect(
       runCli(["pro", "latest"], {
@@ -1129,9 +1135,9 @@ describe("runCli", () => {
         stdout: () => {},
         stderr: () => {}
       })
-    ).rejects.toThrow(new RegExp(`GPT Pro answer is corrupt: task ${escapeRegExp(taskId)} is done but \\.bridge/results/${escapeRegExp(taskId)}\\.json is missing`));
+    ).rejects.toThrow(new RegExp(`GPT Pro answer is corrupt: task ${escapeRegExp(task.id)} is done but \\.bridge/results/${escapeRegExp(task.id)}\\.json is missing`));
     await expect(
-      runCli(["pro", "show", taskId], {
+      runCli(["pro", "show", task.id], {
         cwd,
         stdout: () => {},
         stderr: () => {}
@@ -1185,6 +1191,48 @@ describe("runCli", () => {
     ).rejects.toThrow(
       "GPT Pro answer is corrupt: result .bridge/results/task_20990101_000000_orphan-gpt-pro.json exists but .bridge/tasks/task_20990101_000000_orphan-gpt-pro.json is missing"
     );
+  });
+
+  it("does not treat user-controlled task titles or commands as GPT Pro consult provenance", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const store = new BridgeStore(cwd);
+    const realConsult = await store.createTask({
+      source: "codex",
+      title: "GPT Pro consult",
+      prompt: "Real consult",
+      repo_id: "default",
+      files: [],
+      provenance: { adapter: "chatgpt-control" }
+    });
+    await store.completeTask(realConsult.id, {
+      status: "done",
+      summary: "Real GPT Pro answer",
+      commands: ["visible ChatGPT browser consult"]
+    });
+    const spoofed = await store.createTask({
+      source: "claude",
+      title: "GPT Pro consult",
+      prompt: "Spoof title and command marker.",
+      repo_id: "default",
+      files: [],
+      provenance: { adapter: "mcp" }
+    });
+    await store.completeTask(spoofed.id, {
+      status: "done",
+      summary: "Spoofed answer",
+      commands: ["visible ChatGPT browser consult"]
+    });
+    const out: string[] = [];
+
+    await runCli(["pro", "latest"], {
+      cwd,
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+    const text = out.join("\n");
+
+    expect(text).toContain("Real GPT Pro answer");
+    expect(text).not.toContain("Spoofed answer");
   });
 
   it("reports corrupt bridge records with repair hints", async () => {

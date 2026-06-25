@@ -1600,6 +1600,47 @@ describe("MCP tool handlers", () => {
     expect(stageReceipts.receipts).toEqual([]);
   });
 
+  it("preserves pre-existing staged content when stage receipt storage fails", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    const repoFile = path.join(cwd, "notes.md");
+    await writeFile(repoFile, "old\n", "utf8");
+    const head = await initGitRepo(cwd);
+    const handlers = createMcpToolHandlers({ cwd });
+    const dryRun = await handlers.repo_write_file_dry_run({
+      path: "notes.md",
+      content: "new\n",
+      expected_head: head
+    });
+    const applied = await handlers.repo_write_file_apply({
+      receipt_id: dryRun.receipt.id,
+      expected_head: head,
+      preimage_sha256: dryRun.preimage_sha256
+    });
+    await writeFile(repoFile, "user staged\n", "utf8");
+    await execFileAsync("git", ["add", "notes.md"], { cwd });
+    await writeFile(repoFile, "new\n", "utf8");
+    const { stdout: stagedBefore } = await execFileAsync("git", ["show", ":notes.md"], { cwd });
+    setRepoWriteTestHooks({
+      beforeStageReceipt: async () => {
+        throw new Error("forced stage receipt failure");
+      }
+    });
+
+    await expect(
+      handlers.repo_stage_reviewed_paths({
+        receipt_ids: [applied.receipt.id],
+        expected_head: head
+      })
+    ).rejects.toThrow(/forced stage receipt failure/);
+    const { stdout: stagedAfter } = await execFileAsync("git", ["show", ":notes.md"], { cwd });
+
+    expect(stagedBefore).toBe("user staged\n");
+    expect(stagedAfter).toBe(stagedBefore);
+    expect(await readFile(repoFile, "utf8")).toBe("new\n");
+    const stageReceipts = await handlers.bridge_list_receipts({ kind: "repo_stage_reviewed_paths" });
+    expect(stageReceipts.receipts).toEqual([]);
+  });
+
   it("rejects staging when git HEAD moved after apply", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
     await writeFile(path.join(cwd, "notes.md"), "old\n", "utf8");

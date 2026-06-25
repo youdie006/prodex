@@ -2883,7 +2883,7 @@ function isTerminalTask(task: Awaited<ReturnType<BridgeStore["listTasks"]>>[numb
 }
 
 function isConsultTask(task: Awaited<ReturnType<BridgeStore["listTasks"]>>[number]): boolean {
-  return task.provenance.adapter === "chatgpt-control" || task.title.toLowerCase() === "gpt pro consult";
+  return task.provenance.adapter === "chatgpt-control";
 }
 
 function isConsultResult(result: Awaited<ReturnType<BridgeStore["listResults"]>>[number]): boolean {
@@ -2903,10 +2903,7 @@ function orphanConsultResultError(taskId: string): Error {
 }
 
 function isConsultRecord(record: ConsultRecord): boolean {
-  return (
-    isConsultTask(record.task) ||
-    record.result.commands.includes("visible ChatGPT browser consult")
-  );
+  return isConsultTask(record.task);
 }
 
 function formatProAnswer(consult: ConsultRecord, sourceCli?: string): string {
