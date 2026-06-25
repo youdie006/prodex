@@ -2116,6 +2116,8 @@ async function runDoctor(store: BridgeStore, io: CliIO, sourceCli?: string): Pro
       io.stdout(`config: failed token expired at ${tokenStatus.token_expires_at} - run \`${cli} setup\``);
     } else {
       io.stdout(`config: ok ${redactServerUrl(config.server_url)} token_status=${tokenStatus.status}`);
+      const warningLine = formatConfigWarningLine(tokenStatus, sourceCli);
+      if (warningLine) io.stdout(warningLine);
     }
   } catch (error) {
     if (isMissingFileError(error)) {
@@ -2687,6 +2689,8 @@ async function printProductCheck(store: BridgeStore, io: CliIO, args: string[], 
       io.stdout(`config: expired - run \`${cli} setup\``);
     } else {
       io.stdout(`config: ok ${redactServerUrl(config.server_url)} token_status=${tokenStatus.status}`);
+      const warningLine = formatConfigWarningLine(tokenStatus, sourceCli);
+      if (warningLine) io.stdout(warningLine);
       configReady = true;
     }
   } catch (error) {
@@ -3311,6 +3315,10 @@ function formatTokenExpiryLine(config: { token_expires_at?: string }): string {
   if (tokenStatus.status === "valid") return `Token expires: ${tokenStatus.token_expires_at}`;
   if (tokenStatus.status === "expired") return `Token expired: ${tokenStatus.token_expires_at}`;
   return "Token expires: never (local-only; use --token-ttl-hours before exposing through a tunnel).";
+}
+
+function formatConfigWarningLine(tokenStatus: { warning?: string }, sourceCli?: string): string | undefined {
+  return tokenStatus.warning ? `config_warning: ${sourceAwareSetupMessage(tokenStatus.warning, sourceCli)}` : undefined;
 }
 
 async function ensureBridgeGitignore(cwd: string): Promise<void> {

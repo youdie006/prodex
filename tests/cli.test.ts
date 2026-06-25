@@ -4217,11 +4217,13 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
       stderr: () => {}
     });
 
-    const status = JSON.parse(statusOut.join("\n")) as { token_status?: string; token_expires_at?: string | null };
+    const status = JSON.parse(statusOut.join("\n")) as { token_status?: string; token_expires_at?: string | null; warnings?: string[] };
     expect(status.token_status).toBe("non_expiring");
     expect(status.token_expires_at).toBeNull();
+    expect(status.warnings?.join("\n")).toContain("Token has no expiry. Keep this local-only");
     expect(statusOut.join("\n")).not.toContain('"token_status": "none"');
     expect(doctorOut.join("\n")).toContain("token_status=non_expiring");
+    expect(doctorOut.join("\n")).toContain("config_warning: Token has no expiry. Keep this local-only");
     expect(doctorOut.join("\n")).not.toContain("token_status=none");
   });
 
@@ -4701,6 +4703,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
 
     const text = out.join("\n");
     expect(text).toContain("gptprouse_token=***");
+    expect(text).toContain("config_warning: Token has no expiry. Keep this local-only");
     expect(text).not.toContain("super-secret-token");
   });
 
