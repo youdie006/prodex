@@ -2636,6 +2636,8 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     expect(text).toContain(
       'gptprouse pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--port 9333] [--timeout-ms 90000] [--target-url url --confirm-target] [--file path] "prompt"'
     );
+    expect(text).toContain("Use `gptprouse pro ask` for dry-run/manual previews.");
+    expect(text).toContain("`gptprouse pro browser ask` always attempts an explicit visible-browser send.");
   });
 
   it("rejects non-ChatGPT browser login URLs before opening Chrome", async () => {

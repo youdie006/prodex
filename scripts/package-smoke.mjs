@@ -463,6 +463,16 @@ try {
     'gptprouse pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--port 9333] [--timeout-ms 90000] [--target-url url --confirm-target] [--file path] "prompt"',
     "installed browser help"
   );
+  assertIncludes(
+    browserHelp.stdout,
+    "Use `gptprouse pro ask` for dry-run/manual previews.",
+    "installed browser help"
+  );
+  assertIncludes(
+    browserHelp.stdout,
+    "`gptprouse pro browser ask` always attempts an explicit visible-browser send.",
+    "installed browser help"
+  );
   const invalidBrowserPort = await runExpectFailure(binPath, ["pro", "browser", "check", "--port", "-1", "--timeout-ms", "10"], {
     cwd: consumerDir
   });

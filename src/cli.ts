@@ -2025,7 +2025,9 @@ Commands:
   gptprouse pro browser smoke [--source-cli /absolute/path/to/dist/cli.js] [--port 9333] [--timeout-ms 30000]
   gptprouse pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--port 9333] [--timeout-ms 90000] [--target-url url --confirm-target] [--file path] "prompt"
 
-Visible-browser sends require a manual browser session and stop on login, captcha, Cloudflare, permission, rate-limit, or usage-limit blockers.`);
+Visible-browser sends require a manual browser session and stop on login, captcha, Cloudflare, permission, rate-limit, or usage-limit blockers.
+Use \`gptprouse pro ask\` for dry-run/manual previews.
+\`gptprouse pro browser ask\` always attempts an explicit visible-browser send.`);
 }
 
 async function assertBrowserLaunchStayedAlive(opened: ChatGptBrowserLaunch): Promise<void> {
