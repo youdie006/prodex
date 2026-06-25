@@ -492,6 +492,7 @@ try {
   assertIncludes(browserLoginGuide.stdout, "Dry run: no browser was opened.", "installed browser login guide");
   assertIncludes(browserLoginGuide.stdout, "Cloudflare", "installed browser login guide");
   assertIncludes(browserLoginGuide.stdout, "usage limit", "installed browser login guide");
+  assertIncludes(browserLoginGuide.stdout, "Open a normal ChatGPT chat or the intended Project/thread so the prompt composer is visible.", "installed browser login guide");
   assertIncludes(browserLoginGuide.stdout, "gptprouse pro browser check", "installed browser login guide");
   assertIncludes(browserLoginGuide.stdout, "gptprouse pro browser smoke", "installed browser login guide");
   assertIncludes(
@@ -791,6 +792,7 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertIncludes(readme, "local MCP troubleshooting commands so their follow-up guidance stays in source-checkout form", "installed README");
   assertIncludes(readme, 'gptprouse pro ask "Review the project positioning"', "installed README");
   assertIncludes(readme, "gptprouse pro browser login --dry-run", "installed README");
+  assertIncludes(readme, "Open a normal ChatGPT chat or the intended Project/thread so the prompt composer is visible.", "installed README");
   assertIncludes(readme, "pro browser login --dry-run --source-cli", "installed README");
   assertIncludes(readme, "pro browser check --source-cli", "installed README");
   assertIncludes(readme, "pro browser smoke --source-cli", "installed README");

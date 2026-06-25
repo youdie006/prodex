@@ -134,6 +134,7 @@ What happens:
 - `login` opens that dedicated Chrome profile at ChatGPT.
 - You log in manually in the visible browser.
 - If ChatGPT asks for captcha, permission, or account verification, handle it in that browser.
+- Open a normal ChatGPT chat or the intended Project/thread so the prompt composer is visible.
 - Pick the Pro/Thinking model you want in the ChatGPT UI.
 - The login stays in the dedicated profile:
 

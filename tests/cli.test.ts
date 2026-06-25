@@ -2847,6 +2847,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     expect(text).toContain("Log in manually");
     expect(text).toContain("Cloudflare");
     expect(text).toContain("usage limit");
+    expect(text).toContain("Open a normal ChatGPT chat or the intended Project/thread so the prompt composer is visible.");
     expect(text).toContain("gptprouse pro browser check");
     expect(text).toContain("gptprouse pro browser smoke");
     expect(text).not.toContain("node dist/cli.js");
@@ -2875,6 +2876,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     expect(text).toContain(
       `1. Run \`${sourcePrefix} pro browser login --source-cli ${sourceCli}\` without \`--dry-run\` to open the dedicated Chrome window.`
     );
+    expect(text).toContain("Open a normal ChatGPT chat or the intended Project/thread so the prompt composer is visible.");
     expect(text).toContain(`Run \`${sourcePrefix} pro browser check\` to confirm the session is reachable.`);
     expect(text).toContain(`Run \`${sourcePrefix} pro browser smoke\` to verify a real Pro response path.`);
     expect(text).not.toContain("Run `gptprouse pro browser login`");
