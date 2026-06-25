@@ -1374,6 +1374,21 @@ describe("runCli", () => {
     expect(out.join("\n")).not.toContain("gptprouse_token=");
   });
 
+  it("claude config rejects source-cli directories before printing unusable JSON", async () => {
+    const launcherCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-launcher-"));
+    const targetCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-target-"));
+    const sourceCliDir = path.join(launcherCwd, "dist");
+    await mkdir(sourceCliDir, { recursive: true });
+
+    await expect(
+      runCli(["claude", "config", "--cwd", targetCwd, "--source-cli", sourceCliDir], {
+        cwd: launcherCwd,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.toThrow(`--source-cli must be a file: ${sourceCliDir}`);
+  });
+
   it("onboard prints first-run commands without exposing tokens or changing state", async () => {
     const launcherCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-launcher-"));
     const targetCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-target-"));

@@ -148,6 +148,12 @@ try {
   });
   assertIncludes(missingSourceCliConfig.stderr, `--source-cli does not exist or is not accessible: ${missingSourceCli}`, "installed missing source-cli output");
   assertNotIncludes(missingSourceCliConfig.stderr, "ENOENT", "installed missing source-cli output");
+  const sourceCliDir = path.join(consumerDir, "dist");
+  await mkdir(sourceCliDir, { recursive: true });
+  const directorySourceCliConfig = await runExpectFailure(binPath, ["claude", "config", "--cwd", consumerDir, "--source-cli", sourceCliDir], {
+    cwd: path.dirname(consumerDir)
+  });
+  assertIncludes(directorySourceCliConfig.stderr, `--source-cli must be a file: ${sourceCliDir}`, "installed directory source-cli output");
   const missingSetupStatus = await runExpectFailure(binPath, ["status"], { cwd: consumerDir });
   assertIncludes(missingSetupStatus.stderr, "Run `gptprouse setup` first.", "installed missing setup status output");
   assertNotIncludes(missingSetupStatus.stderr, "Run `gptprouse setup --token-ttl-hours <hours>` first.", "installed missing setup status output");

@@ -240,7 +240,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
     }
     if (subcommand === "config") {
       assertOnlyOptions(claudeArgs, "claude config", ["--cwd", "--source-cli"]);
-      io.stdout(formatClaudeConfig(resolveCwdFlag(io.cwd, claudeArgs), resolveOptionalPathFlag(io.cwd, claudeArgs, "--source-cli")));
+      io.stdout(formatClaudeConfig(resolveCwdFlag(io.cwd, claudeArgs), resolveOptionalFileFlag(io.cwd, claudeArgs, "--source-cli")));
       return 0;
     }
     throw new Error("claude requires prompt or config");
@@ -2140,6 +2140,11 @@ function resolveOptionalPathFlag(defaultCwd: string, args: string[], flag: strin
   return value ? resolveExistingPathFlag(defaultCwd, value, flag) : undefined;
 }
 
+function resolveOptionalFileFlag(defaultCwd: string, args: string[], flag: string): string | undefined {
+  const value = readFlag(args, flag);
+  return value ? resolveExistingFileFlag(defaultCwd, value, flag) : undefined;
+}
+
 function resolveExistingPathFlag(defaultCwd: string, value: string, flag: string): string {
   const resolved = path.resolve(defaultCwd, value);
   try {
@@ -2147,6 +2152,14 @@ function resolveExistingPathFlag(defaultCwd: string, value: string, flag: string
   } catch {
     throw new Error(`${flag} does not exist or is not accessible: ${resolved}`);
   }
+}
+
+function resolveExistingFileFlag(defaultCwd: string, value: string, flag: string): string {
+  const resolved = resolveExistingPathFlag(defaultCwd, value, flag);
+  if (!statSync(resolved).isFile()) {
+    throw new Error(`${flag} must be a file: ${resolved}`);
+  }
+  return resolved;
 }
 
 function resolveExistingDirectoryFlag(defaultCwd: string, value: string, flag: string): string {
