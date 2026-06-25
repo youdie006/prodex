@@ -130,7 +130,13 @@ function resolvePackedTarball(destination, stdout) {
   if (typeof filename !== "string" || !filename.endsWith(".tgz")) {
     throw new Error(`could not determine npm pack tarball from output: ${stdout}`);
   }
-  return path.isAbsolute(filename) ? filename : path.join(destination, filename);
+  const resolvedDestination = path.resolve(destination);
+  const tarballPath = path.isAbsolute(filename) ? path.resolve(filename) : path.resolve(resolvedDestination, filename);
+  const relative = path.relative(resolvedDestination, tarballPath);
+  if (relative.startsWith("..") || path.isAbsolute(relative)) {
+    throw new Error(`npm pack reported tarball outside pack destination: ${filename}`);
+  }
+  return tarballPath;
 }
 
 async function assertPackedTarballCreated(packedTarball) {

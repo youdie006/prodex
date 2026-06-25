@@ -229,6 +229,38 @@ esac
     expect((await readdir(destination)).filter((entry) => entry.endsWith(".tgz"))).toEqual([]);
   });
 
+  it("fails with a friendly message when final npm pack reports a tarball outside the destination", async () => {
+    const root = await createReleasePackFixture();
+    const destination = await mkdtemp(path.join(tmpdir(), "gptprouse-release-pack-dest-"));
+    const outside = await mkdtemp(path.join(tmpdir(), "gptprouse-release-pack-outside-"));
+    const outsideTarball = path.join(outside, "demo-release-pack-1.0.0.tgz");
+    await writeFile(outsideTarball, "not a real package\n", "utf8");
+    const fakeBin = await mkdtemp(path.join(tmpdir(), "gptprouse-release-pack-fake-bin-"));
+    await writeFile(
+      path.join(fakeBin, npmCommand),
+      `#!/bin/sh
+case " $* " in
+  *" --dry-run "*) printf '[{"files":[{"path":"package.json"},{"path":"README.md"},{"path":"LICENSE"},{"path":"dist/cli.js"},{"path":"scripts/release-check.mjs"}]}]\\n' ;;
+  *) printf '[{"filename":"${outsideTarball}"}]\\n' ;;
+esac
+`,
+      "utf8"
+    );
+    await chmod(path.join(fakeBin, npmCommand), 0o755);
+
+    const result = await runReleasePack(["--root", root, "--pack-destination", destination], {
+      env: { PATH: `${fakeBin}${path.delimiter}${process.env.PATH ?? ""}` }
+    });
+
+    const output = `${result.stdout}\n${result.stderr}`;
+    expect(result.code).toBe(1);
+    expect(output).toContain("release pack failed");
+    expect(output).toContain("npm pack reported tarball outside pack destination:");
+    expect(output).toContain(outsideTarball);
+    expect(output).not.toContain("release_pack=ok");
+    expect((await readdir(destination)).filter((entry) => entry.endsWith(".tgz"))).toEqual([]);
+  });
+
   it("fails with a friendly message when packed files omit the release check script", async () => {
     const root = await createReleasePackFixture();
     const packageJson = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
