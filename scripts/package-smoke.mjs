@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { createHash } from "node:crypto";
 import { execFile, spawn } from "node:child_process";
-import { chmod, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from "node:fs/promises";
 import net from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -320,13 +320,20 @@ try {
   assertIncludes(releasePackSuccess.stdout, "file_modes=ok", "installed release-pack success output");
   assertIncludes(releasePackSuccess.stdout, "release_pack_next:", "installed release-pack success output");
   assertIncludes(releasePackSuccess.stdout, "release_pack_git: blocked not a git worktree", "installed release-pack success output");
-  assertIncludes(releasePackSuccess.stdout, "release_pack_verify: npm publish --dry-run", "installed release-pack success output");
+  assertIncludes(
+    releasePackSuccess.stdout,
+    "release_pack_git_next: initialize a git repo and commit the release state before public release",
+    "installed release-pack success output"
+  );
   assertIncludes(releasePackSuccess.stdout, "release_pack_publish_blocked: fix git readiness before npm publish", "installed release-pack success output");
   assertNotIncludes(releasePackSuccess.stdout, "release_pack_publish: npm publish", "installed release-pack success output");
   const releasePackTarballs = (await readdir(releasePackDestination)).filter((entry) => entry.endsWith(".tgz"));
   if (releasePackTarballs.length !== 1) {
     throw new Error(`installed release-pack expected exactly one tarball, found: ${releasePackTarballs.join(", ")}`);
   }
+  const releasePackTarballPath = path.join(releasePackDestination, releasePackTarballs[0]);
+  assertIncludes(releasePackSuccess.stdout, `release_pack_verify: npm publish --dry-run ${releasePackTarballPath}`, "installed release-pack success output");
+  await assertInstalledReleasePackTarballModes(releasePackTarballPath, "installed release-pack tarball");
   const releasePackCliDestination = path.join(tmp, "installed-release-pack-cli");
   const releasePackCliSuccess = await run(
     binPath,
@@ -335,13 +342,20 @@ try {
   );
   assertIncludes(releasePackCliSuccess.stdout, "release_pack=ok", "installed release pack CLI output");
   assertIncludes(releasePackCliSuccess.stdout, "release_pack_git: blocked not a git worktree", "installed release pack CLI output");
-  assertIncludes(releasePackCliSuccess.stdout, "release_pack_verify: npm publish --dry-run", "installed release pack CLI output");
+  assertIncludes(
+    releasePackCliSuccess.stdout,
+    "release_pack_git_next: initialize a git repo and commit the release state before public release",
+    "installed release pack CLI output"
+  );
   assertIncludes(releasePackCliSuccess.stdout, "release_pack_publish_blocked: fix git readiness before npm publish", "installed release pack CLI output");
   assertNotIncludes(releasePackCliSuccess.stdout, "release_pack_publish: npm publish", "installed release pack CLI output");
   const releasePackCliTarballs = (await readdir(releasePackCliDestination)).filter((entry) => entry.endsWith(".tgz"));
   if (releasePackCliTarballs.length !== 1) {
     throw new Error(`installed release pack CLI expected exactly one tarball, found: ${releasePackCliTarballs.join(", ")}`);
   }
+  const releasePackCliTarballPath = path.join(releasePackCliDestination, releasePackCliTarballs[0]);
+  assertIncludes(releasePackCliSuccess.stdout, `release_pack_verify: npm publish --dry-run ${releasePackCliTarballPath}`, "installed release pack CLI output");
+  await assertInstalledReleasePackTarballModes(releasePackCliTarballPath, "installed release pack CLI tarball");
   const releasePackMissingDestination = await runExpectFailure(
     process.execPath,
     [path.join(installedPackageDir, "scripts", "release-pack.mjs"), "--root", installedPackageDir],
@@ -880,6 +894,27 @@ function assertPackageFileScope(files) {
   }
 }
 
+async function assertInstalledReleasePackTarballModes(tarballPath, label) {
+  const consumer = await mkdtemp(path.join(tmp, "release-pack-consumer-"));
+  await writeFile(path.join(consumer, "package.json"), `${JSON.stringify({ private: true }, null, 2)}\n`, "utf8");
+  await run(npmCommand, ["install", "--ignore-scripts", "--no-audit", "--no-fund", "--package-lock=false", tarballPath], {
+    cwd: consumer,
+    timeout: 120_000,
+    maxBuffer: 20 * 1024 * 1024
+  });
+  const installedRoot = path.join(consumer, "node_modules", "gptprouse");
+  await assertFileMode(path.join(installedRoot, "README.md"), 0o644, `${label} README.md`);
+  await assertFileMode(path.join(installedRoot, "scripts", "release-check.mjs"), 0o644, `${label} scripts/release-check.mjs`);
+  await assertFileMode(path.join(installedRoot, "dist", "cli.js"), 0o755, `${label} dist/cli.js`);
+}
+
+async function assertFileMode(filePath, expectedMode, label) {
+  const actualMode = (await stat(filePath)).mode & 0o777;
+  if (actualMode !== expectedMode) {
+    throw new Error(`${label} expected mode ${expectedMode.toString(8)}, got ${actualMode.toString(8)}`);
+  }
+}
+
 async function assertInstalledDocsArePortable(consumerDir) {
   const packageDir = path.join(consumerDir, "node_modules", "gptprouse");
   const readme = await readFile(path.join(packageDir, "README.md"), "utf8");
@@ -908,6 +943,8 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertIncludes(readme, "pro browser login --dry-run --source-cli", "installed README");
   assertIncludes(readme, "pro browser check --source-cli", "installed README");
   assertIncludes(readme, "pro browser smoke --source-cli", "installed README");
+  assertIncludes(readme, "pro browser ask --source-cli", "installed README");
+  assertIncludes(readme, "gptprouse pro browser ask -- --strict mode review", "installed README");
   assertIncludes(readme, "pro list`, `pro latest`, or `pro show <task-id|latest>`", "installed README");
   assertIncludes(readme, "gptprouse pro browser help", "installed README");
   assertIncludes(readme, "visibility cannot be verified for extra ChatGPT tabs", "installed README");
@@ -939,6 +976,10 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertIncludes(readme, "git remote add origin <git-url>", "installed README");
   assertIncludes(readme, "git push -u origin <branch>", "installed README");
   assertIncludes(readme, "release_pack_git", "installed README");
+  assertIncludes(readme, "detached HEAD", "installed README");
+  assertIncludes(readme, "upstream is gone", "installed README");
+  assertIncludes(readme, "branch divergence", "installed README");
+  assertIncludes(readme, "behind upstream", "installed README");
   assertIncludes(readme, "installed `release-pack` script and `gptprouse release pack` CLI success paths", "installed README");
   assertIncludes(readme, "regular file", "installed README");
   assertIncludes(readme, "symlinked packed files", "installed README");
