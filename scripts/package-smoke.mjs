@@ -457,6 +457,23 @@ try {
     "installed source pro browser check output"
   );
   assertNotIncludes(sourceBrowserCheck.stdout, "gptprouse pro browser login", "installed source pro browser check output");
+  const corruptSourceCheckDir = path.join(tmp, "corrupt-source-check");
+  await mkdir(path.join(corruptSourceCheckDir, ".bridge"), { recursive: true });
+  await writeFile(path.join(corruptSourceCheckDir, ".bridge", "config.local.json"), "{not json", "utf8");
+  const corruptSourceBrowserCheck = await runExpectFailure(
+    binPath,
+    ["pro", "browser", "check", "--port", "65534", "--timeout-ms", "10", "--source-cli", installedSourceCli],
+    {
+      cwd: corruptSourceCheckDir,
+      timeout: 60_000
+    }
+  );
+  assertIncludes(
+    corruptSourceBrowserCheck.stdout,
+    `config: failed local MCP config is corrupt. Run \`node ${installedSourceCli} setup\` to replace .bridge/config.local.json.`,
+    "installed corrupt source pro browser check output"
+  );
+  assertNotIncludes(corruptSourceBrowserCheck.stdout, "Run `gptprouse setup`", "installed corrupt source pro browser check output");
   for (const [alias, replacement] of [
     ["open", "login"],
     ["status", "check"],

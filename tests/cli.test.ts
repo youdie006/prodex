@@ -2972,6 +2972,27 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     expect(text).not.toContain("Expected property name or '}' in JSON");
   });
 
+  it("keeps source-checkout commands in corrupt config product checks", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const sourceCli = path.join(cwd, "dist", "cli.js");
+    await mkdir(path.dirname(sourceCli), { recursive: true });
+    await writeFile(sourceCli, "#!/usr/bin/env node\n", "utf8");
+    await mkdir(path.join(cwd, ".bridge"), { recursive: true });
+    await writeFile(path.join(cwd, ".bridge", "config.local.json"), "{not json", "utf8");
+    const out: string[] = [];
+
+    await runCli(["pro", "browser", "check", "--port", "65534", "--timeout-ms", "10", "--source-cli", sourceCli], {
+      cwd,
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    const text = out.join("\n");
+    expect(text).toContain(`config: failed local MCP config is corrupt. Run \`node ${sourceCli} setup\` to replace .bridge/config.local.json.`);
+    expect(text).not.toContain("Run `gptprouse setup`");
+    expect(text).not.toContain("Expected property name or '}' in JSON");
+  });
+
   it("recovers stale bridge temp hard links during browser checks without bootstrapping fresh storage", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
     const store = new BridgeStore(cwd);

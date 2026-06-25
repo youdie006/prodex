@@ -1003,6 +1003,13 @@ function sourceAwareBrowserBlocker<T extends { next_step?: string }>(blocker: T,
   return nextStep === blocker.next_step ? blocker : { ...blocker, next_step: nextStep };
 }
 
+function sourceAwareSetupMessage(message: string, sourceCli?: string): string {
+  if (!sourceCli) return message;
+  return message
+    .replaceAll("`gptprouse setup --token-ttl-hours <hours>`", `\`${formatCliCommand(sourceCli)} setup --token-ttl-hours <hours>\``)
+    .replaceAll("`gptprouse setup`", `\`${formatCliCommand(sourceCli)} setup\``);
+}
+
 async function formatReleaseStatus(cwd: string): Promise<string> {
   const packageJsonPath = path.join(cwd, "package.json");
   const raw = await readReleasePackageJson(packageJsonPath).catch(async (error) => {
@@ -2008,7 +2015,7 @@ async function printProductCheck(store: BridgeStore, io: CliIO, args: string[]):
     if (isMissingFileError(error)) {
       io.stdout(`config: missing - run \`${cli} setup\``);
     } else {
-      io.stdout(`config: failed ${errorMessage(error)}`);
+      io.stdout(`config: failed ${sourceAwareSetupMessage(errorMessage(error), sourceCli)}`);
     }
   }
 
