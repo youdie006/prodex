@@ -1139,6 +1139,54 @@ describe("runCli", () => {
     ).rejects.toThrow(/GPT Pro answer is corrupt/);
   });
 
+  it("surfaces orphan GPT Pro result files instead of hiding newer consult answers", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const store = new BridgeStore(cwd);
+    const olderTask = await store.createTask({
+      source: "codex",
+      title: "GPT Pro consult",
+      prompt: "Older answer",
+      repo_id: "default",
+      files: [],
+      provenance: { adapter: "chatgpt-control" }
+    });
+    await store.completeTask(olderTask.id, {
+      status: "done",
+      summary: "Older answer should not hide a newer orphan result.",
+      commands: ["visible ChatGPT browser consult"]
+    });
+    const orphanTaskId = "task_20990101_000000_orphan-gpt-pro";
+    await writeFile(
+      path.join(cwd, ".bridge", "results", `${orphanTaskId}.json`),
+      `${JSON.stringify(
+        {
+          schema_version: 1,
+          task_id: orphanTaskId,
+          status: "done",
+          summary: "Newer orphan answer",
+          artifacts: [],
+          commands: ["visible ChatGPT browser consult"],
+          warnings: [],
+          created_at: "2099-01-01T00:00:00.000Z",
+          provenance: { adapter: "chatgpt-control" }
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+
+    await expect(
+      runCli(["pro", "latest"], {
+        cwd,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.toThrow(
+      "GPT Pro answer is corrupt: result .bridge/results/task_20990101_000000_orphan-gpt-pro.json exists but .bridge/tasks/task_20990101_000000_orphan-gpt-pro.json is missing"
+    );
+  });
+
   it("reports corrupt bridge records with repair hints", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
     const fixtures = [

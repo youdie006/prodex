@@ -2809,6 +2809,7 @@ async function listConsults(store: BridgeStore, options: { readOnly?: boolean } 
     : await Promise.all([store.listTasks(), store.listResults()]);
   const tasksById = new Map(tasks.map((task) => [task.id, task]));
   assertNoMissingTerminalConsultResults(tasks, results);
+  assertNoOrphanConsultResults(tasksById, results);
   return results
     .map((result) => {
       const task = tasksById.get(result.task_id);
@@ -2816,6 +2817,16 @@ async function listConsults(store: BridgeStore, options: { readOnly?: boolean } 
     })
     .filter((record): record is ConsultRecord => Boolean(record && isConsultRecord(record)))
     .sort((a, b) => b.result.created_at.localeCompare(a.result.created_at));
+}
+
+function assertNoOrphanConsultResults(
+  tasksById: Map<string, Awaited<ReturnType<BridgeStore["listTasks"]>>[number]>,
+  results: Awaited<ReturnType<BridgeStore["listResults"]>>
+): void {
+  const orphan = results
+    .filter((result) => !tasksById.has(result.task_id) && isConsultResult(result))
+    .sort((a, b) => b.created_at.localeCompare(a.created_at) || b.task_id.localeCompare(a.task_id))[0];
+  if (orphan) throw orphanConsultResultError(orphan.task_id);
 }
 
 async function latestResultTaskId(store: BridgeStore, options: { readOnly?: boolean } = {}): Promise<string> {
@@ -2875,9 +2886,19 @@ function isConsultTask(task: Awaited<ReturnType<BridgeStore["listTasks"]>>[numbe
   return task.provenance.adapter === "chatgpt-control" || task.title.toLowerCase() === "gpt pro consult";
 }
 
+function isConsultResult(result: Awaited<ReturnType<BridgeStore["listResults"]>>[number]): boolean {
+  return result.commands.some((command) => /chatgpt|gpt pro|visible ChatGPT/i.test(command));
+}
+
 function missingConsultResultError(task: Awaited<ReturnType<BridgeStore["listTasks"]>>[number]): Error {
   return new Error(
     `GPT Pro answer is corrupt: task ${task.id} is ${task.status} but .bridge/results/${task.id}.json is missing. Restore the result file, retry the completion path, or move the task record aside, then retry.`
+  );
+}
+
+function orphanConsultResultError(taskId: string): Error {
+  return new Error(
+    `GPT Pro answer is corrupt: result .bridge/results/${taskId}.json exists but .bridge/tasks/${taskId}.json is missing. Restore the task file or move the orphan result record aside, then retry.`
   );
 }
 

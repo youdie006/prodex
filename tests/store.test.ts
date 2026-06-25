@@ -139,6 +139,28 @@ describe("BridgeStore", () => {
     await expect(store.getResult(blockedTask.id)).resolves.toEqual(expect.objectContaining({ summary: "First blocker." }));
   });
 
+  it("reports terminal tasks with missing result records as repairable corruption", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
+    const store = new BridgeStore(root);
+    const task = await store.createTask({
+      source: "codex",
+      title: "Terminal missing result",
+      prompt: "Explain the missing result.",
+      repo_id: "default",
+      files: [],
+      provenance: { adapter: "cli" }
+    });
+    await store.completeTask(task.id, {
+      status: "done",
+      summary: "Original summary."
+    });
+    await rm(path.join(root, ".bridge", "results", `${task.id}.json`));
+
+    await expect(store.completeTask(task.id, { status: "done", summary: "Retry summary." })).rejects.toThrow(
+      `Task ${task.id} is done but .bridge/results/${task.id}.json is missing`
+    );
+  });
+
   it("rejects finalizing a task when a mismatched result record already exists for a non-terminal task", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
     const store = new BridgeStore(root);

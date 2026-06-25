@@ -142,6 +142,22 @@ describe("MCP tool handlers", () => {
     );
   });
 
+  it("surfaces repo search truncation metadata through MCP handlers", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    await writeFile(
+      path.join(cwd, "README.md"),
+      `${Array.from({ length: 101 }, (_, index) => `needle ${index + 1}`).join("\n")}\n`,
+      "utf8"
+    );
+    const handlers = createMcpToolHandlers({ cwd });
+
+    const result = await handlers.repo_search({ query: "needle" });
+
+    expect(result.matches).toHaveLength(100);
+    expect(result.truncated).toBe(true);
+    expect(result.limit).toBe(100);
+  });
+
   it("rejects MCP completion when a result record already exists for the task", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
     const handlers = createMcpToolHandlers({ cwd });

@@ -1,5 +1,5 @@
 import { BridgeStore, MAX_FETCHABLE_RESULT_ARTIFACT_BYTES, type ListReceiptsInput } from "./store.js";
-import { readRepoFile, searchRepo } from "./repo.js";
+import { readRepoFile, searchRepoWithMetadata } from "./repo.js";
 import { applyRepoWriteDryRun, createRepoWriteDryRun, stageReviewedPaths } from "./repo-write.js";
 import type { BridgeFile, SourceSchema } from "./schema.js";
 import type { z } from "zod";
@@ -154,7 +154,7 @@ export function createMcpToolHandlers(context: McpToolContext) {
     async repo_search(input: { query: string; glob?: string }) {
       assertMcpTextField(input.query, "query");
       assertMcpTextField(input.glob, "glob", MAX_MCP_SHORT_TEXT_BYTES);
-      return { matches: await searchRepo(context.cwd, input.query, input.glob) };
+      return searchRepoWithMetadata(context.cwd, input.query, input.glob);
     },
 
     async repo_write_file_dry_run(input: { path: string; content: string; expected_head: string }) {

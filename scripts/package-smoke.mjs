@@ -1302,6 +1302,16 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertIncludes(readme, "CLI-only", "installed README");
   assertIncludes(readme, "ripgrep", "installed README");
   assertIncludes(readme, "setup --cwd", "installed README");
+  assertIncludes(
+    readme,
+    "node dist/cli.js start --cwd /absolute/path/to/your/repo --source-cli /absolute/path/to/gptprouse/dist/cli.js",
+    "installed README"
+  );
+  assertIncludes(
+    readme,
+    "node dist/cli.js status --cwd /absolute/path/to/your/repo --source-cli /absolute/path/to/gptprouse/dist/cli.js --show-token --url-only",
+    "installed README"
+  );
   assertIncludes(readme, "mcp --cwd", "installed README");
   assertIncludes(readme, "gptprouse project prompt", "installed README");
   assertIncludes(
@@ -1395,6 +1405,12 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertIncludes(httpMcpDoc, "ripgrep", "installed HTTP MCP docs");
   assertIncludes(httpMcpDoc, "setup --cwd", "installed HTTP MCP docs");
   assertIncludes(httpMcpDoc, "gptprouse setup --token-ttl-hours 24", "installed HTTP MCP docs");
+  assertIncludes(
+    httpMcpDoc,
+    "node dist/cli.js setup --cwd /absolute/path/to/your/repo --token-ttl-hours 24",
+    "installed HTTP MCP docs"
+  );
+  assertNotIncludes(httpMcpDoc, "node dist/cli.js setup --token-ttl-hours 24", "installed HTTP MCP docs");
   assertIncludes(httpMcpDoc, "gptprouse project prompt", "installed HTTP MCP docs");
   assertIncludes(httpMcpDoc, "project prompt --cwd /absolute/path/to/your/repo --source-cli", "installed HTTP MCP docs");
   assertIncludes(httpMcpDoc, "recovery hints stay in source-checkout form", "installed HTTP MCP docs");

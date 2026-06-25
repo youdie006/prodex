@@ -2,7 +2,7 @@ import { link, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { readRepoFile, resolveRepoPath, searchRepo } from "../src/repo.js";
+import { readRepoFile, resolveRepoPath, searchRepo, searchRepoWithMetadata } from "../src/repo.js";
 import { setSafeFileTestHooks } from "../src/safe-file.js";
 
 describe("repo path policy", () => {
@@ -19,6 +19,27 @@ describe("repo path policy", () => {
     expect(result.path).toBe("README.md");
     expect(result.start_line).toBe(2);
     expect(result.content).toBe("two");
+  });
+
+  it("rejects repo reads whose requested range starts past EOF", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-repo-"));
+    await writeFile(path.join(root, "README.md"), "one\ntwo\n", "utf8");
+
+    await expect(readRepoFile(root, "README.md", { startLine: 5, maxLines: 2 })).rejects.toThrow(
+      "start_line 5 is beyond the end of README.md (2 lines)"
+    );
+  });
+
+  it("reports stable line metadata for empty repo files", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-repo-"));
+    await writeFile(path.join(root, "README.md"), "", "utf8");
+
+    const result = await readRepoFile(root, "README.md");
+
+    expect(result.start_line).toBe(1);
+    expect(result.end_line).toBe(1);
+    expect(result.total_lines).toBe(0);
+    expect(result.content).toBe("");
   });
 
   it("reports missing repo files without leaking raw filesystem paths", async () => {
@@ -148,6 +169,21 @@ describe("repo path policy", () => {
     await expect(searchRepo(root, "needle")).resolves.toEqual([
       { path: "notes:today.md", line: 1, text: "needle:with:colon" }
     ]);
+  });
+
+  it("reports search truncation metadata when more than the returned limit matches", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-repo-"));
+    await writeFile(
+      path.join(root, "README.md"),
+      `${Array.from({ length: 101 }, (_, index) => `needle ${index + 1}`).join("\n")}\n`,
+      "utf8"
+    );
+
+    const result = await searchRepoWithMetadata(root, "needle");
+
+    expect(result.matches).toHaveLength(100);
+    expect(result.truncated).toBe(true);
+    expect(result.limit).toBe(100);
   });
 
   it("reports a clear prerequisite error when ripgrep is missing", async () => {

@@ -200,6 +200,13 @@ gptprouse setup --cwd /absolute/path/to/your/repo --token-ttl-hours 24
 gptprouse start --cwd /absolute/path/to/your/repo
 ```
 
+For a source checkout, keep the source CLI path on runtime/status commands too so recovery hints stay copyable:
+
+```bash
+node dist/cli.js start --cwd /absolute/path/to/your/repo --source-cli /absolute/path/to/gptprouse/dist/cli.js
+node dist/cli.js status --cwd /absolute/path/to/your/repo --source-cli /absolute/path/to/gptprouse/dist/cli.js --show-token --url-only
+```
+
 Token-bearing MCP URLs are secrets. Use the next command only when you are ready to paste the URL into your own trusted private ChatGPT Project/App configuration:
 
 ```bash

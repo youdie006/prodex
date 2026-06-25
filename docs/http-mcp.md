@@ -36,10 +36,10 @@ For a source checkout:
 ```bash
 npm install
 npm run build
-node dist/cli.js setup --token-ttl-hours 24
+node dist/cli.js setup --cwd /absolute/path/to/your/repo --token-ttl-hours 24
 ```
 
-The examples below use the installed `gptprouse` binary. In a source checkout, replace `gptprouse` with `node dist/cli.js` after building, and pass `--source-cli /absolute/path/to/gptprouse/dist/cli.js` to local MCP troubleshooting commands so their recovery hints stay in source-checkout form.
+The examples below use the installed `gptprouse` binary. In a source checkout, replace `gptprouse` with `node dist/cli.js` after building, keep `--cwd /absolute/path/to/your/repo` when you are not already in the target repo, and pass `--source-cli /absolute/path/to/gptprouse/dist/cli.js` to local MCP troubleshooting commands so their recovery hints stay in source-checkout form.
 
 `setup` writes a local server profile to `.bridge/config.local.json`. The file is ignored by git.
 It also ensures `.bridge/.gitignore` covers local task, result, session, receipt, artifact, and config files.

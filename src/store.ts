@@ -230,7 +230,10 @@ export class BridgeStore {
       created_at: nowIso()
     });
     if (task.status === "done" || task.status === "blocked") {
-      const existingResult = await this.getResult(taskId);
+      const existingResult = await this.getResult(taskId).catch((error) => {
+        if (isErrorCode(error, "ENOENT")) throw terminalTaskMissingResultError(task);
+        throw error;
+      });
       if (await this.hasTaskCompletionReceipt(taskId)) {
         throw new Error(`Task ${taskId} is already ${task.status} and cannot be finalized again`);
       }
@@ -1240,6 +1243,12 @@ function assertResultMatchesRetry(taskId: string, existing: Result, retry: Resul
   if (JSON.stringify(resultRetryFingerprint(existing)) !== JSON.stringify(resultRetryFingerprint(retry))) {
     throw new Error(`Task ${taskId} already has a different result and cannot be finalized again`);
   }
+}
+
+function terminalTaskMissingResultError(task: Task): Error {
+  return new Error(
+    `Task ${task.id} is ${task.status} but .bridge/results/${task.id}.json is missing. Restore the result file, retry with the original completion record if you have it, or move the terminal task record aside, then retry.`
+  );
 }
 
 function resultRetryFingerprint(result: Result): Omit<Result, "schema_version" | "created_at"> {

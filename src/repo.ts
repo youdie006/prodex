@@ -6,6 +6,7 @@ import { readVerifiedUtf8File } from "./safe-file.js";
 
 const execFileAsync = promisify(execFile);
 const MAX_REPO_READ_BYTES = 1_000_000;
+const MAX_REPO_SEARCH_MATCHES = 100;
 const MAX_GLOB_BRACE_EXPANSIONS = 64;
 const MAX_GLOB_BRACE_DEPTH = 8;
 const ENV_LIKE_GLOB_PROBES = [".env", ".envrc", ".env.local", ".envoy"];
@@ -26,6 +27,12 @@ export interface SearchResult {
   path: string;
   line: number;
   text: string;
+}
+
+export interface SearchRepoResult {
+  matches: SearchResult[];
+  truncated: boolean;
+  limit: number;
 }
 
 interface RipgrepJsonMatch {
@@ -76,17 +83,25 @@ export async function readRepoFile(root: string, repoPath: string, options: Read
   if (lines.at(-1) === "") lines.pop();
   const startLine = Math.max(1, options.startLine ?? 1);
   const maxLines = Math.max(1, Math.min(options.maxLines ?? 200, 500));
+  if (startLine > Math.max(1, lines.length)) {
+    throw new Error(`start_line ${startLine} is beyond the end of ${repoPath} (${lines.length} ${lines.length === 1 ? "line" : "lines"})`);
+  }
   const selected = lines.slice(startLine - 1, startLine - 1 + maxLines);
+  const endLine = selected.length > 0 ? startLine + selected.length - 1 : startLine;
   return {
     path: repoPath,
     start_line: startLine,
-    end_line: startLine + selected.length - 1,
+    end_line: endLine,
     total_lines: lines.length,
     content: selected.join("\n")
   };
 }
 
 export async function searchRepo(root: string, query: string, glob?: string): Promise<SearchResult[]> {
+  return (await searchRepoWithMetadata(root, query, glob)).matches;
+}
+
+export async function searchRepoWithMetadata(root: string, query: string, glob?: string): Promise<SearchRepoResult> {
   if (!query.trim()) {
     throw new Error("Search query must not be empty");
   }
@@ -134,13 +149,17 @@ export async function searchRepo(root: string, query: string, glob?: string): Pr
       .map(parseRipgrepJsonMatch)
       .filter((match): match is SearchResult => match !== undefined);
     const allowedMatches: SearchResult[] = [];
+    let truncated = false;
     for (const match of parsedMatches) {
       if (await isAllowedRepoSearchResult(root, match.path)) {
+        if (allowedMatches.length >= MAX_REPO_SEARCH_MATCHES) {
+          truncated = true;
+          break;
+        }
         allowedMatches.push(match);
       }
-      if (allowedMatches.length >= 100) break;
     }
-    return allowedMatches;
+    return { matches: allowedMatches, truncated, limit: MAX_REPO_SEARCH_MATCHES };
   } catch (error) {
     const maybe = error as { code?: number | string; stdout?: string };
     if (maybe.code === "ENOENT") {
@@ -149,7 +168,7 @@ export async function searchRepo(root: string, query: string, glob?: string): Pr
     if (isSearchOutputTooLarge(error)) {
       throw new Error("repo_search returned too many matches; narrow the query or glob and try again");
     }
-    if (maybe.code === 1) return [];
+    if (maybe.code === 1) return { matches: [], truncated: false, limit: MAX_REPO_SEARCH_MATCHES };
     throw error;
   }
 }
