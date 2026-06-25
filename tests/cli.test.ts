@@ -3963,6 +3963,20 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     expect(text).toContain("latest_pro: missing");
   });
 
+  it("keeps explicit --cwd init hints in product checks", async () => {
+    const launcherCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-launcher-"));
+    const targetCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-target-"));
+    const out: string[] = [];
+
+    await runCli(["pro", "browser", "check", "--cwd", targetCwd, "--port", "65534", "--timeout-ms", "10"], {
+      cwd: launcherCwd,
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    expect(out.join("\n")).toContain(`bridge: missing (.bridge) - run \`gptprouse init --cwd ${targetCwd}\``);
+  });
+
   it("reports corrupt local MCP config in product checks", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
     await mkdir(path.join(cwd, ".bridge"), { recursive: true });
@@ -4752,6 +4766,25 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     expect(text).toContain(`config: missing - run \`node ${sourceCli} setup\``);
     expect(text).not.toContain("run `gptprouse init`");
     expect(text).not.toContain("run `gptprouse setup`");
+  });
+
+  it("doctor keeps source-checkout and explicit --cwd init remediation commands", async () => {
+    const launcherCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-launcher-"));
+    const targetCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-target-"));
+    const sourceCli = path.join(launcherCwd, "dist", "cli.js");
+    await mkdir(path.dirname(sourceCli), { recursive: true });
+    await writeFile(sourceCli, "#!/usr/bin/env node\n", "utf8");
+    const out: string[] = [];
+
+    await runCli(["doctor", "--cwd", targetCwd, "--source-cli", sourceCli], {
+      cwd: launcherCwd,
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    const text = out.join("\n");
+    expect(text).toContain(`bridge: missing/incomplete (.bridge) - run \`node ${sourceCli} init --cwd ${targetCwd}\``);
+    expect(text).toContain(`config: missing - run \`node ${sourceCli} setup --cwd ${targetCwd}\``);
   });
 
   it("does not bootstrap bridge storage when doctor runs in a fresh directory", async () => {

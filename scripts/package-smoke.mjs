@@ -680,6 +680,16 @@ try {
     `Run \`node ${installedSourceCli} setup --cwd ${consumerDir}\` first.`,
     "installed source missing setup --cwd status output"
   );
+  const missingBridgeSourceCwdCheck = await runExpectFailure(
+    binPath,
+    ["pro", "browser", "check", "--cwd", consumerDir, "--source-cli", installedSourceCli, "--port", "65534", "--timeout-ms", "10"],
+    { cwd: path.dirname(consumerDir) }
+  );
+  assertIncludes(
+    missingBridgeSourceCwdCheck.stdout,
+    `bridge: missing (.bridge) - run \`node ${installedSourceCli} init --cwd ${consumerDir}\``,
+    "installed source product check --cwd bridge output"
+  );
   const missingTunnelPublicUrl = await runExpectFailure(binPath, ["tunnel", "url"], { cwd: consumerDir });
   assertIncludes(missingTunnelPublicUrl.stderr, "tunnel url requires --public-url <https-url>", "installed missing tunnel public URL output");
   assertNotIncludes(missingTunnelPublicUrl.stderr, "requires local MCP setup", "installed missing tunnel public URL output");
@@ -2095,6 +2105,11 @@ async function smokeInstalledHttpOnboarding(binPath, cwd) {
   assertIncludes(
     nonExpiringProductCheckOutput,
     `rerun \`gptprouse setup --cwd ${nonExpiringCwd} --token-ttl-hours <hours>\``,
+    "installed non-expiring product check output"
+  );
+  assertIncludes(
+    nonExpiringProductCheckOutput,
+    `bridge: missing (.bridge) - run \`gptprouse init --cwd ${nonExpiringCwd}\``,
     "installed non-expiring product check output"
   );
   assertNotIncludes(nonExpiringProductCheckOutput, nonExpiringToken, "installed non-expiring product check output");

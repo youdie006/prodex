@@ -1532,6 +1532,10 @@ function formatCliCommand(sourceCli?: string): string {
   return sourceCli ? `node ${shellQuote(sourceCli)}` : "gptprouse";
 }
 
+function formatInitCommand(sourceCli?: string, options: { cwd?: string } = {}): string {
+  return [`${formatCliCommand(sourceCli)} init`, options.cwd ? `--cwd ${shellQuote(options.cwd)}` : undefined].filter(Boolean).join(" ");
+}
+
 function formatSetupCommand(sourceCli?: string, options: { cwd?: string } = {}): string {
   return [`${formatCliCommand(sourceCli)} setup`, options.cwd ? `--cwd ${shellQuote(options.cwd)}` : undefined].filter(Boolean).join(" ");
 }
@@ -2109,7 +2113,6 @@ async function readLicenseFileStatus(filePath: string): Promise<{ status: "prese
 
 async function runDoctor(store: BridgeStore, io: CliIO, sourceCli?: string, setupHintCwd?: string): Promise<number> {
   let ok = true;
-  const cli = formatCliCommand(sourceCli);
   io.stdout("gptprouse doctor");
 
   try {
@@ -2117,7 +2120,7 @@ async function runDoctor(store: BridgeStore, io: CliIO, sourceCli?: string, setu
     io.stdout(
       bridgeReady
         ? "bridge: ok (.bridge)"
-        : `bridge: missing/incomplete (.bridge) - run \`${cli} init\` when you need local task/result storage`
+        : `bridge: missing/incomplete (.bridge) - run \`${formatInitCommand(sourceCli, { cwd: setupHintCwd })}\` when you need local task/result storage`
     );
   } catch (error) {
     ok = false;
@@ -2688,12 +2691,15 @@ function browserReadinessNextStep(input: { loggedInLikely: boolean; hasComposer:
 async function printProductCheck(store: BridgeStore, io: CliIO, args: string[], configCwd = io.cwd): Promise<boolean> {
   const sourceCli = resolveOptionalFileFlag(io.cwd, args, "--source-cli");
   const setupHintCwd = readFlag(args, "--cwd") ? configCwd : undefined;
-  const cli = formatCliCommand(sourceCli);
   io.stdout("gptprouse product check");
   let bridgeReady = false;
   try {
     bridgeReady = await store.hasReadyBridgeStorageReadOnly();
-    io.stdout(bridgeReady ? "bridge: ok (.bridge)" : `bridge: missing (.bridge) - run \`${cli} init\` when you need local task/result storage`);
+    io.stdout(
+      bridgeReady
+        ? "bridge: ok (.bridge)"
+        : `bridge: missing (.bridge) - run \`${formatInitCommand(sourceCli, { cwd: setupHintCwd })}\` when you need local task/result storage`
+    );
   } catch (error) {
     io.stdout(`bridge: blocked - ${errorMessage(error)}`);
   }
