@@ -34,6 +34,26 @@ const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "
 const CLI_VERSION = packageJson.version ?? "0.0.0";
 const RESERVED_PACKAGE_NAMES = new Set(["node_modules", "favicon.ico"]);
 const PRO_BROWSER_SMOKE_TOKEN = "GPTPROUSE_PRO_SMOKE_OK";
+const TOP_LEVEL_COMMANDS = [
+  "help",
+  "version",
+  "init",
+  "setup",
+  "start",
+  "status",
+  "tunnel",
+  "doctor",
+  "onboard",
+  "project",
+  "claude",
+  "tasks",
+  "results",
+  "receipts",
+  "sessions",
+  "pro",
+  "release",
+  "mcp"
+] as const;
 
 const DOCTOR_REQUIRED_MCP_TOOLS = [
   "bridge_create_task",
@@ -942,7 +962,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
     return 0;
   }
 
-  throw new Error(`Unknown command: ${command}. Run \`gptprouse help\`.`);
+  throw unknownTopLevelCommandError(command);
 }
 
 function defaultIo(): CliIO {
@@ -1174,6 +1194,39 @@ function printHelpIfRequested(args: string[], command: string, stdout: (line: st
 
 function unknownSubcommandError(command: string, subcommand: string, expected: readonly string[]): Error {
   return new Error(`Unknown ${command} subcommand: ${subcommand}. Expected one of: ${expected.join(", ")}. Run \`gptprouse ${command} --help\`.`);
+}
+
+function unknownTopLevelCommandError(command: string): Error {
+  const suggestion = closestCommandSuggestion(command);
+  const suggestionText = suggestion ? ` Did you mean \`gptprouse ${suggestion}\`?` : "";
+  return new Error(`Unknown command: ${command}.${suggestionText} Run \`gptprouse help\`.`);
+}
+
+function closestCommandSuggestion(command: string): string | undefined {
+  let best: { command: string; distance: number } | undefined;
+  for (const candidate of TOP_LEVEL_COMMANDS) {
+    const distance = editDistance(command, candidate);
+    if (!best || distance < best.distance) best = { command: candidate, distance };
+  }
+  return best && best.distance <= 2 ? best.command : undefined;
+}
+
+function editDistance(left: string, right: string): number {
+  const previous = Array.from({ length: right.length + 1 }, (_, index) => index);
+  const current = Array.from({ length: right.length + 1 }, () => 0);
+  for (let leftIndex = 1; leftIndex <= left.length; leftIndex += 1) {
+    current[0] = leftIndex;
+    for (let rightIndex = 1; rightIndex <= right.length; rightIndex += 1) {
+      const substitutionCost = left[leftIndex - 1] === right[rightIndex - 1] ? 0 : 1;
+      current[rightIndex] = Math.min(
+        previous[rightIndex] + 1,
+        current[rightIndex - 1] + 1,
+        previous[rightIndex - 1] + substitutionCost
+      );
+    }
+    previous.splice(0, previous.length, ...current);
+  }
+  return previous[right.length];
 }
 
 function legacyChatGptNamespaceError(subcommand?: string): Error {

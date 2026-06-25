@@ -188,7 +188,11 @@ try {
     assertIncludes(commandHelp.stdout, item.expected, `installed ${item.args.join(" ")} output`);
   }
   const unknownTopLevel = await runExpectFailure(binPath, ["statuz"], { cwd: consumerDir });
-  assertIncludes(unknownTopLevel.stderr, "Unknown command: statuz. Run `gptprouse help`.", "installed unknown top-level command output");
+  assertIncludes(
+    unknownTopLevel.stderr,
+    "Unknown command: statuz. Did you mean `gptprouse status`? Run `gptprouse help`.",
+    "installed unknown top-level command output"
+  );
   const unknownSubcommandCases = [
     {
       args: ["tunnel", "create"],

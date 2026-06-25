@@ -40,16 +40,32 @@ describe("runCli", () => {
     expect(helpOut.join("\n")).toContain(`gptprouse v${packageJson.version}`);
   });
 
-  it("guides unknown top-level commands to help", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+  it("guides unknown top-level commands to help with close-match suggestions", async () => {
+    const cases = [
+      {
+        args: ["statuz"],
+        expected: "Unknown command: statuz. Did you mean `gptprouse status`? Run `gptprouse help`."
+      },
+      {
+        args: ["relase"],
+        expected: "Unknown command: relase. Did you mean `gptprouse release`? Run `gptprouse help`."
+      },
+      {
+        args: ["wat"],
+        expected: "Unknown command: wat. Run `gptprouse help`."
+      }
+    ];
 
-    await expect(
-      runCli(["statuz"], {
-        cwd,
-        stdout: () => {},
-        stderr: () => {}
-      })
-    ).rejects.toThrow("Unknown command: statuz. Run `gptprouse help`.");
+    for (const item of cases) {
+      const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+      await expect(
+        runCli(item.args, {
+          cwd,
+          stdout: () => {},
+          stderr: () => {}
+        })
+      ).rejects.toThrow(item.expected);
+    }
   });
 
   it("guides legacy ChatGPT namespace mistakes to pro browser help", async () => {
