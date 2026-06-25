@@ -86,7 +86,7 @@ describe("pro browser ask persistence", () => {
     );
   });
 
-  it("rejects pro browser smoke when ChatGPT does not return the exact smoke token", async () => {
+  it("records a blocked smoke consult when ChatGPT does not return the exact smoke token", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-pro-send-"));
     sendChatGptPromptMock.mockResolvedValueOnce({
       url: "https://chatgpt.com/c/smoke",
@@ -103,6 +103,18 @@ describe("pro browser ask persistence", () => {
         stderr: () => {}
       })
     ).rejects.toThrow(/smoke.*unexpected|GPTPROUSE_PRO_SMOKE_OK/i);
+
+    const out: string[] = [];
+    await runCli(["pro", "latest"], {
+      cwd,
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    const text = out.join("\n");
+    expect(text).toContain("status: blocked");
+    expect(text).toContain("smoke_token_mismatch");
+    expect(text).toContain("Expected exactly GPTPROUSE_PRO_SMOKE_OK");
   });
 
   it("records a blocked smoke consult when pro browser smoke hits a visible-browser blocker", async () => {
