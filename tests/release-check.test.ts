@@ -163,6 +163,7 @@ describe("release-check", () => {
     expect(output).toContain("release metadata failed");
     expect(output).toContain("packed files have unexpected executable modes");
     expect(output).toContain("README.md");
+    expect(output).toContain("fix file modes or publish from a filesystem that preserves executable bits");
     expect(result.stdout).not.toContain("release_metadata=ok");
   });
 
@@ -229,6 +230,7 @@ describe("release-check", () => {
     expect(output).toContain("release metadata failed");
     expect(output).toContain("hard links");
     expect(output).toContain("LICENSE");
+    expect(output).toContain("replace LICENSE with a non-hard-linked regular file");
     expect(result.stdout).not.toContain("release_metadata=ok");
   });
 
@@ -250,6 +252,7 @@ describe("release-check", () => {
     expect(output).toContain("release metadata failed");
     expect(output).toContain("hard links");
     expect(output).toContain("README.md");
+    expect(output).toContain("replace hard-linked packed files with independent files");
     expect(result.stdout).not.toContain("release_metadata=ok");
   });
 

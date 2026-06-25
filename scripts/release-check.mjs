@@ -100,7 +100,7 @@ async function assertRegularLicenseFile(rootDir) {
       throw new Error("release metadata failed: LICENSE must be a regular file and must not be a symlink");
     }
     if (stat.nlink > 1) {
-      throw new Error("release metadata failed: LICENSE must not have hard links");
+      throw new Error("release metadata failed: LICENSE must not have hard links. replace LICENSE with a non-hard-linked regular file, then rerun release:check.");
     }
   } catch (error) {
     if (isMissingFileError(error)) {
@@ -139,12 +139,16 @@ async function assertPackedFileModes(rootDir, packageJson) {
   const invalid = findExecutableNonBinPackedFiles(packedFiles, packageJson);
   if (invalid.length > 0) {
     throw new Error(
-      `release metadata failed: packed files have unexpected executable modes outside package bin entries: ${formatPathList(invalid)}`
+      `release metadata failed: packed files have unexpected executable modes outside package bin entries: ${formatPathList(invalid)}. ` +
+        "fix file modes or publish from a filesystem that preserves executable bits, then rerun release:check."
     );
   }
   const hardLinked = await findHardLinkedPackedFiles(rootDir, packedFiles);
   if (hardLinked.length > 0) {
-    throw new Error(`release metadata failed: packed files must not have hard links: ${formatPathList(hardLinked)}`);
+    throw new Error(
+      `release metadata failed: packed files must not have hard links: ${formatPathList(hardLinked)}. ` +
+        "replace hard-linked packed files with independent files, then rerun release:check."
+    );
   }
 }
 

@@ -66,6 +66,7 @@ try {
   assertIncludes(help.stdout, "gptprouse claude config", "installed help output");
   assertIncludes(help.stdout, "gptprouse pro ask [--dry-run] [--file path]", "installed help output");
   assertIncludes(help.stdout, "gptprouse pro browser login [--dry-run]", "installed help output");
+  assertIncludes(help.stdout, "gptprouse mcp [--cwd /absolute/path/to/repo]", "installed help output");
   assertIncludes(help.stdout, `gptprouse v${installedPackageJson.version}`, "installed help output");
   assertNotIncludes(help.stdout, "gptprouse ask-pro", "installed help output");
   assertNotIncludes(help.stdout, "gptprouse pro browser open|status", "installed help output");
@@ -351,6 +352,7 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertIncludes(readme, "regular file", "installed README");
   assertIncludes(readme, "hard link", "installed README");
   assertIncludes(readme, "unexpected executable modes", "installed README");
+  assertNotIncludes(readme, "hard links outside the package `bin` entries", "installed README");
   assertIncludes(readme, "WSL/Windows mount", "installed README");
   assertIncludes(readme, "npm-publishable `name` and valid semver `version`", "installed README");
   assertIncludes(readme, "installed HTTP MCP repo write dry-run/apply/stage flow", "installed README");
