@@ -118,7 +118,7 @@ For a source checkout, include the built CLI path so the generated local follow-
 node dist/cli.js project prompt --cwd /absolute/path/to/your/repo --source-cli /absolute/path/to/gptprouse/dist/cli.js
 ```
 
-Paste the generated prompt into the ChatGPT Project. It asks ChatGPT to call `bridge_create_task`, `bridge_list_tasks`, and `bridge_get_task`, then reply with the created task id. It deliberately does not ask for any repo write or staging tools.
+Paste the generated prompt into the ChatGPT Project. It asks ChatGPT to call `bridge_create_task`, `bridge_list_tasks`, and `bridge_get_task`, then reply with the created task id. It deliberately does not ask for any repo write or staging tools. It also includes local `status --cwd ...` and `doctor --cwd ...` troubleshooting commands in case the Project cannot see or call the MCP tools.
 
 After ChatGPT replies, confirm the task locally:
 

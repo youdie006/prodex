@@ -1407,6 +1407,8 @@ describe("runCli", () => {
     expect(text).toContain("bridge_get_task");
     expect(text).toContain(`cd ${targetCwd}`);
     expect(text).toContain("gptprouse tasks list --status new");
+    expect(text).toContain(`gptprouse status --cwd ${targetCwd}`);
+    expect(text).toContain(`gptprouse doctor --cwd ${targetCwd}`);
     expect(text).toContain(targetCwd);
     expect(text).not.toContain("gptprouse_token=");
   });
@@ -1428,6 +1430,8 @@ describe("runCli", () => {
     const text = out.join("\n");
     expect(text).toContain(`node ${sourceCli} tasks list --status new`);
     expect(text).toContain(`node ${sourceCli} tasks show <task-id>`);
+    expect(text).toContain(`node ${sourceCli} status --cwd ${targetCwd}`);
+    expect(text).toContain(`node ${sourceCli} doctor --cwd ${targetCwd}`);
     expect(text).not.toContain("gptprouse tasks list --status new");
     expect(text).not.toContain("gptprouse_token=");
   });
@@ -1463,6 +1467,8 @@ describe("runCli", () => {
     expect(text).toContain("bridge_get_task");
     expect(text).toContain(`cd ${targetCwd}`);
     expect(text).toContain("gptprouse tasks list --status new");
+    expect(text).toContain(`gptprouse doctor --cwd ${targetCwd}`);
+    expect(text).toContain(`gptprouse claude config --cwd ${targetCwd}`);
     expect(text).toContain(targetCwd);
     expect(text).not.toContain("gptprouse_token=");
   });
@@ -1484,6 +1490,8 @@ describe("runCli", () => {
     const text = out.join("\n");
     expect(text).toContain(`node ${sourceCli} tasks list --status new`);
     expect(text).toContain(`node ${sourceCli} tasks show <task-id>`);
+    expect(text).toContain(`node ${sourceCli} doctor --cwd ${targetCwd}`);
+    expect(text).toContain(`node ${sourceCli} claude config --cwd ${targetCwd} --source-cli ${sourceCli}`);
     expect(text).not.toContain("gptprouse tasks list --status new");
     expect(text).not.toContain("gptprouse_token=");
   });

@@ -824,6 +824,7 @@ Commands:
 
 function formatProjectVerificationPrompt(cwd: string, sourceCli?: string): string {
   const cli = formatCliCommand(sourceCli);
+  const quotedCwd = shellQuote(cwd);
   return `ChatGPT Project MCP verification prompt
 
 Paste this into the ChatGPT Project after adding the gptprouse MCP server URL.
@@ -848,9 +849,14 @@ Please verify the gptprouse MCP bridge for this private project:
 
 Local follow-up after ChatGPT replies:
 
-cd ${shellQuote(cwd)}
+cd ${quotedCwd}
 ${cli} tasks list --status new
-${cli} tasks show <task-id>`;
+${cli} tasks show <task-id>
+
+If ChatGPT cannot see or call the MCP tools, keep the server terminal running and check locally:
+
+${cli} status --cwd ${quotedCwd}
+${cli} doctor --cwd ${quotedCwd}`;
 }
 
 function formatOnboardingGuide(cwd: string, hasReadme: boolean, sourceCli?: string): string {
@@ -908,6 +914,8 @@ async function hasOnboardingReadme(cwd: string): Promise<boolean> {
 
 function formatClaudeVerificationPrompt(cwd: string, sourceCli?: string): string {
   const cli = formatCliCommand(sourceCli);
+  const quotedCwd = shellQuote(cwd);
+  const sourceCliOption = sourceCli ? ` --source-cli ${shellQuote(sourceCli)}` : "";
   return `Claude MCP verification prompt
 
 Paste this into Claude after adding the gptprouse stdio MCP server.
@@ -932,9 +940,14 @@ Please verify the gptprouse MCP bridge for this private repo:
 
 Local follow-up after Claude replies:
 
-cd ${shellQuote(cwd)}
+cd ${quotedCwd}
 ${cli} tasks list --status new
-${cli} tasks show <task-id>`;
+${cli} tasks show <task-id>
+
+If Claude cannot see or call the MCP tools, regenerate the config and run the local health check:
+
+${cli} claude config --cwd ${quotedCwd}${sourceCliOption}
+${cli} doctor --cwd ${quotedCwd}`;
 }
 
 function formatClaudeConfig(cwd: string, sourceCli: string | undefined): string {

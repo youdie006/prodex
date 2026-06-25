@@ -201,6 +201,8 @@ gptprouse tasks list --status new
 gptprouse tasks show <task-id>
 ```
 
+The generated prompt also includes local `status --cwd ...` and `doctor --cwd ...` troubleshooting commands in case the Project cannot see or call the MCP tools.
+
 If ChatGPT cannot reach `127.0.0.1` from its app runtime, keep `gptprouse start` local and put your own tunnel in front of it only after creating a short-lived token. `gptprouse` does not create the tunnel for you, but it can format the public MCP URL safely.
 
 Public tunnel MCP URLs are also secrets. Use the next command only when you are ready to paste the public URL into your own trusted private MCP client configuration:
@@ -323,4 +325,4 @@ For a source checkout, include the built CLI path:
 node dist/cli.js claude prompt --cwd /absolute/path/to/your/repo --source-cli /absolute/path/to/gptprouse/dist/cli.js
 ```
 
-The generated prompt asks Claude to create and read a bridge task only; it does not request write, stage, shell, browser, or tunnel actions.
+The generated prompt asks Claude to create and read a bridge task only; it does not request write, stage, shell, browser, or tunnel actions. It also includes local `claude config --cwd ...` and `doctor --cwd ...` troubleshooting commands in case Claude cannot see or call the MCP tools.

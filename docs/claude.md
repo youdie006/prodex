@@ -113,4 +113,4 @@ For a source checkout, include the built CLI path so the generated local follow-
 node dist/cli.js claude prompt --cwd /absolute/path/to/your/repo --source-cli /absolute/path/to/gptprouse/dist/cli.js
 ```
 
-Paste the generated prompt into Claude. It asks Claude to use only `bridge_create_task`, `bridge_list_tasks`, and `bridge_get_task`, then gives local follow-up commands for checking the created task from your terminal.
+Paste the generated prompt into Claude. It asks Claude to use only `bridge_create_task`, `bridge_list_tasks`, and `bridge_get_task`, then gives local follow-up commands for checking the created task from your terminal. It also includes local `claude config --cwd ...` and `doctor --cwd ...` troubleshooting commands in case Claude cannot see or call the MCP tools.
