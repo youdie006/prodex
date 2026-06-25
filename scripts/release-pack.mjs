@@ -38,6 +38,7 @@ async function releasePack(args) {
     await runReleaseMetadataCheck(staging);
     const { stdout } = await runNpmPack(["pack", "--json", "--ignore-scripts", "--pack-destination", destination], staging, "npm pack");
     packedTarball = resolvePackedTarball(destination, stdout);
+    await assertPackedTarballCreated(packedTarball);
   } finally {
     if (!args.keepWorkdir) {
       await rm(staging, { recursive: true, force: true });
@@ -130,6 +131,21 @@ function resolvePackedTarball(destination, stdout) {
     throw new Error(`could not determine npm pack tarball from output: ${stdout}`);
   }
   return path.isAbsolute(filename) ? filename : path.join(destination, filename);
+}
+
+async function assertPackedTarballCreated(packedTarball) {
+  let tarballStat;
+  try {
+    tarballStat = await lstat(packedTarball);
+  } catch (error) {
+    if (isMissingFileError(error)) {
+      throw new Error(`npm pack did not create expected tarball: ${packedTarball}`);
+    }
+    throw error;
+  }
+  if (tarballStat.isSymbolicLink() || !tarballStat.isFile()) {
+    throw new Error(`npm pack did not create a regular tarball file: ${packedTarball}`);
+  }
 }
 
 async function run(command, commandArgs, cwd) {
