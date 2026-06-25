@@ -71,7 +71,12 @@ async function copyPackedFilesToStaging(root, staging, files, binPaths) {
 
 async function readPackedFiles(root) {
   const { stdout } = await run(npmCommand, ["pack", "--json", "--dry-run", "--ignore-scripts"], root);
-  const entries = JSON.parse(stdout);
+  let entries;
+  try {
+    entries = JSON.parse(stdout);
+  } catch {
+    throw new Error("npm pack dry-run did not return valid JSON");
+  }
   const files = entries?.[0]?.files;
   if (!Array.isArray(files)) {
     throw new Error("npm pack dry-run did not return a file list");
@@ -98,7 +103,12 @@ async function readPackageJson(root) {
 }
 
 function resolvePackedTarball(destination, stdout) {
-  const entries = JSON.parse(stdout);
+  let entries;
+  try {
+    entries = JSON.parse(stdout);
+  } catch {
+    throw new Error("npm pack did not return valid JSON");
+  }
   const filename = entries?.[0]?.filename;
   if (typeof filename !== "string" || !filename.endsWith(".tgz")) {
     throw new Error(`could not determine npm pack tarball from output: ${stdout}`);

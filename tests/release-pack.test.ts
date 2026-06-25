@@ -65,6 +65,61 @@ describe("release-pack", () => {
     expect((await readdir(destination)).filter((entry) => entry.endsWith(".tgz"))).toEqual([]);
   });
 
+  it("fails with a friendly message when npm pack dry-run returns malformed JSON", async () => {
+    const root = await createReleasePackFixture();
+    const destination = await mkdtemp(path.join(tmpdir(), "gptprouse-release-pack-dest-"));
+    const fakeBin = await mkdtemp(path.join(tmpdir(), "gptprouse-release-pack-fake-bin-"));
+    await writeFile(
+      path.join(fakeBin, npmCommand),
+      "#!/bin/sh\nprintf 'not json\\n'\n",
+      "utf8"
+    );
+    await chmod(path.join(fakeBin, npmCommand), 0o755);
+
+    const result = await runReleasePack(["--root", root, "--pack-destination", destination], {
+      env: { PATH: `${fakeBin}${path.delimiter}${process.env.PATH ?? ""}` }
+    });
+
+    const output = `${result.stdout}\n${result.stderr}`;
+    expect(result.code).toBe(1);
+    expect(output).toContain("release pack failed");
+    expect(output).toContain("npm pack dry-run did not return valid JSON");
+    expect(output).not.toContain("Unexpected token");
+    expect(output).not.toContain("not valid JSON");
+    expect(output).not.toContain("at JSON.parse");
+    expect((await readdir(destination)).filter((entry) => entry.endsWith(".tgz"))).toEqual([]);
+  });
+
+  it("fails with a friendly message when final npm pack returns malformed JSON", async () => {
+    const root = await createReleasePackFixture();
+    const destination = await mkdtemp(path.join(tmpdir(), "gptprouse-release-pack-dest-"));
+    const fakeBin = await mkdtemp(path.join(tmpdir(), "gptprouse-release-pack-fake-bin-"));
+    await writeFile(
+      path.join(fakeBin, npmCommand),
+      `#!/bin/sh
+case " $* " in
+  *" --dry-run "*) printf '[{"files":[{"path":"package.json"},{"path":"README.md"},{"path":"LICENSE"},{"path":"dist/cli.js"},{"path":"scripts/release-check.mjs"}]}]\\n' ;;
+  *) printf 'not json\\n' ;;
+esac
+`,
+      "utf8"
+    );
+    await chmod(path.join(fakeBin, npmCommand), 0o755);
+
+    const result = await runReleasePack(["--root", root, "--pack-destination", destination], {
+      env: { PATH: `${fakeBin}${path.delimiter}${process.env.PATH ?? ""}` }
+    });
+
+    const output = `${result.stdout}\n${result.stderr}`;
+    expect(result.code).toBe(1);
+    expect(output).toContain("release pack failed");
+    expect(output).toContain("npm pack did not return valid JSON");
+    expect(output).not.toContain("Unexpected token");
+    expect(output).not.toContain("not valid JSON");
+    expect(output).not.toContain("at JSON.parse");
+    expect((await readdir(destination)).filter((entry) => entry.endsWith(".tgz"))).toEqual([]);
+  });
+
   it("creates a sanitized tarball from a package with executable non-bin file modes", async () => {
     const root = await createReleasePackFixture();
     await chmod(path.join(root, "README.md"), 0o755);
@@ -138,10 +193,14 @@ async function createReleasePackFixture(): Promise<string> {
   return root;
 }
 
-async function runReleasePack(args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
+async function runReleasePack(
+  args: string[],
+  options: { env?: NodeJS.ProcessEnv } = {}
+): Promise<{ code: number; stdout: string; stderr: string }> {
   try {
     const result = await execFileAsync(process.execPath, [path.join(repoRoot, "scripts", "release-pack.mjs"), ...args], {
       cwd: repoRoot,
+      env: { ...process.env, ...options.env },
       timeout: 120_000,
       maxBuffer: 20 * 1024 * 1024
     });
