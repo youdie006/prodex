@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { createHash } from "node:crypto";
 import { execFile, spawn } from "node:child_process";
-import { chmod, mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { chmod, cp, mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from "node:fs/promises";
 import net from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -363,6 +363,43 @@ try {
   assertIncludes(releasePackCliSuccess.stdout, `release_pack_verify: npm publish --dry-run ${releasePackCliTarballPath}`, "installed release pack CLI output");
   await assertInstalledReleasePackTarballModes(releasePackCliTarballPath, "installed release pack CLI tarball");
   await assertNpmPublishDryRun(releasePackCliTarballPath, consumerDir, "installed release pack CLI tarball");
+  const releasePackGitReadyRoot = path.join(tmp, "installed-release-pack-git-ready-root");
+  await cp(installedPackageDir, releasePackGitReadyRoot, { recursive: true });
+  const releasePackGitReadyGit = await initPackageSmokeReleaseGitReadyRepo(releasePackGitReadyRoot);
+  const releasePackGitReadyDestination = path.join(tmp, "installed-release-pack-git-ready");
+  const releasePackGitReadySuccess = await run(
+    binPath,
+    ["release", "pack", "--cwd", releasePackGitReadyRoot, "--pack-destination", releasePackGitReadyDestination],
+    { cwd: consumerDir, timeout: 120_000, maxBuffer: 20 * 1024 * 1024 }
+  );
+  assertIncludes(releasePackGitReadySuccess.stdout, "release_pack=ok", "installed git-ready release pack CLI output");
+  assertIncludes(
+    releasePackGitReadySuccess.stdout,
+    `release_pack_git: ok branch=${releasePackGitReadyGit.branch} commit=${releasePackGitReadyGit.commit}`,
+    "installed git-ready release pack CLI output"
+  );
+  assertNotIncludes(
+    releasePackGitReadySuccess.stdout,
+    "release_pack_publish_blocked",
+    "installed git-ready release pack CLI output"
+  );
+  const releasePackGitReadyTarballs = (await readdir(releasePackGitReadyDestination)).filter((entry) => entry.endsWith(".tgz"));
+  if (releasePackGitReadyTarballs.length !== 1) {
+    throw new Error(`installed git-ready release pack CLI expected exactly one tarball, found: ${releasePackGitReadyTarballs.join(", ")}`);
+  }
+  const releasePackGitReadyTarballPath = path.join(releasePackGitReadyDestination, releasePackGitReadyTarballs[0]);
+  assertIncludes(
+    releasePackGitReadySuccess.stdout,
+    `release_pack_verify: npm publish --dry-run ${releasePackGitReadyTarballPath}`,
+    "installed git-ready release pack CLI output"
+  );
+  assertIncludes(
+    releasePackGitReadySuccess.stdout,
+    `release_pack_publish: npm publish ${releasePackGitReadyTarballPath}`,
+    "installed git-ready release pack CLI output"
+  );
+  await assertInstalledReleasePackTarballModes(releasePackGitReadyTarballPath, "installed git-ready release pack CLI tarball");
+  await assertNpmPublishDryRun(releasePackGitReadyTarballPath, consumerDir, "installed git-ready release pack CLI tarball");
   const releasePackMissingDestination = await runExpectFailure(
     process.execPath,
     [path.join(installedPackageDir, "scripts", "release-pack.mjs"), "--root", installedPackageDir],
@@ -1060,7 +1097,7 @@ try {
   await smokeInstalledStdioTaskFinalizers(binPath, consumerDir);
 
   console.log(
-    `package_smoke: ok tarball=${path.basename(packed.filename)} http_onboarding=ok installed_http_mcp=ok http_write_flow=ok http_task_finalizers=ok http_result_artifact_flow=ok http_result_artifact_tamper=ok http_receipt_session_tools=ok configured_doctor=ok tunnel_url=ok package_boundary=ok installed_release_pack=ok installed_release_pack_cli=ok installed_release_pack_publish_dry_run=ok stdio_write_flow=ok stdio_search_overflow=ok stdio_non_git_write=ok stdio_task_flow=ok stdio_task_finalizers=ok stdio_result_artifact_flow=ok stdio_result_artifact_tamper=ok stdio_receipt_session_tools=ok tools=${REQUIRED_MCP_TOOLS.join(",")}`
+    `package_smoke: ok tarball=${path.basename(packed.filename)} http_onboarding=ok installed_http_mcp=ok http_write_flow=ok http_task_finalizers=ok http_result_artifact_flow=ok http_result_artifact_tamper=ok http_receipt_session_tools=ok configured_doctor=ok tunnel_url=ok package_boundary=ok installed_release_pack=ok installed_release_pack_cli=ok installed_release_pack_publish_dry_run=ok installed_release_pack_publish_command=ok stdio_write_flow=ok stdio_search_overflow=ok stdio_non_git_write=ok stdio_task_flow=ok stdio_task_finalizers=ok stdio_result_artifact_flow=ok stdio_result_artifact_tamper=ok stdio_receipt_session_tools=ok tools=${REQUIRED_MCP_TOOLS.join(",")}`
   );
 } finally {
   await rm(tmp, { recursive: true, force: true });
@@ -1196,6 +1233,7 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertIncludes(readme, "behind upstream", "installed README");
   assertIncludes(readme, "installed `release-pack` script and `gptprouse release pack` CLI success paths", "installed README");
   assertIncludes(readme, "runs `npm publish --dry-run` against those normalized tarballs", "installed README");
+  assertIncludes(readme, "git-ready release-pack output includes the guarded `release_pack_publish` command", "installed README");
   assertIncludes(readme, "regular file", "installed README");
   assertIncludes(readme, "symlinked packed files", "installed README");
   assertIncludes(readme, "hard link", "installed README");
@@ -1206,10 +1244,10 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertIncludes(readme, "installed HTTP MCP repo write dry-run/apply/stage flow", "installed README");
   assertIncludes(readme, "installed HTTP MCP task completion/blocking/result/artifact fetch flow", "installed README");
   assertIncludes(readme, "installed HTTP MCP receipt/session list/fetch tools", "installed README");
-  assertIncludes(readme, "installed stdio repo write dry-run/apply/stage flow", "installed README");
+  assertIncludes(readme, "installed stdio MCP repo write dry-run/apply/stage flow", "installed README");
   assertIncludes(readme, "installed stdio oversized repo_search failure output", "installed README");
   assertIncludes(readme, "installed stdio non-git write failure output", "installed README");
-  assertIncludes(readme, "installed stdio task completion/blocking/result/artifact fetch flow", "installed README");
+  assertIncludes(readme, "installed stdio MCP task completion/blocking/result/artifact fetch flow", "installed README");
   assertIncludes(readme, "installed stdio MCP receipt/session list/fetch tools", "installed README");
   assertIncludes(readme, "loopback-only", "installed README");
   assertIncludes(readme, "`start` reads the saved setup profile when the server process starts", "installed README");
@@ -1565,6 +1603,21 @@ async function createReleaseGitFixture(cwd, options) {
     }
   }
   return cwd;
+}
+
+async function initPackageSmokeReleaseGitReadyRepo(cwd) {
+  await execFileAsync("git", ["init"], { cwd });
+  await execFileAsync("git", ["config", "user.email", "release@example.com"], { cwd });
+  await execFileAsync("git", ["config", "user.name", "GPTProUse Package Smoke"], { cwd });
+  await execFileAsync("git", ["add", "."], { cwd });
+  await execFileAsync("git", ["commit", "-m", "initial"], { cwd });
+  const remoteDir = path.join(path.dirname(cwd), `${path.basename(cwd)}-remote.git`);
+  await execFileAsync("git", ["init", "--bare", remoteDir], { cwd: path.dirname(cwd) });
+  await execFileAsync("git", ["remote", "add", "origin", remoteDir], { cwd });
+  const branch = (await execFileAsync("git", ["rev-parse", "--abbrev-ref", "HEAD"], { cwd })).stdout.trim();
+  await execFileAsync("git", ["push", "-u", "origin", branch], { cwd });
+  const commit = (await execFileAsync("git", ["rev-parse", "--short", "HEAD"], { cwd })).stdout.trim();
+  return { branch, commit };
 }
 
 async function writeFakeNpmDryRun(binDir, stdout) {

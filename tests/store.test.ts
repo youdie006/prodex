@@ -338,6 +338,50 @@ describe("BridgeStore", () => {
     await expect(store.listReceipts({ kind: "task_claimed", task_id: task.id })).resolves.toHaveLength(0);
   });
 
+  it("restores a non-terminal task when the completion receipt cannot be stored", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
+    const store = new BridgeStore(root);
+    const task = await store.createTask({
+      source: "codex",
+      title: "Completion receipt fails",
+      prompt: "Do not leave an unreceipted terminal task.",
+      repo_id: "default",
+      files: [],
+      provenance: { adapter: "cli" }
+    });
+    const claimed = await store.claimTask(task.id, "codex-main");
+    setBridgeStoreTestHooks({
+      beforeRecordRename: async (kind) => {
+        if (kind === "receipts") throw new Error("forced completion receipt failure");
+      }
+    });
+
+    await expect(
+      store.completeTask(task.id, {
+        status: "done",
+        summary: "Completion summary.",
+        commands: ["npm test"]
+      })
+    ).rejects.toThrow(/forced completion receipt failure/);
+
+    const restored = await store.getTask(task.id);
+    expect(restored).toEqual(expect.objectContaining({ id: task.id, status: "claimed", claimed_by: "codex-main" }));
+    expect(restored).not.toHaveProperty("result_path");
+    await expect(store.getResult(task.id)).resolves.toEqual(expect.objectContaining({ task_id: task.id, summary: "Completion summary." }));
+    await expect(store.listReceipts({ kind: "task_completed", task_id: task.id })).resolves.toHaveLength(0);
+
+    setBridgeStoreTestHooks({});
+    const retried = await store.completeTask(claimed.id, {
+      status: "done",
+      summary: "Completion summary.",
+      commands: ["npm test"]
+    });
+
+    expect(retried).toEqual(expect.objectContaining({ task_id: task.id, summary: "Completion summary." }));
+    await expect(store.getTask(task.id)).resolves.toEqual(expect.objectContaining({ status: "done" }));
+    await expect(store.listReceipts({ kind: "task_completed", task_id: task.id })).resolves.toHaveLength(1);
+  });
+
   it("repairs a non-terminal task when retrying completion after the matching result was already written", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
     const store = new BridgeStore(root);

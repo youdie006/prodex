@@ -253,7 +253,7 @@ export class BridgeStore {
         updated_at: nowIso()
       });
       await this.writeRecordJson("tasks", taskId, updated);
-      await this.writeTaskCompletionReceipt(taskId, existingResult.status);
+      await this.writeTaskCompletionReceiptOrRestoreTask(taskId, existingResult.status, task);
       return existingResult;
     }
     const artifacts = await this.withResultArtifactHashes(input.artifacts ?? []);
@@ -275,7 +275,7 @@ export class BridgeStore {
       updated_at: nowIso()
     });
     await this.writeRecordJson("tasks", taskId, updated);
-    await this.writeTaskCompletionReceipt(taskId, finalResult.status);
+    await this.writeTaskCompletionReceiptOrRestoreTask(taskId, finalResult.status, task);
     return finalResult;
   }
 
@@ -441,6 +441,19 @@ export class BridgeStore {
       task_id: taskId,
       summary: `${status === "done" ? "Completed" : "Blocked"} task ${taskId}`
     });
+  }
+
+  private async writeTaskCompletionReceiptOrRestoreTask(taskId: string, status: Result["status"], previousTask: Task): Promise<void> {
+    try {
+      await this.writeTaskCompletionReceipt(taskId, status);
+    } catch (error) {
+      try {
+        await this.writeRecordJson("tasks", taskId, previousTask);
+      } catch (cleanupError) {
+        throw new Error(`${errorMessage(error)} (also failed to restore task completion state: ${errorMessage(cleanupError)})`);
+      }
+      throw error;
+    }
   }
 
   async writeArtifactText(relativePath: string, content: string): Promise<string> {
