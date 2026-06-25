@@ -1050,6 +1050,13 @@ function sourceAwareBrowserNextStep(nextStep: string | undefined, sourceCli?: st
     .replaceAll("`gptprouse pro browser smoke`", `\`${formatBrowserSmokeCommand(sourceCli)}\``);
 }
 
+function productCheckBrowserNextStep(nextStep: string | undefined, sourceCli?: string): string | undefined {
+  const sourceAware = sourceAwareBrowserNextStep(nextStep, sourceCli);
+  if (!sourceAware) return sourceAware;
+  if (sourceAware.includes("`")) return sourceAware;
+  return sourceAware.replace(/then retry\.$/, `then run \`${formatBrowserSmokeCommand(sourceCli)}\`.`);
+}
+
 function sourceAwareBrowserBlocker<T extends { next_step?: string }>(blocker: T, sourceCli?: string): T {
   const nextStep = sourceAwareBrowserNextStep(blocker.next_step, sourceCli);
   return nextStep === blocker.next_step ? blocker : { ...blocker, next_step: nextStep };
@@ -2120,17 +2127,17 @@ async function printProductCheck(store: BridgeStore, io: CliIO, args: string[]):
   const visibilityBlocker = chatGptVisibilityBlocker(browserStatus.visibilityState, browserStatus.url);
   if (!browserStatus.reachable) {
     io.stdout(`chatgpt: ${browserStatus.blocker?.code ?? "unreachable"} - ${browserStatus.blocker?.message ?? "browser is not reachable"}`);
-    const nextStep = sourceAwareBrowserNextStep(browserStatus.blocker?.next_step, sourceCli);
+    const nextStep = productCheckBrowserNextStep(browserStatus.blocker?.next_step, sourceCli);
     if (nextStep) io.stdout(`next: ${nextStep}`);
   } else if (browserStatus.blocker) {
     const visibilityText =
       browserStatus.blocker.code === "tab_not_visible" ? ` visibility=${browserStatus.visibilityState ?? "unknown"}` : "";
     io.stdout(`chatgpt: blocked ${browserStatus.blocker.code}${visibilityText} - ${browserStatus.blocker.message}`);
-    const nextStep = sourceAwareBrowserNextStep(browserStatus.blocker.next_step, sourceCli);
+    const nextStep = productCheckBrowserNextStep(browserStatus.blocker.next_step, sourceCli);
     if (nextStep) io.stdout(`next: ${nextStep}`);
   } else if (visibilityBlocker) {
     io.stdout(`chatgpt: blocked ${visibilityBlocker.code} visibility=${browserStatus.visibilityState ?? "unknown"} - ${visibilityBlocker.message}`);
-    const nextStep = sourceAwareBrowserNextStep(visibilityBlocker.next_step, sourceCli);
+    const nextStep = productCheckBrowserNextStep(visibilityBlocker.next_step, sourceCli);
     if (nextStep) io.stdout(`next: ${nextStep}`);
   } else if (browserStatus.loggedInLikely && browserStatus.hasComposer) {
     io.stdout(`chatgpt: ok logged_in=true composer=true${browserStatus.url ? ` url=${browserStatus.url}` : ""}`);

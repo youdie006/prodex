@@ -1,4 +1,4 @@
-import { mkdtemp } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -44,6 +44,19 @@ async function runBrowserCheckResult(): Promise<{ code: number; text: string }> 
   return { code, text: out.join("\n") };
 }
 
+async function runBrowserCheckResultWithArgs(args: string[]): Promise<{ code: number; text: string }> {
+  const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-product-check-"));
+  const out: string[] = [];
+
+  const code = await runCli(["pro", "browser", "check", ...args], {
+    cwd,
+    stdout: (line) => out.push(line),
+    stderr: () => {}
+  });
+
+  return { code, text: out.join("\n") };
+}
+
 async function runBrowserCheck(): Promise<string> {
   return (await runBrowserCheckResult()).text;
 }
@@ -55,6 +68,19 @@ describe("browser product check", () => {
     expect(text).toContain("chatgpt: blocked captcha_required");
     expect(text).toContain("Solve it manually");
     expect(text).not.toContain("chatgpt: ok");
+  });
+
+  it("prints a source-checkout smoke retry command for manual ChatGPT blockers", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-product-check-source-"));
+    const sourceCli = path.join(cwd, "dist", "cli.js");
+    await mkdir(path.dirname(sourceCli), { recursive: true });
+    await writeFile(sourceCli, "#!/usr/bin/env node\n", "utf8");
+
+    const { code, text } = await runBrowserCheckResultWithArgs(["--source-cli", sourceCli]);
+
+    expect(code).toBe(1);
+    expect(text).toContain("chatgpt: blocked captcha_required");
+    expect(text).toContain(`next: Solve it manually in the visible browser, then run \`node ${sourceCli} pro browser smoke --source-cli ${sourceCli}\`.`);
   });
 
   it("prints model hints when the visible ChatGPT browser is ready", async () => {
