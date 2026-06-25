@@ -268,6 +268,11 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
 
   if (command === "project") {
     const [subcommand, ...projectArgs] = rest;
+    if (!subcommand || isHelpSubcommand(subcommand)) {
+      assertNoExtraArgs(projectArgs, "project help", 0);
+      printProjectHelp(io.stdout);
+      return 0;
+    }
     if (subcommand !== "prompt") throw new Error("project requires prompt");
     assertOnlyOptions(projectArgs, "project prompt", ["--cwd", "--source-cli"]);
     io.stdout(formatProjectVerificationPrompt(resolveCwdFlag(io.cwd, projectArgs), resolveOptionalFileFlag(io.cwd, projectArgs, "--source-cli")));
@@ -276,6 +281,11 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
 
   if (command === "claude") {
     const [subcommand, ...claudeArgs] = rest;
+    if (!subcommand || isHelpSubcommand(subcommand)) {
+      assertNoExtraArgs(claudeArgs, "claude help", 0);
+      printClaudeHelp(io.stdout);
+      return 0;
+    }
     if (subcommand === "prompt") {
       assertOnlyOptions(claudeArgs, "claude prompt", ["--cwd", "--source-cli"]);
       io.stdout(formatClaudeVerificationPrompt(resolveCwdFlag(io.cwd, claudeArgs), resolveOptionalFileFlag(io.cwd, claudeArgs, "--source-cli")));
@@ -394,6 +404,11 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
 
   if (command === "tasks") {
     const [subcommand, ...taskArgs] = rest;
+    if (!subcommand || isHelpSubcommand(subcommand)) {
+      assertNoExtraArgs(taskArgs, "tasks help", 0);
+      printTasksHelp(io.stdout);
+      return 0;
+    }
     if (subcommand === "create") {
       assertOnlyOptions(taskArgs, "tasks create", ["--title", "--prompt", "--repo-id", "--file"]);
       const title = readFlag(taskArgs, "--title");
@@ -471,6 +486,11 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
 
   if (command === "results") {
     const [subcommand, ...resultArgs] = rest;
+    if (!subcommand || isHelpSubcommand(subcommand)) {
+      assertNoExtraArgs(resultArgs, "results help", 0);
+      printResultsHelp(io.stdout);
+      return 0;
+    }
     if (subcommand === "show") {
       const taskId = resultArgs[0];
       if (!taskId) throw new Error("results show requires <task-id|latest>");
@@ -492,6 +512,11 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
 
   if (command === "receipts") {
     const [subcommand, ...receiptArgs] = rest;
+    if (!subcommand || isHelpSubcommand(subcommand)) {
+      assertNoExtraArgs(receiptArgs, "receipts help", 0);
+      printReceiptsHelp(io.stdout);
+      return 0;
+    }
     if (subcommand === "list") {
       assertOnlyOptions(receiptArgs, "receipts list", ["--kind", "--task-id"]);
       const receipts = await listReceiptsForInspection(store, {
@@ -516,6 +541,11 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
 
   if (command === "sessions") {
     const [subcommand, ...sessionArgs] = rest;
+    if (!subcommand || isHelpSubcommand(subcommand)) {
+      assertNoExtraArgs(sessionArgs, "sessions help", 0);
+      printSessionsHelp(io.stdout);
+      return 0;
+    }
     if (subcommand === "list") {
       assertOnlyOptions(sessionArgs, "sessions list", ["--status"]);
       const status = readSessionStatusFlag(sessionArgs);
@@ -911,6 +941,61 @@ Commands:
 
 Use \`gptprouse pro ask\` for dry-run/manual previews.
 Use \`gptprouse pro browser ask\` only when you want an explicit visible-browser send.`);
+}
+
+function printProjectHelp(stdout: (line: string) => void): void {
+  stdout(`gptprouse project
+
+Commands:
+  gptprouse project prompt [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]
+
+Print a ChatGPT Project MCP verification prompt. The prompt asks for read/task handoff verification only.`);
+}
+
+function printClaudeHelp(stdout: (line: string) => void): void {
+  stdout(`gptprouse claude
+
+Commands:
+  gptprouse claude prompt [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]
+  gptprouse claude config [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]
+
+Print Claude MCP setup and verification helpers. These commands do not start MCP or reveal HTTP tokens.`);
+}
+
+function printTasksHelp(stdout: (line: string) => void): void {
+  stdout(`gptprouse tasks
+
+Commands:
+  gptprouse tasks create --title "Title" --prompt "Prompt"
+  gptprouse tasks list [--status new|claimed|done|blocked]
+  gptprouse tasks show <task-id|latest>
+  gptprouse tasks claim <task-id> [--by codex]
+  gptprouse tasks complete <task-id> --summary "Summary" [--command "npm test"]
+  gptprouse tasks block <task-id> --summary "Summary" [--code code] [--next-step "Next step"] [--retryable]`);
+}
+
+function printResultsHelp(stdout: (line: string) => void): void {
+  stdout(`gptprouse results
+
+Commands:
+  gptprouse results show <task-id|latest>
+  gptprouse results artifact <task-id|latest> [artifact-path]`);
+}
+
+function printReceiptsHelp(stdout: (line: string) => void): void {
+  stdout(`gptprouse receipts
+
+Commands:
+  gptprouse receipts list [--kind kind] [--task-id task-id]
+  gptprouse receipts show <receipt-id|latest>`);
+}
+
+function printSessionsHelp(stdout: (line: string) => void): void {
+  stdout(`gptprouse sessions
+
+Commands:
+  gptprouse sessions list [--status preview|running|done|blocked]
+  gptprouse sessions show <session-id|latest>`);
 }
 
 function isHelpSubcommand(value: string): boolean {

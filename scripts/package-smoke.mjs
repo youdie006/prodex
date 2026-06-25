@@ -122,6 +122,25 @@ try {
     "Release commands are local checks and package preparation helpers; they do not publish or push.",
     "installed release help output"
   );
+  const projectHelp = await run(binPath, ["project", "--help"], { cwd: consumerDir });
+  assertIncludes(projectHelp.stdout, "gptprouse project", "installed project help output");
+  assertIncludes(projectHelp.stdout, "gptprouse project prompt [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]", "installed project help output");
+  const claudeHelp = await run(binPath, ["claude", "--help"], { cwd: consumerDir });
+  assertIncludes(claudeHelp.stdout, "gptprouse claude", "installed Claude help output");
+  assertIncludes(claudeHelp.stdout, "gptprouse claude prompt [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]", "installed Claude help output");
+  assertIncludes(claudeHelp.stdout, "gptprouse claude config [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]", "installed Claude help output");
+  const tasksHelp = await run(binPath, ["tasks", "--help"], { cwd: consumerDir });
+  assertIncludes(tasksHelp.stdout, "gptprouse tasks", "installed tasks help output");
+  assertIncludes(tasksHelp.stdout, "gptprouse tasks create --title", "installed tasks help output");
+  const resultsHelp = await run(binPath, ["results", "--help"], { cwd: consumerDir });
+  assertIncludes(resultsHelp.stdout, "gptprouse results", "installed results help output");
+  assertIncludes(resultsHelp.stdout, "gptprouse results artifact <task-id|latest> [artifact-path]", "installed results help output");
+  const receiptsHelp = await run(binPath, ["receipts", "--help"], { cwd: consumerDir });
+  assertIncludes(receiptsHelp.stdout, "gptprouse receipts", "installed receipts help output");
+  assertIncludes(receiptsHelp.stdout, "gptprouse receipts show <receipt-id|latest>", "installed receipts help output");
+  const sessionsHelp = await run(binPath, ["sessions", "--help"], { cwd: consumerDir });
+  assertIncludes(sessionsHelp.stdout, "gptprouse sessions", "installed sessions help output");
+  assertIncludes(sessionsHelp.stdout, "gptprouse sessions list [--status preview|running|done|blocked]", "installed sessions help output");
   const freshDoctorDir = path.join(tmp, "fresh-doctor");
   await mkdir(freshDoctorDir, { recursive: true });
   const freshDoctor = await run(binPath, ["doctor"], { cwd: freshDoctorDir });

@@ -1307,6 +1307,80 @@ describe("runCli", () => {
     }
   });
 
+  it("prints command-group help for bridge and MCP handoff groups", async () => {
+    const cases = [
+      {
+        args: ["project"],
+        header: "gptprouse project",
+        commands: ["gptprouse project prompt [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]"]
+      },
+      {
+        args: ["project", "--help"],
+        header: "gptprouse project",
+        commands: ["gptprouse project prompt [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]"]
+      },
+      {
+        args: ["claude"],
+        header: "gptprouse claude",
+        commands: [
+          "gptprouse claude prompt [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]",
+          "gptprouse claude config [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]"
+        ]
+      },
+      {
+        args: ["claude", "--help"],
+        header: "gptprouse claude",
+        commands: [
+          "gptprouse claude prompt [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]",
+          "gptprouse claude config [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]"
+        ]
+      },
+      {
+        args: ["tasks"],
+        header: "gptprouse tasks",
+        commands: ["gptprouse tasks create --title", "gptprouse tasks list", "gptprouse tasks show <task-id|latest>"]
+      },
+      {
+        args: ["tasks", "--help"],
+        header: "gptprouse tasks",
+        commands: ["gptprouse tasks claim <task-id>", "gptprouse tasks complete <task-id>", "gptprouse tasks block <task-id>"]
+      },
+      {
+        args: ["results"],
+        header: "gptprouse results",
+        commands: ["gptprouse results show <task-id|latest>", "gptprouse results artifact <task-id|latest> [artifact-path]"]
+      },
+      {
+        args: ["receipts", "--help"],
+        header: "gptprouse receipts",
+        commands: ["gptprouse receipts list [--kind kind] [--task-id task-id]", "gptprouse receipts show <receipt-id|latest>"]
+      },
+      {
+        args: ["sessions"],
+        header: "gptprouse sessions",
+        commands: ["gptprouse sessions list [--status preview|running|done|blocked]", "gptprouse sessions show <session-id|latest>"]
+      }
+    ];
+
+    for (const item of cases) {
+      const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+      const out: string[] = [];
+
+      const code = await runCli(item.args, {
+        cwd,
+        stdout: (line) => out.push(line),
+        stderr: () => {}
+      });
+
+      const text = out.join("\n");
+      expect(code).toBe(0);
+      expect(text).toContain(item.header);
+      for (const command of item.commands) {
+        expect(text).toContain(command);
+      }
+    }
+  });
+
   it("lists task blocking command in help", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
     const out: string[] = [];
