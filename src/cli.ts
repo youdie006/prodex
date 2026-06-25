@@ -736,7 +736,9 @@ Commands:
   gptprouse pro browser login [--dry-run]  # preview/open visible browser login
   gptprouse pro browser check|smoke
   gptprouse pro browser ask [--target-url url --confirm-target] [--file path] "prompt"  # explicit visible-browser send
-  gptprouse pro latest|list|show <task-id|latest>
+  gptprouse pro latest
+  gptprouse pro list
+  gptprouse pro show <task-id|latest>
   gptprouse tasks create --title "Title" --prompt "Prompt"
   gptprouse tasks list [--status new|claimed|done|blocked]
   gptprouse tasks show <task-id|latest>

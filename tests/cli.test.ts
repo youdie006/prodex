@@ -1196,6 +1196,10 @@ describe("runCli", () => {
     expect(text).toContain('gptprouse pro ask [--dry-run] [--file path] "prompt"  # dry-run preview');
     expect(text).toContain("gptprouse pro browser login [--dry-run]  # preview/open visible browser login");
     expect(text).toContain('gptprouse pro browser ask [--target-url url --confirm-target] [--file path] "prompt"  # explicit visible-browser send');
+    expect(text).toContain("gptprouse pro latest");
+    expect(text).toContain("gptprouse pro list");
+    expect(text).toContain("gptprouse pro show <task-id|latest>");
+    expect(text).not.toContain("gptprouse pro latest|list|show <task-id|latest>");
   });
 
   it("lists task blocking command in help", async () => {

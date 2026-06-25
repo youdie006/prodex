@@ -66,9 +66,13 @@ try {
   assertIncludes(help.stdout, "gptprouse claude config", "installed help output");
   assertIncludes(help.stdout, "gptprouse pro ask [--dry-run] [--file path]", "installed help output");
   assertIncludes(help.stdout, "gptprouse pro browser login [--dry-run]", "installed help output");
+  assertIncludes(help.stdout, "gptprouse pro latest", "installed help output");
+  assertIncludes(help.stdout, "gptprouse pro list", "installed help output");
+  assertIncludes(help.stdout, "gptprouse pro show <task-id|latest>", "installed help output");
   assertIncludes(help.stdout, "gptprouse mcp [--cwd /absolute/path/to/repo]", "installed help output");
   assertIncludes(help.stdout, `gptprouse v${installedPackageJson.version}`, "installed help output");
   assertNotIncludes(help.stdout, "gptprouse ask-pro", "installed help output");
+  assertNotIncludes(help.stdout, "gptprouse pro latest|list|show <task-id|latest>", "installed help output");
   assertNotIncludes(help.stdout, "gptprouse pro browser open|status", "installed help output");
   assertNotIncludes(help.stdout, "gptprouse chatgpt open|status|smoke", "installed help output");
   const freshDoctorDir = path.join(tmp, "fresh-doctor");
