@@ -793,6 +793,8 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertIncludes(readme, 'gptprouse pro ask "Review the project positioning"', "installed README");
   assertIncludes(readme, "gptprouse pro browser login --dry-run", "installed README");
   assertIncludes(readme, "Open a normal ChatGPT chat or the intended Project/thread so the prompt composer is visible.", "installed README");
+  assertIncludes(readme, "You can close that Chrome window after check/smoke or when you are done.", "installed README");
+  assertNotIncludes(readme, "You can close that Chrome window after login", "installed README");
   assertIncludes(readme, "pro browser login --dry-run --source-cli", "installed README");
   assertIncludes(readme, "pro browser check --source-cli", "installed README");
   assertIncludes(readme, "pro browser smoke --source-cli", "installed README");

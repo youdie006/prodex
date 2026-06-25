@@ -142,7 +142,7 @@ What happens:
 ~/.local/share/gptprouse/chrome-chatgpt-pro
 ```
 
-You can close that Chrome window after login. The next time you need it, run `pro browser login` or `pro browser check` again. `check` will tell you what to do if the browser is closed.
+You can close that Chrome window after check/smoke or when you are done. The next time you need it, run `pro browser login` or `pro browser check` again. `check` will tell you what to do if the browser is closed.
 
 Actual explicit visible-browser consult:
 
