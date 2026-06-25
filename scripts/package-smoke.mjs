@@ -53,13 +53,14 @@ try {
 
   const binPath = path.join(consumerDir, "node_modules", ".bin", process.platform === "win32" ? "gptprouse.cmd" : "gptprouse");
   const installedPackageJson = JSON.parse(await readFile(path.join(consumerDir, "node_modules", "gptprouse", "package.json"), "utf8"));
+  const installedSourceCli = path.join(consumerDir, "node_modules", "gptprouse", "dist", "cli.js");
   const version = await run(binPath, ["--version"], { cwd: consumerDir });
   if (version.stdout.trim() !== installedPackageJson.version) {
     throw new Error(`Installed --version returned ${version.stdout.trim()}, expected ${installedPackageJson.version}`);
   }
   const help = await run(binPath, ["help"], { cwd: consumerDir });
   assertIncludes(help.stdout, "gptprouse doctor", "installed help output");
-  assertIncludes(help.stdout, "gptprouse onboard", "installed help output");
+  assertIncludes(help.stdout, "gptprouse onboard [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]", "installed help output");
   assertIncludes(help.stdout, "gptprouse release status", "installed help output");
   assertIncludes(help.stdout, "gptprouse project prompt", "installed help output");
   assertIncludes(help.stdout, "gptprouse claude prompt", "installed help output");
@@ -141,6 +142,18 @@ try {
   assertIncludes(onboard.stdout, "Cloudflare", "installed onboard output");
   assertIncludes(onboard.stdout, "usage-limit", "installed onboard output");
   assertNotIncludes(onboard.stdout, "gptprouse_token=", "installed onboard output");
+  const sourceOnboard = await run(binPath, ["onboard", "--cwd", consumerDir, "--source-cli", installedSourceCli], { cwd: path.dirname(consumerDir) });
+  const sourcePrefix = `node ${installedSourceCli}`;
+  assertIncludes(sourceOnboard.stdout, `${sourcePrefix} init --cwd ${consumerDir}`, "installed source onboard output");
+  assertIncludes(
+    sourceOnboard.stdout,
+    `${sourcePrefix} claude config --cwd ${consumerDir} --source-cli ${installedSourceCli}`,
+    "installed source onboard output"
+  );
+  assertIncludes(sourceOnboard.stdout, `${sourcePrefix} setup --cwd ${consumerDir} --token-ttl-hours 24`, "installed source onboard output");
+  assertIncludes(sourceOnboard.stdout, `${sourcePrefix} pro browser ask "Review this repo"  # visible-browser send`, "installed source onboard output");
+  assertNotIncludes(sourceOnboard.stdout, "gptprouse init --cwd", "installed source onboard output");
+  assertNotIncludes(sourceOnboard.stdout, "gptprouse_token=", "installed source onboard output");
   const missingCwd = path.join(consumerDir, "missing-repo");
   const missingCwdOnboard = await runExpectFailure(binPath, ["onboard", "--cwd", missingCwd], { cwd: path.dirname(consumerDir) });
   assertIncludes(missingCwdOnboard.stderr, `--cwd does not exist or is not accessible: ${missingCwd}`, "installed missing cwd output");
@@ -399,6 +412,7 @@ async function assertInstalledDocsArePortable(consumerDir) {
   }
   assertIncludes(readme, "For an installed package", "installed README");
   assertIncludes(readme, "gptprouse onboard", "installed README");
+  assertIncludes(readme, "onboard --source-cli", "installed README");
   assertIncludes(readme, 'gptprouse pro ask "Review the project positioning"', "installed README");
   assertIncludes(readme, "gptprouse pro browser login --dry-run", "installed README");
   assertIncludes(readme, "gptprouse pro browser help", "installed README");

@@ -218,9 +218,9 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
   }
 
   if (command === "onboard") {
-    assertOnlyOptions(rest, "onboard", ["--cwd"]);
+    assertOnlyOptions(rest, "onboard", ["--cwd", "--source-cli"]);
     const targetCwd = resolveCwdFlag(io.cwd, rest);
-    io.stdout(formatOnboardingGuide(targetCwd, await hasOnboardingReadme(targetCwd)));
+    io.stdout(formatOnboardingGuide(targetCwd, await hasOnboardingReadme(targetCwd), resolveOptionalFileFlag(io.cwd, rest, "--source-cli")));
     return 0;
   }
 
@@ -730,7 +730,7 @@ Commands:
   gptprouse status [--cwd /absolute/path/to/repo] [--show-token] [--url-only] [--unsafe-show-non-expiring-token]
   gptprouse tunnel url [--cwd /absolute/path/to/repo] --public-url https://... [--show-token] [--url-only]
   gptprouse release status [--cwd /absolute/path/to/repo]
-  gptprouse onboard [--cwd /absolute/path/to/repo]
+  gptprouse onboard [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]
   gptprouse project prompt [--cwd /absolute/path/to/repo]
   gptprouse claude prompt [--cwd /absolute/path/to/repo]
   gptprouse claude config [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]
@@ -787,40 +787,42 @@ gptprouse tasks list --status new
 gptprouse tasks show <task-id>`;
 }
 
-function formatOnboardingGuide(cwd: string, hasReadme: boolean): string {
+function formatOnboardingGuide(cwd: string, hasReadme: boolean, sourceCli?: string): string {
   const quotedCwd = shellQuote(cwd);
-  const proAskCommand = hasReadme ? 'gptprouse pro ask --file README.md "Review this repo"' : 'gptprouse pro ask "Review this repo"';
+  const cli = sourceCli ? `node ${shellQuote(sourceCli)}` : "gptprouse";
+  const sourceCliOption = sourceCli ? ` --source-cli ${shellQuote(sourceCli)}` : "";
+  const proAskCommand = hasReadme ? `${cli} pro ask --file README.md "Review this repo"` : `${cli} pro ask "Review this repo"`;
   const proBrowserAskCommand = hasReadme
-    ? 'gptprouse pro browser ask --file README.md "Review this repo"'
-    : 'gptprouse pro browser ask "Review this repo"';
+    ? `${cli} pro browser ask --file README.md "Review this repo"`
+    : `${cli} pro browser ask "Review this repo"`;
   return `gptprouse onboarding
 
 repo: ${cwd}
 
 1. Prepare the local bridge:
-   gptprouse init --cwd ${quotedCwd}
-   gptprouse doctor --cwd ${quotedCwd}
+   ${cli} init --cwd ${quotedCwd}
+   ${cli} doctor --cwd ${quotedCwd}
 
 2. Claude stdio MCP:
-   gptprouse claude config --cwd ${quotedCwd}
-   gptprouse claude prompt --cwd ${quotedCwd}
+   ${cli} claude config --cwd ${quotedCwd}${sourceCliOption}
+   ${cli} claude prompt --cwd ${quotedCwd}
 
 3. ChatGPT Project HTTP MCP:
    Note: HTTP MCP uses a short-lived token. Paste token-bearing URLs only into your own trusted private MCP client.
-   gptprouse setup --cwd ${quotedCwd} --token-ttl-hours 24
-   gptprouse start --cwd ${quotedCwd}
+   ${cli} setup --cwd ${quotedCwd} --token-ttl-hours 24
+   ${cli} start --cwd ${quotedCwd}
    Keep this terminal open while ChatGPT uses the bridge; run the next commands in a second terminal.
-   gptprouse status --cwd ${quotedCwd} --show-token --url-only
-   gptprouse project prompt --cwd ${quotedCwd}
+   ${cli} status --cwd ${quotedCwd} --show-token --url-only
+   ${cli} project prompt --cwd ${quotedCwd}
 
 4. Optional ChatGPT Pro consults:
    cd ${quotedCwd}
    ${proAskCommand}  # dry-run/manual preview
-   gptprouse pro browser login --dry-run  # preview, no browser opens
-   gptprouse pro browser login  # opens visible browser
-   gptprouse pro browser help
-   gptprouse pro browser check
-   gptprouse pro browser smoke
+   ${cli} pro browser login --dry-run  # preview, no browser opens
+   ${cli} pro browser login  # opens visible browser
+   ${cli} pro browser help
+   ${cli} pro browser check
+   ${cli} pro browser smoke
    ${proBrowserAskCommand}  # visible-browser send
 
 Safety notes:

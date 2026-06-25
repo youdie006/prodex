@@ -1366,7 +1366,7 @@ describe("runCli", () => {
     expect(text).toContain("gptprouse status [--cwd /absolute/path/to/repo]");
     expect(text).toContain("gptprouse tunnel url [--cwd /absolute/path/to/repo]");
     expect(text).toContain("gptprouse doctor [--cwd /absolute/path/to/repo]");
-    expect(text).toContain("gptprouse onboard [--cwd /absolute/path/to/repo]");
+    expect(text).toContain("gptprouse onboard [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]");
     expect(text).toContain("gptprouse mcp [--cwd /absolute/path/to/repo]");
   });
 
@@ -1553,6 +1553,36 @@ describe("runCli", () => {
     expect(text).toContain("usage-limit");
     expect(text).not.toContain("gptprouse_token=");
     await expect(readFile(path.join(targetCwd, ".bridge", "config.local.json"), "utf8")).rejects.toThrow();
+  });
+
+  it("onboard can print source-checkout commands for a built local CLI", async () => {
+    const launcherCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-launcher-"));
+    const targetCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-target-"));
+    const sourceCli = path.join(launcherCwd, "dist", "cli.js");
+    await mkdir(path.dirname(sourceCli), { recursive: true });
+    await writeFile(sourceCli, "#!/usr/bin/env node\n", "utf8");
+    const out: string[] = [];
+
+    await runCli(["onboard", "--cwd", targetCwd, "--source-cli", sourceCli], {
+      cwd: launcherCwd,
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    const text = out.join("\n");
+    const sourcePrefix = `node ${sourceCli}`;
+    expect(text).toContain(`${sourcePrefix} init --cwd ${targetCwd}`);
+    expect(text).toContain(`${sourcePrefix} doctor --cwd ${targetCwd}`);
+    expect(text).toContain(`${sourcePrefix} claude config --cwd ${targetCwd} --source-cli ${sourceCli}`);
+    expect(text).toContain(`${sourcePrefix} claude prompt --cwd ${targetCwd}`);
+    expect(text).toContain(`${sourcePrefix} setup --cwd ${targetCwd} --token-ttl-hours 24`);
+    expect(text).toContain(`${sourcePrefix} start --cwd ${targetCwd}`);
+    expect(text).toContain(`${sourcePrefix} status --cwd ${targetCwd} --show-token --url-only`);
+    expect(text).toContain(`${sourcePrefix} project prompt --cwd ${targetCwd}`);
+    expect(text).toContain(`${sourcePrefix} pro browser login --dry-run  # preview, no browser opens`);
+    expect(text).toContain(`${sourcePrefix} pro browser ask "Review this repo"  # visible-browser send`);
+    expect(text).not.toContain("gptprouse init --cwd");
+    expect(text).not.toContain("gptprouse_token=");
   });
 
   it("onboard includes README file examples only when README.md exists", async () => {

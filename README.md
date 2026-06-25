@@ -88,13 +88,14 @@ For a source checkout:
 ```bash
 npm install
 npm run build
-node dist/cli.js onboard
+SOURCE_CLI="$(pwd)/dist/cli.js"
+node dist/cli.js onboard --source-cli "$SOURCE_CLI"
 node dist/cli.js init
 node dist/cli.js doctor
 node dist/cli.js pro ask "Review the project positioning"
 ```
 
-The examples below use the installed `gptprouse` binary. In a source checkout, replace `gptprouse` with `node dist/cli.js` after building.
+The examples below use the installed `gptprouse` binary. In a source checkout, replace `gptprouse` with `node dist/cli.js` after building, or pass `--source-cli "$(pwd)/dist/cli.js"` to `onboard` so it prints source-checkout commands.
 `onboard` prints the Claude, ChatGPT Project, and optional ChatGPT Pro consult commands without changing local state.
 
 `init` creates the local `.bridge/` ledger directories and ignore rules. On a source checkout it may also add `node_modules/` and `dist/` to the repo root `.gitignore` so local dependencies and build output stay out of git.
