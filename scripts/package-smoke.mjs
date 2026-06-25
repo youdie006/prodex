@@ -108,6 +108,26 @@ try {
   if ((await readdir(installedPackageDir)).some((entry) => entry.endsWith(".tgz"))) {
     throw new Error("installed release-pack created a tarball without --pack-destination");
   }
+  const releaseCheckSilentDir = path.join(tmp, "release-check-silent-pack");
+  await mkdir(releaseCheckSilentDir, { recursive: true });
+  await writeFile(
+    path.join(releaseCheckSilentDir, "package.json"),
+    `${JSON.stringify({ name: "release-check-silent-pack", version: "1.0.0", license: "MIT" }, null, 2)}\n`
+  );
+  await writeFile(path.join(releaseCheckSilentDir, "LICENSE"), "MIT License\n");
+  const releaseCheckFakeBin = path.join(tmp, "release-check-silent-pack-bin");
+  await mkdir(releaseCheckFakeBin, { recursive: true });
+  await writeFakeNpmSilentFailure(releaseCheckFakeBin);
+  const releaseCheckSilent = await runExpectFailure(
+    process.execPath,
+    [path.join(installedPackageDir, "scripts", "release-check.mjs"), "--metadata-only", "--root", releaseCheckSilentDir],
+    {
+      cwd: consumerDir,
+      env: { PATH: `${releaseCheckFakeBin}${path.delimiter}${process.env.PATH ?? ""}` }
+    }
+  );
+  assertIncludes(releaseCheckSilent.stderr, "npm pack dry-run failed: exit code 42", "installed release-check silent npm failure output");
+  assertNotIncludes(releaseCheckSilent.stderr, "Command failed:", "installed release-check silent npm failure output");
   const privatePackageDir = path.join(tmp, "private-release");
   await mkdir(privatePackageDir, { recursive: true });
   await writeFile(
@@ -760,6 +780,16 @@ async function createReleaseGitFixture(cwd, options) {
 async function writeFakeNpmDryRun(binDir, stdout) {
   const script = path.join(binDir, "fake-npm.mjs");
   await writeFile(script, `process.stdout.write(${JSON.stringify(stdout)});\n`);
+  await writeFakeNpmLauncher(binDir, script);
+}
+
+async function writeFakeNpmSilentFailure(binDir) {
+  const script = path.join(binDir, "fake-npm-silent-failure.mjs");
+  await writeFile(script, "process.exit(42);\n");
+  await writeFakeNpmLauncher(binDir, script);
+}
+
+async function writeFakeNpmLauncher(binDir, script) {
   const commandPath = path.join(binDir, npmCommand);
   if (process.platform === "win32") {
     await writeFile(commandPath, `@echo off\r\n"${process.execPath}" "${script}" %*\r\n`);

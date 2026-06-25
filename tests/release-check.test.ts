@@ -185,6 +185,29 @@ describe("release-check", () => {
     expect(output).not.toContain("TypeError");
   });
 
+  it("fails release metadata with a friendly message when npm pack dry-run exits silently", async () => {
+    const root = await copyPackageJsonToTemp();
+    const packageJson = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
+    packageJson.license = "MIT";
+    await writeFile(path.join(root, "package.json"), `${JSON.stringify(packageJson, null, 2)}\n`, "utf8");
+    await writeFile(path.join(root, "LICENSE"), "MIT License\n", "utf8");
+    const npmCommand = expectedNpmCommand();
+    const fakeCommands = await createFakeReleaseCommands(root, {
+      failCommand: `${npmCommand}\tpack --json --dry-run --ignore-scripts`,
+      silentFail: true
+    });
+
+    const result = await runReleaseCheck(root, { pathPrefix: fakeCommands.binDir, logPath: fakeCommands.logPath });
+
+    const output = `${result.stdout}\n${result.stderr}`;
+    expect(result.code).toBe(1);
+    expect(output).toContain("release metadata failed");
+    expect(output).toContain("npm pack dry-run failed: exit code 42");
+    expect(output).not.toContain("Command failed:");
+    expect(output).not.toContain("pack --json --dry-run --ignore-scripts");
+    expect(result.stdout).not.toContain("release_metadata=ok");
+  });
+
   it("fails release metadata when packed non-bin files are executable", async () => {
     const root = await createPackModeFixture({
       packageJson: {

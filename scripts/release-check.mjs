@@ -161,9 +161,7 @@ async function readPackedFiles(rootDir) {
       maxBuffer: 20 * 1024 * 1024
     }));
   } catch (error) {
-    const failed = error;
-    const detail = typeof failed?.stderr === "string" && failed.stderr.trim() ? failed.stderr.trim().split(/\r?\n/)[0] : failed?.message ?? String(error);
-    throw new Error(`release metadata failed: npm pack dry-run failed: ${detail}`);
+    throw new Error(`release metadata failed: npm pack dry-run failed: ${commandFailureDetail(error)}`);
   }
   try {
     const entries = JSON.parse(stdout);
