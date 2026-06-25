@@ -2319,7 +2319,7 @@ function printBrowserLoginGuide(
   stdout(`Profile: ${input.profileDir}`);
   stdout(`Debug: http://127.0.0.1:${input.port}`);
   if (input.opened) {
-    stdout("You can close this Chrome window after login. The dedicated profile is reused next time.");
+    stdout("You can close this Chrome window after check/smoke or when you are done. The dedicated profile is reused next time.");
   } else {
     stdout("The dedicated profile path above will be reused by the real login command.");
   }

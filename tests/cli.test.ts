@@ -3100,6 +3100,8 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
 
     expect(out.join("\n")).toContain("ChatGPT Pro browser login");
     expect(out.join("\n")).toContain("Opened the dedicated Chrome window");
+    expect(out.join("\n")).toContain("You can close this Chrome window after check/smoke or when you are done. The dedicated profile is reused next time.");
+    expect(out.join("\n")).not.toContain("You can close this Chrome window after login");
   });
 
   it("allows browser login handoff when DevTools becomes reachable shortly after Chrome exits", async () => {
@@ -3150,6 +3152,8 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
 
     expect(out.join("\n")).toContain("ChatGPT Pro browser login");
     expect(out.join("\n")).toContain("Opened the dedicated Chrome window");
+    expect(out.join("\n")).toContain("You can close this Chrome window after check/smoke or when you are done. The dedicated profile is reused next time.");
+    expect(out.join("\n")).not.toContain("You can close this Chrome window after login");
   });
 
   it("fails legacy browser open before printing success when Chrome exits immediately", async () => {
