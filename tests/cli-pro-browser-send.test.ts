@@ -242,6 +242,41 @@ describe("pro browser ask persistence", () => {
     expect(receipts).toContainEqual(expect.objectContaining({ kind: "consult_answer_saved", task_id: taskId }));
   });
 
+  it("keeps oversized browser answers without listing an unfetchable artifact", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-pro-send-"));
+    const largeAnswer = "x".repeat(120_000);
+    sendChatGptPromptMock.mockResolvedValueOnce({
+      url: "https://chatgpt.com/c/large",
+      title: "ChatGPT",
+      answer: largeAnswer,
+      modelHints: ["GPT-5 Pro"],
+      warnings: []
+    });
+    const out: string[] = [];
+    const err: string[] = [];
+
+    await runCli(["pro", "browser", "ask", "Review this"], {
+      cwd,
+      stdout: (line) => out.push(line),
+      stderr: (line) => err.push(line)
+    });
+
+    const taskId = out[0].split("\t")[0];
+    expect(out[0]).toContain("\tdone\t");
+    expect(out.join("\n")).toContain(largeAnswer.slice(0, 200));
+    expect(err.join("\n")).toContain("answer_artifact_warning");
+    expect(err.join("\n")).toContain("too large");
+    const result = JSON.parse(await readFile(path.join(cwd, ".bridge", "results", `${taskId}.json`), "utf8")) as {
+      summary: string;
+      artifacts: Array<{ path: string; role: string }>;
+      warnings: string[];
+    };
+    expect(result.summary).toBe(largeAnswer);
+    expect(result.artifacts).toEqual([]);
+    expect(result.warnings.join("\n")).toContain("too large");
+    await expect(readdir(path.join(cwd, ".bridge", "artifacts", "pro-consults"))).rejects.toThrow();
+  });
+
   it("does not overwrite a saved answer as a browser failure when result finalization fails", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-pro-send-"));
     sendChatGptPromptMock.mockResolvedValueOnce({

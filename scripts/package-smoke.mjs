@@ -186,6 +186,14 @@ try {
   const browserHelp = await run(binPath, ["pro", "browser", "help"], { cwd: consumerDir });
   assertIncludes(browserHelp.stdout, "gptprouse pro browser login [--dry-run]", "installed browser help");
   assertIncludes(browserHelp.stdout, "gptprouse pro browser ask", "installed browser help");
+  const invalidBrowserPort = await runExpectFailure(binPath, ["pro", "browser", "check", "--port", "-1", "--timeout-ms", "10"], {
+    cwd: consumerDir
+  });
+  assertIncludes(invalidBrowserPort.stderr, "--port must be an integer from 1 to 65535", "installed invalid browser port output");
+  const invalidBrowserTimeout = await runExpectFailure(binPath, ["pro", "browser", "check", "--port", "65534", "--timeout-ms", "0"], {
+    cwd: consumerDir
+  });
+  assertIncludes(invalidBrowserTimeout.stderr, "--timeout-ms must be greater than 0", "installed invalid browser timeout output");
   await assertMissingFile(path.join(consumerDir, ".bridge"), "installed consumer bridge before pro ask alias guard");
   const proAskSendAlias = await runExpectFailure(binPath, ["pro", "ask", "--send", "--timeout-ms", "1", "Review this"], {
     cwd: consumerDir

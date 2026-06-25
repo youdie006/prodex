@@ -567,7 +567,7 @@ describe("MCP tool handlers", () => {
     expect(await readFile(path.join(cwd, storedReceipt.metadata.new_content_artifact), "utf8")).toBe("new\n");
   });
 
-  it("rejects oversized result artifacts before returning them through MCP", async () => {
+  it("rejects oversized result artifacts before finalizing tasks", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
     const store = new BridgeStore(cwd);
     const task = await store.createTask({
@@ -577,14 +577,16 @@ describe("MCP tool handlers", () => {
       provenance: { adapter: "cli" }
     });
     const artifactPath = await store.writeArtifactText(".bridge/artifacts/results/large.txt", "x".repeat(100_001));
-    await store.completeTask(task.id, {
-      status: "done",
-      summary: "Large result artifact",
-      artifacts: [{ path: artifactPath, role: "result" }]
-    });
-    const handlers = createMcpToolHandlers({ cwd });
 
-    await expect(handlers.bridge_fetch_result_artifact({ task_id: task.id })).rejects.toThrow(/too large|100000/i);
+    await expect(
+      store.completeTask(task.id, {
+        status: "done",
+        summary: "Large result artifact",
+        artifacts: [{ path: artifactPath, role: "result" }]
+      })
+    ).rejects.toThrow(/too large|100000/i);
+    await expect(store.getTask(task.id)).resolves.toEqual(expect.objectContaining({ status: "new" }));
+    await expect(store.getResult(task.id)).rejects.toThrow();
   });
 
   it("rejects oversized repo write payload artifacts before applying them", async () => {

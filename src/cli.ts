@@ -25,7 +25,7 @@ import { createMcpToolHandlers } from "./mcp-tools.js";
 import { runMcpServer } from "./mcp.js";
 import { readVerifiedUtf8File, writeVerifiedUtf8File } from "./safe-file.js";
 import { ReceiptKindSchema, TaskStatusSchema } from "./schema.js";
-import { BridgeStore, type ListReceiptsInput } from "./store.js";
+import { BridgeStore, MAX_FETCHABLE_RESULT_ARTIFACT_BYTES, type ListReceiptsInput } from "./store.js";
 
 const execFileAsync = promisify(execFile);
 const requirePackageJson = createRequire(import.meta.url);
@@ -90,7 +90,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
     const targetCwd = resolveCwdFlag(io.cwd, rest);
     const config = await writeLocalConfig(targetCwd, {
       host: readFlag(rest, "--host") ?? "127.0.0.1",
-      port: readNumberFlag(rest, "--port") ?? 8787,
+      port: readPortFlag(rest, "--port") ?? 8787,
       token: readFlag(rest, "--token"),
       tokenTtlHours: readNumberFlag(rest, "--token-ttl-hours")
     });
@@ -251,7 +251,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
     if (subcommand === "open") {
       assertOnlyOptions(chatgptArgs, "chatgpt open", ["--port", "--profile-dir", "--url"]);
       const opened = openChatGptBrowser({
-        port: readNumberFlag(chatgptArgs, "--port") ?? 9333,
+        port: readPortFlag(chatgptArgs, "--port") ?? 9333,
         profileDir: readFlag(chatgptArgs, "--profile-dir"),
         url: readChatGptBrowserUrlFlag(chatgptArgs)
       });
@@ -263,16 +263,16 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
     }
     if (subcommand === "status") {
       assertOnlyOptions(chatgptArgs, "chatgpt status", ["--port"]);
-      const status = await getChatGptBrowserStatus({ port: readNumberFlag(chatgptArgs, "--port") ?? 9333 });
+      const status = await getChatGptBrowserStatus({ port: readPortFlag(chatgptArgs, "--port") ?? 9333 });
       io.stdout(JSON.stringify(status, null, 2));
       return 0;
     }
     if (subcommand === "smoke") {
       assertOnlyOptions(chatgptArgs, "chatgpt smoke", ["--port", "--timeout-ms"]);
       const result = await sendChatGptPrompt({
-        port: readNumberFlag(chatgptArgs, "--port") ?? 9333,
+        port: readPortFlag(chatgptArgs, "--port") ?? 9333,
         prompt: "This is a one-time gptprouse smoke test. Reply exactly: GPTPROUSE_PRO_SMOKE_OK",
-        timeoutMs: readNumberFlag(chatgptArgs, "--timeout-ms") ?? 90000
+        timeoutMs: readPositiveNumberFlag(chatgptArgs, "--timeout-ms") ?? 90000
       });
       io.stdout(JSON.stringify(result, null, 2));
       return 0;
@@ -446,12 +446,12 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
           printBrowserLoginGuide(io.stdout, {
             opened: false,
             profileDir: readFlag(browserArgs, "--profile-dir") ?? defaultChatGptProfileDir(),
-            port: readNumberFlag(browserArgs, "--port") ?? 9333
+            port: readPortFlag(browserArgs, "--port") ?? 9333
           });
           return 0;
         }
         const opened = openChatGptBrowser({
-          port: readNumberFlag(browserArgs, "--port") ?? 9333,
+          port: readPortFlag(browserArgs, "--port") ?? 9333,
           profileDir: readFlag(browserArgs, "--profile-dir"),
           url: loginUrl
         });
@@ -476,6 +476,8 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       }
       if (browserSubcommand === "check") {
         assertOnlyOptions(browserArgs, "pro browser check", ["--port", "--timeout-ms"]);
+        readPortFlag(browserArgs, "--port");
+        readPositiveNumberFlag(browserArgs, "--timeout-ms");
         await printProductCheck(store, io, browserArgs);
         return 0;
       }
@@ -567,10 +569,10 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       let consult: Awaited<ReturnType<typeof sendChatGptPrompt>>;
       try {
         consult = await sendChatGptPrompt({
-          port: readNumberFlag(parsedAskPro.optionArgs, "--port") ?? 9333,
+          port: readPortFlag(parsedAskPro.optionArgs, "--port") ?? 9333,
           prompt: bundle.text,
           targetUrl: normalizedTargetUrl,
-          timeoutMs: readNumberFlag(parsedAskPro.optionArgs, "--timeout-ms") ?? 90000
+          timeoutMs: readPositiveNumberFlag(parsedAskPro.optionArgs, "--timeout-ms") ?? 90000
         });
       } catch (error) {
         const message = errorMessage(error);
@@ -604,12 +606,19 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       const answerArtifactText = formatProConsultArtifact(consult);
       const persistenceWarnings = [...consult.warnings];
       let answerArtifactPath: string | undefined;
-      try {
-        answerArtifactPath = await store.writeArtifactText(`.bridge/artifacts/pro-consults/${task.id}.md`, answerArtifactText);
-      } catch (error) {
-        const warning = `answer_artifact_warning: ${errorMessage(error)}`;
+      const answerArtifactBytes = Buffer.byteLength(answerArtifactText, "utf8");
+      if (answerArtifactBytes > MAX_FETCHABLE_RESULT_ARTIFACT_BYTES) {
+        const warning = `answer_artifact_warning: answer artifact is too large for bridge_fetch_result_artifact (${answerArtifactBytes} bytes > ${MAX_FETCHABLE_RESULT_ARTIFACT_BYTES} bytes); saved answer in result summary only`;
         persistenceWarnings.push(warning);
         io.stderr(warning);
+      } else {
+        try {
+          answerArtifactPath = await store.writeArtifactText(`.bridge/artifacts/pro-consults/${task.id}.md`, answerArtifactText);
+        } catch (error) {
+          const warning = `answer_artifact_warning: ${errorMessage(error)}`;
+          persistenceWarnings.push(warning);
+          io.stderr(warning);
+        }
       }
       try {
         await store.writeReceipt({
@@ -1807,8 +1816,8 @@ async function printProductCheck(store: BridgeStore, io: CliIO, args: string[]):
   }
 
   const browserStatus = await getChatGptBrowserStatus({
-    port: readNumberFlag(args, "--port") ?? 9333,
-    timeoutMs: readNumberFlag(args, "--timeout-ms") ?? 1500
+    port: readPortFlag(args, "--port") ?? 9333,
+    timeoutMs: readPositiveNumberFlag(args, "--timeout-ms") ?? 1500
   });
   const visibilityBlocker = chatGptVisibilityBlocker(browserStatus.visibilityState, browserStatus.url);
   if (!browserStatus.reachable) {
@@ -2086,6 +2095,22 @@ function readNumberFlag(args: string[], flag: string): number | undefined {
   if (raw === undefined) return undefined;
   const value = Number(raw);
   if (!Number.isFinite(value)) throw new Error(`${flag} requires a finite number`);
+  return value;
+}
+
+function readPositiveNumberFlag(args: string[], flag: string): number | undefined {
+  const value = readNumberFlag(args, flag);
+  if (value === undefined) return undefined;
+  if (value <= 0) throw new Error(`${flag} must be greater than 0`);
+  return value;
+}
+
+function readPortFlag(args: string[], flag: string): number | undefined {
+  const value = readNumberFlag(args, flag);
+  if (value === undefined) return undefined;
+  if (!Number.isInteger(value) || value < 1 || value > 65535) {
+    throw new Error(`${flag} must be an integer from 1 to 65535`);
+  }
   return value;
 }
 

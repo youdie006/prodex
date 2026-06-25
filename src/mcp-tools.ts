@@ -1,4 +1,4 @@
-import { BridgeStore, type ListReceiptsInput } from "./store.js";
+import { BridgeStore, MAX_FETCHABLE_RESULT_ARTIFACT_BYTES, type ListReceiptsInput } from "./store.js";
 import { readRepoFile, searchRepo } from "./repo.js";
 import { applyRepoWriteDryRun, createRepoWriteDryRun, stageReviewedPaths } from "./repo-write.js";
 import type { BridgeFile, SourceSchema } from "./schema.js";
@@ -7,7 +7,7 @@ import type { z } from "zod";
 type BridgeSource = z.infer<typeof SourceSchema>;
 type McpBridgeFileInput = { path: string; role?: BridgeFile["role"]; bytes?: number };
 
-export const MAX_MCP_BRIDGE_TEXT_BYTES = 100_000;
+export const MAX_MCP_BRIDGE_TEXT_BYTES = MAX_FETCHABLE_RESULT_ARTIFACT_BYTES;
 export const MAX_MCP_SHORT_TEXT_BYTES = 10_000;
 const MAX_MCP_LIST_ITEMS = 100;
 

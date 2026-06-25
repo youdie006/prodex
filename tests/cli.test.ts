@@ -418,6 +418,40 @@ describe("runCli", () => {
     ).rejects.toThrow("--timeout-ms requires a finite number");
   });
 
+  it("rejects out-of-range numeric flags before side effects", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const out: string[] = [];
+
+    await expect(
+      runCli(["setup", "--port", "-1"], {
+        cwd,
+        stdout: (line) => out.push(line),
+        stderr: () => {}
+      })
+    ).rejects.toThrow("--port must be an integer from 1 to 65535");
+    expect(out).toEqual([]);
+
+    await expect(
+      runCli(["pro", "browser", "check", "--port", "-1", "--timeout-ms", "10"], {
+        cwd,
+        stdout: (line) => out.push(line),
+        stderr: () => {}
+      })
+    ).rejects.toThrow("--port must be an integer from 1 to 65535");
+    expect(out).toEqual([]);
+
+    await expect(
+      runCli(["pro", "browser", "check", "--port", "65534", "--timeout-ms", "0"], {
+        cwd,
+        stdout: (line) => out.push(line),
+        stderr: () => {}
+      })
+    ).rejects.toThrow("--timeout-ms must be greater than 0");
+    expect(out).toEqual([]);
+
+    await expect(readdir(path.join(cwd, ".bridge"))).rejects.toThrow();
+  });
+
   it("adds missing build output ignores even when dependencies are already ignored", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
     await writeFile(path.join(cwd, ".gitignore"), "node_modules/\n", "utf8");

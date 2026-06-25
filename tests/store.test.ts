@@ -1,7 +1,8 @@
 import { link, lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { makeBridgeId } from "../src/schema.js";
 import { setSafeFileTestHooks } from "../src/safe-file.js";
 import { BridgeStore, setBridgeStoreTestHooks } from "../src/store.js";
 
@@ -9,6 +10,7 @@ describe("BridgeStore", () => {
   afterEach(() => {
     setSafeFileTestHooks({});
     setBridgeStoreTestHooks({});
+    vi.useRealTimers();
   });
 
   it("creates, claims, completes, and fetches task results", async () => {
@@ -78,6 +80,30 @@ describe("BridgeStore", () => {
     for (const receipt of receipts) {
       await expectMode(path.join(root, ".bridge", "receipts", receipt), 0o600);
     }
+  });
+
+  it("treats unsafe record id path occupants as existing without dereferencing them", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
+    const store = new BridgeStore(root);
+    await store.ensure();
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-25T00:00:00.000Z"));
+    const title = "Predictable record";
+    const firstId = makeBridgeId("task", title);
+    await symlink(path.join(root, "missing-outside-record.json"), path.join(root, ".bridge", "tasks", `${firstId}.json`));
+
+    const task = await store.createTask({
+      source: "codex",
+      title,
+      prompt: "Do not follow unsafe record id occupants.",
+      repo_id: "default",
+      files: [],
+      provenance: { adapter: "cli" }
+    });
+
+    expect(task.id).toBe(`${firstId}-2`);
+    expect((await lstat(path.join(root, ".bridge", "tasks", `${firstId}.json`))).isSymbolicLink()).toBe(true);
+    await expect(store.getTask(task.id)).resolves.toEqual(expect.objectContaining({ id: `${firstId}-2` }));
   });
 
   it("rejects finalizing a task after it is already done or blocked", async () => {

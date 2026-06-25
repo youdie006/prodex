@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { constants, existsSync } from "node:fs";
-import { link, lstat, mkdir, open, readFile, readdir, realpath, rename, rm } from "node:fs/promises";
+import { link, lstat, mkdir, open, readdir, realpath, rename, rm } from "node:fs/promises";
 import type { FileHandle } from "node:fs/promises";
 import path from "node:path";
 import { assertRepoRelativePath } from "./repo.js";
@@ -46,6 +46,7 @@ const RECEIPT_ID_PATTERN = /^receipt_\d{8}_\d{6}_[a-z0-9-]+$/;
 const BRIDGE_DIRECTORY_MODE = 0o700;
 const BRIDGE_FILE_MODE = 0o600;
 const FETCHABLE_RESULT_ARTIFACT_PREFIXES = [".bridge/artifacts/pro-consults/", ".bridge/artifacts/results/"];
+export const MAX_FETCHABLE_RESULT_ARTIFACT_BYTES = 100_000;
 const MAX_BRIDGE_ARTIFACT_READ_BYTES = 1_000_000;
 
 export interface CreateTaskInput {
@@ -303,6 +304,11 @@ export class BridgeStore {
       }
       const content = await this.readArtifactText(artifact.path);
       const bytes = Buffer.byteLength(content, "utf8");
+      if (bytes > MAX_FETCHABLE_RESULT_ARTIFACT_BYTES) {
+        throw new Error(
+          `Result artifact is too large to fetch (${bytes} bytes > ${MAX_FETCHABLE_RESULT_ARTIFACT_BYTES} bytes): ${artifact.path}`
+        );
+      }
       withHashes.push({ ...artifact, bytes, sha256: sha256(content) });
     }
     return withHashes;
@@ -833,7 +839,7 @@ function validateTaskFiles(files: BridgeFile[]): BridgeFile[] {
 
 async function exists(filePath: string): Promise<boolean> {
   try {
-    await readFile(filePath, "utf8");
+    await lstat(filePath);
     return true;
   } catch {
     return false;
