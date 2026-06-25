@@ -71,6 +71,11 @@ try {
     "gptprouse pro browser login [--dry-run] [--source-cli /absolute/path/to/dist/cli.js]",
     "installed help output"
   );
+  assertIncludes(
+    help.stdout,
+    "gptprouse pro browser check|smoke [--source-cli /absolute/path/to/dist/cli.js]",
+    "installed help output"
+  );
   assertIncludes(help.stdout, "gptprouse pro browser help", "installed help output");
   assertIncludes(help.stdout, "gptprouse pro latest", "installed help output");
   assertIncludes(help.stdout, "gptprouse pro list", "installed help output");
@@ -224,7 +229,21 @@ try {
     `${sourcePrefix} pro browser login --source-cli ${installedSourceCli}  # opens visible browser`,
     "installed source onboard output"
   );
-  assertIncludes(sourceOnboard.stdout, `${sourcePrefix} pro browser ask "Review this repo"  # visible-browser send`, "installed source onboard output");
+  assertIncludes(
+    sourceOnboard.stdout,
+    `${sourcePrefix} pro browser check --source-cli ${installedSourceCli}`,
+    "installed source onboard output"
+  );
+  assertIncludes(
+    sourceOnboard.stdout,
+    `${sourcePrefix} pro browser smoke --source-cli ${installedSourceCli}`,
+    "installed source onboard output"
+  );
+  assertIncludes(
+    sourceOnboard.stdout,
+    `${sourcePrefix} pro browser ask --source-cli ${installedSourceCli} "Review this repo"  # visible-browser send`,
+    "installed source onboard output"
+  );
   assertNotIncludes(sourceOnboard.stdout, "gptprouse init --cwd", "installed source onboard output");
   assertNotIncludes(sourceOnboard.stdout, "gptprouse_token=", "installed source onboard output");
   const missingCwd = path.join(consumerDir, "missing-repo");
@@ -350,7 +369,17 @@ try {
   );
   assertIncludes(
     browserHelp.stdout,
-    'gptprouse pro browser ask [--port 9333] [--timeout-ms 90000] [--target-url url --confirm-target] [--file path] "prompt"',
+    "gptprouse pro browser check [--source-cli /absolute/path/to/dist/cli.js]",
+    "installed browser help"
+  );
+  assertIncludes(
+    browserHelp.stdout,
+    "gptprouse pro browser smoke [--source-cli /absolute/path/to/dist/cli.js]",
+    "installed browser help"
+  );
+  assertIncludes(
+    browserHelp.stdout,
+    'gptprouse pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--port 9333] [--timeout-ms 90000] [--target-url url --confirm-target] [--file path] "prompt"',
     "installed browser help"
   );
   const invalidBrowserPort = await runExpectFailure(binPath, ["pro", "browser", "check", "--port", "-1", "--timeout-ms", "10"], {
@@ -414,6 +443,20 @@ try {
   assertIncludes(browserCheck.stdout, "gptprouse product check", "installed pro browser check output");
   assertIncludes(browserCheck.stdout, "chatgpt: browser_unreachable", "installed pro browser check output");
   assertIncludes(browserCheck.stdout, "gptprouse pro browser login", "installed pro browser check output");
+  const sourceBrowserCheck = await runExpectFailure(
+    binPath,
+    ["pro", "browser", "check", "--port", "65534", "--timeout-ms", "10", "--source-cli", installedSourceCli],
+    {
+      cwd: consumerDir,
+      timeout: 60_000
+    }
+  );
+  assertIncludes(
+    sourceBrowserCheck.stdout,
+    `node ${installedSourceCli} pro browser login --source-cli ${installedSourceCli}`,
+    "installed source pro browser check output"
+  );
+  assertNotIncludes(sourceBrowserCheck.stdout, "gptprouse pro browser login", "installed source pro browser check output");
   for (const [alias, replacement] of [
     ["open", "login"],
     ["status", "check"],
@@ -549,6 +592,8 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertIncludes(readme, 'gptprouse pro ask "Review the project positioning"', "installed README");
   assertIncludes(readme, "gptprouse pro browser login --dry-run", "installed README");
   assertIncludes(readme, "pro browser login --dry-run --source-cli", "installed README");
+  assertIncludes(readme, "pro browser check --source-cli", "installed README");
+  assertIncludes(readme, "pro browser smoke --source-cli", "installed README");
   assertIncludes(readme, "gptprouse pro browser help", "installed README");
   assertIncludes(readme, "gptprouse init", "installed README");
   assertIncludes(readme, "CLI-only", "installed README");
