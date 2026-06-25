@@ -653,6 +653,46 @@ describe("runCli", () => {
     }
   });
 
+  it("keeps explicit cwd in untrusted result reseal guidance", async () => {
+    const launcherCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-launcher-"));
+    const targetCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-target-"));
+    const store = new BridgeStore(targetCwd);
+    const task = await store.createTask({
+      source: "codex",
+      title: "Raw result",
+      prompt: "Do not trust this result until finalization is receipted.",
+      repo_id: "default",
+      files: [],
+      provenance: { adapter: "chatgpt-control", warnings: [] }
+    });
+    await writeFile(
+      path.join(targetCwd, ".bridge", "results", `${task.id}.json`),
+      `${JSON.stringify(
+        {
+          schema_version: 1,
+          task_id: task.id,
+          status: "done",
+          summary: "Raw unreceipted answer.",
+          artifacts: [],
+          commands: ["visible ChatGPT browser consult"],
+          warnings: [],
+          created_at: "2099-01-01T00:00:00.000Z"
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+
+    await expect(
+      runCli(["results", "show", task.id, "--cwd", targetCwd], {
+        cwd: launcherCwd,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.toThrow(`gptprouse results reseal ${task.id} --confirm-current-result --cwd ${targetCwd}`);
+  });
+
   it("lists untrusted Pro result metadata without showing raw answer text", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
     const store = new BridgeStore(cwd);
@@ -810,6 +850,52 @@ describe("runCli", () => {
         stderr: () => {}
       })
     ).rejects.toThrow(`gptprouse results reseal ${task.id} --confirm-current-result`);
+  });
+
+  it("prints source-checkout reseal commands for untrusted Pro inspection errors", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const sourceCli = path.join(cwd, "dist", "cli.js");
+    await mkdir(path.dirname(sourceCli), { recursive: true });
+    await writeFile(sourceCli, "#!/usr/bin/env node\n", "utf8");
+    const store = new BridgeStore(cwd);
+    const task = await store.createTask({
+      source: "codex",
+      title: "GPT Pro consult",
+      prompt: "Legacy signed answer.",
+      repo_id: "default",
+      files: [],
+      provenance: { adapter: "chatgpt-control", warnings: [] }
+    });
+    await store.completeTask(task.id, {
+      status: "done",
+      summary: "Legacy signed Pro answer.",
+      commands: ["visible ChatGPT browser consult"]
+    });
+    for (const receipt of await store.listReceipts({ kind: "task_completed", task_id: task.id })) {
+      await store.deleteReceiptIfPresent(receipt.id);
+    }
+    await store.writeReceipt({
+      kind: "task_completed",
+      task_id: task.id,
+      summary: `Legacy completed task ${task.id}`
+    });
+    const out: string[] = [];
+
+    await runCli(["pro", "list", "--source-cli", sourceCli], {
+      cwd,
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    expect(out.join("\n")).toContain(`node ${sourceCli} results reseal ${task.id} --confirm-current-result`);
+    expect(out.join("\n")).not.toContain(`gptprouse results reseal ${task.id}`);
+    await expect(
+      runCli(["pro", "latest", "--source-cli", sourceCli], {
+        cwd,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.toThrow(`node ${sourceCli} results reseal ${task.id} --confirm-current-result`);
   });
 
   it("reseals a locally signed legacy result only after explicit confirmation", async () => {
@@ -4702,6 +4788,9 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
 
   it("reports untrusted legacy Pro results in product checks without aborting the check", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const sourceCli = path.join(cwd, "dist", "cli.js");
+    await mkdir(path.dirname(sourceCli), { recursive: true });
+    await writeFile(sourceCli, "#!/usr/bin/env node\n", "utf8");
     const store = new BridgeStore(cwd);
     const task = await store.createTask({
       source: "codex",
@@ -4730,7 +4819,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     const out: string[] = [];
 
     await expect(
-      runCli(["pro", "browser", "check", "--port", "65534", "--timeout-ms", "10"], {
+      runCli(["pro", "browser", "check", "--port", "65534", "--timeout-ms", "10", "--source-cli", sourceCli], {
         cwd,
         stdout: (line) => out.push(line),
         stderr: () => {}
@@ -4742,6 +4831,8 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     expect(text).toContain("task_completed receipt");
     expect(text).not.toContain("write dry-run");
     expect(text).toContain("Retry the completion path or move the result record aside");
+    expect(text).toContain(`node ${sourceCli} results reseal ${task.id} --confirm-current-result`);
+    expect(text).not.toContain(`gptprouse results reseal ${task.id}`);
     expect(text).not.toContain("bridge.. Retry");
     expect(text).toContain("chatgpt:");
   });

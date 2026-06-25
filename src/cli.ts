@@ -587,19 +587,31 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       if (printHelpIfRequested(resultArgs, "results show", io.stdout, printResultsHelp, { valueFlags: ["--cwd"], maxPositionals: 1 })) return 0;
       const [taskId] = readPositionalsWithOptions(resultArgs, "results show", 1, ["--cwd"]);
       if (!taskId) throw new Error("results show requires <task-id|latest>");
-      const targetStore = new BridgeStore(resolveCwdFlag(io.cwd, resultArgs));
-      const resolvedTaskId = taskId === "latest" ? await latestResultTaskId(targetStore, { readOnly: true }) : taskId;
-      io.stdout(JSON.stringify(await targetStore.getFinalizedResultReadOnly(resolvedTaskId), null, 2));
+      const targetCwd = resolveCwdFlag(io.cwd, resultArgs);
+      const targetStore = new BridgeStore(targetCwd);
+      const resultOptions = { cwd: readFlag(resultArgs, "--cwd") ? targetCwd : undefined };
+      try {
+        const resolvedTaskId = taskId === "latest" ? await latestResultTaskId(targetStore, { readOnly: true }) : taskId;
+        io.stdout(JSON.stringify(await targetStore.getFinalizedResultReadOnly(resolvedTaskId), null, 2));
+      } catch (error) {
+        throw sourceAwareResultError(error, undefined, resultOptions);
+      }
       return 0;
     }
     if (subcommand === "artifact") {
       if (printHelpIfRequested(resultArgs, "results artifact", io.stdout, printResultsHelp, { valueFlags: ["--cwd"], maxPositionals: 2 })) return 0;
       const [taskId, artifactPath] = readPositionalsWithOptions(resultArgs, "results artifact", 2, ["--cwd"]);
       if (!taskId) throw new Error("results artifact requires <task-id> [artifact-path]");
-      const targetStore = new BridgeStore(resolveCwdFlag(io.cwd, resultArgs));
-      const resolvedTaskId = taskId === "latest" ? await latestResultTaskId(targetStore, { readOnly: true }) : taskId;
-      const artifact = await targetStore.readFinalizedResultArtifactText(resolvedTaskId, artifactPath);
-      io.stdout(artifact.content);
+      const targetCwd = resolveCwdFlag(io.cwd, resultArgs);
+      const targetStore = new BridgeStore(targetCwd);
+      const resultOptions = { cwd: readFlag(resultArgs, "--cwd") ? targetCwd : undefined };
+      try {
+        const resolvedTaskId = taskId === "latest" ? await latestResultTaskId(targetStore, { readOnly: true }) : taskId;
+        const artifact = await targetStore.readFinalizedResultArtifactText(resolvedTaskId, artifactPath);
+        io.stdout(artifact.content);
+      } catch (error) {
+        throw sourceAwareResultError(error, undefined, resultOptions);
+      }
       return 0;
     }
     if (subcommand === "reseal") {
@@ -820,7 +832,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       const consults = await listConsultListEntries(targetStore);
       for (const entry of consults) {
         if (entry.kind === "untrusted") {
-          io.stdout(`${entry.task.id}\tuntrusted\t${errorMessage(entry.error)}`);
+          io.stdout(`${entry.task.id}\tuntrusted\t${sourceAwareResultMessage(errorMessage(entry.error), sourceCli, answerOptions)}`);
         } else {
           io.stdout(`${entry.consult.task.id}\t${entry.consult.result.status}\t${formatProListSummary(entry.consult, sourceCli, answerOptions)}`);
         }
@@ -834,7 +846,12 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       const targetStore = new BridgeStore(targetCwd);
       const sourceCli = resolveOptionalFileFlag(io.cwd, proArgs, "--source-cli");
       const answerOptions = { cwd: readFlag(proArgs, "--cwd") ? targetCwd : undefined };
-      const consult = await latestTrustedConsult(targetStore);
+      let consult: Awaited<ReturnType<typeof latestTrustedConsult>>;
+      try {
+        consult = await latestTrustedConsult(targetStore);
+      } catch (error) {
+        throw sourceAwareResultError(error, sourceCli, answerOptions);
+      }
       if (!consult) throw new Error("No GPT Pro answers found");
       io.stdout(formatProAnswer(consult, sourceCli, answerOptions));
       return 0;
@@ -847,8 +864,12 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       const targetStore = new BridgeStore(targetCwd);
       const sourceCli = resolveOptionalFileFlag(io.cwd, proArgs, "--source-cli");
       const answerOptions = { cwd: readFlag(proArgs, "--cwd") ? targetCwd : undefined };
-      const consult =
-        taskId === "latest" ? await latestTrustedConsult(targetStore) : await getConsult(targetStore, taskId, { readOnly: true });
+      let consult: Awaited<ReturnType<typeof getConsult>>;
+      try {
+        consult = taskId === "latest" ? await latestTrustedConsult(targetStore) : await getConsult(targetStore, taskId, { readOnly: true });
+      } catch (error) {
+        throw sourceAwareResultError(error, sourceCli, answerOptions);
+      }
       if (!consult) throw new Error(taskId === "latest" ? "No GPT Pro answers found" : `GPT Pro answer not found: ${taskId}`);
       io.stdout(formatProAnswer(consult, sourceCli, answerOptions));
       return 0;
@@ -1678,6 +1699,28 @@ function formatProLatestCommand(sourceCli?: string, options: { cwd?: string } = 
   return [`${formatCliCommand(sourceCli)} pro latest${formatSourceCliOption(sourceCli)}`, options.cwd ? `--cwd ${shellQuote(options.cwd)}` : undefined]
     .filter(Boolean)
     .join(" ");
+}
+
+function formatResultResealCommand(taskId: string, sourceCli?: string, options: { cwd?: string } = {}): string {
+  return [
+    `${formatCliCommand(sourceCli)} results reseal ${shellQuote(taskId)} --confirm-current-result`,
+    options.cwd ? `--cwd ${shellQuote(options.cwd)}` : undefined
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+function sourceAwareResultMessage(message: string, sourceCli?: string, options: { cwd?: string } = {}): string {
+  if (!sourceCli && !options.cwd) return message;
+  return message.replace(
+    /`gptprouse results reseal ([^`\s]+) --confirm-current-result`/g,
+    (_match, taskId: string) => `\`${formatResultResealCommand(taskId, sourceCli, options)}\``
+  );
+}
+
+function sourceAwareResultError(error: unknown, sourceCli?: string, options: { cwd?: string } = {}): unknown {
+  if (!isUntrustedResultError(error)) return error;
+  return new Error(sourceAwareResultMessage(errorMessage(error), sourceCli, options), { cause: error });
 }
 
 function formatBlockedConsultRecordedMessage(message: string, taskId: string, sourceCli?: string, options: { cwd?: string } = {}): string {
@@ -2912,7 +2955,7 @@ async function printProductCheck(store: BridgeStore, io: CliIO, args: string[], 
       }
     } catch (error) {
       if (isUntrustedResultError(error)) {
-        io.stdout(`latest_pro: untrusted ${error.taskId} ${errorMessage(error)}`);
+        io.stdout(`latest_pro: untrusted ${error.taskId} ${sourceAwareResultMessage(errorMessage(error), sourceCli, browserCommandOptions)}`);
       } else {
         io.stdout(`latest_pro: unavailable ${firstLine(errorMessage(error))}`);
       }
