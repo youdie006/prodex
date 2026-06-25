@@ -434,6 +434,41 @@ describe("runCli", () => {
     expect(artifactOut.join("\n")).toBe("gptprouse MCP verification artifact");
   });
 
+  it("completes tasks in an explicit cwd from a launcher directory", async () => {
+    const launcherCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-launcher-"));
+    const targetCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-target-"));
+    const createOut: string[] = [];
+    await runCli(["tasks", "create", "--title", "Target task", "--prompt", "Complete in target"], {
+      cwd: targetCwd,
+      stdout: (line) => createOut.push(line),
+      stderr: () => {}
+    });
+    const taskId = createOut[0].split("\t")[0];
+    const completeOut: string[] = [];
+
+    await runCli(["tasks", "complete", taskId, "--cwd", targetCwd, "--summary", "Completed from launcher."], {
+      cwd: launcherCwd,
+      stdout: (line) => completeOut.push(line),
+      stderr: () => {}
+    });
+    const resultOut: string[] = [];
+    await runCli(["results", "show", taskId, "--cwd", targetCwd], {
+      cwd: launcherCwd,
+      stdout: (line) => resultOut.push(line),
+      stderr: () => {}
+    });
+
+    expect(completeOut.join("\n")).toContain(`${taskId}\tdone\tCompleted from launcher.`);
+    expect(JSON.parse(resultOut.join("\n"))).toEqual(expect.objectContaining({ task_id: taskId, summary: "Completed from launcher." }));
+    await expect(
+      runCli(["results", "show", taskId], {
+        cwd: launcherCwd,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.toThrow(`Result not found: ${taskId}`);
+  });
+
   it("lists available result artifact paths when CLI artifact fetch omits a path for multiple artifacts", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
     const createOut: string[] = [];
@@ -2153,10 +2188,16 @@ describe("runCli", () => {
     const text = out.join("\n");
     expect(text).toContain('gptprouse pro ask [--dry-run] [--file path] "prompt"  # dry-run preview');
     expect(text).toContain(
-      "gptprouse pro browser login [--dry-run] [--source-cli /absolute/path/to/dist/cli.js] [--launch-timeout-ms 5000]  # preview/open visible browser login"
+      "gptprouse pro browser login [--dry-run] [--source-cli /absolute/path/to/dist/cli.js] [--profile-dir path] [--port 9333] [--url https://chatgpt.com/...] [--launch-timeout-ms 5000]  # preview/open visible browser login"
     );
     expect(text).toContain(
-      'gptprouse pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--target-url url --confirm-target] [--file path] "prompt"  # explicit visible-browser send'
+      "gptprouse pro browser check [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 1500]"
+    );
+    expect(text).toContain(
+      "gptprouse pro browser smoke [--source-cli /absolute/path/to/dist/cli.js] [--port 9333] [--timeout-ms 30000]"
+    );
+    expect(text).toContain(
+      'gptprouse pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--port 9333] [--timeout-ms 90000] [--target-url url --confirm-target] [--file path] "prompt"  # explicit visible-browser send'
     );
     expect(text).toContain("gptprouse pro latest [--source-cli /absolute/path/to/dist/cli.js]");
     expect(text).toContain("gptprouse pro list [--source-cli /absolute/path/to/dist/cli.js]");
@@ -2353,7 +2394,7 @@ describe("runCli", () => {
       { args: ["tasks", "claim", "--help"], expected: "gptprouse tasks claim <task-id> [--by codex]" },
       {
         args: ["tasks", "complete", "--help"],
-        expected: 'gptprouse tasks complete <task-id> --summary "Summary" [--command "npm test"] [--artifact .bridge/artifacts/results/name.md=text]'
+        expected: 'gptprouse tasks complete <task-id> [--cwd /absolute/path/to/repo] --summary "Summary" [--command "npm test"] [--artifact .bridge/artifacts/results/name.md=text]'
       },
       {
         args: ["tasks", "block", "--help"],
@@ -2613,11 +2654,12 @@ describe("runCli", () => {
     expect(text).toContain("bridge_fetch_result");
     expect(text).toContain("bridge_fetch_result_artifact");
     expect(text).toContain(
-      'gptprouse tasks complete <task-id> --summary "gptprouse MCP verification result" --artifact .bridge/artifacts/results/mcp-verification.md="gptprouse MCP verification artifact"'
+      `gptprouse tasks complete <task-id> --cwd ${targetCwd} --summary "gptprouse MCP verification result" --artifact .bridge/artifacts/results/mcp-verification.md="gptprouse MCP verification artifact"`
     );
     expect(text).toContain("local completion done");
     expect(text).toContain(`cd ${targetCwd}`);
-    expect(text).toContain("gptprouse tasks list --status new");
+    expect(text).toContain(`gptprouse tasks list --status new --cwd ${targetCwd}`);
+    expect(text).toContain(`gptprouse tasks show <task-id> --cwd ${targetCwd}`);
     expect(text).toContain(`gptprouse status --cwd ${targetCwd}`);
     expect(text).toContain(`gptprouse doctor --cwd ${targetCwd}`);
     expect(text).toContain(targetCwd);
@@ -2639,10 +2681,10 @@ describe("runCli", () => {
     });
 
     const text = out.join("\n");
-    expect(text).toContain(`node ${sourceCli} tasks list --status new`);
-    expect(text).toContain(`node ${sourceCli} tasks show <task-id>`);
+    expect(text).toContain(`node ${sourceCli} tasks list --status new --cwd ${targetCwd}`);
+    expect(text).toContain(`node ${sourceCli} tasks show <task-id> --cwd ${targetCwd}`);
     expect(text).toContain(
-      `node ${sourceCli} tasks complete <task-id> --summary "gptprouse MCP verification result" --artifact .bridge/artifacts/results/mcp-verification.md="gptprouse MCP verification artifact"`
+      `node ${sourceCli} tasks complete <task-id> --cwd ${targetCwd} --summary "gptprouse MCP verification result" --artifact .bridge/artifacts/results/mcp-verification.md="gptprouse MCP verification artifact"`
     );
     expect(text).toContain("bridge_fetch_result_artifact");
     expect(text).toContain(`node ${sourceCli} status --cwd ${targetCwd}`);
@@ -2683,9 +2725,10 @@ describe("runCli", () => {
     expect(text).toContain("bridge_fetch_result");
     expect(text).toContain("bridge_fetch_result_artifact");
     expect(text).toContain(`cd ${targetCwd}`);
-    expect(text).toContain("gptprouse tasks list --status new");
+    expect(text).toContain(`gptprouse tasks list --status new --cwd ${targetCwd}`);
+    expect(text).toContain(`gptprouse tasks show <task-id> --cwd ${targetCwd}`);
     expect(text).toContain(
-      'gptprouse tasks complete <task-id> --summary "gptprouse Claude MCP verification result" --artifact .bridge/artifacts/results/claude-verification.md="gptprouse Claude MCP verification artifact"'
+      `gptprouse tasks complete <task-id> --cwd ${targetCwd} --summary "gptprouse Claude MCP verification result" --artifact .bridge/artifacts/results/claude-verification.md="gptprouse Claude MCP verification artifact"`
     );
     expect(text).toContain("local completion done");
     expect(text).toContain(`gptprouse doctor --cwd ${targetCwd}`);
@@ -2709,10 +2752,10 @@ describe("runCli", () => {
     });
 
     const text = out.join("\n");
-    expect(text).toContain(`node ${sourceCli} tasks list --status new`);
-    expect(text).toContain(`node ${sourceCli} tasks show <task-id>`);
+    expect(text).toContain(`node ${sourceCli} tasks list --status new --cwd ${targetCwd}`);
+    expect(text).toContain(`node ${sourceCli} tasks show <task-id> --cwd ${targetCwd}`);
     expect(text).toContain(
-      `node ${sourceCli} tasks complete <task-id> --summary "gptprouse Claude MCP verification result" --artifact .bridge/artifacts/results/claude-verification.md="gptprouse Claude MCP verification artifact"`
+      `node ${sourceCli} tasks complete <task-id> --cwd ${targetCwd} --summary "gptprouse Claude MCP verification result" --artifact .bridge/artifacts/results/claude-verification.md="gptprouse Claude MCP verification artifact"`
     );
     expect(text).toContain("bridge_fetch_result_artifact");
     expect(text).toContain(`node ${sourceCli} doctor --cwd ${targetCwd}`);
@@ -2754,17 +2797,17 @@ describe("runCli", () => {
     const quotedTarget = `'${targetCwd}'`;
     const projectText = projectOut.join("\n");
     expect(projectText).toContain(`cd ${quotedTarget}`);
-    expect(projectText).toContain(`node ${quotedSource} tasks list --status new`);
-    expect(projectText).toContain(`node ${quotedSource} tasks show <task-id>`);
+    expect(projectText).toContain(`node ${quotedSource} tasks list --status new --cwd ${quotedTarget}`);
+    expect(projectText).toContain(`node ${quotedSource} tasks show <task-id> --cwd ${quotedTarget}`);
     expect(projectText).toContain(
-      `node ${quotedSource} tasks complete <task-id> --summary "gptprouse MCP verification result" --artifact .bridge/artifacts/results/mcp-verification.md="gptprouse MCP verification artifact"`
+      `node ${quotedSource} tasks complete <task-id> --cwd ${quotedTarget} --summary "gptprouse MCP verification result" --artifact .bridge/artifacts/results/mcp-verification.md="gptprouse MCP verification artifact"`
     );
 
     const claudeText = claudeOut.join("\n");
-    expect(claudeText).toContain(`node ${quotedSource} tasks list --status new`);
-    expect(claudeText).toContain(`node ${quotedSource} tasks show <task-id>`);
+    expect(claudeText).toContain(`node ${quotedSource} tasks list --status new --cwd ${quotedTarget}`);
+    expect(claudeText).toContain(`node ${quotedSource} tasks show <task-id> --cwd ${quotedTarget}`);
     expect(claudeText).toContain(
-      `node ${quotedSource} tasks complete <task-id> --summary "gptprouse Claude MCP verification result" --artifact .bridge/artifacts/results/claude-verification.md="gptprouse Claude MCP verification artifact"`
+      `node ${quotedSource} tasks complete <task-id> --cwd ${quotedTarget} --summary "gptprouse Claude MCP verification result" --artifact .bridge/artifacts/results/claude-verification.md="gptprouse Claude MCP verification artifact"`
     );
 
     const onboardText = onboardOut.join("\n");

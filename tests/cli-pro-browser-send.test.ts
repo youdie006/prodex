@@ -457,7 +457,7 @@ describe("pro browser ask persistence", () => {
     } catch (error) {
       thrown = error as Error;
     }
-    expect(thrown?.message).toMatch(/node .*pro browser login --source-cli/);
+    expect(thrown?.message).toContain(`cd ${cwd} && node ${sourceCli} pro browser login --source-cli ${sourceCli}`);
     expect(thrown?.message).toContain(`blocked consult recorded:`);
     expect(thrown?.message).toContain(`node ${sourceCli} pro show`);
     expect(thrown?.message).toContain(`--source-cli ${sourceCli} --cwd ${cwd}`);
@@ -472,7 +472,7 @@ describe("pro browser ask persistence", () => {
 
     const text = out.join("\n");
     expect(text).toContain("status: blocked");
-    expect(text).toContain(`- next_step: Run \`node ${sourceCli} pro browser login --source-cli ${sourceCli}\`, log in, then retry.`);
+    expect(text).toContain(`- next_step: Run \`cd ${cwd} && node ${sourceCli} pro browser login --source-cli ${sourceCli}\`, log in, then retry.`);
     expect(text).not.toContain("gptprouse pro browser login");
   });
 
@@ -506,7 +506,7 @@ describe("pro browser ask persistence", () => {
 
     const text = out.join("\n");
     expect(text).toContain(
-      `- next_step: Close extra ChatGPT windows, leave only the intended tab visible, or run \`node ${sourceCli} pro browser ask --source-cli ${sourceCli} --target-url <chatgpt-url> --confirm-target "prompt"\`.`
+      `- next_step: Close extra ChatGPT windows, leave only the intended tab visible, or run \`cd ${cwd} && gptprouse pro browser ask --target-url <chatgpt-url> --confirm-target "prompt"\`.`
     );
     expect(text).not.toContain("pass --target-url with --confirm-target");
   });
@@ -553,7 +553,7 @@ describe("pro browser ask persistence", () => {
       } catch (error) {
         thrown = error as Error;
       }
-      const command = `node ${sourceCli} pro browser ask --source-cli ${sourceCli} --target-url ${scenario.targetUrl} --confirm-target "prompt"`;
+      const command = `cd ${cwd} && node ${sourceCli} pro browser ask --source-cli ${sourceCli} --target-url ${scenario.targetUrl} --confirm-target "prompt"`;
       const expected = scenario.expected.replace("SOURCE_COMMAND", command);
       expect(thrown?.message).toContain(expected);
 

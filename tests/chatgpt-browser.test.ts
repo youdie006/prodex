@@ -161,6 +161,7 @@ describe("ChatGPT browser adapter", () => {
     expect(detectChatGptBlocker("Just a moment... Checking if the site connection is secure", [])?.code).toBe("cloudflare_check");
     expect(detectChatGptBlocker("Please solve this captcha to continue", [])?.code).toBe("captcha_required");
     expect(detectChatGptBlocker("You've reached the GPT-5 message limit. Try again later.", [])?.code).toBe("usage_limit");
+    expect(detectChatGptBlocker("Model limit reached for GPT-5.", [])?.code).toBe("usage_limit");
     expect(detectChatGptBlocker("Additional verification required", ["Continue"])?.code).toBe("permission_required");
   });
 

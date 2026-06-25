@@ -447,7 +447,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
         });
       } catch (error) {
         const blocker = sourceAwareBrowserBlocker(browserSendBlockerFromError(error), sourceCli);
-        const message = sourceCli && blocker.next_step ? `${blocker.message} Next: ${blocker.next_step}` : errorMessage(error);
+        const message = blocker.next_step ? `${blocker.message} Next: ${blocker.next_step}` : errorMessage(error);
         try {
           await recordBlockedSmoke(message, blocker);
         } catch (recordError) {
@@ -531,16 +531,24 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       return 0;
     }
     if (subcommand === "complete") {
-      if (printHelpIfRequested(taskArgs, "tasks complete", io.stdout, printTasksHelp, { valueFlags: ["--summary", "--command", "--artifact"], maxPositionals: 1 })) return 0;
-      const taskId = readRequiredLeadingArgument(taskArgs, "tasks complete", "<task-id>");
-      assertOnlyOptions(taskArgs.slice(1), "tasks complete", ["--summary", "--command", "--artifact"]);
+      if (
+        printHelpIfRequested(taskArgs, "tasks complete", io.stdout, printTasksHelp, {
+          valueFlags: ["--cwd", "--summary", "--command", "--artifact"],
+          maxPositionals: 1
+        })
+      ) {
+        return 0;
+      }
+      const [taskId] = readPositionalsWithOptions(taskArgs, "tasks complete", 1, ["--cwd", "--summary", "--command", "--artifact"]);
+      if (!taskId) throw new Error("tasks complete requires <task-id> --summary");
       const summary = readFlag(taskArgs, "--summary");
       if (!summary) throw new Error("tasks complete requires <task-id> --summary");
-      const result = await store.completeTask(taskId, {
+      const targetStore = new BridgeStore(resolveCwdFlag(io.cwd, taskArgs));
+      const result = await targetStore.completeTask(taskId, {
         status: "done",
         summary,
         commands: readRepeatedFlag(taskArgs, "--command"),
-        artifacts: await writeTaskCompleteArtifacts(store, readRepeatedFlag(taskArgs, "--artifact"))
+        artifacts: await writeTaskCompleteArtifacts(targetStore, readRepeatedFlag(taskArgs, "--artifact"))
       });
       io.stdout(`${result.task_id}\t${result.status}\t${result.summary}`);
       return 0;
@@ -966,9 +974,10 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
         });
       } catch (error) {
         const blocker = sourceAwareBrowserBlocker(browserSendBlockerFromError(error), sourceCli, {
+          cwd: io.cwd,
           port: parsedAskPro.optionArgs.includes("--port") ? browserPort : undefined
         });
-        const message = sourceCli && blocker.next_step ? `${blocker.message} Next: ${blocker.next_step}` : errorMessage(error);
+        const message = blocker.next_step ? `${blocker.message} Next: ${blocker.next_step}` : errorMessage(error);
         try {
           await store.completeTask(task.id, {
             status: "blocked",
@@ -1123,11 +1132,11 @@ Commands:
   gptprouse claude prompt [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]
   gptprouse claude config [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]
   gptprouse pro ask [--dry-run] [--file path] "prompt"  # dry-run preview
-  gptprouse pro browser login [--dry-run] [--source-cli /absolute/path/to/dist/cli.js] [--launch-timeout-ms 5000]  # preview/open visible browser login
+  gptprouse pro browser login [--dry-run] [--source-cli /absolute/path/to/dist/cli.js] [--profile-dir path] [--port 9333] [--url https://chatgpt.com/...] [--launch-timeout-ms 5000]  # preview/open visible browser login
   gptprouse pro browser help [--source-cli /absolute/path/to/dist/cli.js]
-  gptprouse pro browser check [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]
-  gptprouse pro browser smoke [--source-cli /absolute/path/to/dist/cli.js]
-  gptprouse pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--target-url url --confirm-target] [--file path] "prompt"  # explicit visible-browser send
+  gptprouse pro browser check [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 1500]
+  gptprouse pro browser smoke [--source-cli /absolute/path/to/dist/cli.js] [--port 9333] [--timeout-ms 30000]
+  gptprouse pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--port 9333] [--timeout-ms 90000] [--target-url url --confirm-target] [--file path] "prompt"  # explicit visible-browser send
   gptprouse pro latest [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]
   gptprouse pro list [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]
   gptprouse pro show <task-id|latest> [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]
@@ -1135,7 +1144,7 @@ Commands:
   gptprouse tasks list [--status new|claimed|done|blocked] [--cwd /absolute/path/to/repo]
   gptprouse tasks show <task-id|latest> [--cwd /absolute/path/to/repo]
   gptprouse tasks claim <task-id> [--by codex]
-  gptprouse tasks complete <task-id> --summary "Summary" [--command "npm test"] [--artifact .bridge/artifacts/results/name.md=text]
+  gptprouse tasks complete <task-id> [--cwd /absolute/path/to/repo] --summary "Summary" [--command "npm test"] [--artifact .bridge/artifacts/results/name.md=text]
   gptprouse tasks block <task-id> --summary "Summary" [--code code] [--next-step "Next step"] [--retryable]
   gptprouse results show <task-id|latest> [--cwd /absolute/path/to/repo]
   gptprouse results artifact <task-id|latest> [artifact-path] [--cwd /absolute/path/to/repo]
@@ -1283,7 +1292,7 @@ Commands:
   gptprouse tasks list [--status new|claimed|done|blocked] [--cwd /absolute/path/to/repo]
   gptprouse tasks show <task-id|latest> [--cwd /absolute/path/to/repo]
   gptprouse tasks claim <task-id> [--by codex]
-  gptprouse tasks complete <task-id> --summary "Summary" [--command "npm test"] [--artifact .bridge/artifacts/results/name.md=text]
+  gptprouse tasks complete <task-id> [--cwd /absolute/path/to/repo] --summary "Summary" [--command "npm test"] [--artifact .bridge/artifacts/results/name.md=text]
   gptprouse tasks block <task-id> --summary "Summary" [--code code] [--next-step "Next step"] [--retryable]`);
 }
 
@@ -1481,9 +1490,9 @@ Please verify the gptprouse MCP bridge for this private project:
 Local follow-up after ChatGPT replies:
 
 cd ${quotedCwd}
-${cli} tasks list --status new
-${cli} tasks show <task-id>
-${cli} tasks complete <task-id> --summary "gptprouse MCP verification result" --artifact .bridge/artifacts/results/mcp-verification.md="gptprouse MCP verification artifact"
+${cli} tasks list --status new --cwd ${quotedCwd}
+${cli} tasks show <task-id> --cwd ${quotedCwd}
+${cli} tasks complete <task-id> --cwd ${quotedCwd} --summary "gptprouse MCP verification result" --artifact .bridge/artifacts/results/mcp-verification.md="gptprouse MCP verification artifact"
 
 Then reply to ChatGPT with:
 
@@ -1592,9 +1601,9 @@ Please verify the gptprouse MCP bridge for this private repo:
 Local follow-up after Claude replies:
 
 cd ${quotedCwd}
-${cli} tasks list --status new
-${cli} tasks show <task-id>
-${cli} tasks complete <task-id> --summary "gptprouse Claude MCP verification result" --artifact .bridge/artifacts/results/claude-verification.md="gptprouse Claude MCP verification artifact"
+${cli} tasks list --status new --cwd ${quotedCwd}
+${cli} tasks show <task-id> --cwd ${quotedCwd}
+${cli} tasks complete <task-id> --cwd ${quotedCwd} --summary "gptprouse Claude MCP verification result" --artifact .bridge/artifacts/results/claude-verification.md="gptprouse Claude MCP verification artifact"
 
 Then reply to Claude with:
 
@@ -1650,7 +1659,7 @@ type BrowserCommandOptions = {
 };
 
 function formatBrowserLoginCommand(sourceCli?: string, options: BrowserCommandOptions = {}): string {
-  return [
+  const command = [
     `${formatCliCommand(sourceCli)} pro browser login${formatSourceCliOption(sourceCli)}`,
     options.profileDir ? `--profile-dir ${shellQuote(options.profileDir)}` : undefined,
     options.port ? `--port ${options.port}` : undefined,
@@ -1659,6 +1668,7 @@ function formatBrowserLoginCommand(sourceCli?: string, options: BrowserCommandOp
   ]
     .filter(Boolean)
     .join(" ");
+  return formatCommandInCwd(command, options.cwd);
 }
 
 function formatBrowserSmokeCommand(sourceCli?: string, options: BrowserCommandOptions = {}): string {
@@ -1669,9 +1679,10 @@ function formatBrowserSmokeCommand(sourceCli?: string, options: BrowserCommandOp
 }
 
 function formatBrowserCheckCommand(sourceCli?: string, options: BrowserCommandOptions = {}): string {
-  return [`${formatCliCommand(sourceCli)} pro browser check${formatSourceCliOption(sourceCli)}`, options.port ? `--port ${options.port}` : undefined]
+  const command = [`${formatCliCommand(sourceCli)} pro browser check${formatSourceCliOption(sourceCli)}`, options.port ? `--port ${options.port}` : undefined]
     .filter(Boolean)
     .join(" ");
+  return formatCommandInCwd(command, options.cwd);
 }
 
 function formatBrowserTargetAskCommand(sourceCli?: string, options: BrowserCommandOptions = {}): string {
@@ -1771,7 +1782,7 @@ function productCheckBrowserNextStep(nextStep: string | undefined, sourceCli?: s
   if (sourceAware.includes("pass --target-url with --confirm-target")) {
     return sourceAware.replace("pass --target-url with --confirm-target", `run \`${formatBrowserTargetAskCommand(sourceCli, options)}\``);
   }
-  return sourceAware.replace(/then retry\.$/, `then run \`${formatBrowserSmokeCommand(sourceCli, options)}\`.`);
+  return sourceAware.replace(/(?:and|then) retry\.$/, `then run \`${formatBrowserSmokeCommand(sourceCli, options)}\`.`);
 }
 
 function sourceAwareBrowserBlocker<T extends { next_step?: string }>(blocker: T, sourceCli?: string, options: BrowserCommandOptions = {}): T {
@@ -2940,7 +2951,8 @@ async function printProductCheck(store: BridgeStore, io: CliIO, args: string[], 
     chatgptReady = true;
   } else {
     io.stdout(`chatgpt: blocked logged_in=${browserStatus.loggedInLikely} composer=${browserStatus.hasComposer}`);
-    io.stdout(`next: ${browserReadinessNextStep(browserStatus)}`);
+    const nextStep = productCheckBrowserNextStep(browserReadinessNextStep(browserStatus), sourceCli, browserCommandOptions);
+    io.stdout(`next: ${nextStep}`);
   }
   const modelHints = formatBrowserModelHints(browserStatus.modelHints);
   if (modelHints) io.stdout(`model_hints: ${modelHints}`);

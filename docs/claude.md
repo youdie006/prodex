@@ -122,9 +122,9 @@ node dist/cli.js claude prompt --cwd /absolute/path/to/your/repo --source-cli /a
 Paste the generated prompt into Claude. It asks Claude to use `bridge_create_task`, `bridge_list_tasks`, and `bridge_get_task`, then wait while you complete the verification task locally with a result artifact:
 
 ```bash
-gptprouse tasks list --status new
-gptprouse tasks show <task-id>
-gptprouse tasks complete <task-id> --summary "gptprouse Claude MCP verification result" --artifact .bridge/artifacts/results/claude-verification.md="gptprouse Claude MCP verification artifact"
+gptprouse tasks list --status new --cwd /absolute/path/to/your/repo
+gptprouse tasks show <task-id> --cwd /absolute/path/to/your/repo
+gptprouse tasks complete <task-id> --cwd /absolute/path/to/your/repo --summary "gptprouse Claude MCP verification result" --artifact .bridge/artifacts/results/claude-verification.md="gptprouse Claude MCP verification artifact"
 ```
 
 Then reply to Claude with `local completion done`. The generated prompt asks Claude to call `bridge_fetch_result` for the same task id, call `bridge_fetch_result_artifact` for every listed result artifact path, and report whether it can read both the verification result summary and artifact content. It also includes local `claude config --cwd ...` and `doctor --cwd ...` troubleshooting commands in case Claude cannot see or call the MCP tools. Source-checkout prompts keep `--source-cli` on those troubleshooting commands too.

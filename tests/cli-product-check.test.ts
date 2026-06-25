@@ -240,6 +240,29 @@ describe("browser product check", () => {
     expect(text).toContain("select the Pro/Thinking model");
   });
 
+  it("prints a source-checkout retry command when ChatGPT is reachable but not ready", async () => {
+    const targetCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-product-check-target-"));
+    const sourceCli = path.join(targetCwd, "dist", "cli.js");
+    await mkdir(path.dirname(sourceCli), { recursive: true });
+    await writeFile(sourceCli, "#!/usr/bin/env node\n", "utf8");
+    browserStatusFixture.status = {
+      reachable: true,
+      loggedInLikely: true,
+      hasComposer: false,
+      visibilityState: "visible",
+      url: "https://chatgpt.com/",
+      title: "ChatGPT",
+      modelHints: ["ChatGPT", "Auto"]
+    };
+
+    const { text } = await runBrowserCheckResultWithArgs(["--cwd", targetCwd, "--source-cli", sourceCli, "--port", "12345"]);
+
+    expect(text).toContain("chatgpt: blocked logged_in=true composer=false");
+    expect(text).toContain(
+      `next: Open a normal ChatGPT chat or Project thread, select the Pro/Thinking model, then run \`cd ${targetCwd} && node ${sourceCli} pro browser smoke --source-cli ${sourceCli} --port 12345\`.`
+    );
+  });
+
   it("reports unrecoverable latest Pro inspection errors without aborting browser health checks", async () => {
     const targetCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-product-check-target-"));
     const store = new BridgeStore(targetCwd);

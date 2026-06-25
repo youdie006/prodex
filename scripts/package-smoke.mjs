@@ -92,15 +92,24 @@ try {
   assertIncludes(help.stdout, "gptprouse pro ask [--dry-run] [--file path]", "installed help output");
   assertIncludes(
     help.stdout,
-    "gptprouse pro browser login [--dry-run] [--source-cli /absolute/path/to/dist/cli.js]",
+    "gptprouse pro browser login [--dry-run] [--source-cli /absolute/path/to/dist/cli.js] [--profile-dir path] [--port 9333] [--url https://chatgpt.com/...] [--launch-timeout-ms 5000]",
     "installed help output"
   );
   assertIncludes(
     help.stdout,
-    "gptprouse pro browser check [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]",
+    "gptprouse pro browser check [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 1500]",
     "installed help output"
   );
-  assertIncludes(help.stdout, "gptprouse pro browser smoke [--source-cli /absolute/path/to/dist/cli.js]", "installed help output");
+  assertIncludes(
+    help.stdout,
+    "gptprouse pro browser smoke [--source-cli /absolute/path/to/dist/cli.js] [--port 9333] [--timeout-ms 30000]",
+    "installed help output"
+  );
+  assertIncludes(
+    help.stdout,
+    'gptprouse pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--port 9333] [--timeout-ms 90000] [--target-url url --confirm-target] [--file path] "prompt"',
+    "installed help output"
+  );
   assertIncludes(help.stdout, "gptprouse pro browser help [--source-cli /absolute/path/to/dist/cli.js]", "installed help output");
   assertIncludes(help.stdout, "gptprouse pro latest [--source-cli /absolute/path/to/dist/cli.js]", "installed help output");
   assertIncludes(help.stdout, "gptprouse pro list [--source-cli /absolute/path/to/dist/cli.js]", "installed help output");
@@ -165,7 +174,7 @@ try {
   assertIncludes(tasksHelp.stdout, "gptprouse tasks create --title", "installed tasks help output");
   assertIncludes(
     tasksHelp.stdout,
-    'gptprouse tasks complete <task-id> --summary "Summary" [--command "npm test"] [--artifact .bridge/artifacts/results/name.md=text]',
+    'gptprouse tasks complete <task-id> [--cwd /absolute/path/to/repo] --summary "Summary" [--command "npm test"] [--artifact .bridge/artifacts/results/name.md=text]',
     "installed tasks help output"
   );
   const resultsHelp = await run(binPath, ["results", "--help"], { cwd: consumerDir });
@@ -781,10 +790,11 @@ try {
   assertIncludes(projectPrompt.stdout, "bridge_get_task", "installed project prompt output");
   assertIncludes(projectPrompt.stdout, "bridge_fetch_result", "installed project prompt output");
   assertIncludes(projectPrompt.stdout, "bridge_fetch_result_artifact", "installed project prompt output");
-  assertIncludes(projectPrompt.stdout, "gptprouse tasks list --status new", "installed project prompt output");
+  assertIncludes(projectPrompt.stdout, `gptprouse tasks list --status new --cwd ${consumerDir}`, "installed project prompt output");
+  assertIncludes(projectPrompt.stdout, `gptprouse tasks show <task-id> --cwd ${consumerDir}`, "installed project prompt output");
   assertIncludes(
     projectPrompt.stdout,
-    'gptprouse tasks complete <task-id> --summary "gptprouse MCP verification result" --artifact .bridge/artifacts/results/mcp-verification.md="gptprouse MCP verification artifact"',
+    `gptprouse tasks complete <task-id> --cwd ${consumerDir} --summary "gptprouse MCP verification result" --artifact .bridge/artifacts/results/mcp-verification.md="gptprouse MCP verification artifact"`,
     "installed project prompt output"
   );
   assertIncludes(projectPrompt.stdout, "local completion done", "installed project prompt output");
@@ -794,11 +804,11 @@ try {
   const sourceProjectPrompt = await run(binPath, ["project", "prompt", "--cwd", consumerDir, "--source-cli", installedSourceCli], {
     cwd: path.dirname(consumerDir)
   });
-  assertIncludes(sourceProjectPrompt.stdout, `${sourcePrefix} tasks list --status new`, "installed source project prompt output");
-  assertIncludes(sourceProjectPrompt.stdout, `${sourcePrefix} tasks show <task-id>`, "installed source project prompt output");
+  assertIncludes(sourceProjectPrompt.stdout, `${sourcePrefix} tasks list --status new --cwd ${consumerDir}`, "installed source project prompt output");
+  assertIncludes(sourceProjectPrompt.stdout, `${sourcePrefix} tasks show <task-id> --cwd ${consumerDir}`, "installed source project prompt output");
   assertIncludes(
     sourceProjectPrompt.stdout,
-    `${sourcePrefix} tasks complete <task-id> --summary "gptprouse MCP verification result" --artifact .bridge/artifacts/results/mcp-verification.md="gptprouse MCP verification artifact"`,
+    `${sourcePrefix} tasks complete <task-id> --cwd ${consumerDir} --summary "gptprouse MCP verification result" --artifact .bridge/artifacts/results/mcp-verification.md="gptprouse MCP verification artifact"`,
     "installed source project prompt output"
   );
   assertIncludes(sourceProjectPrompt.stdout, "bridge_fetch_result_artifact", "installed source project prompt output");
@@ -823,10 +833,11 @@ try {
   assertIncludes(claudePrompt.stdout, "bridge_get_task", "installed Claude prompt output");
   assertIncludes(claudePrompt.stdout, "bridge_fetch_result", "installed Claude prompt output");
   assertIncludes(claudePrompt.stdout, "bridge_fetch_result_artifact", "installed Claude prompt output");
-  assertIncludes(claudePrompt.stdout, "gptprouse tasks list --status new", "installed Claude prompt output");
+  assertIncludes(claudePrompt.stdout, `gptprouse tasks list --status new --cwd ${consumerDir}`, "installed Claude prompt output");
+  assertIncludes(claudePrompt.stdout, `gptprouse tasks show <task-id> --cwd ${consumerDir}`, "installed Claude prompt output");
   assertIncludes(
     claudePrompt.stdout,
-    'gptprouse tasks complete <task-id> --summary "gptprouse Claude MCP verification result" --artifact .bridge/artifacts/results/claude-verification.md="gptprouse Claude MCP verification artifact"',
+    `gptprouse tasks complete <task-id> --cwd ${consumerDir} --summary "gptprouse Claude MCP verification result" --artifact .bridge/artifacts/results/claude-verification.md="gptprouse Claude MCP verification artifact"`,
     "installed Claude prompt output"
   );
   assertIncludes(claudePrompt.stdout, `gptprouse claude config --cwd ${consumerDir}`, "installed Claude prompt output");
@@ -835,11 +846,11 @@ try {
   const sourceClaudePrompt = await run(binPath, ["claude", "prompt", "--cwd", consumerDir, "--source-cli", installedSourceCli], {
     cwd: path.dirname(consumerDir)
   });
-  assertIncludes(sourceClaudePrompt.stdout, `${sourcePrefix} tasks list --status new`, "installed source Claude prompt output");
-  assertIncludes(sourceClaudePrompt.stdout, `${sourcePrefix} tasks show <task-id>`, "installed source Claude prompt output");
+  assertIncludes(sourceClaudePrompt.stdout, `${sourcePrefix} tasks list --status new --cwd ${consumerDir}`, "installed source Claude prompt output");
+  assertIncludes(sourceClaudePrompt.stdout, `${sourcePrefix} tasks show <task-id> --cwd ${consumerDir}`, "installed source Claude prompt output");
   assertIncludes(
     sourceClaudePrompt.stdout,
-    `${sourcePrefix} tasks complete <task-id> --summary "gptprouse Claude MCP verification result" --artifact .bridge/artifacts/results/claude-verification.md="gptprouse Claude MCP verification artifact"`,
+    `${sourcePrefix} tasks complete <task-id> --cwd ${consumerDir} --summary "gptprouse Claude MCP verification result" --artifact .bridge/artifacts/results/claude-verification.md="gptprouse Claude MCP verification artifact"`,
     "installed source Claude prompt output"
   );
   assertIncludes(sourceClaudePrompt.stdout, "bridge_fetch_result_artifact", "installed source Claude prompt output");
@@ -1447,6 +1458,21 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertIncludes(readme, "--keep-workdir", "installed README");
   assertIncludes(readme, "release status --source-cli", "installed README");
   assertIncludes(readme, "release pack --source-cli", "installed README");
+  assertIncludes(
+    readme,
+    "For source-checkout release commands, prefer the CLI wrapper when you want follow-up guidance to stay in `node dist/cli.js ... --source-cli` form.",
+    "installed README"
+  );
+  assertIncludes(
+    readme,
+    'node dist/cli.js release status --source-cli "$(pwd)/dist/cli.js"',
+    "installed README"
+  );
+  assertIncludes(
+    readme,
+    'node dist/cli.js release pack --source-cli "$(pwd)/dist/cli.js" --pack-destination <dir>',
+    "installed README"
+  );
   assertIncludes(readme, "pack file-mode, non-regular file, or hard-link blockers", "installed README");
   assertIncludes(readme, "Run `pro ask` and `pro browser ask` from the repo root", "installed README");
   assertIncludes(readme, "npm run release:check", "installed README");

@@ -221,7 +221,7 @@ export function detectChatGptBlocker(
       next_step: "Solve it manually in the visible browser, then retry."
     };
   }
-  if (/message limit|usage limit|rate limit|you.?ve reached|try again later|limit resets|사용 한도|메시지 한도|요금 제한|나중에 다시/i.test(haystack)) {
+  if (/message limit|usage limit|model limit|rate limit|you.?ve reached|try again later|limit resets|사용 한도|메시지 한도|모델 한도|요금 제한|나중에 다시/i.test(haystack)) {
     return {
       code: "usage_limit",
       message: "ChatGPT is reporting a usage, message, model, or rate limit.",

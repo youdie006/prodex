@@ -123,9 +123,9 @@ Paste the generated prompt into the ChatGPT Project. It asks ChatGPT to call `br
 After ChatGPT replies with the created task id, confirm and complete the task locally:
 
 ```bash
-gptprouse tasks list --status new
-gptprouse tasks show <task-id>
-gptprouse tasks complete <task-id> --summary "gptprouse MCP verification result" --artifact .bridge/artifacts/results/mcp-verification.md="gptprouse MCP verification artifact"
+gptprouse tasks list --status new --cwd /absolute/path/to/your/repo
+gptprouse tasks show <task-id> --cwd /absolute/path/to/your/repo
+gptprouse tasks complete <task-id> --cwd /absolute/path/to/your/repo --summary "gptprouse MCP verification result" --artifact .bridge/artifacts/results/mcp-verification.md="gptprouse MCP verification artifact"
 ```
 
 Then reply to ChatGPT with `local completion done`. The generated prompt asks ChatGPT to call `bridge_fetch_result` for the same task id, call `bridge_fetch_result_artifact` for every listed result artifact path, and report whether it can read both the verification result summary and artifact content.
