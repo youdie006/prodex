@@ -4383,6 +4383,37 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     ).rejects.toThrow(/token-ttl-hours/);
   });
 
+  it("validates public tunnel URL syntax before token state", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    await runCli(["setup", "--port", "8789", "--token", "super-secret-token"], {
+      cwd,
+      stdout: () => {},
+      stderr: () => {}
+    });
+
+    await expect(
+      runCli(["tunnel", "url"], {
+        cwd,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.toThrow("tunnel url requires --public-url <https-url>");
+    await expect(
+      runCli(["tunnel", "url", "--public-url", "not-a-url"], {
+        cwd,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.toThrow("--public-url must be a valid URL");
+    await expect(
+      runCli(["tunnel", "url", "--public-url", "http://example.com"], {
+        cwd,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.toThrow("--public-url must use https for non-loopback tunnel URLs");
+  });
+
   it("rejects public tunnel MCP URLs for expired tokens", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
     await writeExpiredLocalConfig(cwd);

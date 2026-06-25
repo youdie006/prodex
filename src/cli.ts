@@ -229,6 +229,9 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
     assertOnlyOptions(tunnelArgs, "tunnel url", ["--cwd", "--public-url", "--source-cli"], ["--show-token", "--url-only"]);
     const targetCwd = resolveCwdFlag(io.cwd, tunnelArgs);
     const sourceCli = resolveOptionalFileFlag(io.cwd, tunnelArgs, "--source-cli");
+    const publicUrl = readFlag(tunnelArgs, "--public-url");
+    if (!publicUrl) throw new Error("tunnel url requires --public-url <https-url>");
+    parseTunnelPublicUrl(publicUrl);
     const config = await loadLocalConfigForCommand(targetCwd, "tunnel url", sourceCli);
     const tokenStatus = getTokenExpiryStatus(config);
     if (tokenStatus.status === "non_expiring") {
@@ -241,8 +244,6 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
         sourceAwareSetupMessage(`token expired at ${tokenStatus.token_expires_at}. Run \`gptprouse setup --token-ttl-hours <hours>\`.`, sourceCli)
       );
     }
-    const publicUrl = readFlag(tunnelArgs, "--public-url");
-    if (!publicUrl) throw new Error("tunnel url requires --public-url <https-url>");
     const mcpUrl = makeTunnelMcpUrl(publicUrl, config.token);
     const showToken = tunnelArgs.includes("--show-token");
     const outputUrl = showToken ? mcpUrl : redactServerUrl(mcpUrl);
@@ -2851,6 +2852,17 @@ function formatServerUrlForOutput(value: string, options: { showToken: boolean }
 }
 
 function makeTunnelMcpUrl(publicUrl: string, token: string): string {
+  const url = parseTunnelPublicUrl(publicUrl);
+  url.username = "";
+  url.password = "";
+  url.pathname = "/mcp";
+  url.search = "";
+  url.hash = "";
+  url.searchParams.set("gptprouse_token", token);
+  return url.toString();
+}
+
+function parseTunnelPublicUrl(publicUrl: string): URL {
   let url: URL;
   try {
     url = new URL(publicUrl);
@@ -2863,13 +2875,7 @@ function makeTunnelMcpUrl(publicUrl: string, token: string): string {
   if (url.protocol !== "https:" && !isLoopbackHost(url.hostname)) {
     throw new Error("--public-url must use https for non-loopback tunnel URLs");
   }
-  url.username = "";
-  url.password = "";
-  url.pathname = "/mcp";
-  url.search = "";
-  url.hash = "";
-  url.searchParams.set("gptprouse_token", token);
-  return url.toString();
+  return url;
 }
 
 function isLoopbackHost(hostname: string): boolean {

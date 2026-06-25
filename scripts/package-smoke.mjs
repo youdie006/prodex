@@ -558,6 +558,14 @@ try {
     "installed source missing setup status output"
   );
   assertNotIncludes(missingSetupSourceStatus.stderr, "Run `gptprouse setup`", "installed source missing setup status output");
+  const missingTunnelPublicUrl = await runExpectFailure(binPath, ["tunnel", "url"], { cwd: consumerDir });
+  assertIncludes(missingTunnelPublicUrl.stderr, "tunnel url requires --public-url <https-url>", "installed missing tunnel public URL output");
+  assertNotIncludes(missingTunnelPublicUrl.stderr, "requires local MCP setup", "installed missing tunnel public URL output");
+  await assertMissingFile(path.join(consumerDir, ".bridge"), "installed consumer bridge after missing tunnel public URL");
+  const invalidTunnelPublicUrl = await runExpectFailure(binPath, ["tunnel", "url", "--public-url", "not-a-url"], { cwd: consumerDir });
+  assertIncludes(invalidTunnelPublicUrl.stderr, "--public-url must be a valid URL", "installed invalid tunnel public URL output");
+  assertNotIncludes(invalidTunnelPublicUrl.stderr, "requires local MCP setup", "installed invalid tunnel public URL output");
+  await assertMissingFile(path.join(consumerDir, ".bridge"), "installed consumer bridge after invalid tunnel public URL");
   const missingSetupTunnel = await runExpectFailure(
     binPath,
     ["tunnel", "url", "--public-url", "https://gptprouse-package-smoke.example", "--show-token", "--url-only"],
