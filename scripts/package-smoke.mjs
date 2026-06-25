@@ -1228,7 +1228,7 @@ try {
   await smokeInstalledStdioTaskFinalizers(binPath, consumerDir);
 
   console.log(
-    `package_smoke: ok tarball=${path.basename(packed.filename)} http_onboarding=ok installed_http_mcp=ok http_write_flow=ok http_task_finalizers=ok http_result_artifact_flow=ok http_result_artifact_tamper=ok http_receipt_session_tools=ok configured_doctor=ok tunnel_url=ok package_boundary=ok installed_untrusted_result=ok installed_release_pack=ok installed_release_pack_cli=ok installed_release_pack_source_cli=ok installed_release_pack_publish_dry_run=ok installed_release_pack_publish_command=ok stdio_write_flow=ok stdio_search_overflow=ok stdio_non_git_write=ok stdio_task_flow=ok stdio_task_finalizers=ok stdio_result_artifact_flow=ok stdio_result_artifact_tamper=ok stdio_receipt_session_tools=ok tools=${REQUIRED_MCP_TOOLS.join(",")}`
+    `package_smoke: ok tarball=${path.basename(packed.filename)} http_onboarding=ok installed_http_mcp=ok http_write_flow=ok http_task_finalizers=ok http_result_artifact_flow=ok http_result_artifact_tamper=ok http_receipt_session_tools=ok configured_doctor=ok tunnel_url=ok package_boundary=ok installed_untrusted_result=ok installed_release_pack=ok installed_release_pack_cli=ok installed_release_pack_source_cli=ok installed_release_git_matrix=ok installed_release_pack_publish_dry_run=ok installed_release_pack_publish_command=ok stdio_write_flow=ok stdio_search_overflow=ok stdio_non_git_write=ok stdio_task_flow=ok stdio_task_finalizers=ok stdio_result_artifact_flow=ok stdio_result_artifact_tamper=ok stdio_receipt_session_tools=ok tools=${REQUIRED_MCP_TOOLS.join(",")}`
   );
 } finally {
   await rm(tmp, { recursive: true, force: true });
@@ -1387,6 +1387,12 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertIncludes(readme, "installed `release-pack` script and `gptprouse release pack` CLI success paths", "installed README");
   assertIncludes(readme, "runs `npm publish --dry-run` against those normalized tarballs", "installed README");
   assertIncludes(readme, "git-ready release-pack output includes the tarball publish lifecycle warning and guarded `release_pack_publish` command", "installed README");
+  assertIncludes(
+    readme,
+    "verifies installed release git blockers for no remote, dirty worktrees, detached HEAD, no upstream, unpushed, upstream gone, behind, and diverged states",
+    "installed README"
+  );
+  assertIncludes(readme, "verifies `release pack` blocks publish guidance for those unsafe git states", "installed README");
   assertIncludes(readme, "regular file", "installed README");
   assertIncludes(readme, "symlinked packed files", "installed README");
   assertIncludes(readme, "hard link", "installed README");
@@ -1757,16 +1763,19 @@ async function smokeInstalledReleaseGitReadiness(binPath, tmp, launcherCwd) {
   assertIncludes(noRemote.stdout, "metadata: ok", "installed release status no-remote output");
   assertIncludes(noRemote.stdout, "git: blocked no remote", "installed release status no-remote output");
   assertIncludes(noRemote.stdout, "git remote add origin <git-url>; git push -u origin", "installed release status no-remote output");
+  await assertInstalledReleasePackGitBlocked(binPath, noRemoteDir, path.join(tmp, "release-pack-no-remote"), launcherCwd, "no remote configured");
 
   const dirtyDir = await createReleaseGitFixture(path.join(tmp, "release-dirty"), { remote: true });
   await writeFile(path.join(dirtyDir, "README.md"), "dirty\n");
   const dirty = await run(binPath, ["release", "status", "--cwd", dirtyDir], { cwd: launcherCwd });
   assertIncludes(dirty.stdout, "git: blocked worktree has uncommitted changes", "installed release status dirty output");
+  await assertInstalledReleasePackGitBlocked(binPath, dirtyDir, path.join(tmp, "release-pack-dirty"), launcherCwd, "worktree has uncommitted changes");
 
   const detachedDir = await createReleaseGitFixture(path.join(tmp, "release-detached"), { remote: true });
   await execFileAsync("git", ["checkout", "--detach", "HEAD"], { cwd: detachedDir });
   const detached = await run(binPath, ["release", "status", "--cwd", detachedDir], { cwd: launcherCwd });
   assertIncludes(detached.stdout, "git: blocked detached HEAD", "installed release status detached output");
+  await assertInstalledReleasePackGitBlocked(binPath, detachedDir, path.join(tmp, "release-pack-detached"), launcherCwd, "detached HEAD");
 
   const noUpstreamDir = await createReleaseGitFixture(path.join(tmp, "release-no-upstream"), {
     remote: true,
@@ -1775,6 +1784,7 @@ async function smokeInstalledReleaseGitReadiness(binPath, tmp, launcherCwd) {
   const noUpstream = await run(binPath, ["release", "status", "--cwd", noUpstreamDir], { cwd: launcherCwd });
   assertIncludes(noUpstream.stdout, "git: blocked no upstream configured", "installed release status no-upstream output");
   assertIncludes(noUpstream.stdout, "git push -u origin", "installed release status no-upstream output");
+  await assertInstalledReleasePackGitBlocked(binPath, noUpstreamDir, path.join(tmp, "release-pack-no-upstream"), launcherCwd, "no upstream configured");
 
   const unpushedDir = await createReleaseGitFixture(path.join(tmp, "release-unpushed"), { remote: true });
   await writeFile(path.join(unpushedDir, "README.md"), "unpushed\n");
@@ -1782,6 +1792,35 @@ async function smokeInstalledReleaseGitReadiness(binPath, tmp, launcherCwd) {
   await execFileAsync("git", ["commit", "-m", "unpushed"], { cwd: unpushedDir });
   const unpushed = await run(binPath, ["release", "status", "--cwd", unpushedDir], { cwd: launcherCwd });
   assertIncludes(unpushed.stdout, "git: blocked branch has unpushed commits", "installed release status unpushed output");
+  await assertInstalledReleasePackGitBlocked(binPath, unpushedDir, path.join(tmp, "release-pack-unpushed"), launcherCwd, "branch has unpushed commits");
+
+  const goneDir = await createReleaseGitFixture(path.join(tmp, "release-upstream-gone"), { remote: true });
+  const goneBranch = (await execFileAsync("git", ["rev-parse", "--abbrev-ref", "HEAD"], { cwd: goneDir })).stdout.trim();
+  const goneRemoteUrl = (await execFileAsync("git", ["remote", "get-url", "origin"], { cwd: goneDir })).stdout.trim();
+  await execFileAsync("git", ["--git-dir", goneRemoteUrl, "config", "receive.denyDeleteCurrent", "ignore"], { cwd: goneDir });
+  await execFileAsync("git", ["push", "origin", "--delete", goneBranch], { cwd: goneDir });
+  await execFileAsync("git", ["fetch", "--prune", "origin"], { cwd: goneDir });
+  const gone = await run(binPath, ["release", "status", "--cwd", goneDir], { cwd: launcherCwd });
+  assertIncludes(gone.stdout, "git: blocked upstream is gone", "installed release status upstream-gone output");
+  assertIncludes(gone.stdout, `upstream=origin/${goneBranch}`, "installed release status upstream-gone output");
+  await assertInstalledReleasePackGitBlocked(binPath, goneDir, path.join(tmp, "release-pack-upstream-gone"), launcherCwd, "upstream is gone");
+
+  const behindDir = await createReleaseGitFixture(path.join(tmp, "release-behind"), { remote: true });
+  await pushRemoteOnlyReleaseCommit(behindDir, tmp, "behind");
+  const behind = await run(binPath, ["release", "status", "--cwd", behindDir], { cwd: launcherCwd });
+  assertIncludes(behind.stdout, "git: blocked branch is behind upstream", "installed release status behind output");
+  assertIncludes(behind.stdout, "behind=1", "installed release status behind output");
+  await assertInstalledReleasePackGitBlocked(binPath, behindDir, path.join(tmp, "release-pack-behind"), launcherCwd, "branch is behind upstream");
+
+  const divergedDir = await createReleaseGitFixture(path.join(tmp, "release-diverged"), { remote: true });
+  await pushRemoteOnlyReleaseCommit(divergedDir, tmp, "diverged");
+  await writeFile(path.join(divergedDir, "LOCAL.md"), "local diverged change\n");
+  await execFileAsync("git", ["add", "LOCAL.md"], { cwd: divergedDir });
+  await execFileAsync("git", ["commit", "-m", "local diverged"], { cwd: divergedDir });
+  const diverged = await run(binPath, ["release", "status", "--cwd", divergedDir], { cwd: launcherCwd });
+  assertIncludes(diverged.stdout, "git: blocked branch diverged", "installed release status diverged output");
+  assertIncludes(diverged.stdout, "ahead=1 behind=1", "installed release status diverged output");
+  await assertInstalledReleasePackGitBlocked(binPath, divergedDir, path.join(tmp, "release-pack-diverged"), launcherCwd, "branch diverged");
 
   const okDir = await createReleaseGitFixture(path.join(tmp, "release-ok"), { remote: true });
   const ok = await run(binPath, ["release", "status", "--cwd", okDir], { cwd: launcherCwd });
@@ -1790,14 +1829,45 @@ async function smokeInstalledReleaseGitReadiness(binPath, tmp, launcherCwd) {
   assertIncludes(ok.stdout, "upstream=origin/", "installed release status ok output");
 }
 
+async function assertInstalledReleasePackGitBlocked(binPath, cwd, packDestination, launcherCwd, expectedGitText) {
+  const result = await run(
+    binPath,
+    ["release", "pack", "--cwd", cwd, "--pack-destination", packDestination],
+    { cwd: launcherCwd, timeout: 120_000, maxBuffer: 20 * 1024 * 1024 }
+  );
+  assertIncludes(result.stdout, "release_pack=ok", `installed release pack ${expectedGitText} output`);
+  assertIncludes(result.stdout, `release_pack_git: blocked ${expectedGitText}`, `installed release pack ${expectedGitText} output`);
+  assertIncludes(result.stdout, "release_pack_publish_blocked: fix git readiness before npm publish", `installed release pack ${expectedGitText} output`);
+  assertNotIncludes(result.stdout, "release_pack_publish: npm publish", `installed release pack ${expectedGitText} output`);
+}
+
+async function pushRemoteOnlyReleaseCommit(sourceCwd, tmp, label) {
+  const remoteUrl = (await execFileAsync("git", ["remote", "get-url", "origin"], { cwd: sourceCwd })).stdout.trim();
+  const branch = (await execFileAsync("git", ["rev-parse", "--abbrev-ref", "HEAD"], { cwd: sourceCwd })).stdout.trim();
+  const cloneDir = path.join(tmp, `release-${label}-remote-work`);
+  await execFileAsync("git", ["clone", remoteUrl, cloneDir], { cwd: tmp });
+  await execFileAsync("git", ["config", "user.email", "release@example.com"], { cwd: cloneDir });
+  await execFileAsync("git", ["config", "user.name", "GPTProUse Package Smoke"], { cwd: cloneDir });
+  await writeFile(path.join(cloneDir, `${label.toUpperCase()}.md`), `${label} remote change\n`);
+  await execFileAsync("git", ["add", `${label.toUpperCase()}.md`], { cwd: cloneDir });
+  await execFileAsync("git", ["commit", "-m", `${label} remote`], { cwd: cloneDir });
+  await execFileAsync("git", ["push", "origin", branch], { cwd: cloneDir });
+  await execFileAsync("git", ["fetch", "origin"], { cwd: sourceCwd });
+}
+
 async function createReleaseGitFixture(cwd, options) {
   await mkdir(cwd, { recursive: true });
-  await writeFile(path.join(cwd, "package.json"), `${JSON.stringify({ name: path.basename(cwd), version: "1.0.0", license: "MIT" }, null, 2)}\n`);
+  await mkdir(path.join(cwd, "scripts"), { recursive: true });
+  await writeFile(
+    path.join(cwd, "package.json"),
+    `${JSON.stringify({ name: path.basename(cwd), version: "1.0.0", license: "MIT", files: ["LICENSE", "scripts/release-check.mjs"] }, null, 2)}\n`
+  );
   await writeFile(path.join(cwd, "LICENSE"), "MIT License\n");
+  await writeFile(path.join(cwd, "scripts", "release-check.mjs"), await readFile(path.join(repoRoot, "scripts", "release-check.mjs"), "utf8"));
   await execFileAsync("git", ["init"], { cwd });
   await execFileAsync("git", ["config", "user.email", "release@example.com"], { cwd });
   await execFileAsync("git", ["config", "user.name", "GPTProUse Package Smoke"], { cwd });
-  await execFileAsync("git", ["add", "package.json", "LICENSE"], { cwd });
+  await execFileAsync("git", ["add", "."], { cwd });
   await execFileAsync("git", ["commit", "-m", "initial"], { cwd });
   if (options.remote) {
     const remoteDir = path.join(path.dirname(cwd), `${path.basename(cwd)}-remote.git`);

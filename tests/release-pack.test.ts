@@ -423,6 +423,36 @@ esac
     expect(result.stdout).not.toContain("release_pack_publish: npm publish");
   });
 
+  it("reports deleted upstream branches as gone instead of missing upstream", async () => {
+    const root = await createReleasePackFixture();
+    await execFileAsync("git", ["init"], { cwd: root });
+    await execFileAsync("git", ["config", "user.email", "release@example.com"], { cwd: root });
+    await execFileAsync("git", ["config", "user.name", "Release Test"], { cwd: root });
+    await execFileAsync("git", ["add", "package.json", "README.md", "LICENSE", "dist/cli.js", "scripts/release-check.mjs"], {
+      cwd: root
+    });
+    await execFileAsync("git", ["commit", "-m", "initial"], { cwd: root });
+    const remote = await mkdtemp(path.join(tmpdir(), "gptprouse-release-pack-remote-"));
+    await execFileAsync("git", ["init", "--bare"], { cwd: remote });
+    await execFileAsync("git", ["remote", "add", "origin", remote], { cwd: root });
+    const branch = (await execFileAsync("git", ["rev-parse", "--abbrev-ref", "HEAD"], { cwd: root })).stdout.trim();
+    await execFileAsync("git", ["push", "-u", "origin", branch], { cwd: root });
+    await execFileAsync("git", ["--git-dir", remote, "config", "receive.denyDeleteCurrent", "ignore"], { cwd: root });
+    await execFileAsync("git", ["push", "origin", "--delete", branch], { cwd: root });
+    await execFileAsync("git", ["fetch", "--prune", "origin"], { cwd: root });
+    const commit = (await execFileAsync("git", ["rev-parse", "--short", "HEAD"], { cwd: root })).stdout.trim();
+    const destination = await mkdtemp(path.join(tmpdir(), "gptprouse-release-pack-dest-"));
+
+    const result = await runReleasePack(["--root", root, "--pack-destination", destination]);
+
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain(`release_pack_git: blocked upstream is gone branch=${branch} commit=${commit} remote=origin upstream=origin/${branch}`);
+    expect(result.stdout).toContain("release_pack_git_next: restore upstream tracking before public release");
+    expect(result.stdout).toContain("release_pack_publish_blocked: fix git readiness before npm publish");
+    expect(result.stdout).not.toContain("release_pack_git: blocked no upstream configured");
+    expect(result.stdout).not.toContain("release_pack_publish: npm publish");
+  });
+
   it("prints the publish command only when git readiness is clear", async () => {
     const root = await createReleasePackFixture();
     await execFileAsync("git", ["init"], { cwd: root });

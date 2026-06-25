@@ -3358,6 +3358,43 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     expect(text).not.toContain("git: ok");
   });
 
+  it("release status reports deleted upstream branches as gone instead of missing upstream", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-release-"));
+    await writeFile(
+      path.join(cwd, "package.json"),
+      `${JSON.stringify({ name: "demo", version: "1.0.0", license: "MIT" }, null, 2)}\n`,
+      "utf8"
+    );
+    await writeFile(path.join(cwd, "LICENSE"), "MIT License\n", "utf8");
+    await execFileAsync("git", ["init"], { cwd });
+    await execFileAsync("git", ["config", "user.email", "release@example.com"], { cwd });
+    await execFileAsync("git", ["config", "user.name", "Release Test"], { cwd });
+    await execFileAsync("git", ["add", "package.json", "LICENSE"], { cwd });
+    await execFileAsync("git", ["commit", "-m", "initial"], { cwd });
+    const remote = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-release-remote-"));
+    await execFileAsync("git", ["init", "--bare"], { cwd: remote });
+    await execFileAsync("git", ["remote", "add", "origin", remote], { cwd });
+    const branch = (await execFileAsync("git", ["rev-parse", "--abbrev-ref", "HEAD"], { cwd })).stdout.trim();
+    await execFileAsync("git", ["push", "-u", "origin", branch], { cwd });
+    await execFileAsync("git", ["--git-dir", remote, "config", "receive.denyDeleteCurrent", "ignore"], { cwd });
+    await execFileAsync("git", ["push", "origin", "--delete", branch], { cwd });
+    await execFileAsync("git", ["fetch", "--prune", "origin"], { cwd });
+    const commit = (await execFileAsync("git", ["rev-parse", "--short", "HEAD"], { cwd })).stdout.trim();
+    const out: string[] = [];
+
+    await runCli(["release", "status", "--cwd", cwd], {
+      cwd: "/tmp",
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    const text = out.join("\n");
+    expect(text).toContain(`git: blocked upstream is gone branch=${branch} commit=${commit} remote=origin upstream=origin/${branch}`);
+    expect(text).toContain("git_next: restore upstream tracking before public release");
+    expect(text).not.toContain("git: blocked no upstream configured");
+    expect(text).not.toContain("git: ok");
+  });
+
   it("release status blocks clean branches with unpushed commits", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-release-"));
     await writeFile(

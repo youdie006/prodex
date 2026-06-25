@@ -370,41 +370,49 @@ async function readReleaseGitStatus(root) {
     };
   }
 
-  if (!upstream) {
+  const relation = parseGitBranchRelation(branchStatusOutput);
+  const effectiveUpstream = upstream || relation.upstream || "";
+  if (!upstream && relation.gone && relation.upstream) {
+    return {
+      line: `git: blocked upstream is gone ${gitContext} remote=${remoteText} upstream=${relation.upstream}`,
+      next: "restore upstream tracking before public release"
+    };
+  }
+
+  if (!effectiveUpstream) {
     return {
       line: `git: blocked no upstream configured ${gitContext} remote=${remoteText}`,
       next: `push the branch with upstream tracking: ${formatGitPushUpstreamCommand(branch)}`
     };
   }
 
-  const relation = parseGitBranchRelation(branchStatusOutput);
   if (relation.gone) {
     return {
-      line: `git: blocked upstream is gone ${gitContext} remote=${remoteText} upstream=${upstream}`,
+      line: `git: blocked upstream is gone ${gitContext} remote=${remoteText} upstream=${effectiveUpstream}`,
       next: "restore upstream tracking before public release"
     };
   }
   if (relation.ahead > 0 && relation.behind > 0) {
     return {
-      line: `git: blocked branch diverged ahead=${relation.ahead} behind=${relation.behind} ${gitContext} remote=${remoteText} upstream=${upstream}`,
+      line: `git: blocked branch diverged ahead=${relation.ahead} behind=${relation.behind} ${gitContext} remote=${remoteText} upstream=${effectiveUpstream}`,
       next: "sync the branch with upstream before public release"
     };
   }
   if (relation.ahead > 0) {
     return {
-      line: `git: blocked branch has unpushed commits ahead=${relation.ahead} ${gitContext} remote=${remoteText} upstream=${upstream}`,
+      line: `git: blocked branch has unpushed commits ahead=${relation.ahead} ${gitContext} remote=${remoteText} upstream=${effectiveUpstream}`,
       next: "push local commits before public release"
     };
   }
   if (relation.behind > 0) {
     return {
-      line: `git: blocked branch is behind upstream behind=${relation.behind} ${gitContext} remote=${remoteText} upstream=${upstream}`,
+      line: `git: blocked branch is behind upstream behind=${relation.behind} ${gitContext} remote=${remoteText} upstream=${effectiveUpstream}`,
       next: "sync the branch with upstream before public release"
     };
   }
 
   return {
-    line: `git: ok ${gitContext} remote=${remoteText} upstream=${upstream}`
+    line: `git: ok ${gitContext} remote=${remoteText} upstream=${effectiveUpstream}`
   };
 }
 
@@ -415,9 +423,10 @@ function formatGitPushUpstreamCommand(branch) {
 function parseGitBranchRelation(statusOutput) {
   const branchLine = statusOutput.split(/\r?\n/).find((line) => line.startsWith("## ")) ?? "";
   const relationText = /\[([^\]]+)\]/.exec(branchLine)?.[1] ?? "";
+  const upstream = /\.\.\.([^\s\[]+)/.exec(branchLine)?.[1];
   const ahead = Number(/\bahead (\d+)\b/.exec(relationText)?.[1] ?? 0);
   const behind = Number(/\bbehind (\d+)\b/.exec(relationText)?.[1] ?? 0);
-  return { ahead, behind, gone: /\bgone\b/.test(relationText) };
+  return { ahead, behind, gone: /\bgone\b/.test(relationText), upstream };
 }
 
 async function gitStdout(root, args) {
