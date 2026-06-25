@@ -612,19 +612,21 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       return 0;
     }
     if (subcommand === "latest") {
-      assertNoExtraArgs(proArgs, "pro latest", 0);
+      assertOnlyOptions(proArgs, "pro latest", ["--source-cli"]);
+      const sourceCli = resolveOptionalFileFlag(io.cwd, proArgs, "--source-cli");
       const consult = (await listConsults(store, { readOnly: true }))[0];
       if (!consult) throw new Error("No GPT Pro answers found");
-      io.stdout(formatProAnswer(consult));
+      io.stdout(formatProAnswer(consult, sourceCli));
       return 0;
     }
     if (subcommand === "show") {
       const taskId = proArgs[0];
       if (!taskId) throw new Error("pro show requires <task-id|latest>");
-      assertNoExtraArgs(proArgs, "pro show", 1);
+      assertOnlyOptions(proArgs.slice(1), "pro show", ["--source-cli"]);
+      const sourceCli = resolveOptionalFileFlag(io.cwd, proArgs.slice(1), "--source-cli");
       const consult = taskId === "latest" ? (await listConsults(store, { readOnly: true }))[0] : await getConsult(store, taskId, { readOnly: true });
       if (!consult) throw new Error(taskId === "latest" ? "No GPT Pro answers found" : `GPT Pro answer not found: ${taskId}`);
-      io.stdout(formatProAnswer(consult));
+      io.stdout(formatProAnswer(consult, sourceCli));
       return 0;
     }
   }
@@ -854,9 +856,9 @@ Commands:
   gptprouse pro browser help
   gptprouse pro browser check|smoke [--source-cli /absolute/path/to/dist/cli.js]
   gptprouse pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--target-url url --confirm-target] [--file path] "prompt"  # explicit visible-browser send
-  gptprouse pro latest
+  gptprouse pro latest [--source-cli /absolute/path/to/dist/cli.js]
   gptprouse pro list
-  gptprouse pro show <task-id|latest>
+  gptprouse pro show <task-id|latest> [--source-cli /absolute/path/to/dist/cli.js]
   gptprouse tasks create --title "Title" --prompt "Prompt"
   gptprouse tasks list [--status new|claimed|done|blocked]
   gptprouse tasks show <task-id|latest>
@@ -2245,24 +2247,49 @@ function isConsultRecord(record: ConsultRecord): boolean {
   );
 }
 
-function formatProAnswer(consult: ConsultRecord): string {
+function formatProAnswer(consult: ConsultRecord, sourceCli?: string): string {
+  const blocker = sourceAwareProAnswerBlocker(consult, sourceCli);
+  const summary = sourceAwareProAnswerSummary(consult.result.summary, consult.result.blocker, blocker);
   const lines = [
     `task_id: ${consult.task.id}`,
     `status: ${consult.result.status}`,
     consult.task.provenance.thread ? `thread: ${consult.task.provenance.thread}` : undefined,
     `created_at: ${consult.result.created_at}`,
     "",
-    consult.result.summary
+    summary
   ].filter((line): line is string => line !== undefined);
-  if (consult.result.blocker) {
-    lines.push("", "blocker:", `- code: ${consult.result.blocker.code}`, `- retryable: ${consult.result.blocker.retryable}`);
-    if (consult.result.blocker.next_step) lines.push(`- next_step: ${consult.result.blocker.next_step}`);
+  if (blocker) {
+    lines.push("", "blocker:", `- code: ${blocker.code}`, `- retryable: ${blocker.retryable}`);
+    if (blocker.next_step) lines.push(`- next_step: ${blocker.next_step}`);
   }
   if (consult.result.warnings.length > 0) {
     lines.push("", "warnings:");
     for (const warning of consult.result.warnings) lines.push(`- ${warning}`);
   }
   return lines.join("\n");
+}
+
+function sourceAwareProAnswerBlocker(consult: ConsultRecord, sourceCli?: string): ConsultRecord["result"]["blocker"] {
+  if (!consult.result.blocker) return undefined;
+  const browserAware = sourceAwareBrowserBlocker(consult.result.blocker, sourceCli);
+  if (!sourceCli || !isSmokeConsultRecord(consult) || !browserAware.next_step) return browserAware;
+  const nextStep = productCheckBrowserNextStep(browserAware.next_step, sourceCli);
+  return nextStep === browserAware.next_step ? browserAware : { ...browserAware, next_step: nextStep };
+}
+
+function sourceAwareProAnswerSummary(
+  summary: string,
+  originalBlocker: ConsultRecord["result"]["blocker"],
+  displayedBlocker: ConsultRecord["result"]["blocker"]
+): string {
+  const originalNextStep = originalBlocker?.next_step;
+  const displayedNextStep = displayedBlocker?.next_step;
+  if (!originalNextStep || !displayedNextStep || originalNextStep === displayedNextStep) return summary;
+  return summary.replaceAll(originalNextStep, displayedNextStep);
+}
+
+function isSmokeConsultRecord(consult: ConsultRecord): boolean {
+  return consult.task.title === "GPT Pro smoke" || consult.result.commands.includes("visible ChatGPT browser smoke");
 }
 
 function receiptInspectionListSuffix(receipt: Receipt): string {
