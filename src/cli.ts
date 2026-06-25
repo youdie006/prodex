@@ -218,7 +218,8 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
 
   if (command === "onboard") {
     assertOnlyOptions(rest, "onboard", ["--cwd"]);
-    io.stdout(formatOnboardingGuide(resolveCwdFlag(io.cwd, rest)));
+    const targetCwd = resolveCwdFlag(io.cwd, rest);
+    io.stdout(formatOnboardingGuide(targetCwd, await hasOnboardingReadme(targetCwd)));
     return 0;
   }
 
@@ -764,8 +765,12 @@ gptprouse tasks list --status new
 gptprouse tasks show <task-id>`;
 }
 
-function formatOnboardingGuide(cwd: string): string {
+function formatOnboardingGuide(cwd: string, hasReadme: boolean): string {
   const quotedCwd = shellQuote(cwd);
+  const proAskCommand = hasReadme ? 'gptprouse pro ask --file README.md "Review this repo"' : 'gptprouse pro ask "Review this repo"';
+  const proBrowserAskCommand = hasReadme
+    ? 'gptprouse pro browser ask --file README.md "Review this repo"'
+    : 'gptprouse pro browser ask "Review this repo"';
   return `gptprouse onboarding
 
 repo: ${cwd}
@@ -788,16 +793,26 @@ repo: ${cwd}
 
 4. Optional ChatGPT Pro consults:
    cd ${quotedCwd}
-   gptprouse pro ask --file README.md "Review this repo"  # dry-run/manual preview
+   ${proAskCommand}  # dry-run/manual preview
    gptprouse pro browser login --dry-run  # preview, no browser opens
    gptprouse pro browser login  # opens visible browser
    gptprouse pro browser check
    gptprouse pro browser smoke
-   gptprouse pro browser ask --file README.md "Review this repo"  # visible-browser send
+   ${proBrowserAskCommand}  # visible-browser send
 
 Safety notes:
 - This command only prints commands; it does not start servers, open browsers, or write files.
 - Visible-browser sends require a manual, visible browser session and stop on login, captcha, Cloudflare, permission, rate-limit, or usage-limit blockers.`;
+}
+
+async function hasOnboardingReadme(cwd: string): Promise<boolean> {
+  try {
+    const stat = await lstat(path.join(cwd, "README.md"));
+    return stat.isFile();
+  } catch (error) {
+    if (isMissingFileError(error)) return false;
+    throw error;
+  }
 }
 
 function formatClaudeVerificationPrompt(cwd: string): string {

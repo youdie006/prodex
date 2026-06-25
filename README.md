@@ -80,7 +80,7 @@ For an installed package:
 gptprouse onboard
 gptprouse init
 gptprouse doctor
-gptprouse pro ask --file README.md "Review the project positioning"
+gptprouse pro ask "Review the project positioning"
 ```
 
 For a source checkout:
@@ -91,7 +91,7 @@ npm run build
 node dist/cli.js onboard
 node dist/cli.js init
 node dist/cli.js doctor
-node dist/cli.js pro ask --file README.md "Review the project positioning"
+node dist/cli.js pro ask "Review the project positioning"
 ```
 
 The examples below use the installed `gptprouse` binary. In a source checkout, replace `gptprouse` with `node dist/cli.js` after building.
@@ -102,6 +102,7 @@ Run `init` from the repo root, or use `gptprouse init --cwd /absolute/path/to/yo
 
 `pro ask` is a dry-run/manual preview. It does not drive a logged-in browser; `pro ask --send` is rejected so accidental sends do not happen through the preview alias. Use `pro browser ask` when you explicitly want the visible browser adapter.
 Run `pro ask` and `pro browser ask` from the repo root so `--file` paths and `.bridge` records resolve to the intended project. If you generated commands with `onboard --cwd`, use the `cd ...` line in the optional Pro section first.
+When the file exists and you want it included, add it explicitly, for example `gptprouse pro ask --file README.md "Review the project positioning"`.
 If your prompt itself starts with flag-like text, put `--` before the prompt, for example `gptprouse pro ask -- --strict mode review`.
 
 ## First Pro Login

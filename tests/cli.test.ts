@@ -1337,17 +1337,34 @@ describe("runCli", () => {
       text.indexOf(`gptprouse status --cwd ${targetCwd} --show-token --url-only`)
     );
     expect(text).toContain(`cd ${targetCwd}`);
-    expect(text).toContain('gptprouse pro ask --file README.md "Review this repo"  # dry-run/manual preview');
+    expect(text).toContain('gptprouse pro ask "Review this repo"  # dry-run/manual preview');
+    expect(text).not.toContain("--file README.md");
     expect(text).toContain("gptprouse pro browser login --dry-run  # preview, no browser opens");
     expect(text).toContain("gptprouse pro browser login  # opens visible browser");
     expect(text).toContain("gptprouse pro browser check");
     expect(text).toContain("gptprouse pro browser smoke");
-    expect(text).toContain('gptprouse pro browser ask --file README.md "Review this repo"  # visible-browser send');
+    expect(text).toContain('gptprouse pro browser ask "Review this repo"  # visible-browser send');
     expect(text).toContain("manual, visible browser");
     expect(text).toContain("Cloudflare");
     expect(text).toContain("usage-limit");
     expect(text).not.toContain("gptprouse_token=");
     await expect(readFile(path.join(targetCwd, ".bridge", "config.local.json"), "utf8")).rejects.toThrow();
+  });
+
+  it("onboard includes README file examples only when README.md exists", async () => {
+    const targetCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-target-"));
+    await writeFile(path.join(targetCwd, "README.md"), "project\n", "utf8");
+    const out: string[] = [];
+
+    await runCli(["onboard", "--cwd", targetCwd], {
+      cwd: "/tmp",
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    const text = out.join("\n");
+    expect(text).toContain('gptprouse pro ask --file README.md "Review this repo"  # dry-run/manual preview');
+    expect(text).toContain('gptprouse pro browser ask --file README.md "Review this repo"  # visible-browser send');
   });
 
   it("describes token TTL as an explicit help placeholder", async () => {

@@ -124,10 +124,11 @@ try {
     "installed onboard output"
   );
   assertIncludes(onboard.stdout, `cd ${consumerDir}`, "installed onboard output");
-  assertIncludes(onboard.stdout, 'gptprouse pro ask --file README.md "Review this repo"  # dry-run/manual preview', "installed onboard output");
+  assertIncludes(onboard.stdout, 'gptprouse pro ask "Review this repo"  # dry-run/manual preview', "installed onboard output");
+  assertNotIncludes(onboard.stdout, "--file README.md", "installed onboard output");
   assertIncludes(onboard.stdout, "gptprouse pro browser login --dry-run  # preview, no browser opens", "installed onboard output");
   assertIncludes(onboard.stdout, "gptprouse pro browser login  # opens visible browser", "installed onboard output");
-  assertIncludes(onboard.stdout, 'gptprouse pro browser ask --file README.md "Review this repo"  # visible-browser send', "installed onboard output");
+  assertIncludes(onboard.stdout, 'gptprouse pro browser ask "Review this repo"  # visible-browser send', "installed onboard output");
   assertIncludes(onboard.stdout, "Cloudflare", "installed onboard output");
   assertIncludes(onboard.stdout, "usage-limit", "installed onboard output");
   assertNotIncludes(onboard.stdout, "gptprouse_token=", "installed onboard output");
@@ -297,6 +298,7 @@ async function assertInstalledDocsArePortable(consumerDir) {
   }
   assertIncludes(readme, "For an installed package", "installed README");
   assertIncludes(readme, "gptprouse onboard", "installed README");
+  assertIncludes(readme, 'gptprouse pro ask "Review the project positioning"', "installed README");
   assertIncludes(readme, "gptprouse pro browser login --dry-run", "installed README");
   assertIncludes(readme, "gptprouse init", "installed README");
   assertIncludes(readme, "CLI-only", "installed README");
