@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { execFile } from "node:child_process";
-import { realpathSync } from "node:fs";
+import { realpathSync, statSync } from "node:fs";
 import { lstat, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
@@ -2132,7 +2132,7 @@ function readRepeatedFlag(args: string[], flag: string): string[] {
 function resolveCwdFlag(defaultCwd: string, args: string[]): string {
   const cwd = readFlag(args, "--cwd");
   if (!cwd) return defaultCwd;
-  return resolveExistingPathFlag(defaultCwd, cwd, "--cwd");
+  return resolveExistingDirectoryFlag(defaultCwd, cwd, "--cwd");
 }
 
 function resolveOptionalPathFlag(defaultCwd: string, args: string[], flag: string): string | undefined {
@@ -2147,6 +2147,14 @@ function resolveExistingPathFlag(defaultCwd: string, value: string, flag: string
   } catch {
     throw new Error(`${flag} does not exist or is not accessible: ${resolved}`);
   }
+}
+
+function resolveExistingDirectoryFlag(defaultCwd: string, value: string, flag: string): string {
+  const resolved = resolveExistingPathFlag(defaultCwd, value, flag);
+  if (!statSync(resolved).isDirectory()) {
+    throw new Error(`${flag} must be a directory: ${resolved}`);
+  }
+  return resolved;
 }
 
 function assertOnlyOptions(args: string[], command: string, valueFlags: readonly string[], booleanFlags: readonly string[] = []): void {

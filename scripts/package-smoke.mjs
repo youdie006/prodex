@@ -137,6 +137,11 @@ try {
   const missingCwdOnboard = await runExpectFailure(binPath, ["onboard", "--cwd", missingCwd], { cwd: path.dirname(consumerDir) });
   assertIncludes(missingCwdOnboard.stderr, `--cwd does not exist or is not accessible: ${missingCwd}`, "installed missing cwd output");
   assertNotIncludes(missingCwdOnboard.stderr, "ENOENT", "installed missing cwd output");
+  const fileCwd = path.join(consumerDir, "not-a-repo-dir.txt");
+  await writeFile(fileCwd, "not a directory\n", "utf8");
+  const fileCwdStatus = await runExpectFailure(binPath, ["status", "--cwd", fileCwd], { cwd: path.dirname(consumerDir) });
+  assertIncludes(fileCwdStatus.stderr, `--cwd must be a directory: ${fileCwd}`, "installed file cwd output");
+  assertNotIncludes(fileCwdStatus.stderr, "ENOTDIR", "installed file cwd output");
   const missingSourceCli = path.join(consumerDir, "missing-dist-cli.js");
   const missingSourceCliConfig = await runExpectFailure(binPath, ["claude", "config", "--cwd", consumerDir, "--source-cli", missingSourceCli], {
     cwd: path.dirname(consumerDir)

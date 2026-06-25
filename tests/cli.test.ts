@@ -323,6 +323,27 @@ describe("runCli", () => {
     ).rejects.toThrow(`--cwd does not exist or is not accessible: ${missing}`);
   });
 
+  it("reports file-valued --cwd targets with a friendly CLI error", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const fileCwd = path.join(cwd, "not-a-repo-dir.txt");
+    await writeFile(fileCwd, "not a directory\n", "utf8");
+
+    await expect(
+      runCli(["status", "--cwd", fileCwd], {
+        cwd,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.toThrow(`--cwd must be a directory: ${fileCwd}`);
+    await expect(
+      runCli(["onboard", "--cwd", fileCwd], {
+        cwd,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.toThrow(`--cwd must be a directory: ${fileCwd}`);
+  });
+
   it("rejects extra arguments for show commands", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
     const store = new BridgeStore(cwd);
