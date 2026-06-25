@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { createHash } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 import { execFile, spawn } from "node:child_process";
 import { chmod, cp, mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from "node:fs/promises";
 import net from "node:net";
@@ -166,6 +166,7 @@ try {
   const resultsHelp = await run(binPath, ["results", "--help"], { cwd: consumerDir });
   assertIncludes(resultsHelp.stdout, "gptprouse results", "installed results help output");
   assertIncludes(resultsHelp.stdout, "gptprouse results artifact <task-id|latest> [artifact-path]", "installed results help output");
+  assertIncludes(resultsHelp.stdout, "gptprouse results reseal <task-id|latest> --confirm-current-result", "installed results help output");
   const receiptsHelp = await run(binPath, ["receipts", "--help"], { cwd: consumerDir });
   assertIncludes(receiptsHelp.stdout, "gptprouse receipts", "installed receipts help output");
   assertIncludes(receiptsHelp.stdout, "gptprouse receipts show <receipt-id|latest>", "installed receipts help output");
@@ -179,6 +180,7 @@ try {
     { args: ["claude", "config", "--help"], expected: "gptprouse claude config [--cwd /absolute/path/to/repo]" },
     { args: ["tasks", "show", "--help"], expected: "gptprouse tasks show <task-id|latest>" },
     { args: ["results", "artifact", "--help"], expected: "gptprouse results artifact <task-id|latest> [artifact-path]" },
+    { args: ["results", "reseal", "--help"], expected: "gptprouse results reseal <task-id|latest> --confirm-current-result" },
     { args: ["receipts", "show", "--help"], expected: "gptprouse receipts show <receipt-id|latest>" },
     { args: ["sessions", "show", "--help"], expected: "gptprouse sessions show <session-id|latest>" },
     { args: ["pro", "ask", "--help"], expected: "gptprouse pro ask [--dry-run] [--file path]" },
@@ -264,7 +266,7 @@ try {
     },
     {
       args: ["results", "list"],
-      expected: "Unknown results subcommand: list. Expected one of: show, artifact. Run `gptprouse results --help`."
+      expected: "Unknown results subcommand: list. Expected one of: show, artifact, reseal. Run `gptprouse results --help`."
     },
     {
       args: ["receipts", "delete"],
@@ -612,6 +614,11 @@ try {
   assertIncludes(onboard.stdout, "gptprouse pro browser login  # opens visible browser", "installed onboard output");
   assertIncludes(onboard.stdout, "gptprouse pro browser help", "installed onboard output");
   assertIncludes(onboard.stdout, 'gptprouse pro browser ask "Review this repo"  # visible-browser send', "installed onboard output");
+  assertIncludes(onboard.stdout, "gptprouse pro list", "installed onboard output");
+  assertIncludes(onboard.stdout, "gptprouse pro latest", "installed onboard output");
+  assertIncludes(onboard.stdout, "gptprouse results show latest", "installed onboard output");
+  assertIncludes(onboard.stdout, "gptprouse results artifact latest", "installed onboard output");
+  assertIncludes(onboard.stdout, "gptprouse results reseal <task-id> --confirm-current-result", "installed onboard output");
   assertIncludes(onboard.stdout, "Cloudflare", "installed onboard output");
   assertIncludes(onboard.stdout, "usage-limit", "installed onboard output");
   assertNotIncludes(onboard.stdout, "gptprouse_token=", "installed onboard output");
@@ -674,6 +681,11 @@ try {
     `${sourcePrefix} pro browser ask --source-cli ${installedSourceCli} "Review this repo"  # visible-browser send`,
     "installed source onboard output"
   );
+  assertIncludes(sourceOnboard.stdout, `${sourcePrefix} pro list --source-cli ${installedSourceCli}`, "installed source onboard output");
+  assertIncludes(sourceOnboard.stdout, `${sourcePrefix} pro latest --source-cli ${installedSourceCli}`, "installed source onboard output");
+  assertIncludes(sourceOnboard.stdout, `${sourcePrefix} results show latest`, "installed source onboard output");
+  assertIncludes(sourceOnboard.stdout, `${sourcePrefix} results artifact latest`, "installed source onboard output");
+  assertIncludes(sourceOnboard.stdout, `${sourcePrefix} results reseal <task-id> --confirm-current-result`, "installed source onboard output");
   assertNotIncludes(sourceOnboard.stdout, "gptprouse init --cwd", "installed source onboard output");
   assertNotIncludes(sourceOnboard.stdout, "gptprouse_token=", "installed source onboard output");
   const missingCwd = path.join(consumerDir, "missing-repo");
@@ -1459,6 +1471,10 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertIncludes(readme, ".bridge/artifacts/results/", "installed README");
   assertIncludes(readme, "generic MCP handoff artifacts", "installed README");
   assertIncludes(readme, "sha256 recorded at finalization", "installed README");
+  assertIncludes(readme, "gptprouse results reseal <task-id> --confirm-current-result", "installed README");
+  assertIncludes(readme, "Prefer the explicit task id you just reviewed", "installed README");
+  assertIncludes(readme, "missing `result_sha256`", "installed README");
+  assertIncludes(readme, "It does not reseal unsigned receipts", "installed README");
   assertIncludes(readme, "answer_artifact_warning", "installed README");
   assertIncludes(readme, "too large for `bridge_fetch_result_artifact`", "installed README");
   assertIncludes(readme, "more than one ChatGPT tab or window is visible", "installed README");
@@ -1696,6 +1712,29 @@ async function smokeInstalledUntrustedResultInspection(binPath, tmp, launcherCwd
     assertIncludes(output, "task_completed receipt", item.label);
     assertNotIncludes(output, "raw installed answer", item.label);
   }
+
+  const legacyCwd = path.join(tmp, "legacy-signed-result");
+  await mkdir(legacyCwd, { recursive: true });
+  const legacyCreated = await run(
+    binPath,
+    ["tasks", "create", "--title", "GPT Pro consult", "--prompt", "Legacy signed result"],
+    { cwd: legacyCwd }
+  );
+  const legacyTaskId = legacyCreated.stdout.trim().split(/\s+/)[0];
+  await run(binPath, ["tasks", "complete", legacyTaskId, "--summary", "Legacy installed answer"], { cwd: legacyCwd });
+  await makeCompletionReceiptsLegacySigned(legacyCwd, legacyTaskId);
+  const legacyShowFailure = await runExpectFailure(binPath, ["results", "show", legacyTaskId, "--cwd", legacyCwd], { cwd: launcherCwd });
+  assertIncludes(`${legacyShowFailure.stdout}\n${legacyShowFailure.stderr}`, "missing result_sha256", "installed legacy signed result before reseal");
+  const legacyResealMissingConfirm = await runExpectFailure(binPath, ["results", "reseal", legacyTaskId, "--cwd", legacyCwd], { cwd: launcherCwd });
+  assertIncludes(legacyResealMissingConfirm.stderr, "--confirm-current-result", "installed legacy signed reseal missing confirmation");
+  const legacyReseal = await run(binPath, ["results", "reseal", legacyTaskId, "--cwd", legacyCwd, "--confirm-current-result"], {
+    cwd: launcherCwd
+  });
+  assertIncludes(legacyReseal.stdout, `${legacyTaskId}\tresealed\treceipt_`, "installed legacy signed reseal output");
+  assertIncludes(legacyReseal.stdout, "result_sha256=", "installed legacy signed reseal output");
+  assertNotIncludes(legacyReseal.stdout, "Legacy installed answer", "installed legacy signed reseal output");
+  const legacyShow = await run(binPath, ["results", "show", legacyTaskId, "--cwd", legacyCwd], { cwd: launcherCwd });
+  assertIncludes(legacyShow.stdout, '"summary": "Legacy installed answer"', "installed legacy signed result after reseal");
 }
 
 async function smokeInstalledReleaseGitReadiness(binPath, tmp, launcherCwd) {
@@ -2080,6 +2119,41 @@ async function initPackageSmokeGitRepo(cwd, files) {
 
 function sha256(value) {
   return createHash("sha256").update(value, "utf8").digest("hex");
+}
+
+async function makeCompletionReceiptsLegacySigned(cwd, taskId) {
+  const key = (await readFile(path.join(cwd, ".bridge", "receipt-key.local"), "utf8")).trim();
+  const receiptsDir = path.join(cwd, ".bridge", "receipts");
+  for (const file of await readdir(receiptsDir)) {
+    if (!file.endsWith(".json")) continue;
+    const receiptPath = path.join(receiptsDir, file);
+    const receipt = JSON.parse(await readFile(receiptPath, "utf8"));
+    if (receipt.kind !== "task_completed" || receipt.task_id !== taskId) continue;
+    receipt.metadata = { ...receipt.metadata };
+    delete receipt.metadata.result_sha256;
+    delete receipt.integrity;
+    receipt.integrity = {
+      algorithm: "hmac-sha256",
+      digest: createHmac("sha256", Buffer.from(key, "hex")).update(canonicalJson(receipt)).digest("hex")
+    };
+    await writeFile(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`, "utf8");
+  }
+}
+
+function canonicalJson(value) {
+  return JSON.stringify(canonicalize(value));
+}
+
+function canonicalize(value) {
+  if (Array.isArray(value)) return value.map((item) => canonicalize(item));
+  if (value && typeof value === "object") {
+    const canonical = {};
+    for (const key of Object.keys(value).sort()) {
+      if (value[key] !== undefined) canonical[key] = canonicalize(value[key]);
+    }
+    return canonical;
+  }
+  return value;
 }
 
 async function smokeInstalledStdioTaskFinalizers(binPath, cwd) {

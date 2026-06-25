@@ -95,6 +95,11 @@ export interface ListReceiptsInput {
   task_id?: string;
 }
 
+export interface ResealResultOutput {
+  result: Result;
+  receipt: Receipt;
+}
+
 export class BridgeStore {
   readonly root: string;
   readonly bridgeDir: string;
@@ -321,6 +326,26 @@ export class BridgeStore {
     return result;
   }
 
+  async resealResult(taskId: string): Promise<ResealResultOutput> {
+    const task = await this.getTask(taskId);
+    if (task.status !== "done" && task.status !== "blocked") {
+      throw new Error(`Task ${taskId} is ${task.status}, not done or blocked`);
+    }
+    const result = await this.getResult(taskId);
+    if (result.status !== task.status) {
+      throw new Error(`Result ${taskId} status ${result.status} does not match task status ${task.status}`);
+    }
+    await this.assertResultArtifactsUnchanged(result);
+    if (await this.hasTrustedTaskCompletionReceipt(taskId, result)) {
+      throw new Error(`Result ${taskId} already has a trusted task_completed receipt`);
+    }
+    await this.assertHasTrustedLegacyCompletionReceiptForReseal(taskId, result);
+    return {
+      result,
+      receipt: await this.writeTaskCompletionReceipt(taskId, result)
+    };
+  }
+
   async readFinalizedResultArtifactText(
     taskId: string,
     artifactPath?: string,
@@ -529,8 +554,8 @@ export class BridgeStore {
     throw untrustedResultError(this.root, taskId, `has an untrusted task_completed receipt: ${failures[0] ?? "local integrity unavailable"}`);
   }
 
-  private async writeTaskCompletionReceipt(taskId: string, result: Result): Promise<void> {
-    await this.writeReceipt({
+  private async writeTaskCompletionReceipt(taskId: string, result: Result): Promise<Receipt> {
+    return this.writeReceipt({
       kind: "task_completed",
       task_id: taskId,
       summary: `${result.status === "done" ? "Completed" : "Blocked"} task ${taskId}`,
@@ -551,6 +576,41 @@ export class BridgeStore {
       }
       throw error;
     }
+  }
+
+  private async assertHasTrustedLegacyCompletionReceiptForReseal(taskId: string, result: Result): Promise<void> {
+    const receipts = (await this.readAll("receipts", parseReceiptRecord))
+      .filter((receipt) => receipt.kind === "task_completed" && receipt.task_id === taskId)
+      .sort((a, b) => b.created_at.localeCompare(a.created_at) || b.id.localeCompare(a.id));
+    if (receipts.length === 0) {
+      throw untrustedResultError(this.root, taskId, "has no trusted task_completed receipt to reseal");
+    }
+    const failures: string[] = [];
+    const legacyReceiptIds: string[] = [];
+    for (const receipt of receipts) {
+      try {
+        await this.assertReceiptIntegrity(receipt, {
+          remediation: "Only locally signed legacy task_completed receipts can be resealed"
+        });
+        assertLegacyCompletionReceiptCanBeResealed(receipt, result);
+        legacyReceiptIds.push(receipt.id);
+      } catch (error) {
+        failures.push(errorMessage(error));
+      }
+    }
+    if (legacyReceiptIds.length === 1) return;
+    if (legacyReceiptIds.length > 1) {
+      throw untrustedResultError(
+        this.root,
+        taskId,
+        `has multiple locally signed legacy task_completed receipts to reseal (${legacyReceiptIds.join(", ")}); move extras aside, then retry`
+      );
+    }
+    throw untrustedResultError(
+      this.root,
+      taskId,
+      `has no locally trusted legacy task_completed receipt to reseal: ${failures[0] ?? "local integrity unavailable"}`
+    );
   }
 
   async writeArtifactText(relativePath: string, content: string): Promise<string> {
@@ -1230,7 +1290,7 @@ function recordCorruptError(kind: BridgeRecordKind, id: string, filePath: string
 
 function untrustedResultError(root: string, taskId: string, reason: string): Error {
   const error = new Error(
-    `Result record is untrusted: ${formatRecordPath(root, path.join(root, ".bridge", "results", `${taskId}.json`))} ${reason}. Retry the completion path or move the result record aside, then retry.`
+    `Result record is untrusted: ${formatRecordPath(root, path.join(root, ".bridge", "results", `${taskId}.json`))} ${reason}. If this is a locally signed legacy completion receipt, review .bridge/results/${taskId}.json, then run \`gptprouse results reseal ${taskId} --confirm-current-result\`. Retry the completion path or move the result record aside, then retry.`
   ) as Error & { code: "EUNTRUSTED_RESULT"; taskId: string };
   error.code = "EUNTRUSTED_RESULT";
   error.taskId = taskId;
@@ -1329,9 +1389,21 @@ function stripReceiptIntegrity(receipt: Receipt): Omit<Receipt, "integrity"> {
 function assertReceiptResultDigest(receipt: Receipt, result: Result): void {
   const expected = resultDigest(result);
   const actual = receipt.metadata?.result_sha256;
+  if (actual === undefined) {
+    throw new Error(`Receipt ${receipt.id} is missing result_sha256`);
+  }
   if (typeof actual !== "string" || !safeHexEqual(actual, expected)) {
     throw new Error(`Receipt ${receipt.id} does not match current result payload: result_sha256 mismatch`);
   }
+}
+
+function assertLegacyCompletionReceiptCanBeResealed(receipt: Receipt, result: Result): void {
+  const actual = receipt.metadata?.result_sha256;
+  if (actual === undefined) return;
+  if (typeof actual === "string" && safeHexEqual(actual, resultDigest(result))) {
+    throw new Error(`Receipt ${receipt.id} already matches current result payload`);
+  }
+  throw new Error(`Receipt ${receipt.id} is not a legacy completion receipt: result_sha256 is already present`);
 }
 
 function resultDigest(result: Result): string {

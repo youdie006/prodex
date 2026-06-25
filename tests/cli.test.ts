@@ -624,6 +624,98 @@ describe("runCli", () => {
     expect(text).not.toContain("Raw untrusted browser answer.");
   });
 
+  it("points untrusted legacy Pro inspection errors at the explicit reseal command", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const store = new BridgeStore(cwd);
+    const task = await store.createTask({
+      source: "codex",
+      title: "GPT Pro consult",
+      prompt: "Legacy signed answer.",
+      repo_id: "default",
+      files: [],
+      provenance: { adapter: "chatgpt-control", warnings: [] }
+    });
+    await store.completeTask(task.id, {
+      status: "done",
+      summary: "Legacy signed Pro answer.",
+      commands: ["visible ChatGPT browser consult"]
+    });
+    for (const receipt of await store.listReceipts({ kind: "task_completed", task_id: task.id })) {
+      await store.deleteReceiptIfPresent(receipt.id);
+    }
+    await store.writeReceipt({
+      kind: "task_completed",
+      task_id: task.id,
+      summary: `Legacy completed task ${task.id}`
+    });
+
+    await expect(
+      runCli(["pro", "latest"], {
+        cwd,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.toThrow(`gptprouse results reseal ${task.id} --confirm-current-result`);
+  });
+
+  it("reseals a locally signed legacy result only after explicit confirmation", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const store = new BridgeStore(cwd);
+    const task = await store.createTask({
+      source: "codex",
+      title: "GPT Pro consult",
+      prompt: "Legacy signed result.",
+      repo_id: "default",
+      files: [],
+      provenance: { adapter: "chatgpt-control", warnings: [] }
+    });
+    await store.completeTask(task.id, {
+      status: "done",
+      summary: "Legacy signed answer.",
+      commands: ["visible ChatGPT browser consult"]
+    });
+    for (const receipt of await store.listReceipts({ kind: "task_completed", task_id: task.id })) {
+      await store.deleteReceiptIfPresent(receipt.id);
+    }
+    await store.writeReceipt({
+      kind: "task_completed",
+      task_id: task.id,
+      summary: `Legacy completed task ${task.id}`
+    });
+    await expect(
+      runCli(["results", "show", task.id], {
+        cwd,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.toThrow(/result_sha256/i);
+    await expect(
+      runCli(["results", "reseal", task.id], {
+        cwd,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.toThrow(/--confirm-current-result/);
+    const out: string[] = [];
+
+    await runCli(["results", "reseal", task.id, "--confirm-current-result"], {
+      cwd,
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    expect(out.join("\n")).toContain(`${task.id}\tresealed\treceipt_`);
+    expect(out.join("\n")).toContain("result_sha256=");
+    expect(out.join("\n")).not.toContain("Legacy signed answer.");
+    const showOut: string[] = [];
+    await runCli(["results", "show", task.id], {
+      cwd,
+      stdout: (line) => showOut.push(line),
+      stderr: () => {}
+    });
+    expect(JSON.parse(showOut.join("\n"))).toEqual(expect.objectContaining({ task_id: task.id, summary: "Legacy signed answer." }));
+  });
+
   it("runs stdio MCP against an explicit --cwd target instead of the process cwd", async () => {
     const launcherCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-launcher-"));
     const targetCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-target-"));
@@ -1898,7 +1990,11 @@ describe("runCli", () => {
       {
         args: ["results"],
         header: "gptprouse results",
-        commands: ["gptprouse results show <task-id|latest>", "gptprouse results artifact <task-id|latest> [artifact-path]"]
+        commands: [
+          "gptprouse results show <task-id|latest>",
+          "gptprouse results artifact <task-id|latest> [artifact-path]",
+          "gptprouse results reseal <task-id|latest> --confirm-current-result"
+        ]
       },
       {
         args: ["receipts", "--help"],
@@ -2022,6 +2118,7 @@ describe("runCli", () => {
       },
       { args: ["results", "show", "--help"], expected: "gptprouse results show <task-id|latest>" },
       { args: ["results", "artifact", "--help"], expected: "gptprouse results artifact <task-id|latest> [artifact-path]" },
+      { args: ["results", "reseal", "--help"], expected: "gptprouse results reseal <task-id|latest> --confirm-current-result" },
       { args: ["receipts", "list", "--help"], expected: "gptprouse receipts list [--kind kind] [--task-id task-id]" },
       { args: ["receipts", "show", "--help"], expected: "gptprouse receipts show <receipt-id|latest>" },
       { args: ["sessions", "list", "--help"], expected: "gptprouse sessions list [--status preview|running|done|blocked]" },
@@ -2517,6 +2614,14 @@ describe("runCli", () => {
     expect(text).toContain("gptprouse pro browser check");
     expect(text).toContain("gptprouse pro browser smoke");
     expect(text).toContain('gptprouse pro browser ask "Review this repo"  # visible-browser send');
+    expect(text).toContain("gptprouse pro list");
+    expect(text).toContain("gptprouse pro latest");
+    expect(text).toContain("gptprouse results show latest");
+    expect(text).toContain("gptprouse results artifact latest");
+    expect(text).toContain("gptprouse results reseal <task-id> --confirm-current-result");
+    expect(text.indexOf("gptprouse results reseal <task-id> --confirm-current-result")).toBeGreaterThan(
+      text.indexOf("gptprouse pro browser ask")
+    );
     expect(text).toContain("manual, visible browser");
     expect(text).toContain("Cloudflare");
     expect(text).toContain("usage-limit");
@@ -2553,6 +2658,11 @@ describe("runCli", () => {
     expect(text).toContain(`${sourcePrefix} pro browser help --source-cli ${sourceCli}`);
     expect(text).toContain(`${sourcePrefix} pro browser check --source-cli ${sourceCli}`);
     expect(text).toContain(`${sourcePrefix} pro browser smoke --source-cli ${sourceCli}`);
+    expect(text).toContain(`${sourcePrefix} pro list --source-cli ${sourceCli}`);
+    expect(text).toContain(`${sourcePrefix} pro latest --source-cli ${sourceCli}`);
+    expect(text).toContain(`${sourcePrefix} results show latest`);
+    expect(text).toContain(`${sourcePrefix} results artifact latest`);
+    expect(text).toContain(`${sourcePrefix} results reseal <task-id> --confirm-current-result`);
     expect(text).toContain(`${sourcePrefix} pro browser ask --source-cli ${sourceCli} "Review this repo"  # visible-browser send`);
     expect(text).not.toContain("gptprouse init --cwd");
     expect(text).not.toContain("gptprouse_token=");
@@ -3585,7 +3695,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
       },
       {
         args: ["results", "list"],
-        expected: "Unknown results subcommand: list. Expected one of: show, artifact. Run `gptprouse results --help`."
+        expected: "Unknown results subcommand: list. Expected one of: show, artifact, reseal. Run `gptprouse results --help`."
       },
       {
         args: ["receipts", "delete"],

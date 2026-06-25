@@ -636,6 +636,126 @@ describe("BridgeStore", () => {
     await expect(store.getFinalizedResultReadOnly(task.id)).resolves.toEqual(expect.objectContaining({ summary: "Receipt integrity repair summary." }));
   });
 
+  it("reseals a finalized result only from a locally signed legacy completion receipt", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
+    const store = new BridgeStore(root);
+    const task = await store.createTask({
+      source: "codex",
+      title: "Reseal legacy result",
+      prompt: "Upgrade a legacy completion receipt.",
+      repo_id: "default",
+      files: [],
+      provenance: { adapter: "cli" }
+    });
+    await store.completeTask(task.id, {
+      status: "done",
+      summary: "Legacy result summary.",
+      commands: ["npm test"]
+    });
+    const completionReceipts = await store.listReceipts({ kind: "task_completed", task_id: task.id });
+    for (const receipt of completionReceipts) {
+      await store.deleteReceiptIfPresent(receipt.id);
+    }
+    await store.writeReceipt({
+      kind: "task_completed",
+      task_id: task.id,
+      summary: `Legacy completed task ${task.id}`
+    });
+    await expect(store.getFinalizedResultReadOnly(task.id)).rejects.toThrow(/result_sha256/i);
+
+    const resealed = await store.resealResult(task.id);
+
+    expect(resealed.result.summary).toBe("Legacy result summary.");
+    expect(resealed.receipt.kind).toBe("task_completed");
+    expect(resealed.receipt.metadata.result_sha256).toMatch(/^[a-f0-9]{64}$/);
+    await expect(store.getFinalizedResultReadOnly(task.id)).resolves.toEqual(expect.objectContaining({ summary: "Legacy result summary." }));
+  });
+
+  it("does not reseal a finalized result from unsigned or different-payload completion receipts", async () => {
+    const unsignedRoot = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
+    const unsignedStore = new BridgeStore(unsignedRoot);
+    const unsignedTask = await unsignedStore.createTask({
+      source: "codex",
+      title: "Unsigned reseal",
+      prompt: "Do not reseal unsigned receipts.",
+      repo_id: "default",
+      files: [],
+      provenance: { adapter: "cli" }
+    });
+    await unsignedStore.completeTask(unsignedTask.id, { status: "done", summary: "Unsigned result." });
+    for (const receipt of await unsignedStore.listReceipts({ kind: "task_completed", task_id: unsignedTask.id })) {
+      await unsignedStore.deleteReceiptIfPresent(receipt.id);
+    }
+    await writeFile(
+      path.join(unsignedRoot, ".bridge", "receipts", "receipt_20990101_000000_unsigned-completion.json"),
+      `${JSON.stringify(
+        {
+          schema_version: 1,
+          id: "receipt_20990101_000000_unsigned-completion",
+          kind: "task_completed",
+          task_id: unsignedTask.id,
+          summary: "Unsigned completion",
+          metadata: {},
+          created_at: "2099-01-01T00:00:00.000Z"
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+    await expect(unsignedStore.resealResult(unsignedTask.id)).rejects.toThrow(/locally trusted legacy task_completed receipt/i);
+
+    const mismatchRoot = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
+    const mismatchStore = new BridgeStore(mismatchRoot);
+    const mismatchTask = await mismatchStore.createTask({
+      source: "codex",
+      title: "Mismatched reseal",
+      prompt: "Do not reseal different result payloads.",
+      repo_id: "default",
+      files: [],
+      provenance: { adapter: "cli" }
+    });
+    await mismatchStore.completeTask(mismatchTask.id, { status: "done", summary: "Mismatched result." });
+    for (const receipt of await mismatchStore.listReceipts({ kind: "task_completed", task_id: mismatchTask.id })) {
+      await mismatchStore.deleteReceiptIfPresent(receipt.id);
+    }
+    await mismatchStore.writeReceipt({
+      kind: "task_completed",
+      task_id: mismatchTask.id,
+      summary: `Mismatched completed task ${mismatchTask.id}`,
+      metadata: { result_sha256: "0".repeat(64) }
+    });
+
+    await expect(mismatchStore.resealResult(mismatchTask.id)).rejects.toThrow(/locally trusted legacy task_completed receipt/i);
+
+    const multipleRoot = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
+    const multipleStore = new BridgeStore(multipleRoot);
+    const multipleTask = await multipleStore.createTask({
+      source: "codex",
+      title: "Multiple legacy reseal",
+      prompt: "Do not guess between multiple legacy completion receipts.",
+      repo_id: "default",
+      files: [],
+      provenance: { adapter: "cli" }
+    });
+    await multipleStore.completeTask(multipleTask.id, { status: "done", summary: "Multiple legacy result." });
+    for (const receipt of await multipleStore.listReceipts({ kind: "task_completed", task_id: multipleTask.id })) {
+      await multipleStore.deleteReceiptIfPresent(receipt.id);
+    }
+    await multipleStore.writeReceipt({
+      kind: "task_completed",
+      task_id: multipleTask.id,
+      summary: `First legacy completed task ${multipleTask.id}`
+    });
+    await multipleStore.writeReceipt({
+      kind: "task_completed",
+      task_id: multipleTask.id,
+      summary: `Second legacy completed task ${multipleTask.id}`
+    });
+
+    await expect(multipleStore.resealResult(multipleTask.id)).rejects.toThrow(/multiple locally signed legacy task_completed receipts/i);
+  });
+
   it("rejects terminal task receipt repair when a finalized result artifact is missing", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
     const store = new BridgeStore(root);

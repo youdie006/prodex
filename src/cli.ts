@@ -601,7 +601,28 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       io.stdout(artifact.content);
       return 0;
     }
-    throw unknownSubcommandError("results", subcommand, ["show", "artifact"]);
+    if (subcommand === "reseal") {
+      if (
+        printHelpIfRequested(resultArgs, "results reseal", io.stdout, printResultsHelp, {
+          valueFlags: ["--cwd"],
+          booleanFlags: ["--confirm-current-result"],
+          maxPositionals: 1
+        })
+      ) {
+        return 0;
+      }
+      const [taskId] = readPositionalsWithOptions(resultArgs, "results reseal", 1, ["--cwd"], ["--confirm-current-result"]);
+      if (!taskId) throw new Error("results reseal requires <task-id|latest> --confirm-current-result");
+      if (!resultArgs.includes("--confirm-current-result")) {
+        throw new Error("results reseal requires --confirm-current-result after you review the current .bridge/results/<task-id>.json payload locally.");
+      }
+      const targetStore = new BridgeStore(resolveCwdFlag(io.cwd, resultArgs));
+      const resolvedTaskId = taskId === "latest" ? await latestRawResultTaskId(targetStore) : taskId;
+      const resealed = await targetStore.resealResult(resolvedTaskId);
+      io.stdout(`${resealed.result.task_id}\tresealed\t${resealed.receipt.id}\tresult_sha256=${resealed.receipt.metadata.result_sha256}`);
+      return 0;
+    }
+    throw unknownSubcommandError("results", subcommand, ["show", "artifact", "reseal"]);
   }
 
   if (command === "receipts") {
@@ -1090,6 +1111,7 @@ Commands:
   gptprouse tasks block <task-id> --summary "Summary" [--code code] [--next-step "Next step"] [--retryable]
   gptprouse results show <task-id|latest> [--cwd /absolute/path/to/repo]
   gptprouse results artifact <task-id|latest> [artifact-path] [--cwd /absolute/path/to/repo]
+  gptprouse results reseal <task-id|latest> --confirm-current-result [--cwd /absolute/path/to/repo]
   gptprouse receipts list [--kind kind] [--task-id task-id] [--cwd /absolute/path/to/repo]
   gptprouse receipts show <receipt-id|latest> [--cwd /absolute/path/to/repo]
   gptprouse sessions list [--status preview|running|done|blocked] [--cwd /absolute/path/to/repo]
@@ -1242,7 +1264,8 @@ function printResultsHelp(stdout: (line: string) => void): void {
 
 Commands:
   gptprouse results show <task-id|latest> [--cwd /absolute/path/to/repo]
-  gptprouse results artifact <task-id|latest> [artifact-path] [--cwd /absolute/path/to/repo]`);
+  gptprouse results artifact <task-id|latest> [artifact-path] [--cwd /absolute/path/to/repo]
+  gptprouse results reseal <task-id|latest> --confirm-current-result [--cwd /absolute/path/to/repo]`);
 }
 
 function printReceiptsHelp(stdout: (line: string) => void): void {
@@ -1477,6 +1500,11 @@ repo: ${cwd}
    ${cli} pro browser check${sourceCliOption}
    ${cli} pro browser smoke${sourceCliOption}
    ${proBrowserAskCommand}  # visible-browser send
+   ${cli} pro list${sourceCliOption}
+   ${cli} pro latest${sourceCliOption}
+   ${cli} results show latest
+   ${cli} results artifact latest
+   ${cli} results reseal <task-id> --confirm-current-result  # only after reviewing .bridge/results/<task-id>.json
 
 Safety notes:
 - This command only prints commands; it does not start servers, open browsers, or write files.
@@ -2935,6 +2963,12 @@ function assertNoOrphanConsultResults(
 async function latestResultTaskId(store: BridgeStore, options: { readOnly?: boolean } = {}): Promise<string> {
   const results = options.readOnly ? await listResultsForInspection(store) : await store.listResults();
   const result = results.at(-1);
+  if (!result) throw new Error("No results found");
+  return result.task_id;
+}
+
+async function latestRawResultTaskId(store: BridgeStore): Promise<string> {
+  const result = (await store.listResults()).at(-1);
   if (!result) throw new Error("No results found");
   return result.task_id;
 }
