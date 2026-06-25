@@ -828,8 +828,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
         } catch (recordError) {
           throw new Error(`${message} (also failed to record blocked consult: ${errorMessage(recordError)})`);
         }
-        if (sourceCli) throw new Error(message);
-        throw error;
+        throw new Error(formatBlockedConsultRecordedMessage(message, task.id, sourceCli));
       }
       const answerArtifactText = formatProConsultArtifact(consult);
       const persistenceWarnings = [...consult.warnings];
@@ -1325,6 +1324,18 @@ function formatBrowserLoginCommand(sourceCli?: string): string {
 
 function formatBrowserSmokeCommand(sourceCli?: string): string {
   return `${formatCliCommand(sourceCli)} pro browser smoke${formatSourceCliOption(sourceCli)}`;
+}
+
+function formatProShowCommand(taskId: string, sourceCli?: string): string {
+  return `${formatCliCommand(sourceCli)} pro show ${shellQuote(taskId)}${formatSourceCliOption(sourceCli)}`;
+}
+
+function formatProLatestCommand(sourceCli?: string): string {
+  return `${formatCliCommand(sourceCli)} pro latest${formatSourceCliOption(sourceCli)}`;
+}
+
+function formatBlockedConsultRecordedMessage(message: string, taskId: string, sourceCli?: string): string {
+  return `${message}\nblocked consult recorded: ${taskId}; inspect with \`${formatProShowCommand(taskId, sourceCli)}\` or \`${formatProLatestCommand(sourceCli)}\`.`;
 }
 
 function formatReleaseStatusCommand(sourceCli?: string): string {

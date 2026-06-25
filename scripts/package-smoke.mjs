@@ -853,6 +853,7 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertIncludes(readme, "too large for `bridge_fetch_result_artifact`", "installed README");
   assertIncludes(readme, "more than one ChatGPT tab or window is visible", "installed README");
   assertIncludes(readme, "blocker code and next step", "installed README");
+  assertIncludes(readme, "the failed command also prints the recorded task id plus `pro show`/`pro latest` inspection commands", "installed README");
   assertIncludes(readme, "fatal finalization failures print the received answer", "installed README");
   assertIncludes(readme, "connects to the installed `/mcp` endpoint", "installed README");
   assertIncludes(readme, "verifies explicit `--cwd` task storage", "installed README");

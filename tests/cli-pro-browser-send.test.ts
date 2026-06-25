@@ -275,13 +275,20 @@ describe("pro browser ask persistence", () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-pro-send-"));
     sendChatGptPromptMock.mockRejectedValueOnce(new Error("ChatGPT is asking you to log in."));
 
-    await expect(
-      runCli(["pro", "browser", "ask", "Review this"], {
+    let thrown: Error | undefined;
+    try {
+      await runCli(["pro", "browser", "ask", "Review this"], {
         cwd,
         stdout: () => {},
         stderr: () => {}
-      })
-    ).rejects.toThrow(/log in/i);
+      });
+    } catch (error) {
+      thrown = error as Error;
+    }
+    expect(thrown?.message).toMatch(/log in/i);
+    expect(thrown?.message).toMatch(/blocked consult recorded: task_/);
+    expect(thrown?.message).toContain("gptprouse pro show");
+    expect(thrown?.message).toContain("gptprouse pro latest");
 
     const out: string[] = [];
     await runCli(["pro", "latest"], {
@@ -390,13 +397,20 @@ describe("pro browser ask persistence", () => {
     };
     sendChatGptPromptMock.mockRejectedValueOnce(Object.assign(new Error(`${blocker.message} Next: ${blocker.next_step}`), { blocker }));
 
-    await expect(
-      runCli(["pro", "browser", "ask", "--source-cli", sourceCli, "Review this"], {
+    let thrown: Error | undefined;
+    try {
+      await runCli(["pro", "browser", "ask", "--source-cli", sourceCli, "Review this"], {
         cwd,
         stdout: () => {},
         stderr: () => {}
-      })
-    ).rejects.toThrow(/node .*pro browser login --source-cli/);
+      });
+    } catch (error) {
+      thrown = error as Error;
+    }
+    expect(thrown?.message).toMatch(/node .*pro browser login --source-cli/);
+    expect(thrown?.message).toContain(`blocked consult recorded:`);
+    expect(thrown?.message).toContain(`node ${sourceCli} pro show`);
+    expect(thrown?.message).toContain(`node ${sourceCli} pro latest --source-cli ${sourceCli}`);
 
     const out: string[] = [];
     await runCli(["pro", "latest"], {
