@@ -35,7 +35,7 @@ async function releasePack(args) {
   try {
     await copyPackedFilesToStaging(root, staging, files, binPaths);
     await run(process.execPath, [path.join(staging, "scripts", "release-check.mjs"), "--metadata-only", "--root", staging], staging);
-    const { stdout } = await run(npmCommand, ["pack", "--json", "--ignore-scripts", "--pack-destination", destination], staging);
+    const { stdout } = await runNpmPack(["pack", "--json", "--ignore-scripts", "--pack-destination", destination], staging, "npm pack");
     packedTarball = resolvePackedTarball(destination, stdout);
   } finally {
     if (!args.keepWorkdir) {
@@ -70,7 +70,7 @@ async function copyPackedFilesToStaging(root, staging, files, binPaths) {
 }
 
 async function readPackedFiles(root) {
-  const { stdout } = await run(npmCommand, ["pack", "--json", "--dry-run", "--ignore-scripts"], root);
+  const { stdout } = await runNpmPack(["pack", "--json", "--dry-run", "--ignore-scripts"], root, "npm pack dry-run");
   let entries;
   try {
     entries = JSON.parse(stdout);
@@ -122,6 +122,14 @@ async function run(command, commandArgs, cwd) {
     timeout: 120_000,
     maxBuffer: 20 * 1024 * 1024
   });
+}
+
+async function runNpmPack(commandArgs, cwd, label) {
+  try {
+    return await run(npmCommand, commandArgs, cwd);
+  } catch (error) {
+    throw new Error(`${label} failed: ${commandFailureDetail(error)}`);
+  }
 }
 
 function packageBinPaths(bin) {
@@ -201,6 +209,23 @@ Options:
 
 function errorMessage(error) {
   return error instanceof Error ? error.message : String(error);
+}
+
+function commandFailureDetail(error) {
+  const failed = error && typeof error === "object" ? error : {};
+  const stderr = firstOutputLine(failed.stderr);
+  if (stderr) return stderr;
+  const stdout = firstOutputLine(failed.stdout);
+  if (stdout) return stdout;
+  return errorMessage(error);
+}
+
+function firstOutputLine(value) {
+  if (typeof value !== "string") return undefined;
+  return value
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find(Boolean);
 }
 
 function isMissingFileError(error) {

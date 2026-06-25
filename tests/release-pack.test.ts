@@ -90,6 +90,30 @@ describe("release-pack", () => {
     expect((await readdir(destination)).filter((entry) => entry.endsWith(".tgz"))).toEqual([]);
   });
 
+  it("fails with a friendly message when npm pack dry-run exits nonzero", async () => {
+    const root = await createReleasePackFixture();
+    const destination = await mkdtemp(path.join(tmpdir(), "gptprouse-release-pack-dest-"));
+    const fakeBin = await mkdtemp(path.join(tmpdir(), "gptprouse-release-pack-fake-bin-"));
+    await writeFile(
+      path.join(fakeBin, npmCommand),
+      "#!/bin/sh\nprintf 'npm dry-run exploded\\n' >&2\nexit 23\n",
+      "utf8"
+    );
+    await chmod(path.join(fakeBin, npmCommand), 0o755);
+
+    const result = await runReleasePack(["--root", root, "--pack-destination", destination], {
+      env: { PATH: `${fakeBin}${path.delimiter}${process.env.PATH ?? ""}` }
+    });
+
+    const output = `${result.stdout}\n${result.stderr}`;
+    expect(result.code).toBe(1);
+    expect(output).toContain("release pack failed");
+    expect(output).toContain("npm pack dry-run failed: npm dry-run exploded");
+    expect(output).not.toContain("Command failed:");
+    expect(output).not.toContain("npm pack --json --dry-run");
+    expect((await readdir(destination)).filter((entry) => entry.endsWith(".tgz"))).toEqual([]);
+  });
+
   it("fails with a friendly message when final npm pack returns malformed JSON", async () => {
     const root = await createReleasePackFixture();
     const destination = await mkdtemp(path.join(tmpdir(), "gptprouse-release-pack-dest-"));
@@ -117,6 +141,35 @@ esac
     expect(output).not.toContain("Unexpected token");
     expect(output).not.toContain("not valid JSON");
     expect(output).not.toContain("at JSON.parse");
+    expect((await readdir(destination)).filter((entry) => entry.endsWith(".tgz"))).toEqual([]);
+  });
+
+  it("fails with a friendly message when final npm pack exits nonzero", async () => {
+    const root = await createReleasePackFixture();
+    const destination = await mkdtemp(path.join(tmpdir(), "gptprouse-release-pack-dest-"));
+    const fakeBin = await mkdtemp(path.join(tmpdir(), "gptprouse-release-pack-fake-bin-"));
+    await writeFile(
+      path.join(fakeBin, npmCommand),
+      `#!/bin/sh
+case " $* " in
+  *" --dry-run "*) printf '[{"files":[{"path":"package.json"},{"path":"README.md"},{"path":"LICENSE"},{"path":"dist/cli.js"},{"path":"scripts/release-check.mjs"}]}]\\n' ;;
+  *) printf 'npm final pack exploded\\n' >&2; exit 24 ;;
+esac
+`,
+      "utf8"
+    );
+    await chmod(path.join(fakeBin, npmCommand), 0o755);
+
+    const result = await runReleasePack(["--root", root, "--pack-destination", destination], {
+      env: { PATH: `${fakeBin}${path.delimiter}${process.env.PATH ?? ""}` }
+    });
+
+    const output = `${result.stdout}\n${result.stderr}`;
+    expect(result.code).toBe(1);
+    expect(output).toContain("release pack failed");
+    expect(output).toContain("npm pack failed: npm final pack exploded");
+    expect(output).not.toContain("Command failed:");
+    expect(output).not.toContain("npm pack --json --ignore-scripts");
     expect((await readdir(destination)).filter((entry) => entry.endsWith(".tgz"))).toEqual([]);
   });
 
