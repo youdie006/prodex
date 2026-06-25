@@ -1727,7 +1727,12 @@ function printBrowserLoginGuide(
   stdout("");
   stdout(`Profile: ${input.profileDir}`);
   stdout(`Debug: http://127.0.0.1:${input.port}`);
-  stdout("You can close this Chrome window after login. The dedicated profile is reused next time.");
+  if (input.opened) {
+    stdout("You can close this Chrome window after login. The dedicated profile is reused next time.");
+  } else {
+    stdout("Run `gptprouse pro browser login` without `--dry-run` to open the dedicated Chrome window.");
+    stdout("The dedicated profile path above is reused next time.");
+  }
 }
 
 function printProBrowserHelp(stdout: (line: string) => void): void {

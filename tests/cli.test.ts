@@ -2139,7 +2139,7 @@ describe("runCli", () => {
     expect(out.join("\n")).toContain("chatgpt: browser_unreachable");
   });
 
-  it("prints a friendly browser login guide without opening Chrome in dry-run mode", async () => {
+  it("prints a friendly browser login guide without implying an opened Chrome window in dry-run mode", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
     const out: string[] = [];
 
@@ -2157,7 +2157,9 @@ describe("runCli", () => {
     expect(text).toContain("gptprouse pro browser check");
     expect(text).toContain("gptprouse pro browser smoke");
     expect(text).not.toContain("node dist/cli.js");
-    expect(text).toContain("You can close this Chrome window after login");
+    expect(text).toContain("Dry run: no browser was opened.");
+    expect(text).toContain("Run `gptprouse pro browser login` without `--dry-run` to open the dedicated Chrome window.");
+    expect(text).not.toContain("You can close this Chrome window after login");
   });
 
   it("prints browser-specific help from pro browser help", async () => {

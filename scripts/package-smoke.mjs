@@ -195,6 +195,12 @@ try {
   assertIncludes(browserLoginGuide.stdout, "usage limit", "installed browser login guide");
   assertIncludes(browserLoginGuide.stdout, "gptprouse pro browser check", "installed browser login guide");
   assertIncludes(browserLoginGuide.stdout, "gptprouse pro browser smoke", "installed browser login guide");
+  assertIncludes(
+    browserLoginGuide.stdout,
+    "Run `gptprouse pro browser login` without `--dry-run` to open the dedicated Chrome window.",
+    "installed browser login guide"
+  );
+  assertNotIncludes(browserLoginGuide.stdout, "You can close this Chrome window after login", "installed browser login guide");
   assertNotIncludes(browserLoginGuide.stdout, "node dist/cli.js", "installed browser login guide");
   const browserHelp = await run(binPath, ["pro", "browser", "help"], { cwd: consumerDir });
   assertIncludes(browserHelp.stdout, "gptprouse pro browser login [--dry-run]", "installed browser help");
