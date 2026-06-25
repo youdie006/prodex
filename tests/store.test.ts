@@ -495,7 +495,7 @@ describe("BridgeStore", () => {
     await expect(store.getTask(task.id)).resolves.toEqual(expect.objectContaining({ status: "done" }));
   });
 
-  it("repairs a non-terminal task with a hashed result artifact using the original completion input", async () => {
+  it("rejects non-terminal task repair when a hashed result artifact is missing", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
     const store = new BridgeStore(root);
     const task = await store.createTask({
@@ -535,15 +535,16 @@ describe("BridgeStore", () => {
     );
     await rm(path.join(root, ".bridge", "artifacts", "results", "hashed.md"));
 
-    const result = await store.completeTask(task.id, {
-      status: "done",
-      summary: "Recovered hashed artifact summary.",
-      artifacts: [{ path: ".bridge/artifacts/results/hashed.md", role: "result", bytes: 1 }],
-      commands: ["npm test"]
-    });
-
-    expect(result).toEqual(expect.objectContaining({ task_id: task.id, summary: "Recovered hashed artifact summary." }));
-    await expect(store.getTask(task.id)).resolves.toEqual(expect.objectContaining({ status: "done" }));
+    await expect(
+      store.completeTask(task.id, {
+        status: "done",
+        summary: "Recovered hashed artifact summary.",
+        artifacts: [{ path: ".bridge/artifacts/results/hashed.md", role: "result", bytes: 1 }],
+        commands: ["npm test"]
+      })
+    ).rejects.toThrow(/Result artifact changed after finalization|no such file|ENOENT/i);
+    await expect(store.getTask(task.id)).resolves.toEqual(expect.objectContaining({ status: "new" }));
+    await expect(store.listReceipts({ kind: "task_completed", task_id: task.id })).resolves.toHaveLength(0);
   });
 
   it("repairs a terminal task when retrying completion after the matching result was written but the receipt is missing", async () => {
@@ -578,7 +579,7 @@ describe("BridgeStore", () => {
     await expect(store.listReceipts({ kind: "task_completed", task_id: task.id })).resolves.toHaveLength(1);
   });
 
-  it("repairs a terminal task receipt without rereading an already stored result artifact", async () => {
+  it("rejects terminal task receipt repair when a finalized result artifact is missing", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
     const store = new BridgeStore(root);
     const task = await store.createTask({
@@ -602,15 +603,50 @@ describe("BridgeStore", () => {
     }
     await rm(path.join(root, artifactPath));
 
-    const retried = await store.completeTask(task.id, {
+    await expect(
+      store.completeTask(task.id, {
+        status: "done",
+        summary: "Receipt repair artifact summary.",
+        artifacts: first.artifacts,
+        commands: ["npm test"]
+      })
+    ).rejects.toThrow(/Result artifact changed after finalization|no such file|ENOENT/i);
+    await expect(store.listReceipts({ kind: "task_completed", task_id: task.id })).resolves.toHaveLength(0);
+  });
+
+  it("rejects terminal task receipt repair when a finalized result artifact changed", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
+    const store = new BridgeStore(root);
+    const task = await store.createTask({
+      source: "codex",
+      title: "Retry tampered receipt artifact",
+      prompt: "Do not retrust changed result artifacts.",
+      repo_id: "default",
+      files: [],
+      provenance: { adapter: "cli" }
+    });
+    const artifactPath = await store.writeArtifactText(".bridge/artifacts/results/receipt-repair-tamper.md", "original receipt repair answer\n");
+    const first = await store.completeTask(task.id, {
       status: "done",
-      summary: "Receipt repair artifact summary.",
-      artifacts: first.artifacts,
+      summary: "Receipt repair tamper summary.",
+      artifacts: [{ path: artifactPath, role: "result" }],
       commands: ["npm test"]
     });
+    const completionReceipts = await store.listReceipts({ kind: "task_completed", task_id: task.id });
+    for (const receipt of completionReceipts) {
+      await rm(path.join(root, ".bridge", "receipts", `${receipt.id}.json`));
+    }
+    await store.writeArtifactText(artifactPath, "tampered receipt repair answer\n");
 
-    expect(retried).toEqual(first);
-    await expect(store.listReceipts({ kind: "task_completed", task_id: task.id })).resolves.toHaveLength(1);
+    await expect(
+      store.completeTask(task.id, {
+        status: "done",
+        summary: "Receipt repair tamper summary.",
+        artifacts: first.artifacts,
+        commands: ["npm test"]
+      })
+    ).rejects.toThrow(/Result artifact changed after finalization/);
+    await expect(store.listReceipts({ kind: "task_completed", task_id: task.id })).resolves.toHaveLength(0);
   });
 
   it("cleans up stale internal record temp hard links before reading a result", async () => {

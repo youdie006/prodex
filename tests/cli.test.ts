@@ -3632,6 +3632,8 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     expect(text).toContain(
       `1. Run \`${sourcePrefix} pro browser login --source-cli ${sourceCli} --profile-dir ${shellQuotedForTest(profileDir)} --port 12345 --url https://chatgpt.com/g/g-demo/project --launch-timeout-ms 12000\` without \`--dry-run\` to open the dedicated Chrome window.`
     );
+    expect(text).toContain("2. Log in manually at https://chatgpt.com/g/g-demo/project in that Chrome window.");
+    expect(text).not.toContain("2. Log in manually at https://chatgpt.com/ in that Chrome window.");
     expect(text).toContain(`Run \`${sourcePrefix} pro browser check --source-cli ${sourceCli} --port 12345\` to confirm the session is reachable.`);
     expect(text).toContain(`Run \`${sourcePrefix} pro browser smoke --source-cli ${sourceCli} --port 12345\` to verify a real Pro response path.`);
     expect(text).toContain(`Profile: ${profileDir}`);
@@ -3899,11 +3901,24 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     process.env.GPTPROUSE_CHROME = fakeChrome;
     try {
       await expect(
-        runCli(["pro", "browser", "login", "--profile-dir", path.join(cwd, "profile"), "--port", String(port)], {
-          cwd,
-          stdout: (line) => out.push(line),
-          stderr: () => {}
-        })
+        runCli(
+          [
+            "pro",
+            "browser",
+            "login",
+            "--profile-dir",
+            path.join(cwd, "profile"),
+            "--port",
+            String(port),
+            "--url",
+            "https://chatgpt.com/c/review-thread"
+          ],
+          {
+            cwd,
+            stdout: (line) => out.push(line),
+            stderr: () => {}
+          }
+        )
       ).resolves.toBe(0);
     } finally {
       await new Promise<void>((resolve) => server.close(() => resolve()));
@@ -3913,6 +3928,8 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
 
     expect(out.join("\n")).toContain("ChatGPT Pro browser login");
     expect(out.join("\n")).toContain("Opened the dedicated Chrome window");
+    expect(out.join("\n")).toContain("1. Log in manually at https://chatgpt.com/c/review-thread in the dedicated Chrome window.");
+    expect(out.join("\n")).not.toContain("1. Log in manually at https://chatgpt.com/ in the dedicated Chrome window.");
     expect(out.join("\n")).toContain("You can close this Chrome window after check/smoke or when you are done. The dedicated profile is reused next time.");
     expect(out.join("\n")).not.toContain("You can close this Chrome window after login");
   });
@@ -4303,6 +4320,9 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
 
     expect(text).toContain(`latest_pro: untrusted ${task.id}`);
     expect(text).toContain("task_completed receipt");
+    expect(text).not.toContain("write dry-run");
+    expect(text).toContain("Retry the completion path or move the result record aside");
+    expect(text).not.toContain("bridge.. Retry");
     expect(text).toContain("chatgpt:");
   });
 

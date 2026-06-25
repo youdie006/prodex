@@ -1251,16 +1251,23 @@ async function packPackage(destination) {
 
 function assertPackageFileScope(files) {
   const paths = files.map((file) => file.path);
-  assertArrayIncludes(paths, "LICENSE", "packed files");
-  assertArrayIncludes(paths, "README.md", "packed files");
-  assertArrayIncludes(paths, "docs/http-mcp.md", "packed files");
-  assertArrayIncludes(paths, "docs/claude.md", "packed files");
-  assertArrayIncludes(paths, "scripts/release-check.mjs", "packed files");
-  assertArrayIncludes(paths, "scripts/release-pack.mjs", "packed files");
-  assertArrayNotIncludes(paths, "docs/research.md", "packed files");
-  assertArrayNotIncludes(paths, "docs/todo.md", "packed files");
-  if (paths.some((filePath) => filePath.startsWith("docs/superpowers/"))) {
-    throw new Error("packed files unexpectedly included internal superpowers plans");
+  const allowedExact = new Set([
+    "LICENSE",
+    "README.md",
+    "docs/claude.md",
+    "docs/http-mcp.md",
+    "package.json",
+    "scripts/release-check.mjs",
+    "scripts/release-pack.mjs"
+  ]);
+  for (const filePath of allowedExact) {
+    assertArrayIncludes(paths, filePath, "packed files");
+  }
+  assertArrayIncludes(paths, "dist/cli.js", "packed files");
+
+  const unexpected = paths.filter((filePath) => !allowedExact.has(filePath) && !/^dist\/[^/]+\.(?:d\.ts|js|js\.map)$/.test(filePath));
+  if (unexpected.length > 0) {
+    throw new Error(`packed files unexpectedly included non-public paths: ${unexpected.slice(0, 10).join(", ")}`);
   }
 }
 

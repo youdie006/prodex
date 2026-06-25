@@ -723,6 +723,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
         if (browserArgs.includes("--dry-run")) {
           printBrowserLoginGuide(io.stdout, {
             opened: false,
+            loginUrl,
             profileDir: profileDir ?? defaultChatGptProfileDir(),
             port,
             sourceCli,
@@ -738,6 +739,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
         await assertBrowserLaunchStayedAlive(opened, launchTimeoutMs);
         printBrowserLoginGuide(io.stdout, {
           opened: true,
+          loginUrl,
           profileDir: opened.profileDir,
           port: opened.port,
           sourceCli,
@@ -2583,7 +2585,7 @@ async function runMcpWriteSmoke(): Promise<{ path: string; receipt_payload: "art
 
 function printBrowserLoginGuide(
   stdout: (line: string) => void,
-  input: { opened: boolean; profileDir: string; port: number; sourceCli?: string; commandOptions?: BrowserCommandOptions }
+  input: { opened: boolean; loginUrl: string; profileDir: string; port: number; sourceCli?: string; commandOptions?: BrowserCommandOptions }
 ): void {
   const loginCommand = formatBrowserLoginCommand(input.sourceCli, input.commandOptions);
   const runtimeCommandOptions = input.commandOptions?.port ? { port: input.commandOptions.port } : {};
@@ -2594,7 +2596,7 @@ function printBrowserLoginGuide(
   stdout("");
   stdout("Steps:");
   if (input.opened) {
-    stdout("1. Log in manually at https://chatgpt.com/ in the dedicated Chrome window.");
+    stdout(`1. Log in manually at ${input.loginUrl} in the dedicated Chrome window.`);
     stdout("2. If ChatGPT asks for captcha, Cloudflare/human verification, permission, or account verification, complete it in the browser.");
     stdout("3. For usage limit, message limit, model limit, or rate limit, wait for the reset or choose an available model in the browser.");
     stdout("4. Open a normal ChatGPT chat or the intended Project/thread so the prompt composer is visible.");
@@ -2603,7 +2605,7 @@ function printBrowserLoginGuide(
     stdout(`7. Run \`${smokeCommand}\` to verify a real Pro response path.`);
   } else {
     stdout(`1. Run \`${loginCommand}\` without \`--dry-run\` to open the dedicated Chrome window.`);
-    stdout("2. Log in manually at https://chatgpt.com/ in that Chrome window.");
+    stdout(`2. Log in manually at ${input.loginUrl} in that Chrome window.`);
     stdout("3. If ChatGPT asks for captcha, Cloudflare/human verification, permission, or account verification, complete it in the browser.");
     stdout("4. For usage limit, message limit, model limit, or rate limit, wait for the reset or choose an available model in the browser.");
     stdout("5. Open a normal ChatGPT chat or the intended Project/thread so the prompt composer is visible.");
