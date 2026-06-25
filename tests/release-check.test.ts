@@ -267,6 +267,28 @@ describe("release-check", () => {
     expect(result.stdout).toContain("release_metadata=ok");
   });
 
+  it("fails release metadata when package bin files are not executable", async () => {
+    const root = await createPackModeFixture({
+      packageJson: {
+        name: "demo-pack-bin-mode",
+        version: "1.0.0",
+        license: "MIT",
+        bin: { demo: "cli.js" },
+        files: ["cli.js", "README.md"]
+      },
+      executableBin: false
+    });
+
+    const result = await runReleaseCheck(root);
+
+    const output = `${result.stdout}\n${result.stderr}`;
+    expect(result.code).toBe(1);
+    expect(output).toContain("release metadata failed");
+    expect(output).toContain("package bin entries must be executable");
+    expect(output).toContain("cli.js");
+    expect(result.stdout).not.toContain("release_metadata=ok");
+  });
+
   it("fails release metadata when LICENSE is not a regular file", async () => {
     const root = await copyPackageJsonToTemp();
     const packageJson = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
@@ -494,7 +516,15 @@ describe("release-check", () => {
 async function copyPackageJsonToTemp(): Promise<string> {
   const root = await mkdtemp(path.join(tmpdir(), "gptprouse-release-check-"));
   await mkdir(root, { recursive: true });
-  await writeFile(path.join(root, "package.json"), await readFile(path.join(repoRoot, "package.json"), "utf8"), "utf8");
+  const rawPackageJson = await readFile(path.join(repoRoot, "package.json"), "utf8");
+  await writeFile(path.join(root, "package.json"), rawPackageJson, "utf8");
+  const packageJson = JSON.parse(rawPackageJson) as { bin?: string | Record<string, string> };
+  for (const packagePath of packageBinPaths(packageJson)) {
+    const filePath = path.join(root, packagePath);
+    await mkdir(path.dirname(filePath), { recursive: true });
+    await writeFile(filePath, "#!/usr/bin/env node\nconsole.log('release fixture')\n", "utf8");
+    await chmod(filePath, 0o755);
+  }
   return root;
 }
 
@@ -528,6 +558,7 @@ async function createFakeReleaseCommands(
   await mkdir(binDir, { recursive: true });
   await mkdir(path.join(root, "dist"), { recursive: true });
   await writeFile(path.join(root, "dist", "cli.js"), "#!/usr/bin/env node\nconsole.log('doctor')\n", "utf8");
+  await chmod(path.join(root, "dist", "cli.js"), 0o755);
   await Promise.all([
     writeFakeCommand(path.join(binDir, "npm"), "npm", logPath, options.failCommand, options.packStdout, options.silentFail),
     writeFakeCommand(path.join(binDir, "npm.cmd.mjs"), "npm.cmd", logPath, options.failCommand, options.packStdout, options.silentFail),
@@ -562,6 +593,17 @@ async function writeFakeCommand(filePath: string, command: string, logPath: stri
 
 async function writeWindowsCommandWrapper(filePath: string, moduleFileName: string): Promise<void> {
   await writeFile(filePath, `@echo off\r\n"${process.execPath}" "%~dp0${moduleFileName}" %*\r\n`, "utf8");
+}
+
+function packageBinPaths(packageJson: { bin?: string | Record<string, string> }): string[] {
+  const bin = packageJson.bin;
+  if (typeof bin === "string") return [normalizePackagePath(bin)];
+  if (bin && typeof bin === "object") return Object.values(bin).map(normalizePackagePath);
+  return [];
+}
+
+function normalizePackagePath(value: string): string {
+  return value.replaceAll("\\", "/").replace(/^\.\/+/, "");
 }
 
 async function runReleaseCheck(

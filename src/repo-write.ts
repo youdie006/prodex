@@ -14,6 +14,7 @@ export type RepoWriteTestHooks = {
   beforeAppliedReceipt?: (path: string) => Promise<void> | void;
   beforeGitAdd?: (paths: string[]) => Promise<void> | void;
   beforeStageReceipt?: (paths: string[]) => Promise<void> | void;
+  beforeRestoreGitIndex?: (paths: string[]) => Promise<void> | void;
 };
 
 let testHooks: RepoWriteTestHooks = {};
@@ -297,6 +298,7 @@ export async function stageReviewedPaths(
     }
     if (staged) {
       try {
+        await testHooks.beforeRestoreGitIndex?.(stagedPaths);
         await restoreGitIndexEntries(root, originalIndexEntries);
       } catch (restoreError) {
         cleanupErrors.push(`failed to restore git index: ${errorMessage(restoreError)}`);
@@ -359,11 +361,9 @@ function parseGitIndexEntry(stdout: Buffer): GitIndexEntry | undefined {
 async function restoreGitIndexEntries(root: string, entries: Map<string, GitIndexEntry | undefined>): Promise<void> {
   for (const [gitPath, entry] of entries) {
     if (entry) {
-      await execFileAsync("git", ["update-index", "--add", "--cacheinfo", entry.mode, entry.objectId, gitPath], { cwd: root }).catch(
-        () => undefined
-      );
+      await execFileAsync("git", ["update-index", "--add", "--cacheinfo", entry.mode, entry.objectId, gitPath], { cwd: root });
     } else {
-      await execFileAsync("git", ["rm", "--cached", "--ignore-unmatch", "--", gitPath], { cwd: root }).catch(() => undefined);
+      await execFileAsync("git", ["rm", "--cached", "--ignore-unmatch", "--", gitPath], { cwd: root });
     }
   }
 }

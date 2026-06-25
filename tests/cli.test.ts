@@ -561,6 +561,69 @@ describe("runCli", () => {
     }
   });
 
+  it("lists untrusted Pro result metadata without showing raw answer text", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const store = new BridgeStore(cwd);
+    const trusted = await store.createTask({
+      source: "codex",
+      title: "Trusted Pro consult",
+      prompt: "A trusted browser consult.",
+      repo_id: "default",
+      files: [],
+      provenance: { adapter: "chatgpt-control", warnings: [] }
+    });
+    await store.completeTask(trusted.id, {
+      status: "blocked",
+      summary: "Trusted blocker.",
+      commands: ["visible ChatGPT browser consult"],
+      blocker: {
+        code: "browser_login_required",
+        message: "Visible browser login is required.",
+        retryable: true,
+        next_step: "Run gptprouse pro browser login."
+      }
+    });
+    const untrusted = await store.createTask({
+      source: "codex",
+      title: "Untrusted Pro consult",
+      prompt: "A raw browser consult.",
+      repo_id: "default",
+      files: [],
+      provenance: { adapter: "chatgpt-control", warnings: [] }
+    });
+    await writeFile(
+      path.join(cwd, ".bridge", "results", `${untrusted.id}.json`),
+      `${JSON.stringify(
+        {
+          schema_version: 1,
+          task_id: untrusted.id,
+          status: "done",
+          summary: "Raw untrusted browser answer.",
+          artifacts: [],
+          commands: ["visible ChatGPT browser consult"],
+          warnings: [],
+          created_at: "2099-01-01T00:00:00.000Z"
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+    const out: string[] = [];
+
+    await runCli(["pro", "list"], {
+      cwd,
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    const text = out.join("\n");
+    expect(text).toContain(`${trusted.id}\tblocked\tTrusted blocker.`);
+    expect(text).toContain(`${untrusted.id}\tuntrusted\tResult record is untrusted`);
+    expect(text).toContain("task_completed receipt");
+    expect(text).not.toContain("Raw untrusted browser answer.");
+  });
+
   it("runs stdio MCP against an explicit --cwd target instead of the process cwd", async () => {
     const launcherCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-launcher-"));
     const targetCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-target-"));
@@ -4151,7 +4214,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     const text = out.join("\n");
     expect(text).toContain(`bridge: missing (.bridge) - run \`node ${sourceCli} init\``);
     expect(text).toContain(`config: missing - run \`node ${sourceCli} setup\``);
-    expect(text).toContain(`next: Run \`node ${sourceCli} pro browser login --source-cli ${sourceCli}\`, log in, then retry.`);
+    expect(text).toContain(`next: Run \`node ${sourceCli} pro browser login --source-cli ${sourceCli} --port 65534\`, log in, then retry.`);
     expect(text).not.toContain("gptprouse pro browser login");
     expect(await readdir(cwd)).not.toContain(".bridge");
   });

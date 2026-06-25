@@ -793,9 +793,13 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       assertOnlyOptions(proArgs, "pro list", ["--cwd", "--source-cli"]);
       const targetStore = new BridgeStore(resolveCwdFlag(io.cwd, proArgs));
       const sourceCli = resolveOptionalFileFlag(io.cwd, proArgs, "--source-cli");
-      const consults = await listConsults(targetStore, { readOnly: true });
-      for (const consult of consults) {
-        io.stdout(`${consult.task.id}\t${consult.result.status}\t${formatProListSummary(consult, sourceCli)}`);
+      const consults = await listConsultListEntries(targetStore);
+      for (const entry of consults) {
+        if (entry.kind === "untrusted") {
+          io.stdout(`${entry.task.id}\tuntrusted\t${errorMessage(entry.error)}`);
+        } else {
+          io.stdout(`${entry.consult.task.id}\t${entry.consult.result.status}\t${formatProListSummary(entry.consult, sourceCli)}`);
+        }
       }
       return 0;
     }
@@ -901,7 +905,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
         } catch (recordError) {
           throw new Error(`${blocker.message} (also failed to record blocked consult: ${errorMessage(recordError)})`);
         }
-        throw new Error(formatBlockedConsultRecordedMessage(blocker.message, task.id, sourceCli));
+        throw new Error(formatBlockedConsultRecordedMessage(blocker.message, task.id, sourceCli, { cwd: io.cwd }));
       }
       let consult: Awaited<ReturnType<typeof sendChatGptPrompt>>;
       try {
@@ -912,7 +916,9 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
           timeoutMs: browserTimeoutMs
         });
       } catch (error) {
-        const blocker = sourceAwareBrowserBlocker(browserSendBlockerFromError(error), sourceCli);
+        const blocker = sourceAwareBrowserBlocker(browserSendBlockerFromError(error), sourceCli, {
+          port: parsedAskPro.optionArgs.includes("--port") ? browserPort : undefined
+        });
         const message = sourceCli && blocker.next_step ? `${blocker.message} Next: ${blocker.next_step}` : errorMessage(error);
         try {
           await store.completeTask(task.id, {
@@ -938,7 +944,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
         } catch (recordError) {
           throw new Error(`${message} (also failed to record blocked consult: ${errorMessage(recordError)})`);
         }
-        throw new Error(formatBlockedConsultRecordedMessage(message, task.id, sourceCli));
+        throw new Error(formatBlockedConsultRecordedMessage(message, task.id, sourceCli, { cwd: io.cwd }));
       }
       const answerArtifactText = formatProConsultArtifact(consult);
       const persistenceWarnings = [...consult.warnings];
@@ -1560,6 +1566,7 @@ function formatSourceCliOption(sourceCli?: string): string {
 }
 
 type BrowserCommandOptions = {
+  cwd?: string;
   profileDir?: string;
   port?: number;
   url?: string;
@@ -1579,9 +1586,10 @@ function formatBrowserLoginCommand(sourceCli?: string, options: BrowserCommandOp
 }
 
 function formatBrowserSmokeCommand(sourceCli?: string, options: BrowserCommandOptions = {}): string {
-  return [`${formatCliCommand(sourceCli)} pro browser smoke${formatSourceCliOption(sourceCli)}`, options.port ? `--port ${options.port}` : undefined]
+  const command = [`${formatCliCommand(sourceCli)} pro browser smoke${formatSourceCliOption(sourceCli)}`, options.port ? `--port ${options.port}` : undefined]
     .filter(Boolean)
     .join(" ");
+  return formatCommandInCwd(command, options.cwd);
 }
 
 function formatBrowserCheckCommand(sourceCli?: string, options: BrowserCommandOptions = {}): string {
@@ -1590,20 +1598,35 @@ function formatBrowserCheckCommand(sourceCli?: string, options: BrowserCommandOp
     .join(" ");
 }
 
-function formatBrowserTargetAskCommand(sourceCli?: string): string {
-  return `${formatCliCommand(sourceCli)} pro browser ask${formatSourceCliOption(sourceCli)} --target-url <chatgpt-url> --confirm-target "prompt"`;
+function formatBrowserTargetAskCommand(sourceCli?: string, options: BrowserCommandOptions = {}): string {
+  const command = [
+    `${formatCliCommand(sourceCli)} pro browser ask${formatSourceCliOption(sourceCli)}`,
+    options.port ? `--port ${options.port}` : undefined,
+    '--target-url <chatgpt-url> --confirm-target "prompt"'
+  ]
+    .filter(Boolean)
+    .join(" ");
+  return formatCommandInCwd(command, options.cwd);
 }
 
-function formatProShowCommand(taskId: string, sourceCli?: string): string {
-  return `${formatCliCommand(sourceCli)} pro show ${shellQuote(taskId)}${formatSourceCliOption(sourceCli)}`;
+function formatCommandInCwd(command: string, cwd?: string): string {
+  return cwd ? `cd ${shellQuote(cwd)} && ${command}` : command;
 }
 
-function formatProLatestCommand(sourceCli?: string): string {
-  return `${formatCliCommand(sourceCli)} pro latest${formatSourceCliOption(sourceCli)}`;
+function formatProShowCommand(taskId: string, sourceCli?: string, options: { cwd?: string } = {}): string {
+  return [`${formatCliCommand(sourceCli)} pro show ${shellQuote(taskId)}${formatSourceCliOption(sourceCli)}`, options.cwd ? `--cwd ${shellQuote(options.cwd)}` : undefined]
+    .filter(Boolean)
+    .join(" ");
 }
 
-function formatBlockedConsultRecordedMessage(message: string, taskId: string, sourceCli?: string): string {
-  return `${message}\nblocked consult recorded: ${taskId}; inspect with \`${formatProShowCommand(taskId, sourceCli)}\` or \`${formatProLatestCommand(sourceCli)}\`.`;
+function formatProLatestCommand(sourceCli?: string, options: { cwd?: string } = {}): string {
+  return [`${formatCliCommand(sourceCli)} pro latest${formatSourceCliOption(sourceCli)}`, options.cwd ? `--cwd ${shellQuote(options.cwd)}` : undefined]
+    .filter(Boolean)
+    .join(" ");
+}
+
+function formatBlockedConsultRecordedMessage(message: string, taskId: string, sourceCli?: string, options: { cwd?: string } = {}): string {
+  return `${message}\nblocked consult recorded: ${taskId}; inspect with \`${formatProShowCommand(taskId, sourceCli, options)}\` or \`${formatProLatestCommand(sourceCli, options)}\`.`;
 }
 
 function formatReleaseStatusCommand(sourceCli?: string, options: { cwd?: string } = {}): string {
@@ -1626,26 +1649,26 @@ function formatGitPushUpstreamCommand(branch: string): string {
   return `git push -u origin ${shellQuote(branch)}`;
 }
 
-function sourceAwareBrowserNextStep(nextStep: string | undefined, sourceCli?: string): string | undefined {
-  if (!nextStep || !sourceCli) return nextStep;
+function sourceAwareBrowserNextStep(nextStep: string | undefined, sourceCli?: string, options: BrowserCommandOptions = {}): string | undefined {
+  if (!nextStep || (!sourceCli && !options.port && !options.cwd)) return nextStep;
   return nextStep
-    .replaceAll("`gptprouse pro browser login`", `\`${formatBrowserLoginCommand(sourceCli)}\``)
-    .replaceAll("`gptprouse pro browser smoke`", `\`${formatBrowserSmokeCommand(sourceCli)}\``)
-    .replaceAll("pass --target-url with --confirm-target", `run \`${formatBrowserTargetAskCommand(sourceCli)}\``);
+    .replaceAll("`gptprouse pro browser login`", `\`${formatBrowserLoginCommand(sourceCli, options)}\``)
+    .replaceAll("`gptprouse pro browser smoke`", `\`${formatBrowserSmokeCommand(sourceCli, options)}\``)
+    .replaceAll("pass --target-url with --confirm-target", `run \`${formatBrowserTargetAskCommand(sourceCli, options)}\``);
 }
 
-function productCheckBrowserNextStep(nextStep: string | undefined, sourceCli?: string): string | undefined {
-  const sourceAware = sourceAwareBrowserNextStep(nextStep, sourceCli);
+function productCheckBrowserNextStep(nextStep: string | undefined, sourceCli?: string, options: BrowserCommandOptions = {}): string | undefined {
+  const sourceAware = sourceAwareBrowserNextStep(nextStep, sourceCli, options);
   if (!sourceAware) return sourceAware;
   if (sourceAware.includes("`")) return sourceAware;
   if (sourceAware.includes("pass --target-url with --confirm-target")) {
-    return sourceAware.replace("pass --target-url with --confirm-target", `run \`${formatBrowserTargetAskCommand(sourceCli)}\``);
+    return sourceAware.replace("pass --target-url with --confirm-target", `run \`${formatBrowserTargetAskCommand(sourceCli, options)}\``);
   }
-  return sourceAware.replace(/then retry\.$/, `then run \`${formatBrowserSmokeCommand(sourceCli)}\`.`);
+  return sourceAware.replace(/then retry\.$/, `then run \`${formatBrowserSmokeCommand(sourceCli, options)}\`.`);
 }
 
-function sourceAwareBrowserBlocker<T extends { next_step?: string }>(blocker: T, sourceCli?: string): T {
-  const nextStep = sourceAwareBrowserNextStep(blocker.next_step, sourceCli);
+function sourceAwareBrowserBlocker<T extends { next_step?: string }>(blocker: T, sourceCli?: string, options: BrowserCommandOptions = {}): T {
+  const nextStep = sourceAwareBrowserNextStep(blocker.next_step, sourceCli, options);
   return nextStep === blocker.next_step ? blocker : { ...blocker, next_step: nextStep };
 }
 
@@ -2764,21 +2787,25 @@ async function printProductCheck(store: BridgeStore, io: CliIO, args: string[], 
     port: readPortFlag(args, "--port") ?? 9333,
     timeoutMs: readPositiveNumberFlag(args, "--timeout-ms") ?? 1500
   });
+  const browserCommandOptions = {
+    cwd: setupHintCwd,
+    port: readPortFlag(args, "--port") ?? undefined
+  };
   let chatgptReady = false;
   const visibilityBlocker = chatGptVisibilityBlocker(browserStatus.visibilityState, browserStatus.url);
   if (!browserStatus.reachable) {
     io.stdout(`chatgpt: ${browserStatus.blocker?.code ?? "unreachable"} - ${browserStatus.blocker?.message ?? "browser is not reachable"}`);
-    const nextStep = productCheckBrowserNextStep(browserStatus.blocker?.next_step, sourceCli);
+    const nextStep = productCheckBrowserNextStep(browserStatus.blocker?.next_step, sourceCli, browserCommandOptions);
     if (nextStep) io.stdout(`next: ${nextStep}`);
   } else if (browserStatus.blocker) {
     const visibilityText =
       browserStatus.blocker.code === "tab_not_visible" ? ` visibility=${browserStatus.visibilityState ?? "unknown"}` : "";
     io.stdout(`chatgpt: blocked ${browserStatus.blocker.code}${visibilityText} - ${browserStatus.blocker.message}`);
-    const nextStep = productCheckBrowserNextStep(browserStatus.blocker.next_step, sourceCli);
+    const nextStep = productCheckBrowserNextStep(browserStatus.blocker.next_step, sourceCli, browserCommandOptions);
     if (nextStep) io.stdout(`next: ${nextStep}`);
   } else if (visibilityBlocker) {
     io.stdout(`chatgpt: blocked ${visibilityBlocker.code} visibility=${browserStatus.visibilityState ?? "unknown"} - ${visibilityBlocker.message}`);
-    const nextStep = productCheckBrowserNextStep(visibilityBlocker.next_step, sourceCli);
+    const nextStep = productCheckBrowserNextStep(visibilityBlocker.next_step, sourceCli, browserCommandOptions);
     if (nextStep) io.stdout(`next: ${nextStep}`);
   } else if (browserStatus.loggedInLikely && browserStatus.hasComposer) {
     io.stdout(`chatgpt: ok logged_in=true composer=true${browserStatus.url ? ` url=${browserStatus.url}` : ""}`);
@@ -2811,6 +2838,15 @@ type ConsultRecord = {
   task: Awaited<ReturnType<BridgeStore["listTasks"]>>[number];
   result: Awaited<ReturnType<BridgeStore["listResults"]>>[number];
 };
+
+type ConsultListEntry =
+  | { kind: "trusted"; consult: ConsultRecord }
+  | {
+      kind: "untrusted";
+      task: ConsultRecord["task"];
+      result: ConsultRecord["result"];
+      error: Error & { code: "EUNTRUSTED_RESULT"; taskId: string };
+    };
 
 async function listTasksForInspection(
   store: BridgeStore,
@@ -2857,6 +2893,33 @@ async function listConsults(store: BridgeStore, options: { readOnly?: boolean } 
     finalized.push({ ...record, result: await store.getFinalizedResultReadOnly(record.result.task_id) });
   }
   return finalized;
+}
+
+async function listConsultListEntries(store: BridgeStore): Promise<ConsultListEntry[]> {
+  const [tasks, results] = await Promise.all([listTasksForInspection(store), listRawResultsForInspection(store)]);
+  const tasksById = new Map(tasks.map((task) => [task.id, task]));
+  assertNoMissingTerminalConsultResults(tasks, results);
+  assertNoOrphanConsultResults(tasksById, results);
+  const records = results
+    .map((result) => {
+      const task = tasksById.get(result.task_id);
+      return task ? { task, result } : undefined;
+    })
+    .filter((record): record is ConsultRecord => Boolean(record && isConsultRecord(record)))
+    .sort((a, b) => b.result.created_at.localeCompare(a.result.created_at));
+  const entries: ConsultListEntry[] = [];
+  for (const record of records) {
+    try {
+      entries.push({ kind: "trusted", consult: { ...record, result: await store.getFinalizedResultReadOnly(record.result.task_id) } });
+    } catch (error) {
+      if (isUntrustedResultError(error)) {
+        entries.push({ kind: "untrusted", task: record.task, result: record.result, error });
+        continue;
+      }
+      throw error;
+    }
+  }
+  return entries;
 }
 
 function assertNoOrphanConsultResults(

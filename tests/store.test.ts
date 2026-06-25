@@ -579,6 +579,63 @@ describe("BridgeStore", () => {
     await expect(store.listReceipts({ kind: "task_completed", task_id: task.id })).resolves.toHaveLength(1);
   });
 
+  it("rejects trusted result reads when the finalized result payload changed", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
+    const store = new BridgeStore(root);
+    const task = await store.createTask({
+      source: "codex",
+      title: "Tampered result payload",
+      prompt: "Do not trust mutable result files.",
+      repo_id: "default",
+      files: [],
+      provenance: { adapter: "cli" }
+    });
+    await store.completeTask(task.id, {
+      status: "done",
+      summary: "Original trusted summary.",
+      commands: ["npm test"]
+    });
+    const resultPath = path.join(root, ".bridge", "results", `${task.id}.json`);
+    const resultRecord = JSON.parse(await readFile(resultPath, "utf8")) as Record<string, unknown>;
+    resultRecord.summary = "Tampered summary.";
+    await writeFile(resultPath, `${JSON.stringify(resultRecord, null, 2)}\n`, "utf8");
+
+    await expect(store.getFinalizedResultReadOnly(task.id)).rejects.toThrow(/result payload|result_sha256|untrusted/i);
+  });
+
+  it("repairs a terminal task when the existing completion receipt is untrusted", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
+    const store = new BridgeStore(root);
+    const task = await store.createTask({
+      source: "codex",
+      title: "Retry untrusted receipt",
+      prompt: "Recover a terminal task receipt with broken integrity.",
+      repo_id: "default",
+      files: [],
+      provenance: { adapter: "cli" }
+    });
+    const first = await store.completeTask(task.id, {
+      status: "done",
+      summary: "Receipt integrity repair summary.",
+      commands: ["npm test"]
+    });
+    const [completionReceipt] = await store.listReceipts({ kind: "task_completed", task_id: task.id });
+    const receiptPath = path.join(root, ".bridge", "receipts", `${completionReceipt.id}.json`);
+    const receiptRecord = JSON.parse(await readFile(receiptPath, "utf8")) as Record<string, unknown>;
+    delete receiptRecord.integrity;
+    await writeFile(receiptPath, `${JSON.stringify(receiptRecord, null, 2)}\n`, "utf8");
+
+    const retried = await store.completeTask(task.id, {
+      status: "done",
+      summary: "Receipt integrity repair summary.",
+      commands: ["npm test"]
+    });
+
+    expect(retried).toEqual(first);
+    await expect(store.getTask(task.id)).resolves.toEqual(expect.objectContaining({ status: "done" }));
+    await expect(store.getFinalizedResultReadOnly(task.id)).resolves.toEqual(expect.objectContaining({ summary: "Receipt integrity repair summary." }));
+  });
+
   it("rejects terminal task receipt repair when a finalized result artifact is missing", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
     const store = new BridgeStore(root);

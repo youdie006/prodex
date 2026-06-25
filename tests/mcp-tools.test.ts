@@ -550,28 +550,26 @@ describe("MCP tool handlers", () => {
       provenance: { adapter: "cli", warnings: [] }
     });
     const repoWriteArtifact = await store.writeArtifactText(".bridge/artifacts/repo-writes/payload.txt", "replacement payload");
+    const resultRecord = {
+      schema_version: 1,
+      task_id: task.id,
+      status: "done",
+      summary: "Legacy bad artifact list.",
+      artifacts: [{ path: repoWriteArtifact, role: "result", bytes: "replacement payload".length }],
+      commands: [],
+      warnings: [],
+      created_at: "2099-01-01T00:00:00.000Z"
+    };
     await writeFile(
       path.join(cwd, ".bridge", "results", `${task.id}.json`),
-      `${JSON.stringify(
-        {
-          schema_version: 1,
-          task_id: task.id,
-          status: "done",
-          summary: "Legacy bad artifact list.",
-          artifacts: [{ path: repoWriteArtifact, role: "result", bytes: "replacement payload".length }],
-          commands: [],
-          warnings: [],
-          created_at: "2099-01-01T00:00:00.000Z"
-        },
-        null,
-        2
-      )}\n`,
+      `${JSON.stringify(resultRecord, null, 2)}\n`,
       "utf8"
     );
     await store.writeReceipt({
       kind: "task_completed",
       task_id: task.id,
-      summary: `Completed task ${task.id}`
+      summary: `Completed task ${task.id}`,
+      metadata: { result_sha256: resultDigestForTest(resultRecord) }
     });
     const handlers = createMcpToolHandlers({ cwd });
 
@@ -587,34 +585,32 @@ describe("MCP tool handlers", () => {
       prompt: "Ask Pro",
       provenance: { adapter: "cli", warnings: [] }
     });
+    const resultRecord = {
+      schema_version: 1,
+      task_id: task.id,
+      status: "done",
+      summary: "Legacy bad artifact list.",
+      artifacts: [
+        {
+          path: ".bridge/artifacts/pro-consults/../repo-writes/payload.txt",
+          role: "result",
+          bytes: "replacement payload".length
+        }
+      ],
+      commands: [],
+      warnings: [],
+      created_at: "2099-01-01T00:00:00.000Z"
+    };
     await writeFile(
       path.join(cwd, ".bridge", "results", `${task.id}.json`),
-      `${JSON.stringify(
-        {
-          schema_version: 1,
-          task_id: task.id,
-          status: "done",
-          summary: "Legacy bad artifact list.",
-          artifacts: [
-            {
-              path: ".bridge/artifacts/pro-consults/../repo-writes/payload.txt",
-              role: "result",
-              bytes: "replacement payload".length
-            }
-          ],
-          commands: [],
-          warnings: [],
-          created_at: "2099-01-01T00:00:00.000Z"
-        },
-        null,
-        2
-      )}\n`,
+      `${JSON.stringify(resultRecord, null, 2)}\n`,
       "utf8"
     );
     await store.writeReceipt({
       kind: "task_completed",
       task_id: task.id,
-      summary: `Completed task ${task.id}`
+      summary: `Completed task ${task.id}`,
+      metadata: { result_sha256: resultDigestForTest(resultRecord) }
     });
     const handlers = createMcpToolHandlers({ cwd });
 
@@ -1765,6 +1761,47 @@ describe("MCP tool handlers", () => {
     expect(stageReceipts.receipts).toEqual([]);
   });
 
+  it("reports rollback failure when reviewed path index restore cannot run", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    const repoFile = path.join(cwd, "notes.md");
+    await writeFile(repoFile, "old\n", "utf8");
+    const head = await initGitRepo(cwd);
+    const handlers = createMcpToolHandlers({ cwd });
+    const dryRun = await handlers.repo_write_file_dry_run({
+      path: "notes.md",
+      content: "new\n",
+      expected_head: head
+    });
+    const applied = await handlers.repo_write_file_apply({
+      receipt_id: dryRun.receipt.id,
+      expected_head: head,
+      preimage_sha256: dryRun.preimage_sha256
+    });
+    await writeFile(repoFile, "user staged\n", "utf8");
+    await execFileAsync("git", ["add", "notes.md"], { cwd });
+    await writeFile(repoFile, "new\n", "utf8");
+    const indexLock = path.join(cwd, ".git", "index.lock");
+    setRepoWriteTestHooks({
+      beforeStageReceipt: async () => {
+        throw new Error("forced stage receipt failure");
+      },
+      beforeRestoreGitIndex: async () => {
+        await writeFile(indexLock, "locked\n", "utf8");
+      }
+    });
+
+    try {
+      await expect(
+        handlers.repo_stage_reviewed_paths({
+          receipt_ids: [applied.receipt.id],
+          expected_head: head
+        })
+      ).rejects.toThrow(/forced stage receipt failure.*failed to restore git index/i);
+    } finally {
+      await rm(indexLock, { force: true });
+    }
+  });
+
   it("rejects staging when git HEAD moved after apply", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
     await writeFile(path.join(cwd, "notes.md"), "old\n", "utf8");
@@ -1804,4 +1841,25 @@ async function initGitRepo(cwd: string): Promise<string> {
 
 function sha256(value: string): string {
   return createHash("sha256").update(value, "utf8").digest("hex");
+}
+
+function resultDigestForTest(value: unknown): string {
+  return sha256(canonicalJsonForTest(value));
+}
+
+function canonicalJsonForTest(value: unknown): string {
+  return JSON.stringify(canonicalizeForTest(value));
+}
+
+function canonicalizeForTest(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map((item) => canonicalizeForTest(item));
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    const canonical: Record<string, unknown> = {};
+    for (const key of Object.keys(record).sort()) {
+      if (record[key] !== undefined) canonical[key] = canonicalizeForTest(record[key]);
+    }
+    return canonical;
+  }
+  return value;
 }

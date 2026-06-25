@@ -83,6 +83,22 @@ describe("browser product check", () => {
     expect(text).toContain(`next: Solve it manually in the visible browser, then run \`node ${sourceCli} pro browser smoke --source-cli ${sourceCli}\`.`);
   });
 
+  it("preserves explicit cwd and port in source-checkout smoke recovery commands", async () => {
+    const targetCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-product-check-target-"));
+    const sourceRoot = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-product-check-source-"));
+    const sourceCli = path.join(sourceRoot, "dist", "cli.js");
+    await mkdir(path.dirname(sourceCli), { recursive: true });
+    await writeFile(sourceCli, "#!/usr/bin/env node\n", "utf8");
+
+    const { code, text } = await runBrowserCheckResultWithArgs(["--cwd", targetCwd, "--source-cli", sourceCli, "--port", "12345"]);
+
+    expect(code).toBe(1);
+    expect(text).toContain("chatgpt: blocked captcha_required");
+    expect(text).toContain(
+      `next: Solve it manually in the visible browser, then run \`cd ${targetCwd} && node ${sourceCli} pro browser smoke --source-cli ${sourceCli} --port 12345\`.`
+    );
+  });
+
   it("prints a source-checkout target-url ask command for ambiguous ChatGPT tabs", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-product-check-source-"));
     const sourceCli = path.join(cwd, "dist", "cli.js");
@@ -110,6 +126,37 @@ describe("browser product check", () => {
     expect(text).toContain("chatgpt: blocked ambiguous_chatgpt_tabs");
     expect(text).toContain(
       `next: Close extra ChatGPT windows, leave only the intended tab visible, or run \`node ${sourceCli} pro browser ask --source-cli ${sourceCli} --target-url <chatgpt-url> --confirm-target "prompt"\`.`
+    );
+  });
+
+  it("preserves explicit cwd and port in source-checkout target-url recovery commands", async () => {
+    const targetCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-product-check-target-"));
+    const sourceRoot = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-product-check-source-"));
+    const sourceCli = path.join(sourceRoot, "dist", "cli.js");
+    await mkdir(path.dirname(sourceCli), { recursive: true });
+    await writeFile(sourceCli, "#!/usr/bin/env node\n", "utf8");
+    browserStatusFixture.status = {
+      reachable: true,
+      loggedInLikely: true,
+      hasComposer: true,
+      visibilityState: "visible",
+      url: "https://chatgpt.com/c/intended",
+      title: "ChatGPT",
+      modelHints: ["ChatGPT Pro"],
+      blocker: {
+        code: "ambiguous_chatgpt_tabs",
+        message: "Multiple visible or unverified ChatGPT tabs or windows are available.",
+        retryable: true,
+        next_step: "Close extra ChatGPT windows, leave only the intended tab visible, or pass --target-url with --confirm-target."
+      }
+    };
+
+    const { code, text } = await runBrowserCheckResultWithArgs(["--cwd", targetCwd, "--source-cli", sourceCli, "--port", "12345"]);
+
+    expect(code).toBe(1);
+    expect(text).toContain("chatgpt: blocked ambiguous_chatgpt_tabs");
+    expect(text).toContain(
+      `next: Close extra ChatGPT windows, leave only the intended tab visible, or run \`cd ${targetCwd} && node ${sourceCli} pro browser ask --source-cli ${sourceCli} --port 12345 --target-url <chatgpt-url> --confirm-target "prompt"\`.`
     );
   });
 

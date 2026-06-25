@@ -410,7 +410,8 @@ describe("pro browser ask persistence", () => {
     expect(thrown?.message).toMatch(/node .*pro browser login --source-cli/);
     expect(thrown?.message).toContain(`blocked consult recorded:`);
     expect(thrown?.message).toContain(`node ${sourceCli} pro show`);
-    expect(thrown?.message).toContain(`node ${sourceCli} pro latest --source-cli ${sourceCli}`);
+    expect(thrown?.message).toContain(`--source-cli ${sourceCli} --cwd ${cwd}`);
+    expect(thrown?.message).toContain(`node ${sourceCli} pro latest --source-cli ${sourceCli} --cwd ${cwd}`);
 
     const out: string[] = [];
     await runCli(["pro", "latest"], {

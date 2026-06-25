@@ -385,7 +385,7 @@ try {
   }
   const releasePackTarballPath = path.join(releasePackDestination, releasePackTarballs[0]);
   assertIncludes(releasePackSuccess.stdout, `release_pack_verify: npm publish --dry-run ${releasePackTarballPath}`, "installed release-pack success output");
-  await assertInstalledReleasePackTarballModes(releasePackTarballPath, "installed release-pack tarball");
+  await assertInstalledReleasePackTarballModes(releasePackTarballPath, packed.files, "installed release-pack tarball");
   await assertNpmPublishDryRun(releasePackTarballPath, consumerDir, "installed release-pack tarball");
   const releasePackCliDestination = path.join(tmp, "installed-release-pack-cli");
   const releasePackCliSuccess = await run(
@@ -408,7 +408,7 @@ try {
   }
   const releasePackCliTarballPath = path.join(releasePackCliDestination, releasePackCliTarballs[0]);
   assertIncludes(releasePackCliSuccess.stdout, `release_pack_verify: npm publish --dry-run ${releasePackCliTarballPath}`, "installed release pack CLI output");
-  await assertInstalledReleasePackTarballModes(releasePackCliTarballPath, "installed release pack CLI tarball");
+  await assertInstalledReleasePackTarballModes(releasePackCliTarballPath, packed.files, "installed release pack CLI tarball");
   await assertNpmPublishDryRun(releasePackCliTarballPath, consumerDir, "installed release pack CLI tarball");
   const releasePackSourceCliDestination = path.join(tmp, "installed-release-pack-source-cli");
   const releasePackSourceCliSuccess = await run(
@@ -442,7 +442,7 @@ try {
     throw new Error(`installed source release pack CLI expected exactly one tarball, found: ${releasePackSourceCliTarballs.join(", ")}`);
   }
   const releasePackSourceCliTarballPath = path.join(releasePackSourceCliDestination, releasePackSourceCliTarballs[0]);
-  await assertInstalledReleasePackTarballModes(releasePackSourceCliTarballPath, "installed source release pack CLI tarball");
+  await assertInstalledReleasePackTarballModes(releasePackSourceCliTarballPath, packed.files, "installed source release pack CLI tarball");
   const releasePackGitReadyRoot = path.join(tmp, "installed-release-pack-git-ready-root");
   await cp(installedPackageDir, releasePackGitReadyRoot, { recursive: true });
   const releasePackGitReadyGit = await initPackageSmokeReleaseGitReadyRepo(releasePackGitReadyRoot);
@@ -483,7 +483,7 @@ try {
     `release_pack_publish: npm publish ${releasePackGitReadyTarballPath}`,
     "installed git-ready release pack CLI output"
   );
-  await assertInstalledReleasePackTarballModes(releasePackGitReadyTarballPath, "installed git-ready release pack CLI tarball");
+  await assertInstalledReleasePackTarballModes(releasePackGitReadyTarballPath, packed.files, "installed git-ready release pack CLI tarball");
   await assertNpmPublishDryRun(releasePackGitReadyTarballPath, consumerDir, "installed git-ready release pack CLI tarball");
   const releasePackMissingDestination = await runExpectFailure(
     process.execPath,
@@ -1279,7 +1279,7 @@ function assertPackageFileScope(files) {
   }
 }
 
-async function assertInstalledReleasePackTarballModes(tarballPath, label) {
+async function assertInstalledReleasePackTarballModes(tarballPath, packedFiles, label) {
   const consumer = await mkdtemp(path.join(tmp, "release-pack-consumer-"));
   await writeFile(path.join(consumer, "package.json"), `${JSON.stringify({ private: true }, null, 2)}\n`, "utf8");
   await run(npmCommand, ["install", "--ignore-scripts", "--no-audit", "--no-fund", "--package-lock=false", tarballPath], {
@@ -1288,9 +1288,33 @@ async function assertInstalledReleasePackTarballModes(tarballPath, label) {
     maxBuffer: 20 * 1024 * 1024
   });
   const installedRoot = path.join(consumer, "node_modules", "gptprouse");
-  await assertFileMode(path.join(installedRoot, "README.md"), 0o644, `${label} README.md`);
-  await assertFileMode(path.join(installedRoot, "scripts", "release-check.mjs"), 0o644, `${label} scripts/release-check.mjs`);
-  await assertFileMode(path.join(installedRoot, "dist", "cli.js"), 0o755, `${label} dist/cli.js`);
+  const installedPackageJson = JSON.parse(await readFile(path.join(installedRoot, "package.json"), "utf8"));
+  const binPaths = packageBinPaths(installedPackageJson);
+  for (const file of packedFiles) {
+    const packagePath = normalizePackagePath(file.path);
+    const expectedMode = binPaths.has(packagePath) ? 0o755 : 0o644;
+    await assertFileMode(path.join(installedRoot, ...packagePath.split("/")), expectedMode, `${label} ${packagePath}`);
+  }
+}
+
+function packageBinPaths(packageJson) {
+  const paths = new Set();
+  const bin = packageJson?.bin;
+  if (typeof bin === "string") {
+    paths.add(normalizePackagePath(bin));
+  } else if (bin && typeof bin === "object") {
+    for (const value of Object.values(bin)) {
+      if (typeof value === "string") paths.add(normalizePackagePath(value));
+    }
+  }
+  return paths;
+}
+
+function normalizePackagePath(value) {
+  if (typeof value !== "string" || value.trim() === "") {
+    throw new Error(`packed file entry is missing a path: ${JSON.stringify(value)}`);
+  }
+  return value.replaceAll("\\", "/").replace(/^\.\/+/, "");
 }
 
 async function assertNpmPublishDryRun(tarballPath, cwd, label) {
@@ -1653,6 +1677,11 @@ async function smokeInstalledUntrustedResultInspection(binPath, tmp, launcherCwd
     )}\n`,
     "utf8"
   );
+
+  const proList = await run(binPath, ["pro", "list", "--cwd", cwd], { cwd: launcherCwd });
+  assertIncludes(proList.stdout, `${taskId}\tuntrusted\tResult record is untrusted`, "installed untrusted pro list");
+  assertIncludes(proList.stdout, "task_completed receipt", "installed untrusted pro list");
+  assertNotIncludes(proList.stdout, "Raw installed answer.", "installed untrusted pro list");
 
   for (const item of [
     { args: ["results", "show", "latest", "--cwd", cwd], label: "installed untrusted results latest" },

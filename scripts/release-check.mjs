@@ -143,11 +143,25 @@ async function assertPackedFileModes(rootDir, packageJson) {
         "replace them with regular files, then rerun release:check."
     );
   }
+  const nonExecutableSourceBins = await findNonExecutableBinSourceFiles(rootDir, packageJson);
+  if (nonExecutableSourceBins.length > 0) {
+    throw new Error(
+      `release metadata failed: package bin entries must be executable: ${formatPathList(nonExecutableSourceBins)}. ` +
+        "restore executable mode on package bin files, then rerun release:check."
+    );
+  }
   const invalid = findExecutableNonBinPackedFiles(packedFiles, packageJson);
   if (invalid.length > 0) {
     throw new Error(
       `release metadata failed: packed files have unexpected executable modes outside package bin entries: ${formatPathList(invalid)}. ` +
         "fix file modes or publish from a filesystem that preserves executable bits, then rerun release:check."
+    );
+  }
+  const nonExecutablePackedBins = findNonExecutableBinPackedFiles(packedFiles, packageJson);
+  if (nonExecutablePackedBins.length > 0) {
+    throw new Error(
+      `release metadata failed: package bin entries must be executable: ${formatPathList(nonExecutablePackedBins)}. ` +
+        "restore executable mode on package bin files, then rerun release:check."
     );
   }
   const hardLinked = await findHardLinkedPackedFiles(rootDir, packedFiles);
@@ -222,6 +236,38 @@ function findExecutableNonBinPackedFiles(files, packageJson) {
     .filter((file) => (file.mode & 0o111) !== 0)
     .map((file) => normalizePackagePath(file.path))
     .filter((filePath) => !binPaths.has(filePath));
+}
+
+function findNonExecutableBinPackedFiles(files, packageJson) {
+  const filesByPath = new Map(
+    files
+      .filter((file) => typeof file?.path === "string")
+      .map((file) => [normalizePackagePath(file.path), file])
+  );
+  return [...packageBinPaths(packageJson)].filter((filePath) => {
+    const file = filesByPath.get(filePath);
+    return !file || typeof file.mode !== "number" || (file.mode & 0o111) === 0;
+  });
+}
+
+async function findNonExecutableBinSourceFiles(rootDir, packageJson) {
+  const invalid = [];
+  for (const packagePath of packageBinPaths(packageJson)) {
+    const filePath = path.join(rootDir, packagePath);
+    const relative = path.relative(rootDir, filePath);
+    if (relative.startsWith("..") || path.isAbsolute(relative)) {
+      invalid.push(packagePath);
+      continue;
+    }
+    try {
+      const stat = await lstat(filePath);
+      if ((stat.mode & 0o111) === 0) invalid.push(packagePath);
+    } catch (error) {
+      if (isMissingFileError(error)) invalid.push(packagePath);
+      else throw error;
+    }
+  }
+  return invalid;
 }
 
 async function findHardLinkedPackedFiles(rootDir, files) {
