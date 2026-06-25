@@ -170,6 +170,9 @@ function parseArgs(values) {
     }
     throw new Error(`release pack flags failed: unexpected argument ${arg}`);
   }
+  if (!parsed.help && !parsed.packDestination) {
+    throw new Error("release pack flags failed: --pack-destination is required");
+  }
   return parsed;
 }
 

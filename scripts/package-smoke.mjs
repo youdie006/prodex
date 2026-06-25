@@ -90,6 +90,24 @@ try {
   assertIncludes(releaseStatus.stdout, "pack:", "installed release status output");
   assertIncludes(releaseStatus.stdout, "git: blocked", "installed release status output");
   assertIncludes(releaseStatus.stdout, "not a git worktree", "installed release status output");
+  const releasePackMissingDestination = await runExpectFailure(
+    process.execPath,
+    [path.join(installedPackageDir, "scripts", "release-pack.mjs"), "--root", installedPackageDir],
+    { cwd: consumerDir }
+  );
+  assertIncludes(
+    releasePackMissingDestination.stderr,
+    "--pack-destination is required",
+    "installed release-pack missing destination output"
+  );
+  assertNotIncludes(
+    releasePackMissingDestination.stdout,
+    "release_pack=ok",
+    "installed release-pack missing destination output"
+  );
+  if ((await readdir(installedPackageDir)).some((entry) => entry.endsWith(".tgz"))) {
+    throw new Error("installed release-pack created a tarball without --pack-destination");
+  }
   const privatePackageDir = path.join(tmp, "private-release");
   await mkdir(privatePackageDir, { recursive: true });
   await writeFile(

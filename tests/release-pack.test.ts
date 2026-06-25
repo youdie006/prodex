@@ -22,6 +22,18 @@ describe("release-pack", () => {
     expect(output).not.toContain("release metadata failed");
   });
 
+  it("requires an explicit pack destination before creating a tarball", async () => {
+    const root = await createReleasePackFixture();
+
+    const result = await runReleasePack(["--root", root]);
+
+    const output = `${result.stdout}\n${result.stderr}`;
+    expect(result.code).toBe(1);
+    expect(output).toContain("release pack failed");
+    expect(output).toContain("--pack-destination is required");
+    expect((await readdir(root)).filter((entry) => entry.endsWith(".tgz"))).toEqual([]);
+  });
+
   it("fails with a friendly message when package.json is missing", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "gptprouse-release-pack-missing-"));
     const destination = await mkdtemp(path.join(tmpdir(), "gptprouse-release-pack-dest-"));
