@@ -96,9 +96,10 @@ try {
   );
   assertIncludes(
     help.stdout,
-    "gptprouse pro browser check|smoke [--source-cli /absolute/path/to/dist/cli.js]",
+    "gptprouse pro browser check [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]",
     "installed help output"
   );
+  assertIncludes(help.stdout, "gptprouse pro browser smoke [--source-cli /absolute/path/to/dist/cli.js]", "installed help output");
   assertIncludes(help.stdout, "gptprouse pro browser help", "installed help output");
   assertIncludes(help.stdout, "gptprouse pro latest [--source-cli /absolute/path/to/dist/cli.js]", "installed help output");
   assertIncludes(help.stdout, "gptprouse pro list [--source-cli /absolute/path/to/dist/cli.js]", "installed help output");
@@ -422,13 +423,33 @@ try {
   await mkdir(privatePackageDir, { recursive: true });
   await writeFile(
     path.join(privatePackageDir, "package.json"),
-    `${JSON.stringify({ name: "private-demo", version: "1.0.0", license: "MIT", private: true }, null, 2)}\n`
+    `${JSON.stringify({ name: "private-demo", version: "1.0.0", license: "MIT", private: true, files: ["README.md"] }, null, 2)}\n`
   );
   await writeFile(path.join(privatePackageDir, "LICENSE"), "MIT License\n");
+  await writeFile(path.join(privatePackageDir, "README.md"), "# Private demo\n");
+  await chmod(path.join(privatePackageDir, "README.md"), 0o755);
   const privateReleaseStatus = await run(binPath, ["release", "status", "--cwd", privatePackageDir], { cwd: consumerDir });
   assertIncludes(privateReleaseStatus.stdout, "metadata: blocked", "installed private release status output");
   assertIncludes(privateReleaseStatus.stdout, "private: true", "installed private release status output");
+  assertIncludes(privateReleaseStatus.stdout, "pack: blocked packed files have unexpected executable modes", "installed private release status output");
+  assertIncludes(privateReleaseStatus.stdout, "README.md", "installed private release status output");
+  assertIncludes(privateReleaseStatus.stdout, "pack_next:", "installed private release status output");
   assertNotIncludes(privateReleaseStatus.stdout, "metadata: ok", "installed private release status output");
+  const missingLicenseMetadataDir = path.join(tmp, "missing-license-metadata-release");
+  await mkdir(missingLicenseMetadataDir, { recursive: true });
+  await writeFile(
+    path.join(missingLicenseMetadataDir, "package.json"),
+    `${JSON.stringify({ name: "missing-license-metadata-demo", version: "1.0.0" }, null, 2)}\n`
+  );
+  await writeFile(path.join(missingLicenseMetadataDir, "LICENSE"), "MIT License\n");
+  const missingLicenseMetadataReleaseStatus = await run(binPath, ["release", "status", "--cwd", missingLicenseMetadataDir], { cwd: consumerDir });
+  assertIncludes(missingLicenseMetadataReleaseStatus.stdout, "metadata: blocked", "installed missing license metadata release status output");
+  assertIncludes(
+    missingLicenseMetadataReleaseStatus.stdout,
+    "next: choose a license and set package.json license, then run `npm run release:check`",
+    "installed missing license metadata release status output"
+  );
+  assertNotIncludes(missingLicenseMetadataReleaseStatus.stdout, "add LICENSE", "installed missing license metadata release status output");
   const invalidLicenseDir = path.join(tmp, "invalid-license-release");
   await mkdir(invalidLicenseDir, { recursive: true });
   await writeFile(
@@ -684,6 +705,42 @@ try {
     "installed source browser login guide"
   );
   assertNotIncludes(sourceBrowserLoginGuide.stdout, "Run `gptprouse pro browser login`", "installed source browser login guide");
+  const customBrowserProfile = path.join(tmp, "custom-browser-profile");
+  const customBrowserLoginGuide = await run(
+    binPath,
+    [
+      "pro",
+      "browser",
+      "login",
+      "--dry-run",
+      "--source-cli",
+      installedSourceCli,
+      "--profile-dir",
+      customBrowserProfile,
+      "--port",
+      "12345",
+      "--url",
+      "https://chatgpt.com/g/g-demo/project",
+      "--launch-timeout-ms",
+      "12000"
+    ],
+    { cwd: consumerDir }
+  );
+  assertIncludes(
+    customBrowserLoginGuide.stdout,
+    `${sourcePrefix} pro browser login --source-cli ${installedSourceCli} --profile-dir ${customBrowserProfile} --port 12345 --url https://chatgpt.com/g/g-demo/project --launch-timeout-ms 12000`,
+    "installed custom browser login guide"
+  );
+  assertIncludes(
+    customBrowserLoginGuide.stdout,
+    `${sourcePrefix} pro browser check --source-cli ${installedSourceCli} --port 12345`,
+    "installed custom browser login guide"
+  );
+  assertIncludes(
+    customBrowserLoginGuide.stdout,
+    `${sourcePrefix} pro browser smoke --source-cli ${installedSourceCli} --port 12345`,
+    "installed custom browser login guide"
+  );
   const browserHelp = await run(binPath, ["pro", "browser", "help"], { cwd: consumerDir });
   assertIncludes(
     browserHelp.stdout,
@@ -723,6 +780,10 @@ try {
     cwd: consumerDir
   });
   assertIncludes(invalidBrowserTimeout.stderr, "--timeout-ms must be greater than 0", "installed invalid browser timeout output");
+  const invalidBrowserLaunchTimeout = await runExpectFailure(binPath, ["pro", "browser", "login", "--dry-run", "--launch-timeout-ms", "0"], {
+    cwd: consumerDir
+  });
+  assertIncludes(invalidBrowserLaunchTimeout.stderr, "--launch-timeout-ms must be greater than 0", "installed invalid browser launch timeout output");
   const invalidTokenTtl = await runExpectFailure(binPath, ["setup", "--token-ttl-hours", "0"], {
     cwd: consumerDir
   });
@@ -765,6 +826,17 @@ try {
     cwd: consumerDir
   });
   assertIncludes(conflictingProBrowserAsk.stderr, "cannot combine --dry-run and --send", "installed pro browser ask mode guard");
+  const confirmWithoutTargetDir = path.join(tmp, "confirm-without-target");
+  await mkdir(confirmWithoutTargetDir, { recursive: true });
+  const confirmWithoutTarget = await runExpectFailure(
+    binPath,
+    ["pro", "browser", "ask", "--confirm-target", "--timeout-ms", "1", "Review this"],
+    {
+      cwd: confirmWithoutTargetDir
+    }
+  );
+  assertIncludes(confirmWithoutTarget.stderr, "--confirm-target requires --target-url", "installed pro browser ask target confirmation guard");
+  await assertMissingFile(path.join(confirmWithoutTargetDir, ".bridge"), "installed confirm-without-target bridge");
   const browserSmoke = await runExpectFailure(binPath, ["pro", "browser", "smoke", "--port", "65534", "--timeout-ms", "10"], {
     cwd: consumerDir,
     timeout: 60_000
@@ -812,6 +884,32 @@ try {
     "installed corrupt source pro browser check output"
   );
   assertNotIncludes(corruptSourceBrowserCheck.stdout, "Run `gptprouse setup`", "installed corrupt source pro browser check output");
+  const productCheckTargetDir = path.join(tmp, "product-check-target");
+  const productCheckLauncherDir = path.join(tmp, "product-check-launcher");
+  await mkdir(productCheckTargetDir, { recursive: true });
+  await mkdir(productCheckLauncherDir, { recursive: true });
+  await run(binPath, ["init", "--cwd", productCheckTargetDir], { cwd: productCheckLauncherDir });
+  await run(
+    binPath,
+    ["setup", "--cwd", productCheckTargetDir, "--port", "8789", "--token", "super-secret-token", "--token-ttl-hours", "1"],
+    { cwd: productCheckLauncherDir }
+  );
+  const cwdBrowserCheck = await runExpectFailure(
+    binPath,
+    ["pro", "browser", "check", "--cwd", productCheckTargetDir, "--port", "65534", "--timeout-ms", "10"],
+    {
+      cwd: productCheckLauncherDir,
+      timeout: 60_000
+    }
+  );
+  assertIncludes(cwdBrowserCheck.stdout, "bridge: ok (.bridge)", "installed explicit --cwd pro browser check output");
+  assertIncludes(
+    cwdBrowserCheck.stdout,
+    "config: ok http://127.0.0.1:8789/mcp?gptprouse_token=*** token_status=valid",
+    "installed explicit --cwd pro browser check output"
+  );
+  assertNotIncludes(cwdBrowserCheck.stdout, "super-secret-token", "installed explicit --cwd pro browser check output");
+  await assertMissingFile(path.join(productCheckLauncherDir, ".bridge"), "installed explicit --cwd pro browser check launcher bridge");
   for (const [alias, replacement] of [
     ["open", "login"],
     ["status", "check"],
@@ -928,7 +1026,7 @@ try {
   await smokeInstalledStdioTaskFinalizers(binPath, consumerDir);
 
   console.log(
-    `package_smoke: ok tarball=${path.basename(packed.filename)} http_onboarding=ok installed_http_mcp=ok http_write_flow=ok http_task_finalizers=ok http_result_artifact_flow=ok http_result_artifact_tamper=ok configured_doctor=ok tunnel_url=ok package_boundary=ok installed_release_pack=ok installed_release_pack_cli=ok stdio_write_flow=ok stdio_search_overflow=ok stdio_non_git_write=ok stdio_task_flow=ok stdio_task_finalizers=ok stdio_result_artifact_flow=ok stdio_result_artifact_tamper=ok tools=${REQUIRED_MCP_TOOLS.join(",")}`
+    `package_smoke: ok tarball=${path.basename(packed.filename)} http_onboarding=ok installed_http_mcp=ok http_write_flow=ok http_task_finalizers=ok http_result_artifact_flow=ok http_result_artifact_tamper=ok http_receipt_session_tools=ok configured_doctor=ok tunnel_url=ok package_boundary=ok installed_release_pack=ok installed_release_pack_cli=ok stdio_write_flow=ok stdio_search_overflow=ok stdio_non_git_write=ok stdio_task_flow=ok stdio_task_finalizers=ok stdio_result_artifact_flow=ok stdio_result_artifact_tamper=ok stdio_receipt_session_tools=ok tools=${REQUIRED_MCP_TOOLS.join(",")}`
   );
 } finally {
   await rm(tmp, { recursive: true, force: true });
@@ -1639,6 +1737,24 @@ async function smokeInstalledStdioTaskFinalizers(binPath, cwd) {
     const doneTasks = await callJsonTool(client, "bridge_list_tasks", { status: "done" });
     const blockedTasks = await callJsonTool(client, "bridge_list_tasks", { status: "blocked" });
     const results = await callJsonTool(client, "bridge_list_results", {});
+    const sessionId = "sess_20990101_000000_package-stdio-session";
+    await writeSessionFixture(cwd, sessionId, {
+      status: "preview",
+      backend: "manual",
+      direction: "codex_to_chatgpt",
+      task_id: doneTask.task.id
+    });
+    const sessions = await callJsonTool(client, "bridge_list_sessions", { status: "preview" });
+    const fetchedSession = await callJsonTool(client, "bridge_get_session", { session_id: sessionId });
+    const receipts = await callJsonTool(client, "bridge_list_receipts", {
+      kind: "task_completed",
+      task_id: doneTask.task.id
+    });
+    const completionReceipt = receipts.receipts?.[0];
+    if (!completionReceipt?.id) {
+      throw new Error(`Installed stdio receipt list did not include a task_completed receipt: ${JSON.stringify(receipts)}`);
+    }
+    const fetchedReceipt = await callJsonTool(client, "bridge_get_receipt", { receipt_id: completionReceipt.id });
 
     assertResult(completed.result, {
       taskId: doneTask.task.id,
@@ -1700,6 +1816,25 @@ async function smokeInstalledStdioTaskFinalizers(binPath, cwd) {
       status: "blocked",
       summary: "Blocked by installed stdio MCP"
     });
+    assertSessionInList(sessions.sessions, {
+      sessionId,
+      status: "preview",
+      backend: "manual"
+    });
+    assertSession(fetchedSession.session, {
+      sessionId,
+      status: "preview",
+      backend: "manual"
+    });
+    assertReceipt(completionReceipt, {
+      kind: "task_completed",
+      taskId: doneTask.task.id
+    });
+    assertReceipt(fetchedReceipt.receipt, {
+      receiptId: completionReceipt.id,
+      kind: "task_completed",
+      taskId: doneTask.task.id
+    });
     await assertBridgeTaskStoredInCwd(cwd, doneTask.task.id);
     await assertBridgeTaskStoredInCwd(cwd, blockedTask.task.id);
   } finally {
@@ -1713,6 +1848,29 @@ async function assertBridgeTaskStoredInCwd(cwd, taskId) {
   if (task.id !== taskId) {
     throw new Error(`Expected task ${taskId} to be stored under explicit MCP --cwd, got ${task.id}`);
   }
+}
+
+async function writeSessionFixture(cwd, sessionId, input) {
+  const timestamp = new Date().toISOString();
+  await mkdir(path.join(cwd, ".bridge", "sessions"), { recursive: true });
+  await writeFile(
+    path.join(cwd, ".bridge", "sessions", `${sessionId}.json`),
+    `${JSON.stringify(
+      {
+        schema_version: 1,
+        id: sessionId,
+        direction: input.direction,
+        backend: input.backend,
+        task_id: input.task_id,
+        status: input.status,
+        warnings: [],
+        created_at: timestamp,
+        last_used_at: timestamp
+      },
+      null,
+      2
+    )}\n`
+  );
 }
 
 async function smokeInstalledHttpOnboarding(binPath, cwd) {
@@ -1958,6 +2116,24 @@ async function smokeInstalledHttpMcpEndpoint(mcpUrl, cwd, writeHead) {
     });
     const fetchedBlocked = await callJsonTool(client, "bridge_fetch_result", { task_id: blockedTask.task.id });
     const results = await callJsonTool(client, "bridge_list_results", {});
+    const sessionId = "sess_20990101_000000_package-http-session";
+    await writeSessionFixture(cwd, sessionId, {
+      status: "running",
+      backend: "manual",
+      direction: "chatgpt_to_codex",
+      task_id: created.task.id
+    });
+    const sessions = await callJsonTool(client, "bridge_list_sessions", { status: "running" });
+    const fetchedSession = await callJsonTool(client, "bridge_get_session", { session_id: sessionId });
+    const receipts = await callJsonTool(client, "bridge_list_receipts", {
+      kind: "task_completed",
+      task_id: created.task.id
+    });
+    const completionReceipt = receipts.receipts?.[0];
+    if (!completionReceipt?.id) {
+      throw new Error(`Installed HTTP receipt list did not include a task_completed receipt: ${JSON.stringify(receipts)}`);
+    }
+    const fetchedReceipt = await callJsonTool(client, "bridge_get_receipt", { receipt_id: completionReceipt.id });
     assertResult(completed.result, {
       taskId: created.task.id,
       status: "done",
@@ -1995,6 +2171,25 @@ async function smokeInstalledHttpMcpEndpoint(mcpUrl, cwd, writeHead) {
       taskId: blockedTask.task.id,
       status: "blocked",
       summary: "Blocked by installed HTTP MCP"
+    });
+    assertSessionInList(sessions.sessions, {
+      sessionId,
+      status: "running",
+      backend: "manual"
+    });
+    assertSession(fetchedSession.session, {
+      sessionId,
+      status: "running",
+      backend: "manual"
+    });
+    assertReceipt(completionReceipt, {
+      kind: "task_completed",
+      taskId: created.task.id
+    });
+    assertReceipt(fetchedReceipt.receipt, {
+      receiptId: completionReceipt.id,
+      kind: "task_completed",
+      taskId: created.task.id
     });
     if (fetchedArtifact.content !== resultArtifactContent) {
       throw new Error(`Installed HTTP result artifact content mismatch: ${JSON.stringify(fetchedArtifact)}`);
@@ -2251,6 +2446,30 @@ function assertTaskInList(tasks, expected) {
   }
   if (!tasks.some((task) => task?.id === expected.taskId && task?.status === expected.status)) {
     throw new Error(`Missing task in list: ${JSON.stringify(expected)} from ${JSON.stringify(tasks)}`);
+  }
+}
+
+function assertSession(session, expected) {
+  if (session?.id !== expected.sessionId || session?.status !== expected.status || session?.backend !== expected.backend) {
+    throw new Error(`Unexpected session record: ${JSON.stringify(session)} expected ${JSON.stringify(expected)}`);
+  }
+}
+
+function assertSessionInList(sessions, expected) {
+  if (!Array.isArray(sessions)) {
+    throw new Error(`Unexpected session list: ${JSON.stringify(sessions)}`);
+  }
+  if (!sessions.some((session) => session?.id === expected.sessionId && session?.status === expected.status && session?.backend === expected.backend)) {
+    throw new Error(`Missing session in list: ${JSON.stringify(expected)} from ${JSON.stringify(sessions)}`);
+  }
+}
+
+function assertReceipt(receipt, expected) {
+  if (expected.receiptId !== undefined && receipt?.id !== expected.receiptId) {
+    throw new Error(`Unexpected receipt id: ${JSON.stringify(receipt)} expected ${expected.receiptId}`);
+  }
+  if (receipt?.kind !== expected.kind || receipt?.task_id !== expected.taskId) {
+    throw new Error(`Unexpected receipt record: ${JSON.stringify(receipt)} expected ${JSON.stringify(expected)}`);
   }
 }
 

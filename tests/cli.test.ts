@@ -1107,6 +1107,38 @@ describe("runCli", () => {
     ).rejects.not.toThrow(/not found/i);
   });
 
+  it("surfaces missing GPT Pro result files instead of hiding terminal consult tasks", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const createOut: string[] = [];
+    await runCli(["tasks", "create", "--title", "GPT Pro consult", "--prompt", "Ask Pro"], {
+      cwd,
+      stdout: (line) => createOut.push(line),
+      stderr: () => {}
+    });
+    const taskId = createOut[0].split("\t")[0];
+    await runCli(["tasks", "complete", taskId, "--summary", "Initial answer", "--command", "visible ChatGPT browser consult"], {
+      cwd,
+      stdout: () => {},
+      stderr: () => {}
+    });
+    await rm(path.join(cwd, ".bridge", "results", `${taskId}.json`));
+
+    await expect(
+      runCli(["pro", "latest"], {
+        cwd,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.toThrow(new RegExp(`GPT Pro answer is corrupt: task ${escapeRegExp(taskId)} is done but \\.bridge/results/${escapeRegExp(taskId)}\\.json is missing`));
+    await expect(
+      runCli(["pro", "show", taskId], {
+        cwd,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.toThrow(/GPT Pro answer is corrupt/);
+  });
+
   it("reports corrupt bridge records with repair hints", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
     const fixtures = [
@@ -1565,7 +1597,7 @@ describe("runCli", () => {
     const text = out.join("\n");
     expect(text).toContain('gptprouse pro ask [--dry-run] [--file path] "prompt"  # dry-run preview');
     expect(text).toContain(
-      "gptprouse pro browser login [--dry-run] [--source-cli /absolute/path/to/dist/cli.js]  # preview/open visible browser login"
+      "gptprouse pro browser login [--dry-run] [--source-cli /absolute/path/to/dist/cli.js] [--launch-timeout-ms 5000]  # preview/open visible browser login"
     );
     expect(text).toContain(
       'gptprouse pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--target-url url --confirm-target] [--file path] "prompt"  # explicit visible-browser send'
@@ -2266,7 +2298,8 @@ describe("runCli", () => {
     expect(text).toContain("gptprouse pro ask [--dry-run] [--file path]");
     expect(text).toContain("gptprouse pro browser login [--dry-run]");
     expect(text).toContain("gptprouse pro browser help");
-    expect(text).toContain("gptprouse pro browser check|smoke");
+    expect(text).toContain("gptprouse pro browser check [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]");
+    expect(text).toContain("gptprouse pro browser smoke [--source-cli /absolute/path/to/dist/cli.js]");
     expect(text).toContain("gptprouse pro browser ask");
     expect(text).not.toContain("gptprouse ask-pro");
     expect(text).not.toContain("gptprouse pro browser open|status");
@@ -2448,6 +2481,50 @@ describe("runCli", () => {
     expect(text).toContain("gptprouse release pack --pack-destination <dir>");
     expect(text).toContain("next: choose a license, add LICENSE, then run `npm run release:check`");
     expect(text).not.toContain("metadata: ok");
+  });
+
+  it("release status does not ask for a LICENSE file when only package license metadata is missing", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-release-"));
+    await writeFile(path.join(cwd, "package.json"), `${JSON.stringify({ name: "demo", version: "1.0.0" }, null, 2)}\n`, "utf8");
+    await writeFile(path.join(cwd, "LICENSE"), "MIT License\n", "utf8");
+    const out: string[] = [];
+
+    await runCli(["release", "status", "--cwd", cwd], {
+      cwd: "/tmp",
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    const text = out.join("\n");
+    expect(text).toContain("metadata: blocked package.json must include an explicit license");
+    expect(text).toContain("next: choose a license and set package.json license, then run `npm run release:check`");
+    expect(text).not.toContain("add LICENSE");
+  });
+
+  it("release status previews pack blockers for private packages", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-release-"));
+    await writeFile(
+      path.join(cwd, "package.json"),
+      `${JSON.stringify({ name: "demo", version: "1.0.0", license: "MIT", private: true, files: ["README.md"] }, null, 2)}\n`,
+      "utf8"
+    );
+    await writeFile(path.join(cwd, "LICENSE"), "MIT License\n", "utf8");
+    await writeFile(path.join(cwd, "README.md"), "# Demo\n", "utf8");
+    await chmod(path.join(cwd, "README.md"), 0o755);
+    const out: string[] = [];
+
+    await runCli(["release", "status", "--cwd", cwd], {
+      cwd: "/tmp",
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    const text = out.join("\n");
+    expect(text).toContain("metadata: blocked package.json private: true prevents npm publish");
+    expect(text).toContain("pack: blocked packed files have unexpected executable modes");
+    expect(text).toContain("README.md");
+    expect(text).toContain("pack_next: fix file modes or publish from a filesystem that preserves executable bits");
+    expect(text).toContain("next: remove `private: true` before public publishing, then run `npm run release:check`");
   });
 
   it("release status blocks malformed npm pack dry-run file entries", async () => {
@@ -3231,6 +3308,49 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     expect(text).not.toContain("gptprouse pro browser check");
   });
 
+  it("keeps custom browser launch flags in dry-run follow-up commands", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const sourceCli = path.join(cwd, "dist", "cli.js");
+    const profileDir = path.join(cwd, "profile with spaces");
+    await mkdir(path.dirname(sourceCli), { recursive: true });
+    await writeFile(sourceCli, "#!/usr/bin/env node\n", "utf8");
+    const out: string[] = [];
+
+    await runCli(
+      [
+        "pro",
+        "browser",
+        "login",
+        "--dry-run",
+        "--source-cli",
+        sourceCli,
+        "--profile-dir",
+        profileDir,
+        "--port",
+        "12345",
+        "--url",
+        "https://chatgpt.com/g/g-demo/project",
+        "--launch-timeout-ms",
+        "12000"
+      ],
+      {
+        cwd,
+        stdout: (line) => out.push(line),
+        stderr: () => {}
+      }
+    );
+
+    const text = out.join("\n");
+    const sourcePrefix = `node ${sourceCli}`;
+    expect(text).toContain(
+      `1. Run \`${sourcePrefix} pro browser login --source-cli ${sourceCli} --profile-dir ${shellQuotedForTest(profileDir)} --port 12345 --url https://chatgpt.com/g/g-demo/project --launch-timeout-ms 12000\` without \`--dry-run\` to open the dedicated Chrome window.`
+    );
+    expect(text).toContain(`Run \`${sourcePrefix} pro browser check --source-cli ${sourceCli} --port 12345\` to confirm the session is reachable.`);
+    expect(text).toContain(`Run \`${sourcePrefix} pro browser smoke --source-cli ${sourceCli} --port 12345\` to verify a real Pro response path.`);
+    expect(text).toContain(`Profile: ${profileDir}`);
+    expect(text).toContain("Debug: http://127.0.0.1:12345");
+  });
+
   it("prints browser-specific help from pro browser help", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
     const out: string[] = [];
@@ -3606,6 +3726,32 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     expect(await readdir(cwd)).not.toContain(".bridge");
   });
 
+  it("uses an explicit --cwd target for browser product checks", async () => {
+    const launcherCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-launcher-"));
+    const targetCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-target-"));
+    const out: string[] = [];
+
+    await runCli(["init", "--cwd", targetCwd], { cwd: launcherCwd, stdout: () => {}, stderr: () => {} });
+    await runCli(["setup", "--cwd", targetCwd, "--port", "8789", "--token", "super-secret-token", "--token-ttl-hours", "1"], {
+      cwd: launcherCwd,
+      stdout: () => {},
+      stderr: () => {}
+    });
+    const code = await runCli(["pro", "browser", "check", "--cwd", targetCwd, "--port", "65534", "--timeout-ms", "10"], {
+      cwd: launcherCwd,
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    const text = out.join("\n");
+    expect(code).toBe(1);
+    expect(text).toContain("bridge: ok (.bridge)");
+    expect(text).toContain("config: ok http://127.0.0.1:8789/mcp?gptprouse_token=*** token_status=valid");
+    expect(text).not.toContain("super-secret-token");
+    expect(text).toContain("chatgpt: browser_unreachable");
+    expect(await readdir(launcherCwd)).not.toContain(".bridge");
+  });
+
   it("keeps source-checkout commands in browser check remediation", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
     const sourceCli = path.join(cwd, "dist", "cli.js");
@@ -3649,6 +3795,20 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
         stderr: () => {}
       })
     ).rejects.toThrow(/--confirm-target/);
+  });
+
+  it("rejects target confirmation without a target URL", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+
+    await expect(
+      runCli(["pro", "browser", "ask", "--confirm-target", "--timeout-ms", "1", "Review this"], {
+        cwd,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.toThrow("--confirm-target requires --target-url");
+
+    expect(await readdir(cwd)).not.toContain(".bridge");
   });
 
   it("prints a product check instead of failing when setup pieces are missing", async () => {
@@ -4797,4 +4957,8 @@ async function waitForStdioProcessExit(processRef: CapturedStdioProcess, timeout
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function shellQuotedForTest(value: string): string {
+  return /^[A-Za-z0-9_./:@=-]+$/.test(value) ? value : `'${value.replaceAll("'", "'\\''")}'`;
 }

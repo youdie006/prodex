@@ -680,29 +680,40 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       }
       if (browserSubcommand === "login") {
         if (printHelpIfRequested(browserArgs, "pro browser login", io.stdout, printProBrowserHelp)) return 0;
-        assertOnlyOptions(browserArgs, "pro browser login", ["--profile-dir", "--port", "--url", "--source-cli"], ["--dry-run"]);
+        assertOnlyOptions(browserArgs, "pro browser login", ["--profile-dir", "--port", "--url", "--source-cli", "--launch-timeout-ms"], ["--dry-run"]);
         const loginUrl = readChatGptBrowserUrlFlag(browserArgs);
         const sourceCli = resolveOptionalFileFlag(io.cwd, browserArgs, "--source-cli");
+        const profileDir = readFlag(browserArgs, "--profile-dir");
+        const port = readPortFlag(browserArgs, "--port") ?? 9333;
+        const launchTimeoutMs = readPositiveNumberFlag(browserArgs, "--launch-timeout-ms");
+        const commandOptions = {
+          ...(profileDir ? { profileDir } : {}),
+          ...(port !== 9333 ? { port } : {}),
+          ...(readFlag(browserArgs, "--url") ? { url: loginUrl } : {}),
+          ...(launchTimeoutMs !== undefined ? { launchTimeoutMs } : {})
+        };
         if (browserArgs.includes("--dry-run")) {
           printBrowserLoginGuide(io.stdout, {
             opened: false,
-            profileDir: readFlag(browserArgs, "--profile-dir") ?? defaultChatGptProfileDir(),
-            port: readPortFlag(browserArgs, "--port") ?? 9333,
-            sourceCli
+            profileDir: profileDir ?? defaultChatGptProfileDir(),
+            port,
+            sourceCli,
+            commandOptions
           });
           return 0;
         }
         const opened = openChatGptBrowser({
-          port: readPortFlag(browserArgs, "--port") ?? 9333,
-          profileDir: readFlag(browserArgs, "--profile-dir"),
+          port,
+          profileDir,
           url: loginUrl
         });
-        await assertBrowserLaunchStayedAlive(opened);
+        await assertBrowserLaunchStayedAlive(opened, launchTimeoutMs);
         printBrowserLoginGuide(io.stdout, {
           opened: true,
           profileDir: opened.profileDir,
           port: opened.port,
-          sourceCli
+          sourceCli,
+          commandOptions
         });
         return 0;
       }
@@ -727,10 +738,11 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       }
       if (browserSubcommand === "check") {
         if (printHelpIfRequested(browserArgs, "pro browser check", io.stdout, printProBrowserHelp)) return 0;
-        assertOnlyOptions(browserArgs, "pro browser check", ["--port", "--timeout-ms", "--source-cli"]);
+        assertOnlyOptions(browserArgs, "pro browser check", ["--cwd", "--port", "--timeout-ms", "--source-cli"]);
+        const targetCwd = resolveCwdFlag(io.cwd, browserArgs);
         readPortFlag(browserArgs, "--port");
         readPositiveNumberFlag(browserArgs, "--timeout-ms");
-        const healthy = await printProductCheck(store, io, browserArgs);
+        const healthy = await printProductCheck(new BridgeStore(targetCwd), io, browserArgs, targetCwd);
         return healthy ? 0 : 1;
       }
       throw unknownSubcommandError("pro browser", browserSubcommand, ["login", "ask", "smoke", "check"]);
@@ -794,6 +806,9 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
     const files = readRepeatedFlag(parsedAskPro.optionArgs, "--file");
     const targetUrl = readFlag(parsedAskPro.optionArgs, "--target-url");
     const normalizedTargetUrl = targetUrl ? normalizeChatGptTargetUrl(targetUrl) : undefined;
+    if (!normalizedTargetUrl && parsedAskPro.optionArgs.includes("--confirm-target")) {
+      throw new Error("--confirm-target requires --target-url so the visible browser target is explicit.");
+    }
     if (normalizedTargetUrl && hasSendMode && !parsedAskPro.optionArgs.includes("--confirm-target")) {
       throw new Error("--target-url requires --confirm-target after you manually verify the visible ChatGPT tab is the intended Project/thread.");
     }
@@ -1019,9 +1034,10 @@ Commands:
   gptprouse claude prompt [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]
   gptprouse claude config [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]
   gptprouse pro ask [--dry-run] [--file path] "prompt"  # dry-run preview
-  gptprouse pro browser login [--dry-run] [--source-cli /absolute/path/to/dist/cli.js]  # preview/open visible browser login
+  gptprouse pro browser login [--dry-run] [--source-cli /absolute/path/to/dist/cli.js] [--launch-timeout-ms 5000]  # preview/open visible browser login
   gptprouse pro browser help
-  gptprouse pro browser check|smoke [--source-cli /absolute/path/to/dist/cli.js]
+  gptprouse pro browser check [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]
+  gptprouse pro browser smoke [--source-cli /absolute/path/to/dist/cli.js]
   gptprouse pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--target-url url --confirm-target] [--file path] "prompt"  # explicit visible-browser send
   gptprouse pro latest [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]
   gptprouse pro list [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]
@@ -1138,8 +1154,8 @@ function printProHelp(stdout: (line: string) => void): void {
 Commands:
   gptprouse pro ask [--dry-run] [--file path] "prompt"
   gptprouse pro browser help
-  gptprouse pro browser login [--dry-run] [--source-cli /absolute/path/to/dist/cli.js]
-  gptprouse pro browser check [--source-cli /absolute/path/to/dist/cli.js]
+  gptprouse pro browser login [--dry-run] [--source-cli /absolute/path/to/dist/cli.js] [--launch-timeout-ms 5000]
+  gptprouse pro browser check [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]
   gptprouse pro browser smoke [--source-cli /absolute/path/to/dist/cli.js]
   gptprouse pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--target-url url --confirm-target] [--file path] "prompt"
   gptprouse pro latest [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]
@@ -1433,16 +1449,35 @@ function formatSourceCliOption(sourceCli?: string): string {
   return sourceCli ? ` --source-cli ${shellQuote(sourceCli)}` : "";
 }
 
-function formatBrowserLoginCommand(sourceCli?: string): string {
-  return `${formatCliCommand(sourceCli)} pro browser login${formatSourceCliOption(sourceCli)}`;
+type BrowserCommandOptions = {
+  profileDir?: string;
+  port?: number;
+  url?: string;
+  launchTimeoutMs?: number;
+};
+
+function formatBrowserLoginCommand(sourceCli?: string, options: BrowserCommandOptions = {}): string {
+  return [
+    `${formatCliCommand(sourceCli)} pro browser login${formatSourceCliOption(sourceCli)}`,
+    options.profileDir ? `--profile-dir ${shellQuote(options.profileDir)}` : undefined,
+    options.port ? `--port ${options.port}` : undefined,
+    options.url ? `--url ${shellQuote(options.url)}` : undefined,
+    options.launchTimeoutMs ? `--launch-timeout-ms ${options.launchTimeoutMs}` : undefined
+  ]
+    .filter(Boolean)
+    .join(" ");
 }
 
-function formatBrowserSmokeCommand(sourceCli?: string): string {
-  return `${formatCliCommand(sourceCli)} pro browser smoke${formatSourceCliOption(sourceCli)}`;
+function formatBrowserSmokeCommand(sourceCli?: string, options: BrowserCommandOptions = {}): string {
+  return [`${formatCliCommand(sourceCli)} pro browser smoke${formatSourceCliOption(sourceCli)}`, options.port ? `--port ${options.port}` : undefined]
+    .filter(Boolean)
+    .join(" ");
 }
 
-function formatBrowserCheckCommand(sourceCli?: string): string {
-  return `${formatCliCommand(sourceCli)} pro browser check${formatSourceCliOption(sourceCli)}`;
+function formatBrowserCheckCommand(sourceCli?: string, options: BrowserCommandOptions = {}): string {
+  return [`${formatCliCommand(sourceCli)} pro browser check${formatSourceCliOption(sourceCli)}`, options.port ? `--port ${options.port}` : undefined]
+    .filter(Boolean)
+    .join(" ");
 }
 
 function formatBrowserTargetAskCommand(sourceCli?: string): string {
@@ -1546,7 +1581,7 @@ async function formatReleaseStatus(cwd: string, sourceCli?: string): Promise<str
   const identityError = packageIdentityError(packageJson);
   let metadataNext = "run `npm run release:check` before publishing";
   let metadataReady = false;
-  let packCheckEligible = false;
+  const packCheckEligible = !identityError;
 
   if (identityError) {
     lines.push(`metadata: blocked ${identityError.message}`);
@@ -1555,10 +1590,9 @@ async function formatReleaseStatus(cwd: string, sourceCli?: string): Promise<str
     lines.push("metadata: blocked package.json private: true prevents npm publish");
     metadataNext = "remove `private: true` before public publishing, then run `npm run release:check`";
   } else {
-    packCheckEligible = true;
     if (!license) {
       lines.push("metadata: blocked package.json must include an explicit license before publishing");
-      metadataNext = "choose a license, add LICENSE, then run `npm run release:check`";
+      metadataNext = await missingPackageLicenseNextStep(cwd);
     } else if (license === "UNLICENSED") {
       lines.push('metadata: blocked license "UNLICENSED" is not publishable');
       metadataNext = "choose a public license and add LICENSE, then run `npm run release:check`";
@@ -1618,6 +1652,20 @@ function packageIdentityError(packageJson: { name?: unknown; version?: unknown }
     };
   }
   return undefined;
+}
+
+async function missingPackageLicenseNextStep(cwd: string): Promise<string> {
+  const licenseFile = await readLicenseFileStatus(path.join(cwd, "LICENSE"));
+  if (licenseFile.status === "present") {
+    return "choose a license and set package.json license, then run `npm run release:check`";
+  }
+  if (licenseFile.status === "invalid") {
+    return "choose a license and replace LICENSE with a regular file, then run `npm run release:check`";
+  }
+  if (licenseFile.status === "hardlinked") {
+    return "choose a license and replace LICENSE with a non-hard-linked regular file, then run `npm run release:check`";
+  }
+  return "choose a license, add LICENSE, then run `npm run release:check`";
 }
 
 function isNonEmptyPackageString(value: unknown): value is string {
@@ -2418,11 +2466,12 @@ async function runMcpWriteSmoke(): Promise<{ path: string; receipt_payload: "art
 
 function printBrowserLoginGuide(
   stdout: (line: string) => void,
-  input: { opened: boolean; profileDir: string; port: number; sourceCli?: string }
+  input: { opened: boolean; profileDir: string; port: number; sourceCli?: string; commandOptions?: BrowserCommandOptions }
 ): void {
-  const loginCommand = formatBrowserLoginCommand(input.sourceCli);
-  const checkCommand = formatBrowserCheckCommand(input.sourceCli);
-  const smokeCommand = formatBrowserSmokeCommand(input.sourceCli);
+  const loginCommand = formatBrowserLoginCommand(input.sourceCli, input.commandOptions);
+  const runtimeCommandOptions = input.commandOptions?.port ? { port: input.commandOptions.port } : {};
+  const checkCommand = formatBrowserCheckCommand(input.sourceCli, runtimeCommandOptions);
+  const smokeCommand = formatBrowserSmokeCommand(input.sourceCli, runtimeCommandOptions);
   stdout("ChatGPT Pro browser login");
   stdout(input.opened ? "Opened the dedicated Chrome window for ChatGPT." : "Dry run: no browser was opened.");
   stdout("");
@@ -2457,8 +2506,8 @@ function printProBrowserHelp(stdout: (line: string) => void): void {
   stdout(`gptprouse pro browser
 
 Commands:
-  gptprouse pro browser login [--dry-run] [--source-cli /absolute/path/to/dist/cli.js] [--profile-dir path] [--port 9333] [--url https://chatgpt.com/...]
-  gptprouse pro browser check [--source-cli /absolute/path/to/dist/cli.js] [--port 9333] [--timeout-ms 1500]
+  gptprouse pro browser login [--dry-run] [--source-cli /absolute/path/to/dist/cli.js] [--profile-dir path] [--port 9333] [--url https://chatgpt.com/...] [--launch-timeout-ms 5000]
+  gptprouse pro browser check [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 1500]
   gptprouse pro browser smoke [--source-cli /absolute/path/to/dist/cli.js] [--port 9333] [--timeout-ms 30000]
   gptprouse pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--port 9333] [--timeout-ms 90000] [--target-url url --confirm-target] [--file path] "prompt"
 
@@ -2467,8 +2516,8 @@ Use \`gptprouse pro ask\` for dry-run/manual previews.
 \`gptprouse pro browser ask\` always attempts an explicit visible-browser send.`);
 }
 
-async function assertBrowserLaunchStayedAlive(opened: ChatGptBrowserLaunch): Promise<void> {
-  const outcome = await waitForBrowserLaunchReady(opened);
+async function assertBrowserLaunchStayedAlive(opened: ChatGptBrowserLaunch, timeoutMs?: number): Promise<void> {
+  const outcome = await waitForBrowserLaunchReady(opened, timeoutMs);
   if (outcome.reachable) return;
   if (outcome.earlyExit) {
     const detail = formatBrowserEarlyExit(outcome.earlyExit);
@@ -2528,7 +2577,7 @@ function browserReadinessNextStep(input: { loggedInLikely: boolean; hasComposer:
   return "Review the visible ChatGPT browser state, then retry.";
 }
 
-async function printProductCheck(store: BridgeStore, io: CliIO, args: string[]): Promise<boolean> {
+async function printProductCheck(store: BridgeStore, io: CliIO, args: string[], configCwd = io.cwd): Promise<boolean> {
   const sourceCli = resolveOptionalFileFlag(io.cwd, args, "--source-cli");
   const cli = formatCliCommand(sourceCli);
   io.stdout("gptprouse product check");
@@ -2542,7 +2591,7 @@ async function printProductCheck(store: BridgeStore, io: CliIO, args: string[]):
 
   let configReady = false;
   try {
-    const config = await loadLocalConfig(io.cwd);
+    const config = await loadLocalConfig(configCwd);
     const tokenStatus = getTokenExpiryStatus(config);
     if (tokenStatus.status === "expired") {
       io.stdout(`config: expired - run \`${cli} setup\``);
@@ -2629,6 +2678,7 @@ async function listConsults(store: BridgeStore, options: { readOnly?: boolean } 
     ? await Promise.all([listTasksForInspection(store), listResultsForInspection(store)])
     : await Promise.all([store.listTasks(), store.listResults()]);
   const tasksById = new Map(tasks.map((task) => [task.id, task]));
+  assertNoMissingTerminalConsultResults(tasks, results);
   return results
     .map((result) => {
       const task = tasksById.get(result.task_id);
@@ -2655,13 +2705,20 @@ async function latestTask(
 
 async function getConsult(store: BridgeStore, taskId: string, options: { readOnly?: boolean } = {}): Promise<ConsultRecord | undefined> {
   let task: Awaited<ReturnType<BridgeStore["getTask"]>>;
-  let result: Awaited<ReturnType<BridgeStore["getResult"]>>;
   try {
-    [task, result] = await Promise.all(
-      options.readOnly ? [store.getTaskReadOnly(taskId), store.getResultReadOnly(taskId)] : [store.getTask(taskId), store.getResult(taskId)]
-    );
+    task = options.readOnly ? await store.getTaskReadOnly(taskId) : await store.getTask(taskId);
   } catch (error) {
     if (isMissingFileError(error)) return undefined;
+    throw error;
+  }
+  let result: Awaited<ReturnType<BridgeStore["getResult"]>>;
+  try {
+    result = options.readOnly ? await store.getResultReadOnly(taskId) : await store.getResult(taskId);
+  } catch (error) {
+    if (isMissingFileError(error)) {
+      if (isTerminalTask(task) && isConsultTask(task)) throw missingConsultResultError(task);
+      return undefined;
+    }
     throw error;
   }
   if (!task || !result) return undefined;
@@ -2669,10 +2726,34 @@ async function getConsult(store: BridgeStore, taskId: string, options: { readOnl
   return isConsultRecord(record) ? record : undefined;
 }
 
+function assertNoMissingTerminalConsultResults(
+  tasks: Awaited<ReturnType<BridgeStore["listTasks"]>>,
+  results: Awaited<ReturnType<BridgeStore["listResults"]>>
+): void {
+  const resultTaskIds = new Set(results.map((result) => result.task_id));
+  const missing = tasks
+    .filter((task) => isTerminalTask(task) && isConsultTask(task) && !resultTaskIds.has(task.id))
+    .sort((a, b) => b.updated_at.localeCompare(a.updated_at) || b.id.localeCompare(a.id))[0];
+  if (missing) throw missingConsultResultError(missing);
+}
+
+function isTerminalTask(task: Awaited<ReturnType<BridgeStore["listTasks"]>>[number]): boolean {
+  return task.status === "done" || task.status === "blocked";
+}
+
+function isConsultTask(task: Awaited<ReturnType<BridgeStore["listTasks"]>>[number]): boolean {
+  return task.provenance.adapter === "chatgpt-control" || task.title.toLowerCase() === "gpt pro consult";
+}
+
+function missingConsultResultError(task: Awaited<ReturnType<BridgeStore["listTasks"]>>[number]): Error {
+  return new Error(
+    `GPT Pro answer is corrupt: task ${task.id} is ${task.status} but .bridge/results/${task.id}.json is missing. Restore the result file, retry the completion path, or move the task record aside, then retry.`
+  );
+}
+
 function isConsultRecord(record: ConsultRecord): boolean {
   return (
-    record.task.provenance.adapter === "chatgpt-control" ||
-    record.task.title.toLowerCase() === "gpt pro consult" ||
+    isConsultTask(record.task) ||
     record.result.commands.includes("visible ChatGPT browser consult")
   );
 }

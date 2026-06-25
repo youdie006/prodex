@@ -34,6 +34,8 @@
 - [x] Add `pro list/latest/show` for Codex-first consult review.
 - [x] Add friendly `pro browser login` onboarding flow.
 - [x] Add `pro browser check` for local browser-adapter health checks.
+- [x] Keep custom `pro browser login` port/profile/source checkout flags in follow-up commands.
+- [x] Add `pro browser check --cwd` for product checks from launcher directories.
 - [x] Add `sessions list/show` for inspecting dry-run, running, done, and blocked consult sessions.
 - [x] Add `doctor` for local bridge, MCP write/apply/stage, and HTTP MCP tool-catalog smoke checks.
 - [x] Demote browser automation from the primary CLI path.
@@ -48,6 +50,7 @@
 - [x] Implement MCP server exposing task creation and result fetch.
 - [x] Add MCP task completion/blocking tools for ledger handoff clients.
 - [x] Expose session list/fetch over stdio and HTTP MCP.
+- [x] Verify installed stdio and HTTP MCP session/receipt list/fetch tools, not just their catalog names.
 - [x] Add repo read/search with path sandbox.
 - [x] Add Streamable HTTP MCP endpoint for ChatGPT Developer Mode-style clients.
 - [x] Verify Streamable HTTP MCP tool catalog from `doctor`.
@@ -72,3 +75,4 @@
 - [x] No scheduled loops.
 - [x] No public account-sharing service.
 - [x] Stop and report when ChatGPT asks for login, permission, captcha, or usage-limit handling.
+- [x] Roll back unreceipted task claims and surface missing GPT Pro result files as ledger corruption instead of hiding them.

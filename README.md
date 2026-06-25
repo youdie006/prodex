@@ -103,7 +103,7 @@ Run `init` from the repo root, or use `gptprouse init --cwd /absolute/path/to/yo
 
 `pro ask` is a dry-run/manual preview. It does not drive a logged-in browser; `pro ask --send` is rejected so accidental sends do not happen through the preview alias. Use `pro browser ask` when you explicitly want the visible browser adapter.
 Run `pro ask` and `pro browser ask` from the repo root so `--file` paths and `.bridge` records resolve to the intended project. If you generated commands with `onboard --cwd`, use the `cd ...` line in the optional Pro section first.
-Inspection commands such as `pro latest`, `pro show`, `tasks list`, `results show`, `results artifact`, `receipts show`, and `sessions show` can also be run from elsewhere with `--cwd /absolute/path/to/your/repo`.
+Inspection commands such as `pro browser check`, `pro latest`, `pro show`, `tasks list`, `results show`, `results artifact`, `receipts show`, and `sessions show` can also be run from elsewhere with `--cwd /absolute/path/to/your/repo`.
 When the file exists and you want it included, add it explicitly, for example `gptprouse pro ask --file README.md "Review the project positioning"`.
 If your prompt itself starts with flag-like text, put `--` before the prompt. This applies to both preview and visible-browser sends, for example `gptprouse pro ask -- --strict mode review` or `gptprouse pro browser ask -- --strict mode review`.
 
@@ -118,6 +118,8 @@ gptprouse pro browser help
 gptprouse pro browser check
 gptprouse pro browser smoke
 ```
+
+If you use a non-default debug port or Chrome profile, pass it to `login`; the printed follow-up `check` and `smoke` commands keep the matching `--port`. On slower first launches, add `--launch-timeout-ms 12000`.
 
 For a source checkout, keep the follow-up commands in source-checkout form too:
 

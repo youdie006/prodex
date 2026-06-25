@@ -198,11 +198,20 @@ export class BridgeStore {
       updated_at: nowIso()
     });
     await this.writeRecordJson("tasks", taskId, updated);
-    await this.writeReceipt({
-      kind: "task_claimed",
-      task_id: taskId,
-      summary: `Claimed task ${taskId} by ${claimedBy}`
-    });
+    try {
+      await this.writeReceipt({
+        kind: "task_claimed",
+        task_id: taskId,
+        summary: `Claimed task ${taskId} by ${claimedBy}`
+      });
+    } catch (error) {
+      try {
+        await this.writeRecordJson("tasks", taskId, task);
+      } catch (cleanupError) {
+        throw new Error(`${errorMessage(error)} (also failed to restore task claim state: ${errorMessage(cleanupError)})`);
+      }
+      throw error;
+    }
     return updated;
   }
 

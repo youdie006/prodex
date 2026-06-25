@@ -312,6 +312,32 @@ describe("BridgeStore", () => {
     await expect(readdir(path.join(root, ".bridge", "tasks"))).resolves.toEqual([]);
   });
 
+  it("restores an unclaimed task when the claim receipt cannot be stored", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
+    const store = new BridgeStore(root);
+    const task = await store.createTask({
+      source: "codex",
+      title: "Claim receipt fails",
+      prompt: "Do not leave an unreceipted claim.",
+      repo_id: "default",
+      files: [],
+      provenance: { adapter: "cli" }
+    });
+    setBridgeStoreTestHooks({
+      beforeRecordRename: async (kind) => {
+        if (kind === "receipts") throw new Error("forced claim receipt failure");
+      }
+    });
+
+    await expect(store.claimTask(task.id, "codex-main")).rejects.toThrow(/forced claim receipt failure/);
+
+    const restored = await store.getTask(task.id);
+    expect(restored).toEqual(expect.objectContaining({ id: task.id, status: "new" }));
+    expect(restored).not.toHaveProperty("claimed_by");
+    expect(restored).not.toHaveProperty("claimed_at");
+    await expect(store.listReceipts({ kind: "task_claimed", task_id: task.id })).resolves.toHaveLength(0);
+  });
+
   it("repairs a non-terminal task when retrying completion after the matching result was already written", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
     const store = new BridgeStore(root);
