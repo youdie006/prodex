@@ -720,6 +720,29 @@ async function smokeInstalledReleaseGitReadiness(binPath, tmp, launcherCwd) {
   assertIncludes(malformedPack.stdout, "npm pack dry-run file entry is missing a path", "installed release status malformed pack output");
   assertNotIncludes(malformedPack.stdout, "pack: ok", "installed release status malformed pack output");
 
+  const silentPackDir = path.join(tmp, "release-silent-pack");
+  await mkdir(silentPackDir, { recursive: true });
+  await writeFile(
+    path.join(silentPackDir, "package.json"),
+    `${JSON.stringify({ name: "silent-pack-demo", version: "1.0.0", license: "MIT" }, null, 2)}\n`
+  );
+  await writeFile(path.join(silentPackDir, "LICENSE"), "MIT License\n");
+  const silentFakeBin = path.join(tmp, "release-silent-pack-bin");
+  await mkdir(silentFakeBin, { recursive: true });
+  await writeFakeNpmSilentFailure(silentFakeBin);
+  const silentPack = await run(binPath, ["release", "status", "--cwd", silentPackDir], {
+    cwd: launcherCwd,
+    env: { PATH: `${silentFakeBin}${path.delimiter}${process.env.PATH ?? ""}` }
+  });
+  assertIncludes(silentPack.stdout, "metadata: ok", "installed release status silent pack output");
+  assertIncludes(
+    silentPack.stdout,
+    "pack: blocked npm pack dry-run failed: exit code 42",
+    "installed release status silent pack output"
+  );
+  assertNotIncludes(silentPack.stdout, "Command failed:", "installed release status silent pack output");
+  assertNotIncludes(silentPack.stdout, "pack: ok", "installed release status silent pack output");
+
   const noRemoteDir = await createReleaseGitFixture(path.join(tmp, "release-no-remote"), { remote: false });
   const noRemote = await run(binPath, ["release", "status", "--cwd", noRemoteDir], { cwd: launcherCwd });
   assertIncludes(noRemote.stdout, "metadata: ok", "installed release status no-remote output");

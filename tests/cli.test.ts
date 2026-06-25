@@ -1851,6 +1851,39 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     expect(text).not.toContain("pack: ok");
   });
 
+  it("release status reports silent npm pack dry-run failures without raw command output", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-release-"));
+    await writeFile(
+      path.join(cwd, "package.json"),
+      `${JSON.stringify({ name: "demo", version: "1.0.0", license: "MIT" }, null, 2)}\n`,
+      "utf8"
+    );
+    await writeFile(path.join(cwd, "LICENSE"), "MIT License\n", "utf8");
+    const fakeBin = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-release-fake-bin-"));
+    await writeFile(path.join(fakeBin, npmCommand), "#!/bin/sh\nexit 42\n", "utf8");
+    await chmod(path.join(fakeBin, npmCommand), 0o755);
+    const previousPath = process.env.PATH;
+    const out: string[] = [];
+
+    try {
+      process.env.PATH = `${fakeBin}${path.delimiter}${previousPath ?? ""}`;
+      await runCli(["release", "status", "--cwd", cwd], {
+        cwd: "/tmp",
+        stdout: (line) => out.push(line),
+        stderr: () => {}
+      });
+    } finally {
+      if (previousPath === undefined) delete process.env.PATH;
+      else process.env.PATH = previousPath;
+    }
+
+    const text = out.join("\n");
+    expect(text).toContain("metadata: ok license=MIT license_file=present");
+    expect(text).toContain("pack: blocked npm pack dry-run failed: exit code 42");
+    expect(text).not.toContain("Command failed:");
+    expect(text).not.toContain("pack: ok");
+  });
+
   it("release status reports a missing package.json as a release blocker", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-release-missing-"));
     const out: string[] = [];

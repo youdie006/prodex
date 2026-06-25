@@ -1154,16 +1154,24 @@ function commandForPlatform(command: string): string {
 }
 
 function firstErrorLine(error: unknown): string {
-  if (
-    typeof error === "object" &&
-    error !== null &&
-    "stderr" in error &&
-    typeof (error as { stderr?: unknown }).stderr === "string" &&
-    (error as { stderr: string }).stderr.trim()
-  ) {
-    return (error as { stderr: string }).stderr.trim().split(/\r?\n/)[0];
+  const failed = typeof error === "object" && error !== null ? error : {};
+  const stderr = firstOutputLine((failed as { stderr?: unknown }).stderr);
+  if (stderr) return stderr;
+  const stdout = firstOutputLine((failed as { stdout?: unknown }).stdout);
+  if (stdout) return stdout;
+  if (typeof (failed as { code?: unknown }).code === "number") return `exit code ${(failed as { code: number }).code}`;
+  if (typeof (failed as { signal?: unknown }).signal === "string" && (failed as { signal: string }).signal) {
+    return `signal ${(failed as { signal: string }).signal}`;
   }
   return errorMessage(error).split(/\r?\n/)[0];
+}
+
+function firstOutputLine(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  return value
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find(Boolean);
 }
 
 async function readReleaseGitStatus(cwd: string): Promise<ReleaseGitStatus> {
