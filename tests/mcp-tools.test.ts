@@ -1031,6 +1031,27 @@ describe("MCP tool handlers", () => {
     ).rejects.toThrow(/HEAD mismatch/);
   });
 
+  it("rejects write dry-runs outside git repos without leaking raw git command output", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    await writeFile(path.join(cwd, "notes.md"), "old\n", "utf8");
+    const handlers = createMcpToolHandlers({ cwd });
+
+    await expect(
+      handlers.repo_write_file_dry_run({
+        path: "notes.md",
+        content: "new\n",
+        expected_head: "main"
+      })
+    ).rejects.toThrow("repo write tools require a git worktree with a committed HEAD");
+    await expect(
+      handlers.repo_write_file_dry_run({
+        path: "notes.md",
+        content: "new\n",
+        expected_head: "main"
+      })
+    ).rejects.not.toThrow(/Command failed:|rev-parse|not a git repository/i);
+  });
+
   it("rejects write dry-runs for sensitive local bridge paths", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
     await writeFile(path.join(cwd, "notes.md"), "old\n", "utf8");

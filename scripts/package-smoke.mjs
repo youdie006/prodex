@@ -415,10 +415,13 @@ try {
   for (const tool of REQUIRED_MCP_TOOLS) {
     if (!tools.includes(tool)) throw new Error(`Installed MCP catalog is missing ${tool}`);
   }
+  const stdioNonGitDir = path.join(tmp, "stdio-non-git");
+  await mkdir(stdioNonGitDir, { recursive: true });
+  await smokeStdioMcpNonGitWriteFailure(binPath, stdioNonGitDir);
   await smokeInstalledStdioTaskFinalizers(binPath, consumerDir);
 
   console.log(
-    `package_smoke: ok tarball=${path.basename(packed.filename)} http_onboarding=ok installed_http_mcp=ok http_write_flow=ok http_task_finalizers=ok http_result_artifact_flow=ok http_result_artifact_tamper=ok configured_doctor=ok tunnel_url=ok package_boundary=ok stdio_write_flow=ok stdio_task_flow=ok stdio_task_finalizers=ok stdio_result_artifact_flow=ok stdio_result_artifact_tamper=ok tools=${REQUIRED_MCP_TOOLS.join(",")}`
+    `package_smoke: ok tarball=${path.basename(packed.filename)} http_onboarding=ok installed_http_mcp=ok http_write_flow=ok http_task_finalizers=ok http_result_artifact_flow=ok http_result_artifact_tamper=ok configured_doctor=ok tunnel_url=ok package_boundary=ok stdio_write_flow=ok stdio_non_git_write=ok stdio_task_flow=ok stdio_task_finalizers=ok stdio_result_artifact_flow=ok stdio_result_artifact_tamper=ok tools=${REQUIRED_MCP_TOOLS.join(",")}`
   );
 } finally {
   await rm(tmp, { recursive: true, force: true });
@@ -883,6 +886,34 @@ async function smokeStdioMcp(binPath, cwd) {
     return result.tools.map((tool) => tool.name);
   } finally {
     await closeStdioClient(client, transport, "installed stdio MCP client");
+  }
+}
+
+async function smokeStdioMcpNonGitWriteFailure(binPath, cwd) {
+  await writeFile(path.join(cwd, "notes.md"), "old\n", "utf8");
+  const client = new Client({ name: "gptprouse-package-smoke-non-git", version: "0.2.0" });
+  const transport = new StdioClientTransport({
+    command: binPath,
+    args: ["mcp", "--cwd", cwd],
+    cwd: path.dirname(cwd),
+    stderr: "pipe"
+  });
+  try {
+    await withTimeout(client.connect(transport), 20_000, "Timed out connecting to installed stdio MCP server for non-git smoke");
+    const text = await callToolExpectFailureText(
+      client,
+      "repo_write_file_dry_run",
+      {
+        path: "notes.md",
+        content: "new\n",
+        expected_head: "main"
+      },
+      "repo write tools require a git worktree with a committed HEAD"
+    );
+    assertNotIncludes(text, "Command failed:", "installed stdio non-git write failure output");
+    assertNotIncludes(text, "rev-parse", "installed stdio non-git write failure output");
+  } finally {
+    await closeStdioClient(client, transport, "installed stdio non-git MCP client");
   }
 }
 
@@ -1473,6 +1504,10 @@ async function callJsonTool(client, name, args) {
 }
 
 async function callToolExpectFailure(client, name, args, expectedText) {
+  await callToolExpectFailureText(client, name, args, expectedText);
+}
+
+async function callToolExpectFailureText(client, name, args, expectedText) {
   let result;
   try {
     result = await withTimeout(
@@ -1482,13 +1517,13 @@ async function callToolExpectFailure(client, name, args, expectedText) {
     );
   } catch (error) {
     const message = errorMessage(error);
-    if (message.includes(expectedText)) return;
+    if (message.includes(expectedText)) return message;
     throw error;
   }
   const text = result.content.find((item) => item.type === "text")?.text ?? "";
   if (result.isError === true) {
     assertIncludes(text, expectedText, `installed MCP ${name} failure output`);
-    return;
+    return text;
   }
   throw new Error(`Installed MCP tool ${name} unexpectedly succeeded. Output was:\n${redactSmokeSecrets(text).slice(0, 1000)}`);
 }

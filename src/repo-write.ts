@@ -325,8 +325,18 @@ async function runGitWithStdin(root: string, args: string[], input: string): Pro
 }
 
 async function getGitHead(root: string): Promise<string> {
-  const { stdout } = await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: root });
-  return stdout.trim();
+  try {
+    const { stdout } = await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: root });
+    return stdout.trim();
+  } catch (error) {
+    if (isErrorCode(error, "ENOENT")) {
+      throw new Error("git is required on PATH for repo write tools");
+    }
+    if (isMissingGitHeadError(error)) {
+      throw new Error("repo write tools require a git worktree with a committed HEAD");
+    }
+    throw new Error(`git HEAD check failed: ${commandFailureDetail(error)}`);
+  }
 }
 
 async function assertGitHead(root: string, expectedHead: string): Promise<string> {
@@ -430,6 +440,38 @@ function sha256(value: string): string {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function isErrorCode(error: unknown, code: string): boolean {
+  return typeof error === "object" && error !== null && "code" in error && (error as { code?: unknown }).code === code;
+}
+
+function isMissingGitHeadError(error: unknown): boolean {
+  const detail = commandFailureDetail(error);
+  return /not a git repository|needed a single revision|ambiguous argument ['"]?HEAD|unknown revision or path not in the working tree/i.test(
+    detail
+  );
+}
+
+function commandFailureDetail(error: unknown): string {
+  const failed = typeof error === "object" && error !== null ? error : {};
+  const stderr = firstOutputLine((failed as { stderr?: unknown }).stderr);
+  if (stderr) return stderr;
+  const stdout = firstOutputLine((failed as { stdout?: unknown }).stdout);
+  if (stdout) return stdout;
+  if (typeof (failed as { code?: unknown }).code === "number") return `exit code ${(failed as { code: number }).code}`;
+  if (typeof (failed as { signal?: unknown }).signal === "string" && (failed as { signal: string }).signal) {
+    return `signal ${(failed as { signal: string }).signal}`;
+  }
+  return "failed without output";
+}
+
+function firstOutputLine(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  return value
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find(Boolean);
 }
 
 function buildSimpleDiff(repoPath: string, before: string, after: string): string {
