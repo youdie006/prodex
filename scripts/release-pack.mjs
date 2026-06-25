@@ -63,7 +63,15 @@ async function copyPackedFilesToStaging(root, staging, files, binPaths) {
     if (sourceRelative.startsWith("..") || path.isAbsolute(sourceRelative)) {
       throw new Error(`packed file path escapes package root: ${packagePath}`);
     }
-    const sourceStat = await lstat(source);
+    let sourceStat;
+    try {
+      sourceStat = await lstat(source);
+    } catch (error) {
+      if (isMissingFileError(error)) {
+        throw new Error(`packed file listed by npm was not found: ${packagePath}`);
+      }
+      throw error;
+    }
     if (sourceStat.isSymbolicLink() || !sourceStat.isFile()) {
       throw new Error(`packed file must be a regular non-symlink file: ${packagePath}`);
     }

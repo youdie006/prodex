@@ -114,6 +114,32 @@ describe("release-pack", () => {
     expect((await readdir(destination)).filter((entry) => entry.endsWith(".tgz"))).toEqual([]);
   });
 
+  it("fails with a friendly message when npm pack lists a missing package file", async () => {
+    const root = await createReleasePackFixture();
+    const destination = await mkdtemp(path.join(tmpdir(), "gptprouse-release-pack-dest-"));
+    const fakeBin = await mkdtemp(path.join(tmpdir(), "gptprouse-release-pack-fake-bin-"));
+    await writeFile(
+      path.join(fakeBin, npmCommand),
+      `#!/bin/sh
+printf '[{"files":[{"path":"package.json"},{"path":"README.md"},{"path":"LICENSE"},{"path":"dist/cli.js"},{"path":"scripts/release-check.mjs"},{"path":"missing.md"}]}]\\n'
+`,
+      "utf8"
+    );
+    await chmod(path.join(fakeBin, npmCommand), 0o755);
+
+    const result = await runReleasePack(["--root", root, "--pack-destination", destination], {
+      env: { PATH: `${fakeBin}${path.delimiter}${process.env.PATH ?? ""}` }
+    });
+
+    const output = `${result.stdout}\n${result.stderr}`;
+    expect(result.code).toBe(1);
+    expect(output).toContain("release pack failed");
+    expect(output).toContain("packed file listed by npm was not found: missing.md");
+    expect(output).not.toContain("ENOENT");
+    expect(output).not.toContain("no such file");
+    expect((await readdir(destination)).filter((entry) => entry.endsWith(".tgz"))).toEqual([]);
+  });
+
   it("fails with a friendly message when final npm pack returns malformed JSON", async () => {
     const root = await createReleasePackFixture();
     const destination = await mkdtemp(path.join(tmpdir(), "gptprouse-release-pack-dest-"));
