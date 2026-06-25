@@ -106,6 +106,22 @@ try {
   assertNotIncludes(help.stdout, "gptprouse pro latest|list|show <task-id|latest>", "installed help output");
   assertNotIncludes(help.stdout, "gptprouse pro browser open|status", "installed help output");
   assertNotIncludes(help.stdout, "gptprouse chatgpt open|status|smoke", "installed help output");
+  const proHelp = await run(binPath, ["pro", "--help"], { cwd: consumerDir });
+  assertIncludes(proHelp.stdout, "gptprouse pro", "installed pro help output");
+  assertIncludes(proHelp.stdout, "gptprouse pro browser help", "installed pro help output");
+  assertIncludes(proHelp.stdout, "gptprouse pro latest [--source-cli /absolute/path/to/dist/cli.js]", "installed pro help output");
+  const releaseHelp = await run(binPath, ["release", "--help"], { cwd: consumerDir });
+  assertIncludes(releaseHelp.stdout, "gptprouse release", "installed release help output");
+  assertIncludes(
+    releaseHelp.stdout,
+    "gptprouse release pack [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js] --pack-destination /absolute/path",
+    "installed release help output"
+  );
+  assertIncludes(
+    releaseHelp.stdout,
+    "Release commands are local checks and package preparation helpers; they do not publish or push.",
+    "installed release help output"
+  );
   const freshDoctorDir = path.join(tmp, "fresh-doctor");
   await mkdir(freshDoctorDir, { recursive: true });
   const freshDoctor = await run(binPath, ["doctor"], { cwd: freshDoctorDir });

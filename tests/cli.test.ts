@@ -1282,6 +1282,31 @@ describe("runCli", () => {
     expect(text).not.toContain("gptprouse pro latest|list|show <task-id|latest>");
   });
 
+  it("prints pro-specific help from pro --help and bare pro", async () => {
+    for (const args of [
+      ["pro", "--help"],
+      ["pro"]
+    ]) {
+      const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+      const out: string[] = [];
+
+      const code = await runCli(args, {
+        cwd,
+        stdout: (line) => out.push(line),
+        stderr: () => {}
+      });
+
+      const text = out.join("\n");
+      expect(code).toBe(0);
+      expect(text).toContain("gptprouse pro");
+      expect(text).toContain('gptprouse pro ask [--dry-run] [--file path] "prompt"');
+      expect(text).toContain("gptprouse pro browser help");
+      expect(text).toContain("gptprouse pro latest [--source-cli /absolute/path/to/dist/cli.js]");
+      expect(text).toContain("gptprouse pro list [--source-cli /absolute/path/to/dist/cli.js]");
+      expect(text).toContain("gptprouse pro show <task-id|latest> [--source-cli /absolute/path/to/dist/cli.js]");
+    }
+  });
+
   it("lists task blocking command in help", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
     const out: string[] = [];
@@ -1781,6 +1806,31 @@ describe("runCli", () => {
     expect(text).toContain(
       "gptprouse release pack [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js] --pack-destination /absolute/path"
     );
+  });
+
+  it("prints release-specific help from release --help and bare release", async () => {
+    for (const args of [
+      ["release", "--help"],
+      ["release"]
+    ]) {
+      const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+      const out: string[] = [];
+
+      const code = await runCli(args, {
+        cwd,
+        stdout: (line) => out.push(line),
+        stderr: () => {}
+      });
+
+      const text = out.join("\n");
+      expect(code).toBe(0);
+      expect(text).toContain("gptprouse release");
+      expect(text).toContain("gptprouse release status [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]");
+      expect(text).toContain(
+        "gptprouse release pack [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js] --pack-destination /absolute/path"
+      );
+      expect(text).toContain("Release commands are local checks and package preparation helpers; they do not publish or push.");
+    }
   });
 
   it("release pack creates a normalized publish tarball through the CLI", async () => {

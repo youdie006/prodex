@@ -227,6 +227,11 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
 
   if (command === "release") {
     const [subcommand, ...releaseArgs] = rest;
+    if (!subcommand || isHelpSubcommand(subcommand)) {
+      assertNoExtraArgs(releaseArgs, "release help", 0);
+      printReleaseHelp(io.stdout);
+      return 0;
+    }
     if (subcommand === "status") {
       assertOnlyOptions(releaseArgs, "release status", ["--cwd", "--source-cli"]);
       const targetCwd = resolveCwdFlag(io.cwd, releaseArgs);
@@ -533,6 +538,11 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
 
   if (command === "pro") {
     const [subcommand, ...proArgs] = rest;
+    if (!subcommand || isHelpSubcommand(subcommand)) {
+      assertNoExtraArgs(proArgs, "pro help", 0);
+      printProHelp(io.stdout);
+      return 0;
+    }
     if (subcommand === "ask") {
       if (hasAskProSendMode(proArgs)) {
         throw new Error("gptprouse pro ask is a dry-run preview. Use `gptprouse pro browser ask` for visible-browser sends.");
@@ -542,7 +552,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
     }
     if (subcommand === "browser") {
       const [browserSubcommand, ...browserArgs] = proArgs;
-      if (!browserSubcommand || browserSubcommand === "help" || browserSubcommand === "--help" || browserSubcommand === "-h") {
+      if (!browserSubcommand || isHelpSubcommand(browserSubcommand)) {
         assertNoExtraArgs(browserArgs, "pro browser help", 0);
         printProBrowserHelp(io.stdout);
         return 0;
@@ -873,6 +883,38 @@ Commands:
   gptprouse sessions list [--status preview|running|done|blocked]
   gptprouse sessions show <session-id|latest>
   gptprouse mcp [--cwd /absolute/path/to/repo]`);
+}
+
+function printReleaseHelp(stdout: (line: string) => void): void {
+  stdout(`gptprouse release
+
+Commands:
+  gptprouse release status [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]
+  gptprouse release pack [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js] --pack-destination /absolute/path
+
+Release commands are local checks and package preparation helpers; they do not publish or push.`);
+}
+
+function printProHelp(stdout: (line: string) => void): void {
+  stdout(`gptprouse pro
+
+Commands:
+  gptprouse pro ask [--dry-run] [--file path] "prompt"
+  gptprouse pro browser help
+  gptprouse pro browser login [--dry-run] [--source-cli /absolute/path/to/dist/cli.js]
+  gptprouse pro browser check [--source-cli /absolute/path/to/dist/cli.js]
+  gptprouse pro browser smoke [--source-cli /absolute/path/to/dist/cli.js]
+  gptprouse pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--target-url url --confirm-target] [--file path] "prompt"
+  gptprouse pro latest [--source-cli /absolute/path/to/dist/cli.js]
+  gptprouse pro list [--source-cli /absolute/path/to/dist/cli.js]
+  gptprouse pro show <task-id|latest> [--source-cli /absolute/path/to/dist/cli.js]
+
+Use \`gptprouse pro ask\` for dry-run/manual previews.
+Use \`gptprouse pro browser ask\` only when you want an explicit visible-browser send.`);
+}
+
+function isHelpSubcommand(value: string): boolean {
+  return value === "help" || value === "--help" || value === "-h";
 }
 
 function formatProjectVerificationPrompt(cwd: string, sourceCli?: string): string {
