@@ -204,7 +204,11 @@ try {
   assertNotIncludes(browserLoginGuide.stdout, "node dist/cli.js", "installed browser login guide");
   const browserHelp = await run(binPath, ["pro", "browser", "help"], { cwd: consumerDir });
   assertIncludes(browserHelp.stdout, "gptprouse pro browser login [--dry-run]", "installed browser help");
-  assertIncludes(browserHelp.stdout, "gptprouse pro browser ask", "installed browser help");
+  assertIncludes(
+    browserHelp.stdout,
+    'gptprouse pro browser ask [--port 9333] [--timeout-ms 90000] [--target-url url --confirm-target] [--file path] "prompt"',
+    "installed browser help"
+  );
   const invalidBrowserPort = await runExpectFailure(binPath, ["pro", "browser", "check", "--port", "-1", "--timeout-ms", "10"], {
     cwd: consumerDir
   });

@@ -2176,7 +2176,9 @@ describe("runCli", () => {
     expect(text).toContain("gptprouse pro browser");
     expect(text).toContain("gptprouse pro browser login [--dry-run]");
     expect(text).toContain("gptprouse pro browser check");
-    expect(text).toContain("gptprouse pro browser ask");
+    expect(text).toContain(
+      'gptprouse pro browser ask [--port 9333] [--timeout-ms 90000] [--target-url url --confirm-target] [--file path] "prompt"'
+    );
   });
 
   it("rejects non-ChatGPT browser login URLs before opening Chrome", async () => {

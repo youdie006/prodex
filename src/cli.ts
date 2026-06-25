@@ -1742,7 +1742,7 @@ Commands:
   gptprouse pro browser login [--dry-run] [--profile-dir path] [--port 9333] [--url https://chatgpt.com/...]
   gptprouse pro browser check [--port 9333] [--timeout-ms 1500]
   gptprouse pro browser smoke [--port 9333] [--timeout-ms 30000]
-  gptprouse pro browser ask [--target-url url --confirm-target] [--file path] "prompt"
+  gptprouse pro browser ask [--port 9333] [--timeout-ms 90000] [--target-url url --confirm-target] [--file path] "prompt"
 
 Visible-browser sends require a manual browser session and stop on login, captcha, Cloudflare, permission, rate-limit, or usage-limit blockers.`);
 }
