@@ -313,6 +313,7 @@ export class LimitedStdioServerTransport implements Transport {
 
   private readonly onInputError = (error: Error): void => {
     this.onerror?.(error);
+    void this.close();
   };
 
   private processBuffer(): void {

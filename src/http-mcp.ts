@@ -70,10 +70,7 @@ export async function startHttpMcpServer(options: StartHttpMcpServerOptions): Pr
           writeJson(res, error.status, error.body);
           return;
         }
-        writeJson(res, 500, {
-          error: "internal_server_error",
-          message: error instanceof Error ? error.message : String(error)
-        });
+        writeJson(res, 500, { error: "internal_server_error" });
       }
     }
   });

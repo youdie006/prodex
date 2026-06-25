@@ -146,6 +146,9 @@ export async function searchRepo(root: string, query: string, glob?: string): Pr
     if (maybe.code === "ENOENT") {
       throw new Error("ripgrep (rg) is required on PATH for repo_search");
     }
+    if (isSearchOutputTooLarge(error)) {
+      throw new Error("repo_search returned too many matches; narrow the query or glob and try again");
+    }
     if (maybe.code === 1) return [];
     throw error;
   }
@@ -181,6 +184,13 @@ function isRipgrepJsonMatch(value: unknown): value is RipgrepJsonMatch {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+function isSearchOutputTooLarge(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) return false;
+  const code = (error as { code?: unknown }).code;
+  const message = (error as { message?: unknown }).message;
+  return code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER" || (typeof message === "string" && /maxBuffer/i.test(message));
 }
 
 function stripOneTrailingLineEnding(value: string): string {

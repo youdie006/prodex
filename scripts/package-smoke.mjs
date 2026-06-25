@@ -421,7 +421,7 @@ try {
   await smokeInstalledStdioTaskFinalizers(binPath, consumerDir);
 
   console.log(
-    `package_smoke: ok tarball=${path.basename(packed.filename)} http_onboarding=ok installed_http_mcp=ok http_write_flow=ok http_task_finalizers=ok http_result_artifact_flow=ok http_result_artifact_tamper=ok configured_doctor=ok tunnel_url=ok package_boundary=ok stdio_write_flow=ok stdio_non_git_write=ok stdio_task_flow=ok stdio_task_finalizers=ok stdio_result_artifact_flow=ok stdio_result_artifact_tamper=ok tools=${REQUIRED_MCP_TOOLS.join(",")}`
+    `package_smoke: ok tarball=${path.basename(packed.filename)} http_onboarding=ok installed_http_mcp=ok http_write_flow=ok http_task_finalizers=ok http_result_artifact_flow=ok http_result_artifact_tamper=ok configured_doctor=ok tunnel_url=ok package_boundary=ok stdio_write_flow=ok stdio_search_overflow=ok stdio_non_git_write=ok stdio_task_flow=ok stdio_task_finalizers=ok stdio_result_artifact_flow=ok stdio_result_artifact_tamper=ok tools=${REQUIRED_MCP_TOOLS.join(",")}`
   );
 } finally {
   await rm(tmp, { recursive: true, force: true });
@@ -501,6 +501,7 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertIncludes(readme, "installed HTTP MCP repo write dry-run/apply/stage flow", "installed README");
   assertIncludes(readme, "installed HTTP MCP task completion/blocking/result/artifact fetch flow", "installed README");
   assertIncludes(readme, "installed stdio repo write dry-run/apply/stage flow", "installed README");
+  assertIncludes(readme, "installed stdio oversized repo_search failure output", "installed README");
   assertIncludes(readme, "installed stdio non-git write failure output", "installed README");
   assertIncludes(readme, "installed stdio task completion/blocking/result/artifact fetch flow", "installed README");
   assertIncludes(readme, "loopback-only", "installed README");
@@ -850,6 +851,16 @@ async function smokeStdioMcp(binPath, cwd) {
       line: 2,
       text: "--package-rg-literal ok"
     });
+    await writeFile(path.join(cwd, "huge-search-smoke.txt"), `${"package-overflow ".repeat(200_000)}\n`, "utf8");
+    const overflowText = await callToolExpectFailureText(
+      client,
+      "repo_search",
+      { query: "package-overflow" },
+      "repo_search returned too many matches"
+    );
+    assertIncludes(overflowText, "narrow the query or glob", "installed stdio oversized repo_search failure output");
+    assertNotIncludes(overflowText, "maxBuffer", "installed stdio oversized repo_search failure output");
+    assertNotIncludes(overflowText, "stdout", "installed stdio oversized repo_search failure output");
     const dryRun = await callJsonTool(client, "repo_write_file_dry_run", {
       path: "notes.md",
       content: "new\n",

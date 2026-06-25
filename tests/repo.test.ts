@@ -151,6 +151,14 @@ describe("repo path policy", () => {
     }
   });
 
+  it("reports oversized repo search output without leaking raw Node maxBuffer details", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-repo-"));
+    await writeFile(path.join(root, "huge.txt"), `${"needle ".repeat(200_000)}\n`, "utf8");
+
+    await expect(searchRepo(root, "needle")).rejects.toThrow(/too many matches|narrow/i);
+    await expect(searchRepo(root, "needle")).rejects.not.toThrow(/maxBuffer|stdout|ERR_CHILD_PROCESS/i);
+  });
+
   it("blocks nested env files from repo reads and searches", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "gptprouse-repo-"));
     await mkdir(path.join(root, "services", "api"), { recursive: true });

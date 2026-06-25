@@ -2,6 +2,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { mkdtemp } from "node:fs/promises";
 import { request as httpRequest } from "node:http";
+import net from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -192,6 +193,21 @@ describe("HTTP MCP server", () => {
     expect(body.error).toBe("invalid_json");
   });
 
+  it("does not leak internal exception messages in generic HTTP 500 responses", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-http-mcp-"));
+    running = await startHttpMcpServer({ cwd, host: "127.0.0.1", port: 0, token: "test-token" });
+
+    const raw = await rawHttpRequest(
+      running.port,
+      "GET /mcp?gptprouse_token=test-token HTTP/1.1\r\nHost: :\r\nConnection: close\r\n\r\n"
+    );
+
+    expect(raw).toContain("HTTP/1.1 500");
+    expect(raw).toContain('"error":"internal_server_error"');
+    expect(raw).not.toContain("Invalid URL");
+    expect(raw).not.toContain('"message"');
+  });
+
   it("keeps valid JSON without a valid MCP session as a protocol bad request", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-http-mcp-"));
     running = await startHttpMcpServer({ cwd, host: "127.0.0.1", port: 0, token: "test-token" });
@@ -277,5 +293,17 @@ function postChunked(url: string, chunks: string[]): Promise<{ status: number; b
       req.write(chunk);
     }
     req.end();
+  });
+}
+
+function rawHttpRequest(port: number, requestText: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const socket = net.connect(port, "127.0.0.1", () => {
+      socket.end(requestText);
+    });
+    const chunks: Buffer[] = [];
+    socket.on("data", (chunk) => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
+    socket.on("error", reject);
+    socket.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
   });
 }

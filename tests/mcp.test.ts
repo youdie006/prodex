@@ -40,6 +40,25 @@ describe("MCP stdio transport", () => {
     expect(closeCount).toBe(1);
   });
 
+  it("closes after stdin stream errors", async () => {
+    const input = new PassThrough();
+    const output = new PassThrough();
+    const transport = new LimitedStdioServerTransport(input, output, { maxMessageBytes: 16 });
+    const errors: Error[] = [];
+    let closed = false;
+    transport.onerror = (error) => errors.push(error);
+    transport.onclose = () => {
+      closed = true;
+    };
+
+    await transport.start();
+    input.emit("error", new Error("broken stdin"));
+    await eventually(() => errors.length > 0 && closed);
+
+    expect(errors[0]?.message).toBe("broken stdin");
+    expect(closed).toBe(true);
+  });
+
   it("parses normal newline-delimited JSON-RPC messages", async () => {
     const input = new PassThrough();
     const output = new PassThrough();
