@@ -2586,19 +2586,21 @@ function printBrowserLoginGuide(
   stdout("Steps:");
   if (input.opened) {
     stdout("1. Log in manually at https://chatgpt.com/ in the dedicated Chrome window.");
-    stdout("2. If ChatGPT asks for captcha, Cloudflare/human verification, permission, account verification, or usage limit handling, complete it in the browser.");
-    stdout("3. Open a normal ChatGPT chat or the intended Project/thread so the prompt composer is visible.");
-    stdout("4. Select the Pro/Thinking model you want in the ChatGPT UI.");
-    stdout(`5. Run \`${checkCommand}\` to confirm the session is reachable.`);
-    stdout(`6. Run \`${smokeCommand}\` to verify a real Pro response path.`);
-  } else {
-    stdout(`1. Run \`${loginCommand}\` without \`--dry-run\` to open the dedicated Chrome window.`);
-    stdout("2. Log in manually at https://chatgpt.com/ in that Chrome window.");
-    stdout("3. If ChatGPT asks for captcha, Cloudflare/human verification, permission, account verification, or usage limit handling, complete it in the browser.");
+    stdout("2. If ChatGPT asks for captcha, Cloudflare/human verification, permission, or account verification, complete it in the browser.");
+    stdout("3. For usage limit, message limit, model limit, or rate limit, wait for the reset or choose an available model in the browser.");
     stdout("4. Open a normal ChatGPT chat or the intended Project/thread so the prompt composer is visible.");
     stdout("5. Select the Pro/Thinking model you want in the ChatGPT UI.");
     stdout(`6. Run \`${checkCommand}\` to confirm the session is reachable.`);
     stdout(`7. Run \`${smokeCommand}\` to verify a real Pro response path.`);
+  } else {
+    stdout(`1. Run \`${loginCommand}\` without \`--dry-run\` to open the dedicated Chrome window.`);
+    stdout("2. Log in manually at https://chatgpt.com/ in that Chrome window.");
+    stdout("3. If ChatGPT asks for captcha, Cloudflare/human verification, permission, or account verification, complete it in the browser.");
+    stdout("4. For usage limit, message limit, model limit, or rate limit, wait for the reset or choose an available model in the browser.");
+    stdout("5. Open a normal ChatGPT chat or the intended Project/thread so the prompt composer is visible.");
+    stdout("6. Select the Pro/Thinking model you want in the ChatGPT UI.");
+    stdout(`7. Run \`${checkCommand}\` to confirm the session is reachable.`);
+    stdout(`8. Run \`${smokeCommand}\` to verify a real Pro response path.`);
   }
   stdout("");
   stdout(`Profile: ${input.profileDir}`);

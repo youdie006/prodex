@@ -3376,6 +3376,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     expect(text).toContain("Log in manually");
     expect(text).toContain("Cloudflare");
     expect(text).toContain("usage limit");
+    expect(text).toContain("For usage limit, message limit, model limit, or rate limit, wait for the reset or choose an available model in the browser.");
     expect(text).toContain("Open a normal ChatGPT chat or the intended Project/thread so the prompt composer is visible.");
     expect(text).toContain("gptprouse pro browser check");
     expect(text).toContain("gptprouse pro browser smoke");
@@ -3383,6 +3384,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     expect(text).toContain("Dry run: no browser was opened.");
     expect(text).toContain("1. Run `gptprouse pro browser login` without `--dry-run` to open the dedicated Chrome window.");
     expect(text).toContain("2. Log in manually at https://chatgpt.com/ in that Chrome window.");
+    expect(text).not.toContain("usage limit handling, complete it in the browser");
     expect(text.indexOf("Run `gptprouse pro browser login` without `--dry-run`")).toBeLessThan(text.indexOf("Log in manually"));
     expect(text).not.toContain("You can close this Chrome window after login");
   });

@@ -788,6 +788,11 @@ try {
   assertIncludes(browserLoginGuide.stdout, "Dry run: no browser was opened.", "installed browser login guide");
   assertIncludes(browserLoginGuide.stdout, "Cloudflare", "installed browser login guide");
   assertIncludes(browserLoginGuide.stdout, "usage limit", "installed browser login guide");
+  assertIncludes(
+    browserLoginGuide.stdout,
+    "For usage limit, message limit, model limit, or rate limit, wait for the reset or choose an available model in the browser.",
+    "installed browser login guide"
+  );
   assertIncludes(browserLoginGuide.stdout, "Open a normal ChatGPT chat or the intended Project/thread so the prompt composer is visible.", "installed browser login guide");
   assertIncludes(browserLoginGuide.stdout, "gptprouse pro browser check", "installed browser login guide");
   assertIncludes(browserLoginGuide.stdout, "gptprouse pro browser smoke", "installed browser login guide");
@@ -797,6 +802,7 @@ try {
     "installed browser login guide"
   );
   assertIncludes(browserLoginGuide.stdout, "2. Log in manually at https://chatgpt.com/ in that Chrome window.", "installed browser login guide");
+  assertNotIncludes(browserLoginGuide.stdout, "usage limit handling, complete it in the browser", "installed browser login guide");
   assertAppearsBefore(
     browserLoginGuide.stdout,
     "Run `gptprouse pro browser login` without `--dry-run`",
@@ -1280,6 +1286,8 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertIncludes(readme, 'gptprouse pro ask "Review the project positioning"', "installed README");
   assertIncludes(readme, "gptprouse pro browser login --dry-run", "installed README");
   assertIncludes(readme, "Open a normal ChatGPT chat or the intended Project/thread so the prompt composer is visible.", "installed README");
+  assertIncludes(readme, "If ChatGPT shows a usage limit, message limit, model limit, or rate limit, wait for the reset or choose an available model in the browser.", "installed README");
+  assertNotIncludes(readme, "If ChatGPT asks for captcha, permission, or account verification, handle it in that browser.", "installed README");
   assertIncludes(readme, "You can close that Chrome window after check/smoke or when you are done.", "installed README");
   assertNotIncludes(readme, "You can close that Chrome window after login", "installed README");
   assertIncludes(readme, "pro browser login --dry-run --source-cli", "installed README");
@@ -1296,12 +1304,20 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertIncludes(readme, "setup --cwd", "installed README");
   assertIncludes(readme, "mcp --cwd", "installed README");
   assertIncludes(readme, "gptprouse project prompt", "installed README");
-  assertIncludes(readme, "project prompt --source-cli", "installed README");
+  assertIncludes(
+    readme,
+    "node dist/cli.js project prompt --cwd /absolute/path/to/your/repo --source-cli /absolute/path/to/gptprouse/dist/cli.js",
+    "installed README"
+  );
+  assertNotIncludes(readme, 'node dist/cli.js project prompt --source-cli "$(pwd)/dist/cli.js"', "installed README");
+  assertIncludes(readme, "project prompt --cwd /absolute/path/to/your/repo --source-cli", "installed README");
   assertIncludes(readme, "Source-checkout prompts keep `--source-cli` on those troubleshooting commands too.", "installed README");
   assertIncludes(readme, "status --cwd ...", "installed README");
   assertIncludes(readme, "doctor --cwd ...", "installed README");
   assertIncludes(readme, "gptprouse claude prompt", "installed README");
   assertIncludes(readme, "claude prompt --cwd /absolute/path/to/your/repo --source-cli", "installed README");
+  assertIncludes(readme, "node dist/cli.js claude config --cwd /absolute/path/to/your/repo --source-cli /absolute/path/to/gptprouse/dist/cli.js", "installed README");
+  assertNotIncludes(readme, "gptprouse claude config --cwd /absolute/path/to/your/repo --source-cli /absolute/path/to/gptprouse/dist/cli.js", "installed README");
   assertIncludes(readme, "claude config --cwd ...", "installed README");
   assertIncludes(readme, "gptprouse claude config", "installed README");
   assertIncludes(readme, "gptprouse release status", "installed README");
@@ -1428,7 +1444,14 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertIncludes(claudeDoc, "mcp --cwd", "installed Claude docs");
   assertIncludes(claudeDoc, "gptprouse claude prompt", "installed Claude docs");
   assertIncludes(claudeDoc, "claude prompt --cwd /absolute/path/to/your/repo --source-cli", "installed Claude docs");
+  assertIncludes(claudeDoc, "node dist/cli.js claude config --cwd /absolute/path/to/your/repo --source-cli /absolute/path/to/gptprouse/dist/cli.js", "installed Claude docs");
+  assertNotIncludes(claudeDoc, "gptprouse claude config --cwd /absolute/path/to/your/repo --source-cli /absolute/path/to/gptprouse/dist/cli.js", "installed Claude docs");
   assertIncludes(claudeDoc, "Source-checkout prompts keep `--source-cli` on those troubleshooting commands too.", "installed Claude docs");
+  assertIncludes(
+    claudeDoc,
+    "claude mcp add gptprouse -- node /absolute/path/to/gptprouse/dist/cli.js mcp --cwd /absolute/path/to/your/repo",
+    "installed Claude docs"
+  );
   assertIncludes(claudeDoc, "claude config --cwd ...", "installed Claude docs");
   assertIncludes(claudeDoc, "doctor --cwd ...", "installed Claude docs");
   assertIncludes(claudeDoc, "gptprouse claude config", "installed Claude docs");

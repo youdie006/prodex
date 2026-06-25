@@ -137,7 +137,8 @@ What happens:
 - `login --dry-run` prints the dedicated Chrome profile, debug URL, and next commands without opening a browser.
 - `login` opens that dedicated Chrome profile at ChatGPT.
 - You log in manually in the visible browser.
-- If ChatGPT asks for captcha, permission, or account verification, handle it in that browser.
+- If ChatGPT asks for captcha, Cloudflare/human verification, permission, or account verification, handle it in that browser.
+- If ChatGPT shows a usage limit, message limit, model limit, or rate limit, wait for the reset or choose an available model in the browser.
 - Open a normal ChatGPT chat or the intended Project/thread so the prompt composer is visible.
 - Pick the Pro/Thinking model you want in the ChatGPT UI.
 - The login stays in the dedicated profile:
@@ -216,7 +217,7 @@ gptprouse project prompt
 For a source checkout, pass the same built CLI path so the prompt's local follow-up commands are also source-checkout commands:
 
 ```bash
-node dist/cli.js project prompt --source-cli "$(pwd)/dist/cli.js"
+node dist/cli.js project prompt --cwd /absolute/path/to/your/repo --source-cli /absolute/path/to/gptprouse/dist/cli.js
 ```
 
 Paste that prompt into the ChatGPT Project. It asks ChatGPT to call `bridge_create_task`, `bridge_list_tasks`, and `bridge_get_task` only, then you can confirm the created task locally:
@@ -349,7 +350,7 @@ It prints this token-free config:
 For a source checkout, first run `npm install && npm run build`, then generate a `node dist/cli.js` config:
 
 ```bash
-gptprouse claude config --cwd /absolute/path/to/your/repo --source-cli /absolute/path/to/gptprouse/dist/cli.js
+node dist/cli.js claude config --cwd /absolute/path/to/your/repo --source-cli /absolute/path/to/gptprouse/dist/cli.js
 ```
 
 See [docs/claude.md](docs/claude.md) for Claude Desktop and Claude Code notes.

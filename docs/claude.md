@@ -42,7 +42,7 @@ It prints this token-free JSON:
 For a source checkout instead of an installed package, first build the project, then generate a `node dist/cli.js` config:
 
 ```bash
-gptprouse claude config --cwd /absolute/path/to/your/repo --source-cli /absolute/path/to/gptprouse/dist/cli.js
+node dist/cli.js claude config --cwd /absolute/path/to/your/repo --source-cli /absolute/path/to/gptprouse/dist/cli.js
 ```
 
 It prints this shape:
@@ -66,6 +66,12 @@ Use the same command shape in Claude Code's MCP configuration. If your Claude Co
 
 ```bash
 claude mcp add gptprouse -- gptprouse mcp --cwd /absolute/path/to/your/repo
+```
+
+For a source checkout without a global `gptprouse` binary, point Claude Code at the built CLI:
+
+```bash
+claude mcp add gptprouse -- node /absolute/path/to/gptprouse/dist/cli.js mcp --cwd /absolute/path/to/your/repo
 ```
 
 If your install expects a JSON config, use the Claude Desktop JSON above.
