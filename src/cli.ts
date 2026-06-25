@@ -1078,21 +1078,25 @@ type PackedFile = {
 };
 
 function parsePackedFiles(stdout: string): PackedFile[] {
-  const entries = JSON.parse(stdout) as Array<{ files?: unknown }>;
+  let entries: Array<{ files?: unknown }>;
+  try {
+    entries = JSON.parse(stdout) as Array<{ files?: unknown }>;
+  } catch {
+    throw new Error("npm pack dry-run did not return valid JSON");
+  }
   const files = entries?.[0]?.files;
-  if (!Array.isArray(files)) return [];
-  return files.filter(isPackedFile);
-}
-
-function isPackedFile(value: unknown): value is PackedFile {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "path" in value &&
-    "mode" in value &&
-    typeof value.path === "string" &&
-    typeof value.mode === "number"
-  );
+  if (!Array.isArray(files)) {
+    throw new Error("npm pack dry-run did not return a file list");
+  }
+  for (const file of files) {
+    if (typeof file?.path !== "string" || file.path.trim() === "") {
+      throw new Error("npm pack dry-run file entry is missing a path");
+    }
+    if (typeof file.mode !== "number") {
+      throw new Error(`npm pack dry-run file entry is missing mode metadata: ${normalizePackagePath(file.path)}`);
+    }
+  }
+  return files;
 }
 
 function findExecutableNonBinPackedFiles(files: PackedFile[], packageJson: { bin?: unknown }): string[] {

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { createHash } from "node:crypto";
 import { execFile, spawn } from "node:child_process";
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import net from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -678,6 +678,28 @@ async function smokeInstalledReleaseGitReadiness(binPath, tmp, launcherCwd) {
   assertIncludes(invalidVersion.stdout, "metadata: blocked", "installed release status invalid version output");
   assertIncludes(invalidVersion.stdout, "version must be valid semver", "installed release status invalid version output");
 
+  const malformedPackDir = path.join(tmp, "release-malformed-pack");
+  await mkdir(malformedPackDir, { recursive: true });
+  await writeFile(
+    path.join(malformedPackDir, "package.json"),
+    `${JSON.stringify({ name: "malformed-pack-demo", version: "1.0.0", license: "MIT" }, null, 2)}\n`
+  );
+  await writeFile(path.join(malformedPackDir, "LICENSE"), "MIT License\n");
+  const fakeBin = path.join(tmp, "release-malformed-pack-bin");
+  await mkdir(fakeBin, { recursive: true });
+  await writeFakeNpmDryRun(
+    fakeBin,
+    '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":420},{"mode":420}]}]\n'
+  );
+  const malformedPack = await run(binPath, ["release", "status", "--cwd", malformedPackDir], {
+    cwd: launcherCwd,
+    env: { PATH: `${fakeBin}${path.delimiter}${process.env.PATH ?? ""}` }
+  });
+  assertIncludes(malformedPack.stdout, "metadata: ok", "installed release status malformed pack output");
+  assertIncludes(malformedPack.stdout, "pack: blocked npm pack dry-run failed", "installed release status malformed pack output");
+  assertIncludes(malformedPack.stdout, "npm pack dry-run file entry is missing a path", "installed release status malformed pack output");
+  assertNotIncludes(malformedPack.stdout, "pack: ok", "installed release status malformed pack output");
+
   const noRemoteDir = await createReleaseGitFixture(path.join(tmp, "release-no-remote"), { remote: false });
   const noRemote = await run(binPath, ["release", "status", "--cwd", noRemoteDir], { cwd: launcherCwd });
   assertIncludes(noRemote.stdout, "metadata: ok", "installed release status no-remote output");
@@ -733,6 +755,18 @@ async function createReleaseGitFixture(cwd, options) {
     }
   }
   return cwd;
+}
+
+async function writeFakeNpmDryRun(binDir, stdout) {
+  const script = path.join(binDir, "fake-npm.mjs");
+  await writeFile(script, `process.stdout.write(${JSON.stringify(stdout)});\n`);
+  const commandPath = path.join(binDir, npmCommand);
+  if (process.platform === "win32") {
+    await writeFile(commandPath, `@echo off\r\n"${process.execPath}" "${script}" %*\r\n`);
+    return;
+  }
+  await writeFile(commandPath, `#!/bin/sh\nexec "${process.execPath}" "${script}" "$@"\n`);
+  await chmod(commandPath, 0o755);
 }
 
 async function smokeStdioMcp(binPath, cwd) {
@@ -1338,7 +1372,8 @@ async function run(command, args, options = {}) {
   return execFileAsync(command, args, {
     timeout: options.timeout ?? 30_000,
     maxBuffer: options.maxBuffer ?? 5 * 1024 * 1024,
-    cwd: options.cwd
+    cwd: options.cwd,
+    env: options.env ? { ...process.env, ...options.env } : undefined
   });
 }
 

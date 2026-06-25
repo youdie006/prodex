@@ -15,6 +15,7 @@ import { BridgeStore } from "../src/store.js";
 
 const requireFromTest = createRequire(import.meta.url);
 const execFileAsync = promisify(execFile);
+const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
 
 describe("runCli", () => {
   afterEach(() => {
@@ -1809,6 +1810,45 @@ describe("runCli", () => {
     expect(text).toContain("npm run release:pack -- --pack-destination <dir>");
     expect(text).toContain("next: choose a license, add LICENSE, then run `npm run release:check`");
     expect(text).not.toContain("metadata: ok");
+  });
+
+  it("release status blocks malformed npm pack dry-run file entries", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-release-"));
+    await writeFile(
+      path.join(cwd, "package.json"),
+      `${JSON.stringify({ name: "demo", version: "1.0.0", license: "MIT" }, null, 2)}\n`,
+      "utf8"
+    );
+    await writeFile(path.join(cwd, "LICENSE"), "MIT License\n", "utf8");
+    const fakeBin = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-release-fake-bin-"));
+    await writeFile(
+      path.join(fakeBin, npmCommand),
+      `#!/bin/sh
+printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":420},{"mode":420}]}]\\n'
+`,
+      "utf8"
+    );
+    await chmod(path.join(fakeBin, npmCommand), 0o755);
+    const previousPath = process.env.PATH;
+    const out: string[] = [];
+
+    try {
+      process.env.PATH = `${fakeBin}${path.delimiter}${previousPath ?? ""}`;
+      await runCli(["release", "status", "--cwd", cwd], {
+        cwd: "/tmp",
+        stdout: (line) => out.push(line),
+        stderr: () => {}
+      });
+    } finally {
+      if (previousPath === undefined) delete process.env.PATH;
+      else process.env.PATH = previousPath;
+    }
+
+    const text = out.join("\n");
+    expect(text).toContain("metadata: ok license=MIT license_file=present");
+    expect(text).toContain("pack: blocked npm pack dry-run failed");
+    expect(text).toContain("npm pack dry-run file entry is missing a path");
+    expect(text).not.toContain("pack: ok");
   });
 
   it("release status reports a missing package.json as a release blocker", async () => {
