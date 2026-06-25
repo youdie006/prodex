@@ -1,7 +1,8 @@
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { link, mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import { BridgeStore } from "../src/store.js";
 
 const browserStatusFixture = vi.hoisted(() => ({
   status: {
@@ -237,5 +238,124 @@ describe("browser product check", () => {
     expect(text).toContain("model_hints: ChatGPT | Auto");
     expect(text).toContain("next: Open a normal ChatGPT chat or Project thread");
     expect(text).toContain("select the Pro/Thinking model");
+  });
+
+  it("reports unrecoverable latest Pro inspection errors without aborting browser health checks", async () => {
+    const targetCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-product-check-target-"));
+    const store = new BridgeStore(targetCwd);
+    const task = await store.createTask({
+      source: "codex",
+      title: "GPT Pro consult",
+      prompt: "Check latest without cleanup side effects.",
+      repo_id: "default",
+      files: [],
+      provenance: { adapter: "chatgpt-control", warnings: [] }
+    });
+    await store.completeTask(task.id, {
+      status: "done",
+      summary: "Latest read-only check.",
+      commands: ["visible ChatGPT browser consult"]
+    });
+    await runCli(["setup", "--cwd", targetCwd, "--token-ttl-hours", "24"], {
+      cwd: targetCwd,
+      stdout: () => {},
+      stderr: () => {}
+    });
+    await link(
+      path.join(targetCwd, ".bridge", "tasks", `${task.id}.json`),
+      path.join(targetCwd, ".bridge", "tasks", `linked-${task.id}.json`)
+    );
+    browserStatusFixture.status = {
+      reachable: true,
+      loggedInLikely: true,
+      hasComposer: true,
+      visibilityState: "visible",
+      url: "https://chatgpt.com/",
+      title: "ChatGPT",
+      modelHints: ["GPT-5 Pro", "Thinking"]
+    };
+    const out: string[] = [];
+
+    const code = await runCli(["pro", "browser", "check", "--cwd", targetCwd], {
+      cwd: await mkdtemp(path.join(tmpdir(), "gptprouse-cli-product-check-launcher-")),
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    const text = out.join("\n");
+    expect(code).toBe(0);
+    expect(text).toContain("chatgpt: ok logged_in=true composer=true");
+    expect(text).toContain("latest_pro: unavailable Target path is hard linked");
+  });
+
+  it("reports the latest trusted Pro answer even when older Pro history is untrusted", async () => {
+    const targetCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-product-check-target-"));
+    const store = new BridgeStore(targetCwd);
+    const untrusted = await store.createTask({
+      source: "codex",
+      title: "Old untrusted Pro consult",
+      prompt: "Old raw browser answer.",
+      repo_id: "default",
+      files: [],
+      provenance: { adapter: "chatgpt-control", warnings: [] }
+    });
+    await writeFile(
+      path.join(targetCwd, ".bridge", "results", `${untrusted.id}.json`),
+      `${JSON.stringify(
+        {
+          schema_version: 1,
+          task_id: untrusted.id,
+          status: "done",
+          summary: "Old raw untrusted browser answer.",
+          artifacts: [],
+          commands: ["visible ChatGPT browser consult"],
+          warnings: [],
+          created_at: "2000-01-01T00:00:00.000Z"
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+    const trusted = await store.createTask({
+      source: "codex",
+      title: "Trusted Pro consult",
+      prompt: "Trusted browser answer.",
+      repo_id: "default",
+      files: [],
+      provenance: { adapter: "chatgpt-control", warnings: [] }
+    });
+    await store.completeTask(trusted.id, {
+      status: "done",
+      summary: "Newest trusted answer.",
+      commands: ["visible ChatGPT browser consult"]
+    });
+    await runCli(["setup", "--cwd", targetCwd, "--token-ttl-hours", "24"], {
+      cwd: targetCwd,
+      stdout: () => {},
+      stderr: () => {}
+    });
+    browserStatusFixture.status = {
+      reachable: true,
+      loggedInLikely: true,
+      hasComposer: true,
+      visibilityState: "visible",
+      url: "https://chatgpt.com/",
+      title: "ChatGPT",
+      modelHints: ["GPT-5 Pro", "Thinking"]
+    };
+    const out: string[] = [];
+
+    const code = await runCli(["pro", "browser", "check", "--cwd", targetCwd], {
+      cwd: await mkdtemp(path.join(tmpdir(), "gptprouse-cli-product-check-launcher-")),
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    const text = out.join("\n");
+    expect(code).toBe(0);
+    expect(text).toContain(`latest_pro: ok ${trusted.id}`);
+    expect(text).not.toContain(untrusted.id);
+    expect(text).not.toContain("Old raw untrusted browser answer.");
   });
 });

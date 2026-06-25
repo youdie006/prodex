@@ -163,6 +163,11 @@ try {
   const tasksHelp = await run(binPath, ["tasks", "--help"], { cwd: consumerDir });
   assertIncludes(tasksHelp.stdout, "gptprouse tasks", "installed tasks help output");
   assertIncludes(tasksHelp.stdout, "gptprouse tasks create --title", "installed tasks help output");
+  assertIncludes(
+    tasksHelp.stdout,
+    'gptprouse tasks complete <task-id> --summary "Summary" [--command "npm test"] [--artifact .bridge/artifacts/results/name.md=text]',
+    "installed tasks help output"
+  );
   const resultsHelp = await run(binPath, ["results", "--help"], { cwd: consumerDir });
   assertIncludes(resultsHelp.stdout, "gptprouse results", "installed results help output");
   assertIncludes(resultsHelp.stdout, "gptprouse results artifact <task-id|latest> [artifact-path]", "installed results help output");
@@ -775,8 +780,13 @@ try {
   assertIncludes(projectPrompt.stdout, "bridge_list_tasks", "installed project prompt output");
   assertIncludes(projectPrompt.stdout, "bridge_get_task", "installed project prompt output");
   assertIncludes(projectPrompt.stdout, "bridge_fetch_result", "installed project prompt output");
+  assertIncludes(projectPrompt.stdout, "bridge_fetch_result_artifact", "installed project prompt output");
   assertIncludes(projectPrompt.stdout, "gptprouse tasks list --status new", "installed project prompt output");
-  assertIncludes(projectPrompt.stdout, 'gptprouse tasks complete <task-id> --summary "gptprouse MCP verification result"', "installed project prompt output");
+  assertIncludes(
+    projectPrompt.stdout,
+    'gptprouse tasks complete <task-id> --summary "gptprouse MCP verification result" --artifact .bridge/artifacts/results/mcp-verification.md="gptprouse MCP verification artifact"',
+    "installed project prompt output"
+  );
   assertIncludes(projectPrompt.stdout, "local completion done", "installed project prompt output");
   assertIncludes(projectPrompt.stdout, `gptprouse status --cwd ${consumerDir}`, "installed project prompt output");
   assertIncludes(projectPrompt.stdout, `gptprouse doctor --cwd ${consumerDir}`, "installed project prompt output");
@@ -788,9 +798,10 @@ try {
   assertIncludes(sourceProjectPrompt.stdout, `${sourcePrefix} tasks show <task-id>`, "installed source project prompt output");
   assertIncludes(
     sourceProjectPrompt.stdout,
-    `${sourcePrefix} tasks complete <task-id> --summary "gptprouse MCP verification result"`,
+    `${sourcePrefix} tasks complete <task-id> --summary "gptprouse MCP verification result" --artifact .bridge/artifacts/results/mcp-verification.md="gptprouse MCP verification artifact"`,
     "installed source project prompt output"
   );
+  assertIncludes(sourceProjectPrompt.stdout, "bridge_fetch_result_artifact", "installed source project prompt output");
   assertIncludes(sourceProjectPrompt.stdout, `${sourcePrefix} status --cwd ${consumerDir}`, "installed source project prompt output");
   assertIncludes(sourceProjectPrompt.stdout, `${sourcePrefix} doctor --cwd ${consumerDir}`, "installed source project prompt output");
   assertIncludes(
@@ -810,7 +821,14 @@ try {
   assertIncludes(claudePrompt.stdout, "bridge_create_task", "installed Claude prompt output");
   assertIncludes(claudePrompt.stdout, "bridge_list_tasks", "installed Claude prompt output");
   assertIncludes(claudePrompt.stdout, "bridge_get_task", "installed Claude prompt output");
+  assertIncludes(claudePrompt.stdout, "bridge_fetch_result", "installed Claude prompt output");
+  assertIncludes(claudePrompt.stdout, "bridge_fetch_result_artifact", "installed Claude prompt output");
   assertIncludes(claudePrompt.stdout, "gptprouse tasks list --status new", "installed Claude prompt output");
+  assertIncludes(
+    claudePrompt.stdout,
+    'gptprouse tasks complete <task-id> --summary "gptprouse Claude MCP verification result" --artifact .bridge/artifacts/results/claude-verification.md="gptprouse Claude MCP verification artifact"',
+    "installed Claude prompt output"
+  );
   assertIncludes(claudePrompt.stdout, `gptprouse claude config --cwd ${consumerDir}`, "installed Claude prompt output");
   assertIncludes(claudePrompt.stdout, `gptprouse doctor --cwd ${consumerDir}`, "installed Claude prompt output");
   assertNotIncludes(claudePrompt.stdout, "gptprouse_token=", "installed Claude prompt output");
@@ -819,6 +837,12 @@ try {
   });
   assertIncludes(sourceClaudePrompt.stdout, `${sourcePrefix} tasks list --status new`, "installed source Claude prompt output");
   assertIncludes(sourceClaudePrompt.stdout, `${sourcePrefix} tasks show <task-id>`, "installed source Claude prompt output");
+  assertIncludes(
+    sourceClaudePrompt.stdout,
+    `${sourcePrefix} tasks complete <task-id> --summary "gptprouse Claude MCP verification result" --artifact .bridge/artifacts/results/claude-verification.md="gptprouse Claude MCP verification artifact"`,
+    "installed source Claude prompt output"
+  );
+  assertIncludes(sourceClaudePrompt.stdout, "bridge_fetch_result_artifact", "installed source Claude prompt output");
   assertIncludes(sourceClaudePrompt.stdout, `${sourcePrefix} claude config --cwd ${consumerDir} --source-cli ${installedSourceCli}`, "installed source Claude prompt output");
   assertIncludes(sourceClaudePrompt.stdout, `${sourcePrefix} doctor --cwd ${consumerDir}`, "installed source Claude prompt output");
   assertIncludes(
@@ -1407,6 +1431,7 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertNotIncludes(readme, 'node dist/cli.js project prompt --source-cli "$(pwd)/dist/cli.js"', "installed README");
   assertIncludes(readme, "project prompt --cwd /absolute/path/to/your/repo --source-cli", "installed README");
   assertIncludes(readme, "bridge_fetch_result", "installed README");
+  assertIncludes(readme, "bridge_fetch_result_artifact", "installed README");
   assertNotIncludes(readme, "`bridge_get_task` only", "installed README");
   assertIncludes(readme, "Source-checkout prompts keep `--source-cli` on those troubleshooting commands too.", "installed README");
   assertIncludes(readme, "status --cwd ...", "installed README");
@@ -1511,6 +1536,7 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertIncludes(httpMcpDoc, "gptprouse project prompt", "installed HTTP MCP docs");
   assertIncludes(httpMcpDoc, "project prompt --cwd /absolute/path/to/your/repo --source-cli", "installed HTTP MCP docs");
   assertIncludes(httpMcpDoc, "bridge_fetch_result", "installed HTTP MCP docs");
+  assertIncludes(httpMcpDoc, "bridge_fetch_result_artifact", "installed HTTP MCP docs");
   assertNotIncludes(httpMcpDoc, "then reply with the created task id", "installed HTTP MCP docs");
   assertIncludes(httpMcpDoc, "recovery hints stay in source-checkout form", "installed HTTP MCP docs");
   assertIncludes(httpMcpDoc, "Source-checkout prompts keep `--source-cli` on those troubleshooting commands too.", "installed HTTP MCP docs");
@@ -1570,6 +1596,7 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertIncludes(claudeDoc, "claude config --cwd ...", "installed Claude docs");
   assertIncludes(claudeDoc, "doctor --cwd ...", "installed Claude docs");
   assertIncludes(claudeDoc, "gptprouse claude config", "installed Claude docs");
+  assertIncludes(claudeDoc, "bridge_fetch_result_artifact", "installed Claude docs");
   assertIncludes(claudeDoc, ".bridge/artifacts/results/", "installed Claude docs");
   assertIncludes(claudeDoc, "fetch rejects the artifact if its content changed afterward", "installed Claude docs");
   assertIncludes(claudeDoc, "oversized result artifacts", "installed Claude docs");

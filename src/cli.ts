@@ -24,7 +24,7 @@ import { startHttpMcpServer } from "./http-mcp.js";
 import { createMcpToolHandlers } from "./mcp-tools.js";
 import { runMcpServer } from "./mcp.js";
 import { readVerifiedUtf8File, writeVerifiedUtf8File } from "./safe-file.js";
-import { ReceiptKindSchema, TaskStatusSchema, type Receipt } from "./schema.js";
+import { ReceiptKindSchema, TaskStatusSchema, type BridgeFile, type Receipt } from "./schema.js";
 import { BridgeStore, MAX_FETCHABLE_RESULT_ARTIFACT_BYTES, type ListReceiptsInput } from "./store.js";
 
 const execFileAsync = promisify(execFile);
@@ -531,15 +531,16 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       return 0;
     }
     if (subcommand === "complete") {
-      if (printHelpIfRequested(taskArgs, "tasks complete", io.stdout, printTasksHelp, { valueFlags: ["--summary", "--command"], maxPositionals: 1 })) return 0;
+      if (printHelpIfRequested(taskArgs, "tasks complete", io.stdout, printTasksHelp, { valueFlags: ["--summary", "--command", "--artifact"], maxPositionals: 1 })) return 0;
       const taskId = readRequiredLeadingArgument(taskArgs, "tasks complete", "<task-id>");
-      assertOnlyOptions(taskArgs.slice(1), "tasks complete", ["--summary", "--command"]);
+      assertOnlyOptions(taskArgs.slice(1), "tasks complete", ["--summary", "--command", "--artifact"]);
       const summary = readFlag(taskArgs, "--summary");
       if (!summary) throw new Error("tasks complete requires <task-id> --summary");
       const result = await store.completeTask(taskId, {
         status: "done",
         summary,
-        commands: readRepeatedFlag(taskArgs, "--command")
+        commands: readRepeatedFlag(taskArgs, "--command"),
+        artifacts: await writeTaskCompleteArtifacts(store, readRepeatedFlag(taskArgs, "--artifact"))
       });
       io.stdout(`${result.task_id}\t${result.status}\t${result.summary}`);
       return 0;
@@ -812,14 +813,16 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
     if (subcommand === "list") {
       if (printHelpIfRequested(proArgs, "pro list", io.stdout, printProHelp, { valueFlags: ["--cwd", "--source-cli"] })) return 0;
       assertOnlyOptions(proArgs, "pro list", ["--cwd", "--source-cli"]);
-      const targetStore = new BridgeStore(resolveCwdFlag(io.cwd, proArgs));
+      const targetCwd = resolveCwdFlag(io.cwd, proArgs);
+      const targetStore = new BridgeStore(targetCwd);
       const sourceCli = resolveOptionalFileFlag(io.cwd, proArgs, "--source-cli");
+      const answerOptions = { cwd: readFlag(proArgs, "--cwd") ? targetCwd : undefined };
       const consults = await listConsultListEntries(targetStore);
       for (const entry of consults) {
         if (entry.kind === "untrusted") {
           io.stdout(`${entry.task.id}\tuntrusted\t${errorMessage(entry.error)}`);
         } else {
-          io.stdout(`${entry.consult.task.id}\t${entry.consult.result.status}\t${formatProListSummary(entry.consult, sourceCli)}`);
+          io.stdout(`${entry.consult.task.id}\t${entry.consult.result.status}\t${formatProListSummary(entry.consult, sourceCli, answerOptions)}`);
         }
       }
       return 0;
@@ -827,23 +830,27 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
     if (subcommand === "latest") {
       if (printHelpIfRequested(proArgs, "pro latest", io.stdout, printProHelp, { valueFlags: ["--cwd", "--source-cli"] })) return 0;
       assertOnlyOptions(proArgs, "pro latest", ["--cwd", "--source-cli"]);
-      const targetStore = new BridgeStore(resolveCwdFlag(io.cwd, proArgs));
+      const targetCwd = resolveCwdFlag(io.cwd, proArgs);
+      const targetStore = new BridgeStore(targetCwd);
       const sourceCli = resolveOptionalFileFlag(io.cwd, proArgs, "--source-cli");
-      const consult = (await listConsults(targetStore, { readOnly: true }))[0];
+      const answerOptions = { cwd: readFlag(proArgs, "--cwd") ? targetCwd : undefined };
+      const consult = await latestTrustedConsult(targetStore);
       if (!consult) throw new Error("No GPT Pro answers found");
-      io.stdout(formatProAnswer(consult, sourceCli));
+      io.stdout(formatProAnswer(consult, sourceCli, answerOptions));
       return 0;
     }
     if (subcommand === "show") {
       if (printHelpIfRequested(proArgs, "pro show", io.stdout, printProHelp, { valueFlags: ["--cwd", "--source-cli"], maxPositionals: 1 })) return 0;
       const [taskId] = readPositionalsWithOptions(proArgs, "pro show", 1, ["--cwd", "--source-cli"]);
       if (!taskId) throw new Error("pro show requires <task-id|latest>");
-      const targetStore = new BridgeStore(resolveCwdFlag(io.cwd, proArgs));
+      const targetCwd = resolveCwdFlag(io.cwd, proArgs);
+      const targetStore = new BridgeStore(targetCwd);
       const sourceCli = resolveOptionalFileFlag(io.cwd, proArgs, "--source-cli");
+      const answerOptions = { cwd: readFlag(proArgs, "--cwd") ? targetCwd : undefined };
       const consult =
-        taskId === "latest" ? (await listConsults(targetStore, { readOnly: true }))[0] : await getConsult(targetStore, taskId, { readOnly: true });
+        taskId === "latest" ? await latestTrustedConsult(targetStore) : await getConsult(targetStore, taskId, { readOnly: true });
       if (!consult) throw new Error(taskId === "latest" ? "No GPT Pro answers found" : `GPT Pro answer not found: ${taskId}`);
-      io.stdout(formatProAnswer(consult, sourceCli));
+      io.stdout(formatProAnswer(consult, sourceCli, answerOptions));
       return 0;
     }
     throw unknownSubcommandError("pro", subcommand, ["ask", "browser", "list", "latest", "show"]);
@@ -1107,7 +1114,7 @@ Commands:
   gptprouse tasks list [--status new|claimed|done|blocked] [--cwd /absolute/path/to/repo]
   gptprouse tasks show <task-id|latest> [--cwd /absolute/path/to/repo]
   gptprouse tasks claim <task-id> [--by codex]
-  gptprouse tasks complete <task-id> --summary "Summary" [--command "npm test"]
+  gptprouse tasks complete <task-id> --summary "Summary" [--command "npm test"] [--artifact .bridge/artifacts/results/name.md=text]
   gptprouse tasks block <task-id> --summary "Summary" [--code code] [--next-step "Next step"] [--retryable]
   gptprouse results show <task-id|latest> [--cwd /absolute/path/to/repo]
   gptprouse results artifact <task-id|latest> [artifact-path] [--cwd /absolute/path/to/repo]
@@ -1255,7 +1262,7 @@ Commands:
   gptprouse tasks list [--status new|claimed|done|blocked] [--cwd /absolute/path/to/repo]
   gptprouse tasks show <task-id|latest> [--cwd /absolute/path/to/repo]
   gptprouse tasks claim <task-id> [--by codex]
-  gptprouse tasks complete <task-id> --summary "Summary" [--command "npm test"]
+  gptprouse tasks complete <task-id> --summary "Summary" [--command "npm test"] [--artifact .bridge/artifacts/results/name.md=text]
   gptprouse tasks block <task-id> --summary "Summary" [--code code] [--next-step "Next step"] [--retryable]`);
 }
 
@@ -1444,14 +1451,18 @@ Please verify the gptprouse MCP bridge for this private project:
 
    { "task_id": "<task-id>" }
 
-6. Reply with whether \`bridge_fetch_result\` returned the verification result summary. Do not call repo_write_file_dry_run, repo_write_file_apply, repo_stage_reviewed_paths, or any write/stage tool for this verification.
+6. If the fetched result lists artifacts, call \`bridge_fetch_result_artifact\` for each listed result artifact path:
+
+   { "task_id": "<task-id>", "path": "<artifact-path>" }
+
+7. Reply with whether \`bridge_fetch_result\` returned the verification result summary and whether every listed result artifact was readable. Do not call repo_write_file_dry_run, repo_write_file_apply, repo_stage_reviewed_paths, or any write/stage tool for this verification.
 
 Local follow-up after ChatGPT replies:
 
 cd ${quotedCwd}
 ${cli} tasks list --status new
 ${cli} tasks show <task-id>
-${cli} tasks complete <task-id> --summary "gptprouse MCP verification result"
+${cli} tasks complete <task-id> --summary "gptprouse MCP verification result" --artifact .bridge/artifacts/results/mcp-verification.md="gptprouse MCP verification artifact"
 
 Then reply to ChatGPT with:
 
@@ -1545,13 +1556,28 @@ Please verify the gptprouse MCP bridge for this private repo:
 
 3. Call \`bridge_get_task\` with the task_id returned by \`bridge_create_task\`.
 
-4. Reply with the task_id and whether all three MCP calls succeeded. Do not call repo_write_file_dry_run, repo_write_file_apply, repo_stage_reviewed_paths, or any write/stage tool for this verification.
+4. Reply with the task_id and whether all three MCP calls succeeded. Ask me to run the local completion command below, then wait.
+
+5. After I reply exactly \`local completion done\`, call \`bridge_fetch_result\` with:
+
+   { "task_id": "<task-id>" }
+
+6. If the fetched result lists artifacts, call \`bridge_fetch_result_artifact\` for each listed result artifact path:
+
+   { "task_id": "<task-id>", "path": "<artifact-path>" }
+
+7. Reply with whether \`bridge_fetch_result\` returned the verification result summary and whether every listed result artifact was readable. Do not call repo_write_file_dry_run, repo_write_file_apply, repo_stage_reviewed_paths, or any write/stage tool for this verification.
 
 Local follow-up after Claude replies:
 
 cd ${quotedCwd}
 ${cli} tasks list --status new
 ${cli} tasks show <task-id>
+${cli} tasks complete <task-id> --summary "gptprouse Claude MCP verification result" --artifact .bridge/artifacts/results/claude-verification.md="gptprouse Claude MCP verification artifact"
+
+Then reply to Claude with:
+
+local completion done
 
 If Claude cannot see or call the MCP tools, regenerate the config and run the local health check:
 
@@ -1597,6 +1623,7 @@ type BrowserCommandOptions = {
   cwd?: string;
   profileDir?: string;
   port?: number;
+  targetUrl?: string;
   url?: string;
   launchTimeoutMs?: number;
 };
@@ -1630,7 +1657,7 @@ function formatBrowserTargetAskCommand(sourceCli?: string, options: BrowserComma
   const command = [
     `${formatCliCommand(sourceCli)} pro browser ask${formatSourceCliOption(sourceCli)}`,
     options.port ? `--port ${options.port}` : undefined,
-    '--target-url <chatgpt-url> --confirm-target "prompt"'
+    `--target-url ${options.targetUrl ? shellQuote(options.targetUrl) : "<chatgpt-url>"} --confirm-target "prompt"`
   ]
     .filter(Boolean)
     .join(" ");
@@ -1678,7 +1705,16 @@ function formatGitPushUpstreamCommand(branch: string): string {
 }
 
 function sourceAwareBrowserNextStep(nextStep: string | undefined, sourceCli?: string, options: BrowserCommandOptions = {}): string | undefined {
-  if (!nextStep || (!sourceCli && !options.port && !options.cwd)) return nextStep;
+  if (!nextStep) return nextStep;
+  const targetRetry = nextStep.match(/^Open (https:\/\/chatgpt\.com\/\S+) in the (visible|dedicated) browser and retry(\. Current: .+|\.)$/);
+  if (targetRetry) {
+    const [, targetUrl, location, suffix] = targetRetry;
+    return `Open ${targetUrl} in the ${location} browser and run \`${formatBrowserTargetAskCommand(sourceCli, {
+      ...options,
+      targetUrl
+    })}\`${suffix}`;
+  }
+  if (!sourceCli && !options.port && !options.cwd) return nextStep;
   return nextStep
     .replaceAll("`gptprouse pro browser login`", `\`${formatBrowserLoginCommand(sourceCli, options)}\``)
     .replaceAll("`gptprouse pro browser smoke`", `\`${formatBrowserSmokeCommand(sourceCli, options)}\``)
@@ -1751,6 +1787,7 @@ async function formatReleaseStatus(cwd: string, sourceCli?: string, releaseHintC
   const identityError = packageIdentityError(packageJson);
   let metadataNext = "run `npm run release:check` before publishing";
   let metadataReady = false;
+  let packReady = false;
   const packCheckEligible = !identityError;
 
   if (identityError) {
@@ -1766,8 +1803,11 @@ async function formatReleaseStatus(cwd: string, sourceCli?: string, releaseHintC
     } else if (license === "UNLICENSED") {
       lines.push('metadata: blocked license "UNLICENSED" is not publishable');
       metadataNext = "choose a public license and add LICENSE, then run `npm run release:check`";
+    } else if (license !== "MIT") {
+      lines.push(`metadata: blocked license=${license} package.json license must be MIT before publishing`);
+      metadataNext = "set package.json license to MIT and use the MIT LICENSE text, then run `npm run release:check`";
     } else {
-      const licenseFile = await readLicenseFileStatus(path.join(cwd, "LICENSE"));
+      const licenseFile = await readLicenseFileStatus(path.join(cwd, "LICENSE"), license);
       if (licenseFile.status === "missing") {
         lines.push(`metadata: blocked license=${license} license_file=missing`);
         metadataNext = "add LICENSE, then run `npm run release:check`";
@@ -1777,6 +1817,9 @@ async function formatReleaseStatus(cwd: string, sourceCli?: string, releaseHintC
       } else if (licenseFile.status === "hardlinked") {
         lines.push(`metadata: blocked license=${license} license_file=invalid - LICENSE must not have hard links`);
         metadataNext = "replace LICENSE with a non-hard-linked regular file, then run `npm run release:check`";
+      } else if (licenseFile.status === "mismatch") {
+        lines.push(`metadata: blocked license=${license} license_file=mismatch - LICENSE content must match package.json license MIT`);
+        metadataNext = "replace LICENSE with the MIT LICENSE text, then run `npm run release:check`";
       } else {
         lines.push(`metadata: ok license=${license} license_file=present`);
         metadataReady = true;
@@ -1792,11 +1835,16 @@ async function formatReleaseStatus(cwd: string, sourceCli?: string, releaseHintC
       } else {
         lines.push(`pack_next: ${packStatus.next}`);
       }
+    } else {
+      packReady = true;
     }
   }
   const gitStatus = await readReleaseGitStatus(cwd);
   lines.push(gitStatus.line);
   if (gitStatus.next) lines.push(`git_next: ${gitStatus.next}`);
+  if (metadataReady && packReady && !gitStatus.next) {
+    metadataNext = "run `gptprouse release pack --pack-destination <dir>`, then run the printed release_pack_verify dry-run before npm publish";
+  }
   lines.push(`next: ${sourceAwareReleaseMessage(metadataNext, sourceCli, { cwd: releaseHintCwd })}`);
   lines.push("verification: run `npm run release:verify` anytime without weakening the publish guard");
   return lines.join("\n");
@@ -2184,16 +2232,25 @@ async function gitStdout(cwd: string, args: string[]): Promise<string> {
   return stdout;
 }
 
-async function readLicenseFileStatus(filePath: string): Promise<{ status: "present" | "missing" | "invalid" | "hardlinked" }> {
+async function readLicenseFileStatus(
+  filePath: string,
+  expectedLicense?: string
+): Promise<{ status: "present" | "missing" | "invalid" | "hardlinked" | "mismatch" }> {
   try {
     const stat = await lstat(filePath);
     if (stat.isSymbolicLink() || !stat.isFile()) return { status: "invalid" };
     if (stat.nlink > 1) return { status: "hardlinked" };
+    const raw = await readFile(filePath, "utf8");
+    if (expectedLicense === "MIT" && !isMitLicenseText(raw)) return { status: "mismatch" };
     return { status: "present" };
   } catch (error) {
     if (isMissingFileError(error)) return { status: "missing" };
     throw error;
   }
+}
+
+function isMitLicenseText(raw: string): boolean {
+  return /\bMIT License\b/.test(raw);
 }
 
 async function runDoctor(store: BridgeStore, io: CliIO, sourceCli?: string, setupHintCwd?: string): Promise<number> {
@@ -2847,13 +2904,17 @@ async function printProductCheck(store: BridgeStore, io: CliIO, args: string[], 
 
   if (bridgeReady) {
     try {
-      const latest = (await listConsults(store))[0];
-      io.stdout(latest ? formatProductCheckLatestProLine(latest) : "latest_pro: missing");
+      const latest = await latestTrustedConsult(store, { readOnly: false });
+      if (latest) {
+        for (const line of formatProductCheckLatestProLines(latest, sourceCli, browserCommandOptions)) io.stdout(line);
+      } else {
+        io.stdout("latest_pro: missing");
+      }
     } catch (error) {
       if (isUntrustedResultError(error)) {
         io.stdout(`latest_pro: untrusted ${error.taskId} ${errorMessage(error)}`);
       } else {
-        throw error;
+        io.stdout(`latest_pro: unavailable ${firstLine(errorMessage(error))}`);
       }
     }
   } else {
@@ -2923,8 +2984,10 @@ async function listConsults(store: BridgeStore, options: { readOnly?: boolean } 
   return finalized;
 }
 
-async function listConsultListEntries(store: BridgeStore): Promise<ConsultListEntry[]> {
-  const [tasks, results] = await Promise.all([listTasksForInspection(store), listRawResultsForInspection(store)]);
+async function listConsultListEntries(store: BridgeStore, options: { readOnly?: boolean } = { readOnly: true }): Promise<ConsultListEntry[]> {
+  const [tasks, results] = options.readOnly === false
+    ? await Promise.all([store.listTasks(), store.listResults()])
+    : await Promise.all([listTasksForInspection(store), listRawResultsForInspection(store)]);
   const tasksById = new Map(tasks.map((task) => [task.id, task]));
   assertNoMissingTerminalConsultResults(tasks, results);
   assertNoOrphanConsultResults(tasksById, results);
@@ -2948,6 +3011,15 @@ async function listConsultListEntries(store: BridgeStore): Promise<ConsultListEn
     }
   }
   return entries;
+}
+
+async function latestTrustedConsult(store: BridgeStore, options: { readOnly?: boolean } = { readOnly: true }): Promise<ConsultRecord | undefined> {
+  const entries = await listConsultListEntries(store, options);
+  const trusted = entries.find((entry) => entry.kind === "trusted");
+  if (trusted) return trusted.consult;
+  const untrusted = entries.find((entry) => entry.kind === "untrusted");
+  if (untrusted) throw untrusted.error;
+  return undefined;
 }
 
 function assertNoOrphanConsultResults(
@@ -2979,6 +3051,24 @@ async function latestTask(
 ): Promise<Awaited<ReturnType<BridgeStore["listTasks"]>>[number] | undefined> {
   const tasks = options.readOnly ? await listTasksForInspection(store) : await store.listTasks();
   return tasks.sort((a, b) => b.created_at.localeCompare(a.created_at) || b.id.localeCompare(a.id))[0];
+}
+
+async function writeTaskCompleteArtifacts(store: BridgeStore, values: string[]): Promise<BridgeFile[]> {
+  const artifacts: BridgeFile[] = [];
+  for (const value of values) {
+    const separator = value.indexOf("=");
+    if (separator <= 0) {
+      throw new Error("tasks complete --artifact requires path=text");
+    }
+    const artifactPath = value.slice(0, separator);
+    const content = value.slice(separator + 1);
+    if (!artifactPath.trim()) {
+      throw new Error("tasks complete --artifact requires path=text");
+    }
+    const storedPath = await store.writeArtifactText(artifactPath, content);
+    artifacts.push({ path: storedPath, role: "result" });
+  }
+  return artifacts;
 }
 
 async function getConsult(store: BridgeStore, taskId: string, options: { readOnly?: boolean } = {}): Promise<ConsultRecord | undefined> {
@@ -3044,8 +3134,8 @@ function isConsultRecord(record: ConsultRecord): boolean {
   return isConsultTask(record.task);
 }
 
-function formatProAnswer(consult: ConsultRecord, sourceCli?: string): string {
-  const blocker = sourceAwareProAnswerBlocker(consult, sourceCli);
+function formatProAnswer(consult: ConsultRecord, sourceCli?: string, options: BrowserCommandOptions = {}): string {
+  const blocker = sourceAwareProAnswerBlocker(consult, sourceCli, options);
   const summary = sourceAwareProAnswerSummary(consult.result.summary, consult.result.blocker, blocker);
   const lines = [
     `task_id: ${consult.task.id}`,
@@ -3066,25 +3156,32 @@ function formatProAnswer(consult: ConsultRecord, sourceCli?: string): string {
   return lines.join("\n");
 }
 
-function formatProListSummary(consult: ConsultRecord, sourceCli?: string): string {
-  const blocker = sourceAwareProAnswerBlocker(consult, sourceCli);
+function formatProListSummary(consult: ConsultRecord, sourceCli?: string, options: BrowserCommandOptions = {}): string {
+  const blocker = sourceAwareProAnswerBlocker(consult, sourceCli, options);
   return firstLine(sourceAwareProAnswerSummary(consult.result.summary, consult.result.blocker, blocker));
 }
 
-function formatProductCheckLatestProLine(consult: ConsultRecord): string {
+function formatProductCheckLatestProLines(consult: ConsultRecord, sourceCli?: string, options: BrowserCommandOptions = {}): string[] {
   if (consult.result.status === "blocked") {
-    const code = consult.result.blocker?.code ?? "unknown";
-    const retryable = consult.result.blocker?.retryable ?? false;
-    return `latest_pro: blocked ${consult.task.id} code=${code} retryable=${retryable} ${consult.result.created_at}`;
+    const blocker = sourceAwareProAnswerBlocker(consult, sourceCli, options);
+    const code = blocker?.code ?? "unknown";
+    const retryable = blocker?.retryable ?? false;
+    const lines = [`latest_pro: blocked ${consult.task.id} code=${code} retryable=${retryable} ${consult.result.created_at}`];
+    if (blocker?.next_step) lines.push(`latest_pro_next: ${blocker.next_step}`);
+    return lines;
   }
-  return `latest_pro: ok ${consult.task.id} ${consult.result.status} ${consult.result.created_at}`;
+  return [`latest_pro: ok ${consult.task.id} ${consult.result.status} ${consult.result.created_at}`];
 }
 
-function sourceAwareProAnswerBlocker(consult: ConsultRecord, sourceCli?: string): ConsultRecord["result"]["blocker"] {
+function sourceAwareProAnswerBlocker(
+  consult: ConsultRecord,
+  sourceCli?: string,
+  options: BrowserCommandOptions = {}
+): ConsultRecord["result"]["blocker"] {
   if (!consult.result.blocker) return undefined;
-  const browserAware = sourceAwareBrowserBlocker(consult.result.blocker, sourceCli);
-  if (!sourceCli || !isSmokeConsultRecord(consult) || !browserAware.next_step) return browserAware;
-  const nextStep = productCheckBrowserNextStep(browserAware.next_step, sourceCli);
+  const browserAware = sourceAwareBrowserBlocker(consult.result.blocker, sourceCli, options);
+  if ((!sourceCli && !options.cwd && !options.port) || !isSmokeConsultRecord(consult) || !browserAware.next_step) return browserAware;
+  const nextStep = productCheckBrowserNextStep(browserAware.next_step, sourceCli, options);
   return nextStep === browserAware.next_step ? browserAware : { ...browserAware, next_step: nextStep };
 }
 

@@ -164,6 +164,38 @@ describe("release-check", () => {
     expect(result.stdout).toContain("release_metadata=ok");
   });
 
+  it("fails release metadata when package license is not MIT", async () => {
+    const root = await copyPackageJsonToTemp();
+    const packageJson = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
+    packageJson.license = "Apache-2.0";
+    await writeFile(path.join(root, "package.json"), `${JSON.stringify(packageJson, null, 2)}\n`, "utf8");
+    await writeFile(path.join(root, "LICENSE"), "MIT License\n", "utf8");
+
+    const result = await runReleaseCheck(root);
+
+    const output = `${result.stdout}\n${result.stderr}`;
+    expect(result.code).toBe(1);
+    expect(output).toContain("release metadata failed");
+    expect(output).toContain("package.json license must be MIT");
+    expect(result.stdout).not.toContain("release_metadata=ok");
+  });
+
+  it("fails release metadata when LICENSE content does not match MIT", async () => {
+    const root = await copyPackageJsonToTemp();
+    const packageJson = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
+    packageJson.license = "MIT";
+    await writeFile(path.join(root, "package.json"), `${JSON.stringify(packageJson, null, 2)}\n`, "utf8");
+    await writeFile(path.join(root, "LICENSE"), "Apache License\n", "utf8");
+
+    const result = await runReleaseCheck(root);
+
+    const output = `${result.stdout}\n${result.stderr}`;
+    expect(result.code).toBe(1);
+    expect(output).toContain("release metadata failed");
+    expect(output).toContain("LICENSE content must match package.json license MIT");
+    expect(result.stdout).not.toContain("release_metadata=ok");
+  });
+
   it("fails release metadata when npm pack dry-run omits the file list", async () => {
     const root = await copyPackageJsonToTemp();
     const packageJson = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));

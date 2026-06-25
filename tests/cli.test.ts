@@ -382,6 +382,58 @@ describe("runCli", () => {
     ).rejects.toThrow("Unknown option for tasks block: --nextstep");
   });
 
+  it("completes tasks with fetchable result artifacts", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const createOut: string[] = [];
+    await runCli(["tasks", "create", "--title", "Artifact result", "--prompt", "Return an artifact"], {
+      cwd,
+      stdout: (line) => createOut.push(line),
+      stderr: () => {}
+    });
+    const taskId = createOut[0].split("\t")[0];
+    const completeOut: string[] = [];
+
+    await runCli(
+      [
+        "tasks",
+        "complete",
+        taskId,
+        "--summary",
+        "See result artifact.",
+        "--artifact",
+        ".bridge/artifacts/results/mcp-verification.md=gptprouse MCP verification artifact"
+      ],
+      {
+        cwd,
+        stdout: (line) => completeOut.push(line),
+        stderr: () => {}
+      }
+    );
+    const resultOut: string[] = [];
+    await runCli(["results", "show", taskId], {
+      cwd,
+      stdout: (line) => resultOut.push(line),
+      stderr: () => {}
+    });
+    const artifactOut: string[] = [];
+    await runCli(["results", "artifact", taskId, ".bridge/artifacts/results/mcp-verification.md"], {
+      cwd,
+      stdout: (line) => artifactOut.push(line),
+      stderr: () => {}
+    });
+
+    expect(completeOut.join("\n")).toContain(`${taskId}\tdone\tSee result artifact.`);
+    const result = JSON.parse(resultOut.join("\n")) as { artifacts: Array<{ path: string; role: string; sha256?: string }> };
+    expect(result.artifacts).toEqual([
+      expect.objectContaining({
+        path: ".bridge/artifacts/results/mcp-verification.md",
+        role: "result",
+        sha256: "3fadb4358e6b3c6a325fa673a896ed906f08cee6fd0742e77b3c7f5ee95d36b2"
+      })
+    ]);
+    expect(artifactOut.join("\n")).toBe("gptprouse MCP verification artifact");
+  });
+
   it("rejects unknown setup, start, status, and browser options", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
 
@@ -622,6 +674,68 @@ describe("runCli", () => {
     expect(text).toContain(`${untrusted.id}\tuntrusted\tResult record is untrusted`);
     expect(text).toContain("task_completed receipt");
     expect(text).not.toContain("Raw untrusted browser answer.");
+  });
+
+  it("reads the latest trusted Pro answer even when older Pro history is untrusted", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const store = new BridgeStore(cwd);
+    const untrusted = await store.createTask({
+      source: "codex",
+      title: "Old untrusted Pro consult",
+      prompt: "An old raw browser consult.",
+      repo_id: "default",
+      files: [],
+      provenance: { adapter: "chatgpt-control", warnings: [] }
+    });
+    await writeFile(
+      path.join(cwd, ".bridge", "results", `${untrusted.id}.json`),
+      `${JSON.stringify(
+        {
+          schema_version: 1,
+          task_id: untrusted.id,
+          status: "done",
+          summary: "Old raw untrusted browser answer.",
+          artifacts: [],
+          commands: ["visible ChatGPT browser consult"],
+          warnings: [],
+          created_at: "2000-01-01T00:00:00.000Z"
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+    const trusted = await store.createTask({
+      source: "codex",
+      title: "Trusted Pro consult",
+      prompt: "A trusted browser consult.",
+      repo_id: "default",
+      files: [],
+      provenance: { adapter: "chatgpt-control", warnings: [] }
+    });
+    await store.completeTask(trusted.id, {
+      status: "done",
+      summary: "Newest trusted answer.",
+      commands: ["visible ChatGPT browser consult"]
+    });
+
+    for (const args of [
+      ["pro", "latest"],
+      ["pro", "show", "latest"]
+    ]) {
+      const out: string[] = [];
+      await runCli(args, {
+        cwd,
+        stdout: (line) => out.push(line),
+        stderr: () => {}
+      });
+
+      const text = out.join("\n");
+      expect(text).toContain(`task_id: ${trusted.id}`);
+      expect(text).toContain("Newest trusted answer.");
+      expect(text).not.toContain(untrusted.id);
+      expect(text).not.toContain("Old raw untrusted browser answer.");
+    }
   });
 
   it("points untrusted legacy Pro inspection errors at the explicit reseal command", async () => {
@@ -2111,7 +2225,10 @@ describe("runCli", () => {
       { args: ["tasks", "list", "--help"], expected: "gptprouse tasks list [--status new|claimed|done|blocked]" },
       { args: ["tasks", "show", "--help"], expected: "gptprouse tasks show <task-id|latest>" },
       { args: ["tasks", "claim", "--help"], expected: "gptprouse tasks claim <task-id> [--by codex]" },
-      { args: ["tasks", "complete", "--help"], expected: 'gptprouse tasks complete <task-id> --summary "Summary" [--command "npm test"]' },
+      {
+        args: ["tasks", "complete", "--help"],
+        expected: 'gptprouse tasks complete <task-id> --summary "Summary" [--command "npm test"] [--artifact .bridge/artifacts/results/name.md=text]'
+      },
       {
         args: ["tasks", "block", "--help"],
         expected: 'gptprouse tasks block <task-id> --summary "Summary" [--code code] [--next-step "Next step"] [--retryable]'
@@ -2368,7 +2485,10 @@ describe("runCli", () => {
     expect(text).toContain("bridge_list_tasks");
     expect(text).toContain("bridge_get_task");
     expect(text).toContain("bridge_fetch_result");
-    expect(text).toContain('gptprouse tasks complete <task-id> --summary "gptprouse MCP verification result"');
+    expect(text).toContain("bridge_fetch_result_artifact");
+    expect(text).toContain(
+      'gptprouse tasks complete <task-id> --summary "gptprouse MCP verification result" --artifact .bridge/artifacts/results/mcp-verification.md="gptprouse MCP verification artifact"'
+    );
     expect(text).toContain("local completion done");
     expect(text).toContain(`cd ${targetCwd}`);
     expect(text).toContain("gptprouse tasks list --status new");
@@ -2395,7 +2515,10 @@ describe("runCli", () => {
     const text = out.join("\n");
     expect(text).toContain(`node ${sourceCli} tasks list --status new`);
     expect(text).toContain(`node ${sourceCli} tasks show <task-id>`);
-    expect(text).toContain(`node ${sourceCli} tasks complete <task-id> --summary "gptprouse MCP verification result"`);
+    expect(text).toContain(
+      `node ${sourceCli} tasks complete <task-id> --summary "gptprouse MCP verification result" --artifact .bridge/artifacts/results/mcp-verification.md="gptprouse MCP verification artifact"`
+    );
+    expect(text).toContain("bridge_fetch_result_artifact");
     expect(text).toContain(`node ${sourceCli} status --cwd ${targetCwd}`);
     expect(text).toContain(`node ${sourceCli} doctor --cwd ${targetCwd}`);
     expect(text).not.toContain("gptprouse tasks list --status new");
@@ -2431,8 +2554,14 @@ describe("runCli", () => {
     expect(text).toContain("bridge_create_task");
     expect(text).toContain("bridge_list_tasks");
     expect(text).toContain("bridge_get_task");
+    expect(text).toContain("bridge_fetch_result");
+    expect(text).toContain("bridge_fetch_result_artifact");
     expect(text).toContain(`cd ${targetCwd}`);
     expect(text).toContain("gptprouse tasks list --status new");
+    expect(text).toContain(
+      'gptprouse tasks complete <task-id> --summary "gptprouse Claude MCP verification result" --artifact .bridge/artifacts/results/claude-verification.md="gptprouse Claude MCP verification artifact"'
+    );
+    expect(text).toContain("local completion done");
     expect(text).toContain(`gptprouse doctor --cwd ${targetCwd}`);
     expect(text).toContain(`gptprouse claude config --cwd ${targetCwd}`);
     expect(text).toContain(targetCwd);
@@ -2456,6 +2585,10 @@ describe("runCli", () => {
     const text = out.join("\n");
     expect(text).toContain(`node ${sourceCli} tasks list --status new`);
     expect(text).toContain(`node ${sourceCli} tasks show <task-id>`);
+    expect(text).toContain(
+      `node ${sourceCli} tasks complete <task-id> --summary "gptprouse Claude MCP verification result" --artifact .bridge/artifacts/results/claude-verification.md="gptprouse Claude MCP verification artifact"`
+    );
+    expect(text).toContain("bridge_fetch_result_artifact");
     expect(text).toContain(`node ${sourceCli} doctor --cwd ${targetCwd}`);
     expect(text).toContain(`node ${sourceCli} claude config --cwd ${targetCwd} --source-cli ${sourceCli}`);
     expect(text).not.toContain("gptprouse tasks list --status new");
@@ -2497,10 +2630,16 @@ describe("runCli", () => {
     expect(projectText).toContain(`cd ${quotedTarget}`);
     expect(projectText).toContain(`node ${quotedSource} tasks list --status new`);
     expect(projectText).toContain(`node ${quotedSource} tasks show <task-id>`);
+    expect(projectText).toContain(
+      `node ${quotedSource} tasks complete <task-id> --summary "gptprouse MCP verification result" --artifact .bridge/artifacts/results/mcp-verification.md="gptprouse MCP verification artifact"`
+    );
 
     const claudeText = claudeOut.join("\n");
     expect(claudeText).toContain(`node ${quotedSource} tasks list --status new`);
     expect(claudeText).toContain(`node ${quotedSource} tasks show <task-id>`);
+    expect(claudeText).toContain(
+      `node ${quotedSource} tasks complete <task-id> --summary "gptprouse Claude MCP verification result" --artifact .bridge/artifacts/results/claude-verification.md="gptprouse Claude MCP verification artifact"`
+    );
 
     const onboardText = onboardOut.join("\n");
     expect(onboardText).toContain(`node ${quotedSource} init --cwd ${quotedTarget}`);
@@ -3163,6 +3302,50 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     expect(text).toContain("next: run `npm run release:check` before publishing");
   });
 
+  it("release status reports non-MIT package licenses as release blockers", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-release-"));
+    await writeFile(
+      path.join(cwd, "package.json"),
+      `${JSON.stringify({ name: "demo", version: "1.0.0", license: "Apache-2.0" }, null, 2)}\n`,
+      "utf8"
+    );
+    await writeFile(path.join(cwd, "LICENSE"), "MIT License\n", "utf8");
+    const out: string[] = [];
+
+    await runCli(["release", "status", "--cwd", cwd], {
+      cwd: "/tmp",
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    const text = out.join("\n");
+    expect(text).toContain("metadata: blocked license=Apache-2.0 package.json license must be MIT before publishing");
+    expect(text).toContain("next: set package.json license to MIT and use the MIT LICENSE text, then run `npm run release:check`");
+    expect(text).not.toContain("metadata: ok");
+  });
+
+  it("release status reports non-MIT LICENSE content as a release blocker", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-release-"));
+    await writeFile(
+      path.join(cwd, "package.json"),
+      `${JSON.stringify({ name: "demo", version: "1.0.0", license: "MIT" }, null, 2)}\n`,
+      "utf8"
+    );
+    await writeFile(path.join(cwd, "LICENSE"), "Apache License\n", "utf8");
+    const out: string[] = [];
+
+    await runCli(["release", "status", "--cwd", cwd], {
+      cwd: "/tmp",
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    const text = out.join("\n");
+    expect(text).toContain("metadata: blocked license=MIT license_file=mismatch - LICENSE content must match package.json license MIT");
+    expect(text).toContain("next: replace LICENSE with the MIT LICENSE text, then run `npm run release:check`");
+    expect(text).not.toContain("metadata: ok");
+  });
+
   it("release status reports executable packed non-bin files as a release blocker", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-release-"));
     await writeFile(
@@ -3518,7 +3701,10 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
       stderr: () => {}
     });
 
-    expect(out.join("\n")).toContain(`git: ok branch=${branch} commit=${commit} remote=origin upstream=origin/${branch}`);
+    const text = out.join("\n");
+    expect(text).toContain(`git: ok branch=${branch} commit=${commit} remote=origin upstream=origin/${branch}`);
+    expect(text).toContain("pack: ok");
+    expect(text).toContain(`next: run \`gptprouse release pack --cwd ${cwd} --pack-destination <dir>\`, then run the printed release_pack_verify dry-run before npm publish`);
   });
 
   it("release status blocks branches without upstream tracking", async () => {

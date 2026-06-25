@@ -241,10 +241,10 @@ Paste that prompt into the ChatGPT Project. It asks ChatGPT to call `bridge_crea
 ```bash
 gptprouse tasks list --status new
 gptprouse tasks show <task-id>
-gptprouse tasks complete <task-id> --summary "gptprouse MCP verification result"
+gptprouse tasks complete <task-id> --summary "gptprouse MCP verification result" --artifact .bridge/artifacts/results/mcp-verification.md="gptprouse MCP verification artifact"
 ```
 
-After the local completion command succeeds, reply to ChatGPT with `local completion done`. The generated prompt then asks ChatGPT to call `bridge_fetch_result` for the same task id and report whether it can read the verification result summary.
+After the local completion command succeeds, reply to ChatGPT with `local completion done`. The generated prompt then asks ChatGPT to call `bridge_fetch_result` for the same task id, call `bridge_fetch_result_artifact` for every listed result artifact path, and report whether it can read both the verification result summary and artifact content.
 
 The generated prompt also includes local `status --cwd ...` and `doctor --cwd ...` troubleshooting commands in case the Project cannot see or call the MCP tools. Source-checkout prompts keep `--source-cli` on those troubleshooting commands too.
 

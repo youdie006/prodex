@@ -41,10 +41,14 @@ async function checkReleaseMetadata(rootDir) {
   if (typeof packageJson.license !== "string" || packageJson.license.trim() === "") {
     throw new Error("release metadata failed: package.json must include an explicit license before publishing");
   }
-  if (packageJson.license === "UNLICENSED") {
+  const license = packageJson.license.trim();
+  if (license === "UNLICENSED") {
     throw new Error('release metadata failed: license "UNLICENSED" is not publishable');
   }
-  await assertRegularLicenseFile(rootDir);
+  if (license !== "MIT") {
+    throw new Error("release metadata failed: package.json license must be MIT before publishing");
+  }
+  await assertRegularLicenseFile(rootDir, license);
   await assertPackedFileModes(rootDir, packageJson);
 }
 
@@ -92,7 +96,7 @@ function isValidSemverVersion(value) {
   return /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-(?:0|[1-9]\d*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.test(value);
 }
 
-async function assertRegularLicenseFile(rootDir) {
+async function assertRegularLicenseFile(rootDir, expectedLicense) {
   const licensePath = path.join(rootDir, "LICENSE");
   try {
     const stat = await lstat(licensePath);
@@ -102,12 +106,20 @@ async function assertRegularLicenseFile(rootDir) {
     if (stat.nlink > 1) {
       throw new Error("release metadata failed: LICENSE must not have hard links. replace LICENSE with a non-hard-linked regular file, then rerun release:check.");
     }
+    const raw = await readFile(licensePath, "utf8");
+    if (expectedLicense === "MIT" && !isMitLicenseText(raw)) {
+      throw new Error("release metadata failed: LICENSE content must match package.json license MIT");
+    }
   } catch (error) {
     if (isMissingFileError(error)) {
       throw new Error("release metadata failed: publishable packages must include a LICENSE file");
     }
     throw error;
   }
+}
+
+function isMitLicenseText(raw) {
+  return /\bMIT License\b/.test(raw);
 }
 
 async function readRequiredPackageJson(packageJsonPath) {

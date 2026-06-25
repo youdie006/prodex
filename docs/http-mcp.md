@@ -125,10 +125,10 @@ After ChatGPT replies with the created task id, confirm and complete the task lo
 ```bash
 gptprouse tasks list --status new
 gptprouse tasks show <task-id>
-gptprouse tasks complete <task-id> --summary "gptprouse MCP verification result"
+gptprouse tasks complete <task-id> --summary "gptprouse MCP verification result" --artifact .bridge/artifacts/results/mcp-verification.md="gptprouse MCP verification artifact"
 ```
 
-Then reply to ChatGPT with `local completion done`. The generated prompt asks ChatGPT to call `bridge_fetch_result` for the same task id and report whether it can read the verification result summary.
+Then reply to ChatGPT with `local completion done`. The generated prompt asks ChatGPT to call `bridge_fetch_result` for the same task id, call `bridge_fetch_result_artifact` for every listed result artifact path, and report whether it can read both the verification result summary and artifact content.
 
 If the ChatGPT app runtime cannot reach `127.0.0.1`, this project intentionally does not create a tunnel automatically. Put your own explicit tunnel in front of the local server only after you understand the token exposure risk, and create a short-lived replacement URL first:
 
