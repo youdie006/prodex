@@ -187,6 +187,8 @@ try {
     const commandHelp = await run(binPath, item.args, { cwd: consumerDir });
     assertIncludes(commandHelp.stdout, item.expected, `installed ${item.args.join(" ")} output`);
   }
+  const unknownTopLevel = await runExpectFailure(binPath, ["statuz"], { cwd: consumerDir });
+  assertIncludes(unknownTopLevel.stderr, "Unknown command: statuz. Run `gptprouse help`.", "installed unknown top-level command output");
   const unknownSubcommandCases = [
     {
       args: ["tunnel", "create"],
@@ -233,6 +235,18 @@ try {
     const unknownSubcommand = await runExpectFailure(binPath, item.args, { cwd: consumerDir });
     assertIncludes(unknownSubcommand.stderr, item.expected, `installed ${item.args.join(" ")} output`);
   }
+  const legacyChatGptHelp = await runExpectFailure(binPath, ["chatgpt", "--help"], { cwd: consumerDir });
+  assertIncludes(
+    legacyChatGptHelp.stderr,
+    "The legacy `chatgpt` namespace is hidden. Use `gptprouse pro browser help` for visible-browser commands.",
+    "installed legacy chatgpt help output"
+  );
+  const legacyChatGptUnknown = await runExpectFailure(binPath, ["chatgpt", "verify"], { cwd: consumerDir });
+  assertIncludes(
+    legacyChatGptUnknown.stderr,
+    "Unknown legacy chatgpt subcommand: verify. Use `gptprouse pro browser help` for visible-browser commands.",
+    "installed legacy chatgpt unknown output"
+  );
   const freshDoctorDir = path.join(tmp, "fresh-doctor");
   await mkdir(freshDoctorDir, { recursive: true });
   const freshDoctor = await run(binPath, ["doctor"], { cwd: freshDoctorDir });

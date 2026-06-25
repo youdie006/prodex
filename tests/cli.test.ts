@@ -40,6 +40,42 @@ describe("runCli", () => {
     expect(helpOut.join("\n")).toContain(`gptprouse v${packageJson.version}`);
   });
 
+  it("guides unknown top-level commands to help", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+
+    await expect(
+      runCli(["statuz"], {
+        cwd,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.toThrow("Unknown command: statuz. Run `gptprouse help`.");
+  });
+
+  it("guides legacy ChatGPT namespace mistakes to pro browser help", async () => {
+    const cases = [
+      {
+        args: ["chatgpt", "--help"],
+        expected: "The legacy `chatgpt` namespace is hidden. Use `gptprouse pro browser help` for visible-browser commands."
+      },
+      {
+        args: ["chatgpt", "verify"],
+        expected: "Unknown legacy chatgpt subcommand: verify. Use `gptprouse pro browser help` for visible-browser commands."
+      }
+    ];
+
+    for (const item of cases) {
+      const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+      await expect(
+        runCli(item.args, {
+          cwd,
+          stdout: () => {},
+          stderr: () => {}
+        })
+      ).rejects.toThrow(item.expected);
+    }
+  });
+
   it("creates and lists tasks", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
     const out: string[] = [];

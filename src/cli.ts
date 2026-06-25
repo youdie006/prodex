@@ -346,6 +346,9 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
 
   if (command === "chatgpt") {
     const [subcommand, ...chatgptArgs] = rest;
+    if (!subcommand || isHelpSubcommand(subcommand)) {
+      throw legacyChatGptNamespaceError();
+    }
     if (subcommand === "open") {
       assertOnlyOptions(chatgptArgs, "chatgpt open", ["--port", "--profile-dir", "--url"]);
       const opened = openChatGptBrowser({
@@ -445,6 +448,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       io.stdout(JSON.stringify(result, null, 2));
       return 0;
     }
+    throw legacyChatGptNamespaceError(subcommand);
   }
 
   if (command === "tasks") {
@@ -938,7 +942,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
     return 0;
   }
 
-  throw new Error(`Unknown command: ${command}`);
+  throw new Error(`Unknown command: ${command}. Run \`gptprouse help\`.`);
 }
 
 function defaultIo(): CliIO {
@@ -1170,6 +1174,11 @@ function printHelpIfRequested(args: string[], command: string, stdout: (line: st
 
 function unknownSubcommandError(command: string, subcommand: string, expected: readonly string[]): Error {
   return new Error(`Unknown ${command} subcommand: ${subcommand}. Expected one of: ${expected.join(", ")}. Run \`gptprouse ${command} --help\`.`);
+}
+
+function legacyChatGptNamespaceError(subcommand?: string): Error {
+  const prefix = subcommand ? `Unknown legacy chatgpt subcommand: ${subcommand}.` : "The legacy `chatgpt` namespace is hidden.";
+  return new Error(`${prefix} Use \`gptprouse pro browser help\` for visible-browser commands.`);
 }
 
 function formatProjectVerificationPrompt(cwd: string, sourceCli?: string): string {
