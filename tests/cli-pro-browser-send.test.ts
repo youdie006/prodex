@@ -105,6 +105,42 @@ describe("pro browser ask persistence", () => {
     ).rejects.toThrow(/smoke.*unexpected|GPTPROUSE_PRO_SMOKE_OK/i);
   });
 
+  it("records a blocked smoke consult when pro browser smoke hits a visible-browser blocker", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-pro-send-"));
+    const blocker = {
+      code: "captcha_required",
+      message: "ChatGPT is asking for captcha or human verification.",
+      retryable: true,
+      next_step: "Solve it manually in the visible browser, then retry."
+    };
+    sendChatGptPromptMock.mockRejectedValueOnce(Object.assign(new Error(`${blocker.message} Next: ${blocker.next_step}`), { blocker }));
+
+    await expect(
+      runCli(["pro", "browser", "smoke", "--timeout-ms", "10"], {
+        cwd,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.toThrow(/captcha/i);
+
+    const out: string[] = [];
+    await runCli(["pro", "latest"], {
+      cwd,
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    const text = out.join("\n");
+    expect(text).toContain("status: blocked");
+    expect(text).toContain("- code: captcha_required");
+    expect(text).toContain("- next_step: Solve it manually in the visible browser, then retry.");
+    const taskId = text.match(/task_id: (task_[^\n]+)/)?.[1];
+    expect(taskId).toBeDefined();
+    expect(taskId).toContain("gpt-pro-smoke");
+    const task = JSON.parse(await readFile(path.join(cwd, ".bridge", "tasks", `${taskId}.json`), "utf8")) as { title: string };
+    expect(task.title).toBe("GPT Pro smoke");
+  });
+
   it("records a blocked consult when the visible browser send fails", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-pro-send-"));
     sendChatGptPromptMock.mockRejectedValueOnce(new Error("ChatGPT is asking you to log in."));

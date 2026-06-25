@@ -270,11 +270,55 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
     }
     if (subcommand === "smoke") {
       assertOnlyOptions(chatgptArgs, "chatgpt smoke", ["--port", "--timeout-ms"]);
-      const result = await sendChatGptPrompt({
-        port: readPortFlag(chatgptArgs, "--port") ?? 9333,
-        prompt: `This is a one-time gptprouse smoke test. Reply exactly: ${PRO_BROWSER_SMOKE_TOKEN}`,
-        timeoutMs: readPositiveNumberFlag(chatgptArgs, "--timeout-ms") ?? 90000
-      });
+      const smokePrompt = `This is a one-time gptprouse smoke test. Reply exactly: ${PRO_BROWSER_SMOKE_TOKEN}`;
+      let result: Awaited<ReturnType<typeof sendChatGptPrompt>>;
+      try {
+        result = await sendChatGptPrompt({
+          port: readPortFlag(chatgptArgs, "--port") ?? 9333,
+          prompt: smokePrompt,
+          timeoutMs: readPositiveNumberFlag(chatgptArgs, "--timeout-ms") ?? 90000
+        });
+      } catch (error) {
+        const message = errorMessage(error);
+        const blocker = browserSendBlockerFromError(error);
+        const bundle = await buildDryRunBundle(io.cwd, { prompt: smokePrompt, files: [] });
+        try {
+          const task = await store.createTask({
+            source: "codex",
+            title: "GPT Pro smoke",
+            prompt: bundle.text,
+            repo_id: "default",
+            provenance: {
+              adapter: "chatgpt-control",
+              session_id: bundle.id,
+              warnings: []
+            }
+          });
+          await store.claimTask(task.id, "chatgpt-pro");
+          await store.completeTask(task.id, {
+            status: "blocked",
+            summary: message,
+            commands: ["visible ChatGPT browser smoke"],
+            blocker
+          });
+          await writeSessionBestEffort(
+            store,
+            {
+              id: bundle.id,
+              direction: "codex_to_chatgpt",
+              backend: "chatgpt-control",
+              task_id: task.id,
+              status: "blocked",
+              blocker,
+              warnings: []
+            },
+            io
+          );
+        } catch (recordError) {
+          throw new Error(`${message} (also failed to record blocked smoke: ${errorMessage(recordError)})`);
+        }
+        throw error;
+      }
       if (result.answer.trim() !== PRO_BROWSER_SMOKE_TOKEN) {
         throw new Error(`Pro browser smoke returned an unexpected answer. Expected exactly ${PRO_BROWSER_SMOKE_TOKEN}.`);
       }

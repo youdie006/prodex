@@ -357,6 +357,9 @@ try {
   });
   assertIncludes(browserSmoke.stderr, "No Chrome DevTools endpoint is reachable", "installed pro browser smoke output");
   assertIncludes(browserSmoke.stderr, "gptprouse pro browser login", "installed pro browser smoke output");
+  const blockedSmoke = await run(binPath, ["pro", "latest"], { cwd: consumerDir });
+  assertIncludes(blockedSmoke.stdout, "status: blocked", "installed pro browser smoke blocker output");
+  assertIncludes(blockedSmoke.stdout, "- code: browser_unreachable", "installed pro browser smoke blocker output");
   const browserCheck = await runExpectFailure(binPath, ["pro", "browser", "check", "--port", "65534", "--timeout-ms", "10"], {
     cwd: consumerDir,
     timeout: 60_000
@@ -374,13 +377,15 @@ try {
     });
     assertIncludes(staleAlias.stderr, `Use \`gptprouse pro browser ${replacement}\``, `installed pro browser ${alias} alias guard`);
   }
+  const emptyRecordsDir = path.join(tmp, "empty-records");
+  await mkdir(emptyRecordsDir, { recursive: true });
   for (const command of [
     ["tasks", "list"],
     ["receipts", "list"],
     ["sessions", "list"],
     ["pro", "list"]
   ]) {
-    await run(binPath, command, { cwd: consumerDir });
+    await run(binPath, command, { cwd: emptyRecordsDir });
   }
   for (const [command, expectedMessage] of [
     [["tasks", "show", "latest"], "No tasks found"],
@@ -390,7 +395,7 @@ try {
     [["sessions", "show", "latest"], "No sessions found"],
     [["pro", "show", "latest"], "No GPT Pro answers found"]
   ]) {
-    const latestFailure = await runExpectFailure(binPath, command, { cwd: consumerDir });
+    const latestFailure = await runExpectFailure(binPath, command, { cwd: emptyRecordsDir });
     assertIncludes(latestFailure.stderr, expectedMessage, `installed empty ${command.join(" ")} output`);
   }
   for (const [command, expectedMessage] of [
@@ -408,7 +413,6 @@ try {
   const legacyConsults = await runExpectFailure(binPath, ["consults", "list"], { cwd: consumerDir });
   assertIncludes(legacyConsults.stderr, "legacy `consults` alias is retired", "installed consults alias guard");
   assertIncludes(legacyConsults.stderr, "gptprouse pro list", "installed consults alias guard");
-  await assertMissingFile(path.join(consumerDir, ".bridge"), "installed consumer bridge after pro ask alias guard");
 
   const launcherDir = path.dirname(consumerDir);
   const init = await run(binPath, ["init", "--cwd", consumerDir], { cwd: launcherDir });
