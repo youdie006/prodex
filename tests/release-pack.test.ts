@@ -36,7 +36,7 @@ describe("release-pack", () => {
 
   it("fails with a friendly message when package.json is missing", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "gptprouse-release-pack-missing-"));
-    const destination = await mkdtemp(path.join(tmpdir(), "gptprouse-release-pack-dest-"));
+    const destination = path.join(root, "packed");
 
     const result = await runReleasePack(["--root", root, "--pack-destination", destination]);
 
@@ -46,7 +46,7 @@ describe("release-pack", () => {
     expect(output).toContain("package.json not found");
     expect(output).not.toContain("ENOENT");
     expect(output).not.toContain("SyntaxError");
-    expect((await readdir(destination)).filter((entry) => entry.endsWith(".tgz"))).toEqual([]);
+    await expect(stat(destination)).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   it("fails with a friendly message when package.json is malformed", async () => {

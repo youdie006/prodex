@@ -25,7 +25,6 @@ try {
 async function releasePack(args) {
   const root = path.resolve(args.root ?? repoRoot);
   const destination = path.resolve(args.packDestination ?? root);
-  await mkdir(destination, { recursive: true });
 
   const packageJson = await readPackageJson(root);
   const binPaths = packageBinPaths(packageJson.bin);
@@ -36,6 +35,7 @@ async function releasePack(args) {
     await copyPackedFilesToStaging(root, staging, files, binPaths);
     assertPackedReleaseCheck(files);
     await runReleaseMetadataCheck(staging);
+    await mkdir(destination, { recursive: true });
     const { stdout } = await runNpmPack(["pack", "--json", "--ignore-scripts", "--pack-destination", destination], staging, "npm pack");
     packedTarball = resolvePackedTarball(destination, stdout);
     await assertPackedTarballCreated(packedTarball);
