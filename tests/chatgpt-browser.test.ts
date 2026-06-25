@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildChromeLaunchArgs,
+  assertChatGptTargetUrlMatches,
   assertVisibleChatGptTab,
   ChatGptBrowserBlockerError,
   chatGptUrlsReferToSameTarget,
@@ -292,6 +293,44 @@ describe("ChatGPT browser adapter", () => {
 
   it("does not flag a normal ChatGPT composer as blocked", () => {
     expect(detectChatGptBlocker("새 채팅\n무엇이든 물어보세요", ["프롬프트 보내기"])).toBeUndefined();
+  });
+
+  it("throws a structured blocker when the selected ChatGPT tab is hidden", () => {
+    let thrown: unknown;
+
+    try {
+      assertVisibleChatGptTab("hidden", "https://chatgpt.com/c/background");
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(ChatGptBrowserBlockerError);
+    expect((thrown as ChatGptBrowserBlockerError).blocker).toEqual(
+      expect.objectContaining({
+        code: "tab_not_visible",
+        retryable: true,
+        next_step: "Select https://chatgpt.com/c/background in the dedicated browser, then retry."
+      })
+    );
+  });
+
+  it("throws a structured blocker when the confirmed ChatGPT target does not match the current tab", () => {
+    let thrown: unknown;
+
+    try {
+      assertChatGptTargetUrlMatches("https://chatgpt.com/c/current", "https://chatgpt.com/c/target");
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(ChatGptBrowserBlockerError);
+    expect((thrown as ChatGptBrowserBlockerError).blocker).toEqual(
+      expect.objectContaining({
+        code: "target_url_mismatch",
+        retryable: true,
+        next_step: "Open https://chatgpt.com/c/target in the visible browser and retry. Current: https://chatgpt.com/c/current"
+      })
+    );
   });
 
   it("honors the configured timeout while waiting for prompt acceptance", () => {

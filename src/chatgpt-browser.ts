@@ -359,10 +359,18 @@ function isVisibilityUnknown(page: DevtoolsPage, visibilityByPage: Map<string, s
 
 export function assertVisibleChatGptTab(visibilityState: string, url: string, targetUrl?: string): void {
   if (visibilityState === "visible") return;
-  if (targetUrl) {
-    throw new Error(`Confirmed ChatGPT target is open but not the active visible tab. Select ${targetUrl} in the dedicated browser and retry.`);
-  }
-  throw new Error(`Selected ChatGPT tab is not the active visible tab. Select ${url} in the dedicated browser or pass --target-url with --confirm-target.`);
+  const blocker = chatGptVisibilityBlocker(visibilityState, targetUrl ?? url);
+  if (blocker) throw new ChatGptBrowserBlockerError(blocker);
+}
+
+export function assertChatGptTargetUrlMatches(currentUrl: string, targetUrl: string): void {
+  if (chatGptUrlsReferToSameTarget(currentUrl, targetUrl)) return;
+  throw new ChatGptBrowserBlockerError({
+    code: "target_url_mismatch",
+    message: "ChatGPT tab is not at the confirmed target URL.",
+    retryable: true,
+    next_step: `Open ${targetUrl} in the visible browser and retry. Current: ${currentUrl}`
+  });
 }
 
 export function chatGptVisibilityBlocker(
@@ -497,11 +505,7 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
   if (!inferChatGptPageLoggedInLikely(status) || !status.hasComposer) {
     throw new Error("ChatGPT browser is reachable, but it is not logged in with an active composer.");
   }
-  if (normalizedTargetUrl && !chatGptUrlsReferToSameTarget(status.url, normalizedTargetUrl)) {
-    throw new Error(
-      `ChatGPT tab is not at the confirmed target URL. Open ${normalizedTargetUrl} in the visible browser and retry. Current: ${status.url}`
-    );
-  }
+  if (normalizedTargetUrl) assertChatGptTargetUrlMatches(status.url, normalizedTargetUrl);
   assertVisibleChatGptTab(status.visibilityState, status.url, normalizedTargetUrl);
   const busyBlocker = chatGptBusyBlocker(status.generating);
   if (busyBlocker) {
