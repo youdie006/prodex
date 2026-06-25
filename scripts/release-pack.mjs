@@ -47,6 +47,8 @@ async function releasePack(args) {
 
   console.log(`release_pack=ok tarball=${packedTarball} file_modes=ok staging=${args.keepWorkdir ? staging : "removed"}`);
   console.log("release_pack_next: run `npm run release:verify` and `gptprouse release status` before publishing this tarball.");
+  console.log(`release_pack_verify: npm publish --dry-run ${shellQuote(packedTarball)}`);
+  console.log(`release_pack_publish: npm publish ${shellQuote(packedTarball)}`);
 }
 
 function assertPackedReleaseCheck(files) {
@@ -260,6 +262,10 @@ Options:
 
 function errorMessage(error) {
   return error instanceof Error ? error.message : String(error);
+}
+
+function shellQuote(value) {
+  return /^[A-Za-z0-9_./:@=-]+$/.test(value) ? value : `'${value.replaceAll("'", "'\\''")}'`;
 }
 
 function commandFailureDetail(error) {

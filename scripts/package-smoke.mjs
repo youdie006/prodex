@@ -99,6 +99,8 @@ try {
   assertIncludes(releasePackSuccess.stdout, "release_pack=ok", "installed release-pack success output");
   assertIncludes(releasePackSuccess.stdout, "file_modes=ok", "installed release-pack success output");
   assertIncludes(releasePackSuccess.stdout, "release_pack_next:", "installed release-pack success output");
+  assertIncludes(releasePackSuccess.stdout, "release_pack_verify: npm publish --dry-run", "installed release-pack success output");
+  assertIncludes(releasePackSuccess.stdout, "release_pack_publish: npm publish", "installed release-pack success output");
   const releasePackTarballs = (await readdir(releasePackDestination)).filter((entry) => entry.endsWith(".tgz"));
   if (releasePackTarballs.length !== 1) {
     throw new Error(`installed release-pack expected exactly one tarball, found: ${releasePackTarballs.join(", ")}`);
@@ -517,6 +519,8 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertIncludes(readme, "Run `pro ask` and `pro browser ask` from the repo root", "installed README");
   assertIncludes(readme, "npm run release:verify", "installed README");
   assertIncludes(readme, "npm run release:pack", "installed README");
+  assertIncludes(readme, "npm publish --dry-run <tarball>", "installed README");
+  assertIncludes(readme, "npm publish <tarball>", "installed README");
   assertIncludes(readme, "installed `release-pack` success path", "installed README");
   assertIncludes(readme, "regular file", "installed README");
   assertIncludes(readme, "symlinked packed files", "installed README");

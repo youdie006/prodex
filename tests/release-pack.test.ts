@@ -369,10 +369,13 @@ esac
     expect(result.stdout).toContain("file_modes=ok");
     const tarballs = (await readdir(destination)).filter((entry) => entry.endsWith(".tgz"));
     expect(tarballs).toHaveLength(1);
+    const tarballPath = path.join(destination, tarballs[0]);
+    expect(result.stdout).toContain(`release_pack_verify: npm publish --dry-run ${tarballPath}`);
+    expect(result.stdout).toContain(`release_pack_publish: npm publish ${tarballPath}`);
 
     const consumer = await mkdtemp(path.join(tmpdir(), "gptprouse-release-pack-consumer-"));
     await writeFile(path.join(consumer, "package.json"), `${JSON.stringify({ private: true }, null, 2)}\n`, "utf8");
-    await execFileAsync(npmCommand, ["install", "--ignore-scripts", "--no-audit", "--no-fund", "--package-lock=false", path.join(destination, tarballs[0])], {
+    await execFileAsync(npmCommand, ["install", "--ignore-scripts", "--no-audit", "--no-fund", "--package-lock=false", tarballPath], {
       cwd: consumer,
       timeout: 120_000
     });

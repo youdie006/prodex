@@ -263,7 +263,7 @@ If direct `npm pack` is blocked because a WSL/Windows mount reports normal sourc
 npm run release:pack -- --pack-destination /tmp/gptprouse-release
 ```
 
-`release:pack` does not publish anything. It still refuses missing publish metadata, non-regular or hard-linked packed files, and missing package release checks; it only normalizes packed file modes in the staging copy so package `bin` entries remain executable and other packed files become regular `0644` files. Run `npm run release:verify` and `gptprouse release status` before publishing the tarball it creates.
+`release:pack` does not publish anything. It still refuses missing publish metadata, non-regular or hard-linked packed files, and missing package release checks; it only normalizes packed file modes in the staging copy so package `bin` entries remain executable and other packed files become regular `0644` files. Run `npm run release:verify` and `gptprouse release status` before publishing the tarball it creates. When the tarball is ready, `release:pack` prints both `npm publish --dry-run <tarball>` and `npm publish <tarball>` commands for that exact tarball path.
 
 To see the current publish blocker and next step from the CLI:
 
