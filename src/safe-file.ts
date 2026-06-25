@@ -7,6 +7,7 @@ type SafeFileOperation = "read" | "write";
 
 export type SafeFileTestHooks = {
   afterWrite?: (filePath: string, operation: SafeFileOperation) => Promise<void> | void;
+  beforeChmod?: (filePath: string, operation: SafeFileOperation) => Promise<void> | void;
   beforeOpen?: (filePath: string, operation: SafeFileOperation) => Promise<void> | void;
   beforeRename?: (filePath: string, tmpPath: string) => Promise<void> | void;
   beforeReplace?: (filePath: string) => Promise<void> | void;
@@ -44,6 +45,7 @@ export async function readVerifiedUtf8File(
     }
     const content = await readHandleUtf8(handle, filePath, options.maxBytes);
     if (options.mode !== undefined) {
+      await testHooks.beforeChmod?.(filePath, "read");
       await handle.chmod(options.mode);
     }
     await validate();
@@ -88,6 +90,7 @@ export async function writeVerifiedUtf8File(
     await writeHandleUtf8(handle, filePath, content);
     await testHooks.afterWrite?.(filePath, "write");
     if (options.mode !== undefined) {
+      await testHooks.beforeChmod?.(filePath, "write");
       await handle.chmod(options.mode);
     }
     await validate();
@@ -155,6 +158,7 @@ async function replaceByVerifiedTempFile(
     try {
       await writeHandleUtf8(tmpHandle, tmpPath, content);
       if (options.mode !== undefined) {
+        await testHooks.beforeChmod?.(filePath, "write");
         await tmpHandle.chmod(options.mode);
       }
     } finally {
