@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { createHash } from "node:crypto";
 import { execFile, spawn } from "node:child_process";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import net from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -69,6 +69,11 @@ try {
   assertNotIncludes(help.stdout, "gptprouse ask-pro", "installed help output");
   assertNotIncludes(help.stdout, "gptprouse pro browser open|status", "installed help output");
   assertNotIncludes(help.stdout, "gptprouse chatgpt open|status|smoke", "installed help output");
+  const freshDoctorDir = path.join(tmp, "fresh-doctor");
+  await mkdir(freshDoctorDir, { recursive: true });
+  const freshDoctor = await run(binPath, ["doctor"], { cwd: freshDoctorDir });
+  assertIncludes(freshDoctor.stdout, "bridge: missing/incomplete", "installed fresh doctor output");
+  assertNotIncludes((await readdir(freshDoctorDir)).join("\n"), ".bridge", "installed fresh doctor cwd entries");
   const installedPackageDir = path.join(consumerDir, "node_modules", "gptprouse");
   const releaseStatus = await run(binPath, ["release", "status", "--cwd", installedPackageDir], { cwd: consumerDir });
   assertIncludes(releaseStatus.stdout, "gptprouse release status", "installed release status output");
@@ -519,10 +524,25 @@ async function smokeInstalledReleaseGitReadiness(binPath, tmp, launcherCwd) {
   const detached = await run(binPath, ["release", "status", "--cwd", detachedDir], { cwd: launcherCwd });
   assertIncludes(detached.stdout, "git: blocked detached HEAD", "installed release status detached output");
 
+  const noUpstreamDir = await createReleaseGitFixture(path.join(tmp, "release-no-upstream"), {
+    remote: true,
+    upstream: false
+  });
+  const noUpstream = await run(binPath, ["release", "status", "--cwd", noUpstreamDir], { cwd: launcherCwd });
+  assertIncludes(noUpstream.stdout, "git: blocked no upstream configured", "installed release status no-upstream output");
+
+  const unpushedDir = await createReleaseGitFixture(path.join(tmp, "release-unpushed"), { remote: true });
+  await writeFile(path.join(unpushedDir, "README.md"), "unpushed\n");
+  await execFileAsync("git", ["add", "README.md"], { cwd: unpushedDir });
+  await execFileAsync("git", ["commit", "-m", "unpushed"], { cwd: unpushedDir });
+  const unpushed = await run(binPath, ["release", "status", "--cwd", unpushedDir], { cwd: launcherCwd });
+  assertIncludes(unpushed.stdout, "git: blocked branch has unpushed commits", "installed release status unpushed output");
+
   const okDir = await createReleaseGitFixture(path.join(tmp, "release-ok"), { remote: true });
   const ok = await run(binPath, ["release", "status", "--cwd", okDir], { cwd: launcherCwd });
   assertIncludes(ok.stdout, "metadata: ok", "installed release status ok output");
   assertIncludes(ok.stdout, "git: ok", "installed release status ok output");
+  assertIncludes(ok.stdout, "upstream=origin/", "installed release status ok output");
 }
 
 async function createReleaseGitFixture(cwd, options) {
@@ -534,7 +554,15 @@ async function createReleaseGitFixture(cwd, options) {
   await execFileAsync("git", ["config", "user.name", "GPTProUse Package Smoke"], { cwd });
   await execFileAsync("git", ["add", "package.json", "LICENSE"], { cwd });
   await execFileAsync("git", ["commit", "-m", "initial"], { cwd });
-  if (options.remote) await execFileAsync("git", ["remote", "add", "origin", "https://example.com/gptprouse-smoke.git"], { cwd });
+  if (options.remote) {
+    const remoteDir = path.join(path.dirname(cwd), `${path.basename(cwd)}-remote.git`);
+    await execFileAsync("git", ["init", "--bare", remoteDir], { cwd: path.dirname(cwd) });
+    await execFileAsync("git", ["remote", "add", "origin", remoteDir], { cwd });
+    if (options.upstream !== false) {
+      const branch = (await execFileAsync("git", ["rev-parse", "--abbrev-ref", "HEAD"], { cwd })).stdout.trim();
+      await execFileAsync("git", ["push", "-u", "origin", branch], { cwd });
+    }
+  }
   return cwd;
 }
 

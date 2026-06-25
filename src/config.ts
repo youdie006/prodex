@@ -26,6 +26,15 @@ export type TokenExpiryStatus =
   | { status: "valid"; token_expires_at: string; warning?: undefined }
   | { status: "expired"; token_expires_at: string; warning: string };
 
+const LOCAL_CONFIG_CORRUPT_MESSAGE = "local MCP config is corrupt. Run `gptprouse setup` to replace .bridge/config.local.json.";
+
+class LocalConfigCorruptError extends Error {
+  constructor(cause: unknown) {
+    super(LOCAL_CONFIG_CORRUPT_MESSAGE, { cause });
+    this.name = "LocalConfigCorruptError";
+  }
+}
+
 export interface WriteLocalConfigInput {
   host?: string;
   port?: number;
@@ -84,13 +93,22 @@ export async function writeLocalConfig(cwd: string, input: WriteLocalConfigInput
 export async function loadLocalConfig(cwd: string): Promise<LocalConfig> {
   await assertLocalConfigTargetSafe(cwd, { allowMissing: false });
   await chmodPrivateBridgeDirectory(cwd);
-  const config = LocalConfigSchema.parse(
-    JSON.parse(
-      await readVerifiedUtf8File(localConfigPath(cwd), () => assertLocalConfigTargetSafe(cwd, { allowMissing: false }), {
-        mode: 0o600
-      })
-    )
-  );
+  const raw = await readVerifiedUtf8File(localConfigPath(cwd), () => assertLocalConfigTargetSafe(cwd, { allowMissing: false }), {
+    mode: 0o600
+  });
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (error) {
+    throw new LocalConfigCorruptError(error);
+  }
+  let config: LocalConfig;
+  try {
+    config = LocalConfigSchema.parse(parsed);
+  } catch (error) {
+    if (error instanceof z.ZodError) throw new LocalConfigCorruptError(error);
+    throw error;
+  }
   assertLoopbackHttpHost(config.host);
   assertLoopbackHttpHost(new URL(config.server_url).hostname);
   return config;

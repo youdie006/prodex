@@ -1121,11 +1121,16 @@ async function readReleaseGitStatus(cwd: string): Promise<ReleaseGitStatus> {
     };
   }
 
-  const [branch, commit, statusOutput, remoteOutput] = await Promise.all([
+  const [branch, commit, statusOutput, branchStatusOutput, remoteOutput, upstream] = await Promise.all([
     gitStdout(cwd, ["rev-parse", "--abbrev-ref", "HEAD"]).then((value) => value.trim() || "unknown", () => "unknown"),
     gitStdout(cwd, ["rev-parse", "--short", "HEAD"]).then((value) => value.trim() || "unknown", () => "unknown"),
     gitStdout(cwd, ["status", "--porcelain"]).then((value) => value.trim(), () => ""),
-    gitStdout(cwd, ["remote"]).then((value) => value.trim(), () => "")
+    gitStdout(cwd, ["status", "--porcelain=v1", "--branch"]).then((value) => value.trim(), () => ""),
+    gitStdout(cwd, ["remote"]).then((value) => value.trim(), () => ""),
+    gitStdout(cwd, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"]).then(
+      (value) => value.trim(),
+      () => ""
+    )
   ]);
   const dirtyCount = statusOutput ? statusOutput.split(/\r?\n/).filter(Boolean).length : 0;
   const remotes = remoteOutput ? remoteOutput.split(/\r?\n/).map((remote) => remote.trim()).filter(Boolean) : [];
@@ -1153,9 +1158,50 @@ async function readReleaseGitStatus(cwd: string): Promise<ReleaseGitStatus> {
     };
   }
 
+  if (!upstream) {
+    return {
+      line: `git: blocked no upstream configured ${gitContext} remote=${remoteText}`,
+      next: "push the branch with upstream tracking before public release"
+    };
+  }
+
+  const relation = parseGitBranchRelation(branchStatusOutput);
+  if (relation.gone) {
+    return {
+      line: `git: blocked upstream is gone ${gitContext} remote=${remoteText} upstream=${upstream}`,
+      next: "restore upstream tracking before public release"
+    };
+  }
+  if (relation.ahead > 0 && relation.behind > 0) {
+    return {
+      line: `git: blocked branch diverged ahead=${relation.ahead} behind=${relation.behind} ${gitContext} remote=${remoteText} upstream=${upstream}`,
+      next: "sync the branch with upstream before public release"
+    };
+  }
+  if (relation.ahead > 0) {
+    return {
+      line: `git: blocked branch has unpushed commits ahead=${relation.ahead} ${gitContext} remote=${remoteText} upstream=${upstream}`,
+      next: "push local commits before public release"
+    };
+  }
+  if (relation.behind > 0) {
+    return {
+      line: `git: blocked branch is behind upstream behind=${relation.behind} ${gitContext} remote=${remoteText} upstream=${upstream}`,
+      next: "sync the branch with upstream before public release"
+    };
+  }
+
   return {
-    line: `git: ok ${gitContext} remote=${remoteText}`
+    line: `git: ok ${gitContext} remote=${remoteText} upstream=${upstream}`
   };
+}
+
+function parseGitBranchRelation(statusOutput: string): { ahead: number; behind: number; gone: boolean } {
+  const branchLine = statusOutput.split(/\r?\n/).find((line) => line.startsWith("## ")) ?? "";
+  const relationText = /\[([^\]]+)\]/.exec(branchLine)?.[1] ?? "";
+  const ahead = Number(/\bahead (\d+)\b/.exec(relationText)?.[1] ?? 0);
+  const behind = Number(/\bbehind (\d+)\b/.exec(relationText)?.[1] ?? 0);
+  return { ahead, behind, gone: /\bgone\b/.test(relationText) };
 }
 
 async function gitStdout(cwd: string, args: string[]): Promise<string> {
@@ -1180,8 +1226,12 @@ async function runDoctor(store: BridgeStore, io: CliIO): Promise<number> {
   io.stdout("gptprouse doctor");
 
   try {
-    await store.ensure();
-    io.stdout("bridge: ok (.bridge)");
+    const bridgeReady = await store.hasReadyBridgeStorageReadOnly();
+    io.stdout(
+      bridgeReady
+        ? "bridge: ok (.bridge)"
+        : "bridge: missing/incomplete (.bridge) - run `gptprouse init` when you need local task/result storage"
+    );
   } catch (error) {
     ok = false;
     io.stdout(`bridge: failed ${errorMessage(error)}`);
@@ -1729,8 +1779,12 @@ async function printProductCheck(store: BridgeStore, io: CliIO, args: string[]):
     } else {
       io.stdout(`config: ok ${redactServerUrl(config.server_url)} token_status=${tokenStatus.status}`);
     }
-  } catch {
-    io.stdout("config: missing - run `gptprouse setup`");
+  } catch (error) {
+    if (isMissingFileError(error)) {
+      io.stdout("config: missing - run `gptprouse setup`");
+    } else {
+      io.stdout(`config: failed ${errorMessage(error)}`);
+    }
   }
 
   const browserStatus = await getChatGptBrowserStatus({

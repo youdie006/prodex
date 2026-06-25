@@ -1813,6 +1813,36 @@ describe("runCli", () => {
     await execFileAsync("git", ["config", "user.name", "Release Test"], { cwd });
     await execFileAsync("git", ["add", "package.json", "LICENSE"], { cwd });
     await execFileAsync("git", ["commit", "-m", "initial"], { cwd });
+    const remote = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-release-remote-"));
+    await execFileAsync("git", ["init", "--bare"], { cwd: remote });
+    await execFileAsync("git", ["remote", "add", "origin", remote], { cwd });
+    const branch = (await execFileAsync("git", ["rev-parse", "--abbrev-ref", "HEAD"], { cwd })).stdout.trim();
+    await execFileAsync("git", ["push", "-u", "origin", branch], { cwd });
+    const commit = (await execFileAsync("git", ["rev-parse", "--short", "HEAD"], { cwd })).stdout.trim();
+    const out: string[] = [];
+
+    await runCli(["release", "status", "--cwd", cwd], {
+      cwd: "/tmp",
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    expect(out.join("\n")).toContain(`git: ok branch=${branch} commit=${commit} remote=origin upstream=origin/${branch}`);
+  });
+
+  it("release status blocks branches without upstream tracking", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-release-"));
+    await writeFile(
+      path.join(cwd, "package.json"),
+      `${JSON.stringify({ name: "demo", version: "1.0.0", license: "MIT" }, null, 2)}\n`,
+      "utf8"
+    );
+    await writeFile(path.join(cwd, "LICENSE"), "MIT License\n", "utf8");
+    await execFileAsync("git", ["init"], { cwd });
+    await execFileAsync("git", ["config", "user.email", "release@example.com"], { cwd });
+    await execFileAsync("git", ["config", "user.name", "Release Test"], { cwd });
+    await execFileAsync("git", ["add", "package.json", "LICENSE"], { cwd });
+    await execFileAsync("git", ["commit", "-m", "initial"], { cwd });
     await execFileAsync("git", ["remote", "add", "origin", "https://example.com/demo.git"], { cwd });
     const branch = (await execFileAsync("git", ["rev-parse", "--abbrev-ref", "HEAD"], { cwd })).stdout.trim();
     const commit = (await execFileAsync("git", ["rev-parse", "--short", "HEAD"], { cwd })).stdout.trim();
@@ -1824,7 +1854,48 @@ describe("runCli", () => {
       stderr: () => {}
     });
 
-    expect(out.join("\n")).toContain(`git: ok branch=${branch} commit=${commit} remote=origin`);
+    const text = out.join("\n");
+    expect(text).toContain("metadata: ok license=MIT license_file=present");
+    expect(text).toContain(`git: blocked no upstream configured branch=${branch} commit=${commit} remote=origin`);
+    expect(text).toContain("git_next: push the branch with upstream tracking before public release");
+    expect(text).not.toContain("git: ok");
+  });
+
+  it("release status blocks clean branches with unpushed commits", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-release-"));
+    await writeFile(
+      path.join(cwd, "package.json"),
+      `${JSON.stringify({ name: "demo", version: "1.0.0", license: "MIT" }, null, 2)}\n`,
+      "utf8"
+    );
+    await writeFile(path.join(cwd, "LICENSE"), "MIT License\n", "utf8");
+    await execFileAsync("git", ["init"], { cwd });
+    await execFileAsync("git", ["config", "user.email", "release@example.com"], { cwd });
+    await execFileAsync("git", ["config", "user.name", "Release Test"], { cwd });
+    await execFileAsync("git", ["add", "package.json", "LICENSE"], { cwd });
+    await execFileAsync("git", ["commit", "-m", "initial"], { cwd });
+    const remote = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-release-remote-"));
+    await execFileAsync("git", ["init", "--bare"], { cwd: remote });
+    await execFileAsync("git", ["remote", "add", "origin", remote], { cwd });
+    const branch = (await execFileAsync("git", ["rev-parse", "--abbrev-ref", "HEAD"], { cwd })).stdout.trim();
+    await execFileAsync("git", ["push", "-u", "origin", branch], { cwd });
+    await writeFile(path.join(cwd, "README.md"), "unpushed\n", "utf8");
+    await execFileAsync("git", ["add", "README.md"], { cwd });
+    await execFileAsync("git", ["commit", "-m", "unpushed"], { cwd });
+    const commit = (await execFileAsync("git", ["rev-parse", "--short", "HEAD"], { cwd })).stdout.trim();
+    const out: string[] = [];
+
+    await runCli(["release", "status", "--cwd", cwd], {
+      cwd: "/tmp",
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    const text = out.join("\n");
+    expect(text).toContain("metadata: ok license=MIT license_file=present");
+    expect(text).toContain(`git: blocked branch has unpushed commits ahead=1 branch=${branch} commit=${commit} remote=origin upstream=origin/${branch}`);
+    expect(text).toContain("git_next: push local commits before public release");
+    expect(text).not.toContain("git: ok");
   });
 
   it("release status blocks detached HEAD checkouts", async () => {
@@ -2309,6 +2380,24 @@ describe("runCli", () => {
     expect(text).toContain("config: missing");
     expect(text).toContain("chatgpt: browser_unreachable");
     expect(text).toContain("latest_pro: missing");
+  });
+
+  it("reports corrupt local MCP config in product checks", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    await mkdir(path.join(cwd, ".bridge"), { recursive: true });
+    await writeFile(path.join(cwd, ".bridge", "config.local.json"), "{not json", "utf8");
+    const out: string[] = [];
+
+    await runCli(["pro", "browser", "check", "--port", "65534", "--timeout-ms", "10"], {
+      cwd,
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    const text = out.join("\n");
+    expect(text).toContain("config: failed local MCP config is corrupt. Run `gptprouse setup` to replace .bridge/config.local.json.");
+    expect(text).not.toContain("config: missing");
+    expect(text).not.toContain("Expected property name or '}' in JSON");
   });
 
   it("recovers stale bridge temp hard links during browser checks without bootstrapping fresh storage", async () => {
@@ -2797,6 +2886,37 @@ describe("runCli", () => {
     clearTimeout(stop);
   });
 
+  it("reports corrupt local MCP config consistently before HTTP MCP commands", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    await mkdir(path.join(cwd, ".bridge"), { recursive: true });
+    await writeFile(path.join(cwd, ".bridge", "config.local.json"), "{not json", "utf8");
+
+    await expect(
+      runCli(["status"], {
+        cwd,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.toThrow("local MCP config is corrupt. Run `gptprouse setup` to replace .bridge/config.local.json.");
+
+    const start = runCli(["start"], {
+      cwd,
+      stdout: () => {},
+      stderr: () => {}
+    });
+    const stop = setTimeout(() => process.emit("SIGTERM"), 50);
+    await expect(start).rejects.toThrow("local MCP config is corrupt. Run `gptprouse setup` to replace .bridge/config.local.json.");
+    clearTimeout(stop);
+
+    await expect(
+      runCli(["tunnel", "url", "--public-url", "https://example.com"], {
+        cwd,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.toThrow("local MCP config is corrupt. Run `gptprouse setup` to replace .bridge/config.local.json.");
+  });
+
   it("runs a local doctor smoke for bridge storage and MCP writes", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
     const out: string[] = [];
@@ -2810,7 +2930,7 @@ describe("runCli", () => {
     const text = out.join("\n");
     expect(code).toBe(0);
     expect(text).toContain("gptprouse doctor");
-    expect(text).toContain("bridge: ok");
+    expect(text).toContain("bridge: missing/incomplete");
     expect(text).toContain("config: missing");
     expect(text).toContain("mcp_write_smoke: ok");
     expect(text).toContain("receipt_payload=artifact");
@@ -2833,6 +2953,18 @@ describe("runCli", () => {
     expect(text).toContain("bridge_list_receipts");
     expect(text).toContain("bridge_get_receipt");
     expect(text).toContain("repo_stage_reviewed_paths");
+  });
+
+  it("does not bootstrap bridge storage when doctor runs in a fresh directory", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+
+    await runCli(["doctor"], {
+      cwd,
+      stdout: () => {},
+      stderr: () => {}
+    });
+
+    expect(await readdir(cwd)).not.toContain(".bridge");
   });
 
   it("redacts local MCP tokens from doctor output", async () => {
@@ -2869,8 +3001,9 @@ describe("runCli", () => {
 
     const text = out.join("\n");
     expect(code).toBe(1);
-    expect(text).toContain("config: failed");
+    expect(text).toContain("config: failed local MCP config is corrupt. Run `gptprouse setup` to replace .bridge/config.local.json.");
     expect(text).not.toContain("config: missing");
+    expect(text).not.toContain("Expected property name or '}' in JSON");
     expect(text).toContain("mcp_write_smoke: ok");
   });
 
