@@ -509,13 +509,15 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
         return 0;
       }
       if (browserSubcommand === "login") {
-        assertOnlyOptions(browserArgs, "pro browser login", ["--profile-dir", "--port", "--url"], ["--dry-run"]);
+        assertOnlyOptions(browserArgs, "pro browser login", ["--profile-dir", "--port", "--url", "--source-cli"], ["--dry-run"]);
         const loginUrl = readChatGptBrowserUrlFlag(browserArgs);
+        const sourceCli = resolveOptionalFileFlag(io.cwd, browserArgs, "--source-cli");
         if (browserArgs.includes("--dry-run")) {
           printBrowserLoginGuide(io.stdout, {
             opened: false,
             profileDir: readFlag(browserArgs, "--profile-dir") ?? defaultChatGptProfileDir(),
-            port: readPortFlag(browserArgs, "--port") ?? 9333
+            port: readPortFlag(browserArgs, "--port") ?? 9333,
+            sourceCli
           });
           return 0;
         }
@@ -528,7 +530,8 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
         printBrowserLoginGuide(io.stdout, {
           opened: true,
           profileDir: opened.profileDir,
-          port: opened.port
+          port: opened.port,
+          sourceCli
         });
         return 0;
       }
@@ -800,7 +803,7 @@ Commands:
   gptprouse claude prompt [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]
   gptprouse claude config [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]
   gptprouse pro ask [--dry-run] [--file path] "prompt"  # dry-run preview
-  gptprouse pro browser login [--dry-run]  # preview/open visible browser login
+  gptprouse pro browser login [--dry-run] [--source-cli /absolute/path/to/dist/cli.js]  # preview/open visible browser login
   gptprouse pro browser help
   gptprouse pro browser check|smoke
   gptprouse pro browser ask [--target-url url --confirm-target] [--file path] "prompt"  # explicit visible-browser send
@@ -890,8 +893,8 @@ repo: ${cwd}
 4. Optional ChatGPT Pro consults:
    cd ${quotedCwd}
    ${proAskCommand}  # dry-run/manual preview
-   ${cli} pro browser login --dry-run  # preview, no browser opens
-   ${cli} pro browser login  # opens visible browser
+   ${cli} pro browser login --dry-run${sourceCliOption}  # preview, no browser opens
+   ${cli} pro browser login${sourceCliOption}  # opens visible browser
    ${cli} pro browser help
    ${cli} pro browser check
    ${cli} pro browser smoke
@@ -1846,8 +1849,11 @@ async function runMcpWriteSmoke(): Promise<{ path: string; receipt_payload: "art
 
 function printBrowserLoginGuide(
   stdout: (line: string) => void,
-  input: { opened: boolean; profileDir: string; port: number }
+  input: { opened: boolean; profileDir: string; port: number; sourceCli?: string }
 ): void {
+  const cli = formatCliCommand(input.sourceCli);
+  const sourceCliOption = input.sourceCli ? ` --source-cli ${shellQuote(input.sourceCli)}` : "";
+  const loginCommand = `${cli} pro browser login${sourceCliOption}`;
   stdout("ChatGPT Pro browser login");
   stdout(input.opened ? "Opened the dedicated Chrome window for ChatGPT." : "Dry run: no browser was opened.");
   stdout("");
@@ -1856,15 +1862,15 @@ function printBrowserLoginGuide(
     stdout("1. Log in manually at https://chatgpt.com/ in the dedicated Chrome window.");
     stdout("2. If ChatGPT asks for captcha, Cloudflare/human verification, permission, account verification, or usage limit handling, complete it in the browser.");
     stdout("3. Select the Pro/Thinking model you want in the ChatGPT UI.");
-    stdout("4. Run `gptprouse pro browser check` to confirm the session is reachable.");
-    stdout("5. Run `gptprouse pro browser smoke` to verify a real Pro response path.");
+    stdout(`4. Run \`${cli} pro browser check\` to confirm the session is reachable.`);
+    stdout(`5. Run \`${cli} pro browser smoke\` to verify a real Pro response path.`);
   } else {
-    stdout("1. Run `gptprouse pro browser login` without `--dry-run` to open the dedicated Chrome window.");
+    stdout(`1. Run \`${loginCommand}\` without \`--dry-run\` to open the dedicated Chrome window.`);
     stdout("2. Log in manually at https://chatgpt.com/ in that Chrome window.");
     stdout("3. If ChatGPT asks for captcha, Cloudflare/human verification, permission, account verification, or usage limit handling, complete it in the browser.");
     stdout("4. Select the Pro/Thinking model you want in the ChatGPT UI.");
-    stdout("5. Run `gptprouse pro browser check` to confirm the session is reachable.");
-    stdout("6. Run `gptprouse pro browser smoke` to verify a real Pro response path.");
+    stdout(`5. Run \`${cli} pro browser check\` to confirm the session is reachable.`);
+    stdout(`6. Run \`${cli} pro browser smoke\` to verify a real Pro response path.`);
   }
   stdout("");
   stdout(`Profile: ${input.profileDir}`);
@@ -1880,7 +1886,7 @@ function printProBrowserHelp(stdout: (line: string) => void): void {
   stdout(`gptprouse pro browser
 
 Commands:
-  gptprouse pro browser login [--dry-run] [--profile-dir path] [--port 9333] [--url https://chatgpt.com/...]
+  gptprouse pro browser login [--dry-run] [--source-cli /absolute/path/to/dist/cli.js] [--profile-dir path] [--port 9333] [--url https://chatgpt.com/...]
   gptprouse pro browser check [--port 9333] [--timeout-ms 1500]
   gptprouse pro browser smoke [--port 9333] [--timeout-ms 30000]
   gptprouse pro browser ask [--port 9333] [--timeout-ms 90000] [--target-url url --confirm-target] [--file path] "prompt"

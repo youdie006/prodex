@@ -118,6 +118,16 @@ gptprouse pro browser check
 gptprouse pro browser smoke
 ```
 
+For a source checkout, keep the follow-up commands in source-checkout form too:
+
+```bash
+SOURCE_CLI="$(pwd)/dist/cli.js"
+node dist/cli.js pro browser login --dry-run --source-cli "$SOURCE_CLI"
+node dist/cli.js pro browser login --source-cli "$SOURCE_CLI"
+node dist/cli.js pro browser check
+node dist/cli.js pro browser smoke
+```
+
 What happens:
 
 - `login --dry-run` prints the dedicated Chrome profile, debug URL, and next commands without opening a browser.
