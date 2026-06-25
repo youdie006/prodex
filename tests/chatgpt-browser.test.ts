@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildChromeLaunchArgs,
+  assertChatGptPageAvailable,
   assertChatGptTargetUrlMatches,
   assertChatGptTargetTabAvailable,
   assertVisibleChatGptTab,
@@ -349,6 +350,25 @@ describe("ChatGPT browser adapter", () => {
         code: "target_tab_missing",
         retryable: true,
         next_step: "Open https://chatgpt.com/c/missing in the dedicated browser and retry."
+      })
+    );
+  });
+
+  it("throws a structured blocker when no ChatGPT tab is open", () => {
+    let thrown: unknown;
+
+    try {
+      assertChatGptPageAvailable();
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(ChatGptBrowserBlockerError);
+    expect((thrown as ChatGptBrowserBlockerError).blocker).toEqual(
+      expect.objectContaining({
+        code: "chatgpt_page_missing",
+        retryable: true,
+        next_step: "Open https://chatgpt.com/ in the dedicated Chrome profile."
       })
     );
   });

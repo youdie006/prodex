@@ -382,6 +382,15 @@ export function assertChatGptTargetTabAvailable(targetUrl: string): void {
   });
 }
 
+export function assertChatGptPageAvailable(): never {
+  throw new ChatGptBrowserBlockerError({
+    code: "chatgpt_page_missing",
+    message: "Chrome debug port is reachable, but no chatgpt.com tab is open.",
+    retryable: true,
+    next_step: "Open https://chatgpt.com/ in the dedicated Chrome profile."
+  });
+}
+
 export function chatGptVisibilityBlocker(
   visibilityState: string | undefined,
   url: string | undefined
@@ -503,7 +512,7 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
     if (normalizedTargetUrl) {
       assertChatGptTargetTabAvailable(normalizedTargetUrl);
     }
-    throw new Error("Chrome debug port is reachable, but no chatgpt.com tab is open.");
+    assertChatGptPageAvailable();
   }
   const page = pageResult.page;
   const status = await evaluateOnPage<ChatGptPageStatus>(page, statusExpression());
