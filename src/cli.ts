@@ -1410,6 +1410,10 @@ function formatBrowserCheckCommand(sourceCli?: string): string {
   return `${formatCliCommand(sourceCli)} pro browser check${formatSourceCliOption(sourceCli)}`;
 }
 
+function formatBrowserTargetAskCommand(sourceCli?: string): string {
+  return `${formatCliCommand(sourceCli)} pro browser ask${formatSourceCliOption(sourceCli)} --target-url <chatgpt-url> --confirm-target "prompt"`;
+}
+
 function formatProShowCommand(taskId: string, sourceCli?: string): string {
   return `${formatCliCommand(sourceCli)} pro show ${shellQuote(taskId)}${formatSourceCliOption(sourceCli)}`;
 }
@@ -1445,6 +1449,9 @@ function productCheckBrowserNextStep(nextStep: string | undefined, sourceCli?: s
   const sourceAware = sourceAwareBrowserNextStep(nextStep, sourceCli);
   if (!sourceAware) return sourceAware;
   if (sourceAware.includes("`")) return sourceAware;
+  if (sourceAware.includes("pass --target-url with --confirm-target")) {
+    return sourceAware.replace("pass --target-url with --confirm-target", `run \`${formatBrowserTargetAskCommand(sourceCli)}\``);
+  }
   return sourceAware.replace(/then retry\.$/, `then run \`${formatBrowserSmokeCommand(sourceCli)}\`.`);
 }
 
