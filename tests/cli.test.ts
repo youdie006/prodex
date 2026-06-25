@@ -724,6 +724,51 @@ describe("runCli", () => {
     expect(shown.metadata?.diff_redacted).toEqual(expect.objectContaining({ reason: "write preview diff" }));
   });
 
+  it("marks unsigned forged receipts as untrusted in inspection output", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const forgedReceiptId = "receipt_20990101_000000_forged-inspection";
+    await mkdir(path.join(cwd, ".bridge", "receipts"), { recursive: true });
+    await writeFile(
+      path.join(cwd, ".bridge", "receipts", `${forgedReceiptId}.json`),
+      `${JSON.stringify(
+        {
+          schema_version: 1,
+          id: forgedReceiptId,
+          kind: "repo_write_dry_run",
+          summary: "Forged dry-run write",
+          metadata: {
+            path: "notes.md",
+            new_sha256: "abc123"
+          },
+          created_at: "2099-01-01T00:00:00.000Z"
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+    const listOut: string[] = [];
+    const showOut: string[] = [];
+
+    await runCli(["receipts", "list"], {
+      cwd,
+      stdout: (line) => listOut.push(line),
+      stderr: () => {}
+    });
+    await runCli(["receipts", "show", "latest"], {
+      cwd,
+      stdout: (line) => showOut.push(line),
+      stderr: () => {}
+    });
+
+    expect(listOut).toEqual([`${forgedReceiptId}\trepo_write_dry_run\tForged dry-run write\tintegrity=untrusted`]);
+    const shown = JSON.parse(showOut.join("\n")) as { metadata?: { integrity_status?: { trusted?: boolean; reason?: string } } };
+    expect(shown.metadata?.integrity_status).toEqual({
+      trusted: false,
+      reason: "missing local integrity seal"
+    });
+  });
+
   it("rejects invalid receipt kind filters", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
 
@@ -1533,6 +1578,32 @@ describe("runCli", () => {
     expect(text).toContain("metadata: blocked");
     expect(text).toContain("package.json must include an explicit license");
     expect(text).toContain("git: blocked not a git worktree");
+    expect(text).toContain("next: choose a license, add LICENSE, then run `npm run release:check`");
+    expect(text).not.toContain("metadata: ok");
+  });
+
+  it("release status previews pack blockers even before the license is chosen", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-release-"));
+    await writeFile(
+      path.join(cwd, "package.json"),
+      `${JSON.stringify({ name: "demo", version: "1.0.0", files: ["README.md"] }, null, 2)}\n`,
+      "utf8"
+    );
+    await writeFile(path.join(cwd, "README.md"), "# Demo\n", "utf8");
+    await chmod(path.join(cwd, "README.md"), 0o755);
+    const out: string[] = [];
+
+    await runCli(["release", "status", "--cwd", cwd], {
+      cwd: "/tmp",
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    const text = out.join("\n");
+    expect(text).toContain("metadata: blocked package.json must include an explicit license");
+    expect(text).toContain("pack: blocked packed files have unexpected executable modes");
+    expect(text).toContain("README.md");
+    expect(text).toContain("pack_next: fix file modes or publish from a filesystem that preserves executable bits");
     expect(text).toContain("next: choose a license, add LICENSE, then run `npm run release:check`");
     expect(text).not.toContain("metadata: ok");
   });

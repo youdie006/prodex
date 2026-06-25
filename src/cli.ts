@@ -24,7 +24,7 @@ import { startHttpMcpServer } from "./http-mcp.js";
 import { createMcpToolHandlers } from "./mcp-tools.js";
 import { runMcpServer } from "./mcp.js";
 import { readVerifiedUtf8File, writeVerifiedUtf8File } from "./safe-file.js";
-import { ReceiptKindSchema, TaskStatusSchema } from "./schema.js";
+import { ReceiptKindSchema, TaskStatusSchema, type Receipt } from "./schema.js";
 import { BridgeStore, MAX_FETCHABLE_RESULT_ARTIFACT_BYTES, type ListReceiptsInput } from "./store.js";
 
 const execFileAsync = promisify(execFile);
@@ -32,6 +32,7 @@ const requirePackageJson = createRequire(import.meta.url);
 const packageJson = requirePackageJson("../package.json") as { version?: string };
 const CLI_VERSION = packageJson.version ?? "0.0.0";
 const RESERVED_PACKAGE_NAMES = new Set(["node_modules", "favicon.ico"]);
+const PRO_BROWSER_SMOKE_TOKEN = "GPTPROUSE_PRO_SMOKE_OK";
 
 const DOCTOR_REQUIRED_MCP_TOOLS = [
   "bridge_create_task",
@@ -271,9 +272,12 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       assertOnlyOptions(chatgptArgs, "chatgpt smoke", ["--port", "--timeout-ms"]);
       const result = await sendChatGptPrompt({
         port: readPortFlag(chatgptArgs, "--port") ?? 9333,
-        prompt: "This is a one-time gptprouse smoke test. Reply exactly: GPTPROUSE_PRO_SMOKE_OK",
+        prompt: `This is a one-time gptprouse smoke test. Reply exactly: ${PRO_BROWSER_SMOKE_TOKEN}`,
         timeoutMs: readPositiveNumberFlag(chatgptArgs, "--timeout-ms") ?? 90000
       });
+      if (result.answer.trim() !== PRO_BROWSER_SMOKE_TOKEN) {
+        throw new Error(`Pro browser smoke returned an unexpected answer. Expected exactly ${PRO_BROWSER_SMOKE_TOKEN}.`);
+      }
       io.stdout(JSON.stringify(result, null, 2));
       return 0;
     }
@@ -386,7 +390,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
         task_id: readFlag(receiptArgs, "--task-id")
       });
       for (const receipt of receipts) {
-        io.stdout(`${receipt.id}\t${receipt.kind}\t${receipt.summary}`);
+        io.stdout(`${receipt.id}\t${receipt.kind}\t${receipt.summary}${receiptInspectionListSuffix(receipt)}`);
       }
       return 0;
     }
@@ -912,6 +916,7 @@ async function formatReleaseStatus(cwd: string): Promise<string> {
   const identityError = packageIdentityError(packageJson);
   let metadataNext = "run `npm run release:check` before publishing";
   let metadataReady = false;
+  let packCheckEligible = false;
 
   if (identityError) {
     lines.push(`metadata: blocked ${identityError.message}`);
@@ -919,32 +924,41 @@ async function formatReleaseStatus(cwd: string): Promise<string> {
   } else if (packageJson.private === true) {
     lines.push("metadata: blocked package.json private: true prevents npm publish");
     metadataNext = "remove `private: true` before public publishing, then run `npm run release:check`";
-  } else if (!license) {
-    lines.push("metadata: blocked package.json must include an explicit license before publishing");
-    metadataNext = "choose a license, add LICENSE, then run `npm run release:check`";
-  } else if (license === "UNLICENSED") {
-    lines.push('metadata: blocked license "UNLICENSED" is not publishable');
-    metadataNext = "choose a public license and add LICENSE, then run `npm run release:check`";
   } else {
-    const licenseFile = await readLicenseFileStatus(path.join(cwd, "LICENSE"));
-    if (licenseFile.status === "missing") {
-      lines.push(`metadata: blocked license=${license} license_file=missing`);
-      metadataNext = "add LICENSE, then run `npm run release:check`";
-    } else if (licenseFile.status === "invalid") {
-      lines.push(`metadata: blocked license=${license} license_file=invalid - LICENSE must be a regular file and must not be a symlink`);
-      metadataNext = "replace LICENSE with a regular file, then run `npm run release:check`";
-    } else if (licenseFile.status === "hardlinked") {
-      lines.push(`metadata: blocked license=${license} license_file=invalid - LICENSE must not have hard links`);
-      metadataNext = "replace LICENSE with a non-hard-linked regular file, then run `npm run release:check`";
+    packCheckEligible = true;
+    if (!license) {
+      lines.push("metadata: blocked package.json must include an explicit license before publishing");
+      metadataNext = "choose a license, add LICENSE, then run `npm run release:check`";
+    } else if (license === "UNLICENSED") {
+      lines.push('metadata: blocked license "UNLICENSED" is not publishable');
+      metadataNext = "choose a public license and add LICENSE, then run `npm run release:check`";
     } else {
-      lines.push(`metadata: ok license=${license} license_file=present`);
-      metadataReady = true;
+      const licenseFile = await readLicenseFileStatus(path.join(cwd, "LICENSE"));
+      if (licenseFile.status === "missing") {
+        lines.push(`metadata: blocked license=${license} license_file=missing`);
+        metadataNext = "add LICENSE, then run `npm run release:check`";
+      } else if (licenseFile.status === "invalid") {
+        lines.push(`metadata: blocked license=${license} license_file=invalid - LICENSE must be a regular file and must not be a symlink`);
+        metadataNext = "replace LICENSE with a regular file, then run `npm run release:check`";
+      } else if (licenseFile.status === "hardlinked") {
+        lines.push(`metadata: blocked license=${license} license_file=invalid - LICENSE must not have hard links`);
+        metadataNext = "replace LICENSE with a non-hard-linked regular file, then run `npm run release:check`";
+      } else {
+        lines.push(`metadata: ok license=${license} license_file=present`);
+        metadataReady = true;
+      }
     }
   }
-  if (metadataReady) {
+  if (packCheckEligible) {
     const packStatus = await readReleasePackStatus(cwd, packageJson);
     lines.push(packStatus.line);
-    if (packStatus.next) metadataNext = packStatus.next;
+    if (packStatus.next) {
+      if (metadataReady) {
+        metadataNext = packStatus.next;
+      } else {
+        lines.push(`pack_next: ${packStatus.next}`);
+      }
+    }
   }
   const gitStatus = await readReleaseGitStatus(cwd);
   lines.push(gitStatus.line);
@@ -1947,6 +1961,19 @@ function formatProAnswer(consult: ConsultRecord): string {
     for (const warning of consult.result.warnings) lines.push(`- ${warning}`);
   }
   return lines.join("\n");
+}
+
+function receiptInspectionListSuffix(receipt: Receipt): string {
+  const status = receipt.metadata.integrity_status;
+  if (
+    typeof status === "object" &&
+    status !== null &&
+    "trusted" in status &&
+    (status as { trusted?: unknown }).trusted === false
+  ) {
+    return "\tintegrity=untrusted";
+  }
+  return "";
 }
 
 function formatSession(session: Awaited<ReturnType<BridgeStore["getSession"]>>): string {

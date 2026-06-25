@@ -80,6 +80,7 @@ try {
   assertIncludes(releaseStatus.stdout, "gptprouse release status", "installed release status output");
   assertIncludes(releaseStatus.stdout, "metadata: blocked", "installed release status output");
   assertIncludes(releaseStatus.stdout, "explicit license", "installed release status output");
+  assertIncludes(releaseStatus.stdout, "pack:", "installed release status output");
   assertIncludes(releaseStatus.stdout, "git: blocked", "installed release status output");
   assertIncludes(releaseStatus.stdout, "not a git worktree", "installed release status output");
   const privatePackageDir = path.join(tmp, "private-release");
@@ -344,6 +345,7 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertIncludes(readme, "gptprouse claude prompt", "installed README");
   assertIncludes(readme, "gptprouse claude config", "installed README");
   assertIncludes(readme, "gptprouse release status", "installed README");
+  assertIncludes(readme, "pack file-mode or hard-link blockers", "installed README");
   assertIncludes(readme, "Run `pro ask` and `pro browser ask` from the repo root", "installed README");
   assertIncludes(readme, "npm run release:verify", "installed README");
   assertIncludes(readme, "regular file", "installed README");

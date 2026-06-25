@@ -451,6 +451,31 @@ describe("ChatGPT browser adapter", () => {
     expect(chatButton.clicked).toBe(true);
     expect(wrongButton.clicked).toBe(false);
   });
+
+  it("does not treat an incidental editable element as product-check composer readiness", async () => {
+    const browser = await import("../src/chatgpt-browser.js");
+    expect("statusExpression" in browser).toBe(true);
+    const statusExpression = (browser as { statusExpression: () => string }).statusExpression;
+    const plainEditor = new FakeTextArea();
+    const plainDocument = new FakeDocument([plainEditor], []);
+    plainDocument.body.innerText = "ChatGPT\nNew chat\nProjects\nPro";
+
+    const plainStatus = evaluateBrowserStatusExpression<{ hasComposer: boolean }>(statusExpression(), plainDocument);
+
+    const chatRoot = new FakeElement("form");
+    const chatEditor = new FakeTextArea();
+    const disabledSend = new FakeButton("Send prompt", "send-button");
+    disabledSend.disabled = true;
+    chatEditor.formRoot = chatRoot;
+    chatRoot.buttons = [disabledSend];
+    const chatDocument = new FakeDocument([chatEditor], [chatRoot]);
+    chatDocument.body.innerText = "ChatGPT\nNew chat\nProjects\nPro";
+
+    const chatStatus = evaluateBrowserStatusExpression<{ hasComposer: boolean }>(statusExpression(), chatDocument);
+
+    expect(plainStatus.hasComposer).toBe(false);
+    expect(chatStatus.hasComposer).toBe(true);
+  });
 });
 
 function devtoolsPage(url: string): DevtoolsPage {
@@ -468,6 +493,24 @@ function evaluateBrowserExpression<T>(
 ): T {
   const run = new Function("document", "window", "InputEvent", "Event", "HTMLTextAreaElement", "HTMLInputElement", `return ${expression};`);
   return run(...globals) as T;
+}
+
+function evaluateBrowserStatusExpression<T>(expression: string, document: FakeDocument): T {
+  const window = { getComputedStyle: () => ({ display: "block", visibility: "visible" }) };
+  const nodeFilter = { SHOW_TEXT: 4 };
+  const location = { href: "https://chatgpt.com/" };
+  const run = new Function(
+    "document",
+    "window",
+    "InputEvent",
+    "Event",
+    "HTMLTextAreaElement",
+    "HTMLInputElement",
+    "NodeFilter",
+    "location",
+    `return ${expression};`
+  );
+  return run(document, window, FakeInputEvent, FakeEvent, FakeTextArea, FakeInput, nodeFilter, location) as T;
 }
 
 class FakeEvent {
@@ -563,12 +606,22 @@ class FakeButton extends FakeElement {
 }
 
 class FakeDocument {
+  readonly body = new FakeElement("body");
+  title = "ChatGPT";
+  visibilityState = "visible";
+
   constructor(
     private readonly editors: FakeTextArea[],
     private readonly roots: FakeElement[]
   ) {}
 
+  createTreeWalker(): { nextNode: () => boolean; currentNode?: { parentElement?: FakeElement; nodeValue?: string } } {
+    return { nextNode: () => false };
+  }
+
   querySelectorAll(selector: string): FakeElement[] {
+    if (selector === "button,a,[role=\"button\"]") return this.roots.flatMap((root) => root.buttons);
+    if (selector === "[data-message-author-role]") return [];
     if (selector.includes("textarea") || selector.includes("[contenteditable")) return this.editors;
     if (selector.includes(GPTPROUSE_ACTIVE_COMPOSER_ATTRIBUTE)) {
       return this.roots.filter((root) => root.getAttribute(GPTPROUSE_ACTIVE_COMPOSER_ATTRIBUTE) === "true");

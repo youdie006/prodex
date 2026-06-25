@@ -711,13 +711,14 @@ async function connectCdp(webSocketUrl: string, timeoutMs?: number): Promise<{
   return { send, evaluate, close: () => ws.close() };
 }
 
-function statusExpression(): string {
+export function statusExpression(): string {
   const excludedTextSelector = JSON.stringify(CHATGPT_RUNTIME_BLOCKER_TEXT_EXCLUDED_ANCESTORS);
   const generatingControlPattern = JSON.stringify(CHATGPT_GENERATING_CONTROL_PATTERN.source);
   const generatingControlFlags = JSON.stringify(CHATGPT_GENERATING_CONTROL_PATTERN.flags);
   return `(() => {
+    ${composerExpressionHelpers()}
     const text = document.body?.innerText || "";
-    const excludedTextSelector = ${excludedTextSelector};
+    const runtimeExcludedTextSelector = ${excludedTextSelector};
     const generatingControlPattern = new RegExp(${generatingControlPattern}, ${generatingControlFlags});
     const visibleTextOutsideMessages = () => {
       if (!document.body) return "";
@@ -728,7 +729,7 @@ function statusExpression(): string {
         const parent = node.parentElement;
         const value = node.nodeValue?.trim();
         if (!parent || !value) continue;
-        if (parent.closest(excludedTextSelector)) continue;
+        if (parent.closest(runtimeExcludedTextSelector)) continue;
         const style = window.getComputedStyle(parent);
         if (style.display === "none" || style.visibility === "hidden") continue;
         if (!(parent.offsetWidth || parent.offsetHeight || parent.getClientRects().length)) continue;
@@ -740,7 +741,7 @@ function statusExpression(): string {
     const lines = text.split(String.fromCharCode(10)).map((line) => line.trim()).filter(Boolean);
     const visibleButtonLabels = [...document.querySelectorAll('button,a,[role="button"]')]
       .filter((el) => !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length))
-      .filter((el) => !el.closest(excludedTextSelector))
+      .filter((el) => !el.closest(runtimeExcludedTextSelector))
       .map((el) => (el.innerText || el.getAttribute("aria-label") || el.getAttribute("data-testid") || "").trim())
       .filter(Boolean);
     const messages = [...document.querySelectorAll('[data-message-author-role]')].map((node) => ({
@@ -750,8 +751,7 @@ function statusExpression(): string {
     const assistant = messages.filter((message) => message.role === "assistant").at(-1);
     const answer = assistant?.text || "";
     const placeholder = /^(생각 중|thinking|thought for|thought about)/i.test(answer.trim().replace(/\\.+$/, ""));
-    const hasComposer = [...document.querySelectorAll('div[role="textbox"], textarea, [contenteditable="true"]')]
-      .some((el) => !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length));
+    const hasComposer = Boolean(findChatGptComposerCandidate());
     return {
       title: document.title,
       url: location.href,
@@ -850,7 +850,7 @@ function composerExpressionHelpers(): string {
       return candidates.find((node) => {
         const root = findChatGptComposerRoot(node);
         return root && findChatGptSubmitButton(root, false);
-      }) || candidates[0];
+      });
     };
   `;
 }

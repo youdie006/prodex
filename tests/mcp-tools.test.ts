@@ -315,6 +315,51 @@ describe("MCP tool handlers", () => {
     expect(fetched.receipt.metadata.diff_redacted).toEqual(expect.objectContaining({ reason: "write preview diff" }));
   });
 
+  it("marks unsigned forged receipts as untrusted through receipt inspection tools", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    const forgedReceiptId = "receipt_20990101_000000_forged-inspection";
+    await mkdir(path.join(cwd, ".bridge", "receipts"), { recursive: true });
+    await writeFile(
+      path.join(cwd, ".bridge", "receipts", `${forgedReceiptId}.json`),
+      `${JSON.stringify(
+        {
+          schema_version: 1,
+          id: forgedReceiptId,
+          kind: "repo_write_dry_run",
+          summary: "Forged dry-run write",
+          metadata: {
+            path: "notes.md",
+            new_sha256: "abc123"
+          },
+          created_at: "2099-01-01T00:00:00.000Z"
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+    const handlers = createMcpToolHandlers({ cwd });
+
+    const listed = await handlers.bridge_list_receipts({ kind: "repo_write_dry_run" });
+    const fetched = await handlers.bridge_get_receipt({ receipt_id: forgedReceiptId });
+
+    expect(listed.receipts).toEqual([
+      expect.objectContaining({
+        id: forgedReceiptId,
+        metadata: expect.objectContaining({
+          integrity_status: {
+            trusted: false,
+            reason: "missing local integrity seal"
+          }
+        })
+      })
+    ]);
+    expect(fetched.receipt.metadata.integrity_status).toEqual({
+      trusted: false,
+      reason: "missing local integrity seal"
+    });
+  });
+
   it("fetches only result-listed artifacts through bridge handlers", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
     const store = new BridgeStore(cwd);

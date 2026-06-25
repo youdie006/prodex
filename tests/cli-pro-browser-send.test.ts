@@ -86,6 +86,25 @@ describe("pro browser ask persistence", () => {
     );
   });
 
+  it("rejects pro browser smoke when ChatGPT does not return the exact smoke token", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-pro-send-"));
+    sendChatGptPromptMock.mockResolvedValueOnce({
+      url: "https://chatgpt.com/c/smoke",
+      title: "ChatGPT",
+      answer: "Sure, the smoke test passed.",
+      modelHints: ["GPT-5 Pro"],
+      warnings: []
+    });
+
+    await expect(
+      runCli(["pro", "browser", "smoke"], {
+        cwd,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.toThrow(/smoke.*unexpected|GPTPROUSE_PRO_SMOKE_OK/i);
+  });
+
   it("records a blocked consult when the visible browser send fails", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-pro-send-"));
     sendChatGptPromptMock.mockRejectedValueOnce(new Error("ChatGPT is asking you to log in."));

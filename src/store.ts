@@ -50,6 +50,11 @@ const FETCHABLE_RESULT_ARTIFACT_PREFIXES = [".bridge/artifacts/pro-consults/", "
 export const MAX_FETCHABLE_RESULT_ARTIFACT_BYTES = 100_000;
 const MAX_BRIDGE_ARTIFACT_READ_BYTES = 1_000_000;
 
+type ReceiptIntegrityInspectionStatus = {
+  trusted: false;
+  reason: string;
+};
+
 export interface CreateTaskInput {
   source: Source;
   title: string;
@@ -384,28 +389,28 @@ export class BridgeStore {
 
   async listReceipts(input: ListReceiptsInput = {}): Promise<Receipt[]> {
     await this.ensure();
-    return (await this.readAll("receipts", parseReceiptRecord))
+    const receipts = (await this.readAll("receipts", parseReceiptRecord))
       .filter((receipt) => (input.kind ? receipt.kind === input.kind : true))
       .filter((receipt) => (input.task_id ? receipt.task_id === input.task_id : true))
-      .sort((a, b) => b.created_at.localeCompare(a.created_at) || b.id.localeCompare(a.id))
-      .map((receipt) => redactReceiptForDisplay(receipt));
+      .sort((a, b) => b.created_at.localeCompare(a.created_at) || b.id.localeCompare(a.id));
+    return Promise.all(receipts.map((receipt) => this.redactReceiptForDisplay(receipt)));
   }
 
   async listReceiptsReadOnly(input: ListReceiptsInput = {}): Promise<Receipt[]> {
     if (!(await this.hasReadyStorageDirReadOnly("receipts"))) return [];
-    return (await this.readAll("receipts", parseReceiptRecord, { cleanupTempHardLinks: false }))
+    const receipts = (await this.readAll("receipts", parseReceiptRecord, { cleanupTempHardLinks: false }))
       .filter((receipt) => (input.kind ? receipt.kind === input.kind : true))
       .filter((receipt) => (input.task_id ? receipt.task_id === input.task_id : true))
-      .sort((a, b) => b.created_at.localeCompare(a.created_at) || b.id.localeCompare(a.id))
-      .map((receipt) => redactReceiptForDisplay(receipt));
+      .sort((a, b) => b.created_at.localeCompare(a.created_at) || b.id.localeCompare(a.id));
+    return Promise.all(receipts.map((receipt) => this.redactReceiptForDisplay(receipt)));
   }
 
   async getReceiptForDisplay(receiptId: string): Promise<Receipt> {
-    return redactReceiptForDisplay(await this.getReceipt(receiptId));
+    return this.redactReceiptForDisplay(await this.getReceipt(receiptId));
   }
 
   async getReceiptForDisplayReadOnly(receiptId: string): Promise<Receipt> {
-    return redactReceiptForDisplay(await this.getReceiptReadOnly(receiptId));
+    return this.redactReceiptForDisplay(await this.getReceiptReadOnly(receiptId));
   }
 
   private async hasTaskCompletionReceipt(taskId: string): Promise<boolean> {
@@ -474,6 +479,28 @@ export class BridgeStore {
     const expected = await this.receiptDigest(receipt);
     if (!safeHexEqual(receipt.integrity.digest, expected)) {
       throw new Error(`Receipt ${receipt.id} failed local integrity verification. Recreate the write dry-run before applying or staging.`);
+    }
+  }
+
+  private async redactReceiptForDisplay(receipt: Receipt): Promise<Receipt> {
+    return redactReceiptForDisplay(receipt, await this.receiptIntegrityInspectionStatus(receipt));
+  }
+
+  private async receiptIntegrityInspectionStatus(receipt: Receipt): Promise<ReceiptIntegrityInspectionStatus | undefined> {
+    if (receipt.integrity?.algorithm !== "hmac-sha256") {
+      return { trusted: false, reason: "missing local integrity seal" };
+    }
+    try {
+      const expected = await this.receiptDigest(receipt);
+      if (!safeHexEqual(receipt.integrity.digest, expected)) {
+        return { trusted: false, reason: "local integrity verification failed" };
+      }
+      return undefined;
+    } catch (error) {
+      if (isErrorCode(error, "ENOENT")) {
+        return { trusted: false, reason: "missing local integrity key" };
+      }
+      return { trusted: false, reason: `local integrity unavailable: ${errorMessage(error)}` };
     }
   }
 
@@ -970,6 +997,10 @@ function isErrorCode(error: unknown, code: string): boolean {
   return typeof error === "object" && error !== null && "code" in error && (error as { code?: unknown }).code === code;
 }
 
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 function isFetchableResultArtifactPath(normalizedPath: string): boolean {
   return FETCHABLE_RESULT_ARTIFACT_PREFIXES.some((prefix) => normalizedPath.startsWith(prefix));
 }
@@ -1155,8 +1186,9 @@ function isBridgeRecordId(kind: BridgeRecordKind, id: string): boolean {
   return pattern.test(id);
 }
 
-function redactReceiptForDisplay(receipt: Receipt): Receipt {
+function redactReceiptForDisplay(receipt: Receipt, integrityStatus?: ReceiptIntegrityInspectionStatus): Receipt {
   const metadata: Record<string, unknown> = { ...receipt.metadata };
+  delete metadata.integrity_status;
   if (Object.hasOwn(metadata, "new_content")) {
     const inlineContent = metadata.new_content;
     delete metadata.new_content;
@@ -1172,6 +1204,9 @@ function redactReceiptForDisplay(receipt: Receipt): Receipt {
       reason: "write preview diff",
       ...(typeof diff === "string" ? { bytes: Buffer.byteLength(diff, "utf8") } : {})
     };
+  }
+  if (integrityStatus) {
+    metadata.integrity_status = integrityStatus;
   }
   return ReceiptSchema.parse({ ...receipt, metadata });
 }
