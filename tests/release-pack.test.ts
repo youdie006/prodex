@@ -148,7 +148,7 @@ printf '[{"files":[{"path":"package.json"},{"path":"README.md"},{"path":"LICENSE
       path.join(fakeBin, npmCommand),
       `#!/bin/sh
 case " $* " in
-  *" --dry-run "*) printf '[{"files":[{"path":"package.json"},{"path":"README.md"},{"path":"LICENSE"},{"path":"dist/cli.js"},{"path":"scripts/release-check.mjs"}]}]\\n' ;;
+  *" --dry-run "*) printf '[{"files":[{"path":"package.json","mode":420},{"path":"README.md","mode":420},{"path":"LICENSE","mode":420},{"path":"dist/cli.js","mode":493},{"path":"scripts/release-check.mjs","mode":420}]}]\\n' ;;
   *) printf 'not json\\n' ;;
 esac
 `,
@@ -178,7 +178,7 @@ esac
       path.join(fakeBin, npmCommand),
       `#!/bin/sh
 case " $* " in
-  *" --dry-run "*) printf '[{"files":[{"path":"package.json"},{"path":"README.md"},{"path":"LICENSE"},{"path":"dist/cli.js"},{"path":"scripts/release-check.mjs"}]}]\\n' ;;
+  *" --dry-run "*) printf '[{"files":[{"path":"package.json","mode":420},{"path":"README.md","mode":420},{"path":"LICENSE","mode":420},{"path":"dist/cli.js","mode":493},{"path":"scripts/release-check.mjs","mode":420}]}]\\n' ;;
   *) printf 'npm final pack exploded\\n' >&2; exit 24 ;;
 esac
 `,
@@ -207,7 +207,7 @@ esac
       path.join(fakeBin, npmCommand),
       `#!/bin/sh
 case " $* " in
-  *" --dry-run "*) printf '[{"files":[{"path":"package.json"},{"path":"README.md"},{"path":"LICENSE"},{"path":"dist/cli.js"},{"path":"scripts/release-check.mjs"}]}]\\n' ;;
+  *" --dry-run "*) printf '[{"files":[{"path":"package.json","mode":420},{"path":"README.md","mode":420},{"path":"LICENSE","mode":420},{"path":"dist/cli.js","mode":493},{"path":"scripts/release-check.mjs","mode":420}]}]\\n' ;;
   *) printf '[{"filename":"demo-release-pack-1.0.0.tgz"}]\\n' ;;
 esac
 `,
@@ -240,7 +240,7 @@ esac
       path.join(fakeBin, npmCommand),
       `#!/bin/sh
 case " $* " in
-  *" --dry-run "*) printf '[{"files":[{"path":"package.json"},{"path":"README.md"},{"path":"LICENSE"},{"path":"dist/cli.js"},{"path":"scripts/release-check.mjs"}]}]\\n' ;;
+  *" --dry-run "*) printf '[{"files":[{"path":"package.json","mode":420},{"path":"README.md","mode":420},{"path":"LICENSE","mode":420},{"path":"dist/cli.js","mode":493},{"path":"scripts/release-check.mjs","mode":420}]}]\\n' ;;
   *) printf '[{"filename":"${outsideTarball}"}]\\n' ;;
 esac
 `,

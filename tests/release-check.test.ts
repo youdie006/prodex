@@ -165,6 +165,26 @@ describe("release-check", () => {
     expect(output).not.toContain("TypeError");
   });
 
+  it("fails release metadata when npm pack dry-run omits file mode metadata", async () => {
+    const root = await copyPackageJsonToTemp();
+    const packageJson = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
+    packageJson.license = "MIT";
+    await writeFile(path.join(root, "package.json"), `${JSON.stringify(packageJson, null, 2)}\n`, "utf8");
+    await writeFile(path.join(root, "LICENSE"), "MIT License\n", "utf8");
+    const fakeCommands = await createFakeReleaseCommands(root, {
+      packStdout: JSON.stringify([{ files: [{ path: "package.json" }, { path: "LICENSE" }] }])
+    });
+
+    const result = await runReleaseCheck(root, { pathPrefix: fakeCommands.binDir, logPath: fakeCommands.logPath });
+
+    const output = `${result.stdout}\n${result.stderr}`;
+    expect(result.code).toBe(1);
+    expect(output).toContain("release metadata failed");
+    expect(output).toContain("npm pack dry-run file entry is missing mode metadata: package.json");
+    expect(output).not.toContain("release_metadata=ok");
+    expect(output).not.toContain("TypeError");
+  });
+
   it("fails release metadata when packed non-bin files are executable", async () => {
     const root = await createPackModeFixture({
       packageJson: {

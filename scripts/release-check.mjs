@@ -171,6 +171,14 @@ async function readPackedFiles(rootDir) {
     if (!Array.isArray(files)) {
       throw new Error("release metadata failed: npm pack dry-run did not return a file list");
     }
+    for (const file of files) {
+      if (typeof file?.path !== "string" || file.path.trim() === "") {
+        throw new Error("release metadata failed: npm pack dry-run file entry is missing a path");
+      }
+      if (typeof file.mode !== "number") {
+        throw new Error(`release metadata failed: npm pack dry-run file entry is missing mode metadata: ${normalizePackagePath(file.path)}`);
+      }
+    }
     return files;
   } catch (error) {
     if (error instanceof Error && error.message.startsWith("release metadata failed:")) {
