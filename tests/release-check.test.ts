@@ -145,6 +145,26 @@ describe("release-check", () => {
     expect(result.stdout).toContain("release_metadata=ok");
   });
 
+  it("fails release metadata when npm pack dry-run omits the file list", async () => {
+    const root = await copyPackageJsonToTemp();
+    const packageJson = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
+    packageJson.license = "MIT";
+    await writeFile(path.join(root, "package.json"), `${JSON.stringify(packageJson, null, 2)}\n`, "utf8");
+    await writeFile(path.join(root, "LICENSE"), "MIT License\n", "utf8");
+    const fakeCommands = await createFakeReleaseCommands(root, {
+      packStdout: JSON.stringify([{}])
+    });
+
+    const result = await runReleaseCheck(root, { pathPrefix: fakeCommands.binDir, logPath: fakeCommands.logPath });
+
+    const output = `${result.stdout}\n${result.stderr}`;
+    expect(result.code).toBe(1);
+    expect(output).toContain("release metadata failed");
+    expect(output).toContain("npm pack dry-run did not return a file list");
+    expect(output).not.toContain("release_metadata=ok");
+    expect(output).not.toContain("TypeError");
+  });
+
   it("fails release metadata when packed non-bin files are executable", async () => {
     const root = await createPackModeFixture({
       packageJson: {
@@ -391,7 +411,7 @@ function expectedNpmCommand(): "npm" | "npm.cmd" {
 
 async function createFakeReleaseCommands(
   root: string,
-  options: { failCommand?: string } = {}
+  options: { failCommand?: string; packStdout?: string } = {}
 ): Promise<{ binDir: string; logPath: string }> {
   const binDir = path.join(root, "fake-bin");
   const logPath = path.join(root, "release-check-commands.log");
@@ -399,8 +419,8 @@ async function createFakeReleaseCommands(
   await mkdir(path.join(root, "dist"), { recursive: true });
   await writeFile(path.join(root, "dist", "cli.js"), "#!/usr/bin/env node\nconsole.log('doctor')\n", "utf8");
   await Promise.all([
-    writeFakeCommand(path.join(binDir, "npm"), "npm", logPath, options.failCommand),
-    writeFakeCommand(path.join(binDir, "npm.cmd.mjs"), "npm.cmd", logPath, options.failCommand),
+    writeFakeCommand(path.join(binDir, "npm"), "npm", logPath, options.failCommand, options.packStdout),
+    writeFakeCommand(path.join(binDir, "npm.cmd.mjs"), "npm.cmd", logPath, options.failCommand, options.packStdout),
     writeFakeCommand(path.join(binDir, "node"), "node", logPath, options.failCommand),
     writeFakeCommand(path.join(binDir, "node.cmd.mjs"), "node", logPath, options.failCommand),
     writeWindowsCommandWrapper(path.join(binDir, "npm.cmd"), "npm.cmd.mjs"),
@@ -409,7 +429,7 @@ async function createFakeReleaseCommands(
   return { binDir, logPath };
 }
 
-async function writeFakeCommand(filePath: string, command: string, logPath: string, failCommand?: string): Promise<void> {
+async function writeFakeCommand(filePath: string, command: string, logPath: string, failCommand?: string, packStdout?: string): Promise<void> {
   await writeFile(
     filePath,
     [
@@ -422,7 +442,7 @@ async function writeFakeCommand(filePath: string, command: string, logPath: stri
       "  process.exit(42);",
       "}",
       `if (${JSON.stringify(command === "npm" || command === "npm.cmd")} && process.argv[2] === "pack") {`,
-      '  console.log(JSON.stringify([{ files: [{ path: "package.json", mode: 420 }, { path: "LICENSE", mode: 420 }, { path: "dist/cli.js", mode: 493 }] }]));',
+      `  console.log(${JSON.stringify(packStdout ?? JSON.stringify([{ files: [{ path: "package.json", mode: 420 }, { path: "LICENSE", mode: 420 }, { path: "dist/cli.js", mode: 493 }] }]))});`,
       "}"
     ].join("\n"),
     "utf8"

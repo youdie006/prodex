@@ -168,8 +168,14 @@ async function readPackedFiles(rootDir) {
   try {
     const entries = JSON.parse(stdout);
     const files = entries?.[0]?.files;
-    return Array.isArray(files) ? files : [];
-  } catch {
+    if (!Array.isArray(files)) {
+      throw new Error("release metadata failed: npm pack dry-run did not return a file list");
+    }
+    return files;
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith("release metadata failed:")) {
+      throw error;
+    }
     throw new Error("release metadata failed: npm pack dry-run did not return valid JSON");
   }
 }
