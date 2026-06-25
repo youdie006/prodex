@@ -49,6 +49,17 @@ describe("release-check", () => {
     expect(`${result.stdout}\n${result.stderr}`).not.toContain("Node.js v");
   });
 
+  it("suggests close release-check flag matches before inspecting metadata", async () => {
+    const result = await runReleaseCheckArgs(["--verificaton-only"]);
+
+    expect(result.code).toBe(1);
+    expect(`${result.stdout}\n${result.stderr}`).toContain(
+      "release check flags failed: unknown option --verificaton-only. Did you mean `--verification-only`?"
+    );
+    expect(`${result.stdout}\n${result.stderr}`).not.toContain("release metadata failed");
+    expect(`${result.stdout}\n${result.stderr}`).not.toContain("Node.js v");
+  });
+
   it("fails release metadata when package license is missing", async () => {
     const root = await copyPackageJsonToTemp();
 

@@ -371,6 +371,26 @@ try {
     "release_pack=ok",
     "installed release-pack missing destination output"
   );
+  const releasePackUnknownOption = await runExpectFailure(
+    process.execPath,
+    [path.join(installedPackageDir, "scripts", "release-pack.mjs"), "--pack-dest", path.join(tmp, "unused-pack-dest")],
+    { cwd: consumerDir }
+  );
+  assertIncludes(
+    releasePackUnknownOption.stderr,
+    "release pack flags failed: unknown option --pack-dest. Did you mean `--pack-destination`?",
+    "installed release-pack unknown option output"
+  );
+  const releaseCheckUnknownOption = await runExpectFailure(
+    process.execPath,
+    [path.join(installedPackageDir, "scripts", "release-check.mjs"), "--verificaton-only"],
+    { cwd: consumerDir }
+  );
+  assertIncludes(
+    releaseCheckUnknownOption.stderr,
+    "release check flags failed: unknown option --verificaton-only. Did you mean `--verification-only`?",
+    "installed release-check unknown option output"
+  );
   if ((await readdir(installedPackageDir)).some((entry) => entry.endsWith(".tgz"))) {
     throw new Error("installed release-pack created a tarball without --pack-destination");
   }

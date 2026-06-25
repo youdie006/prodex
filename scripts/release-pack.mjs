@@ -248,7 +248,7 @@ function parseArgs(values) {
       continue;
     }
     if (arg.startsWith("-")) {
-      throw new Error(`release pack flags failed: unknown option ${arg}`);
+      throw new Error(`release pack flags failed: ${unknownOptionMessage(arg, ["--root", "--pack-destination", "--keep-workdir", "--help"])}`);
     }
     throw new Error(`release pack flags failed: unexpected argument ${arg}`);
   }
@@ -269,6 +269,41 @@ Options:
   --keep-workdir            Keep the temporary staging directory for inspection
   --help, -h                Show this help text
 `;
+}
+
+function unknownOptionMessage(option, candidates) {
+  const suggestion = closestFlagSuggestion(option, candidates);
+  return `unknown option ${option}${suggestion ? `. Did you mean \`${suggestion}\`?` : ""}`;
+}
+
+function closestFlagSuggestion(option, candidates) {
+  let best;
+  for (const candidate of candidates) {
+    const distance = editDistance(option, candidate);
+    const prefixMatch = candidate.startsWith(option);
+    if (!best || prefixMatch || distance < best.distance) {
+      best = { candidate, distance, prefixMatch };
+    }
+  }
+  return best && (best.prefixMatch || best.distance <= 2) ? best.candidate : undefined;
+}
+
+function editDistance(left, right) {
+  const previous = Array.from({ length: right.length + 1 }, (_, index) => index);
+  const current = Array.from({ length: right.length + 1 }, () => 0);
+  for (let leftIndex = 1; leftIndex <= left.length; leftIndex += 1) {
+    current[0] = leftIndex;
+    for (let rightIndex = 1; rightIndex <= right.length; rightIndex += 1) {
+      const substitutionCost = left[leftIndex - 1] === right[rightIndex - 1] ? 0 : 1;
+      current[rightIndex] = Math.min(
+        previous[rightIndex] + 1,
+        current[rightIndex - 1] + 1,
+        previous[rightIndex - 1] + substitutionCost
+      );
+    }
+    previous.splice(0, previous.length, ...current);
+  }
+  return previous[right.length];
 }
 
 function errorMessage(error) {

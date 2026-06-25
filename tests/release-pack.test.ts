@@ -34,6 +34,17 @@ describe("release-pack", () => {
     expect((await readdir(root)).filter((entry) => entry.endsWith(".tgz"))).toEqual([]);
   });
 
+  it("suggests close release-pack flag matches before inspecting metadata", async () => {
+    const result = await runReleasePack(["--pack-dest", "/tmp/out"]);
+
+    const output = `${result.stdout}\n${result.stderr}`;
+    expect(result.code).toBe(1);
+    expect(output).toContain("release pack failed");
+    expect(output).toContain("release pack flags failed: unknown option --pack-dest. Did you mean `--pack-destination`?");
+    expect(output).not.toContain("release metadata failed");
+    expect(output).not.toContain("Node.js v");
+  });
+
   it("fails with a friendly message when package.json is missing", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "gptprouse-release-pack-missing-"));
     const destination = path.join(root, "packed");
