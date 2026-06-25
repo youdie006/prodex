@@ -2833,6 +2833,46 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     );
   });
 
+  it("rejects unknown ledger and primary helper subcommands with guidance", async () => {
+    const cases = [
+      {
+        args: ["tunnel", "create"],
+        expected: "Unknown tunnel subcommand: create. Expected one of: url. Run `gptprouse tunnel --help`."
+      },
+      {
+        args: ["tasks", "remove"],
+        expected: "Unknown tasks subcommand: remove. Expected one of: create, list, show, claim, complete, block. Run `gptprouse tasks --help`."
+      },
+      {
+        args: ["results", "list"],
+        expected: "Unknown results subcommand: list. Expected one of: show, artifact. Run `gptprouse results --help`."
+      },
+      {
+        args: ["receipts", "delete"],
+        expected: "Unknown receipts subcommand: delete. Expected one of: list, show. Run `gptprouse receipts --help`."
+      },
+      {
+        args: ["sessions", "delete"],
+        expected: "Unknown sessions subcommand: delete. Expected one of: list, show. Run `gptprouse sessions --help`."
+      },
+      {
+        args: ["pro", "verify"],
+        expected: "Unknown pro subcommand: verify. Expected one of: ask, browser, list, latest, show. Run `gptprouse pro --help`."
+      }
+    ];
+
+    for (const item of cases) {
+      const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+      await expect(
+        runCli(item.args, {
+          cwd,
+          stdout: () => {},
+          stderr: () => {}
+        })
+      ).rejects.toThrow(item.expected);
+    }
+  });
+
   it("requires explicit browser namespace for browser product checks", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
     const out: string[] = [];

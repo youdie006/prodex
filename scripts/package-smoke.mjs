@@ -189,6 +189,26 @@ try {
   }
   const unknownSubcommandCases = [
     {
+      args: ["tunnel", "create"],
+      expected: "Unknown tunnel subcommand: create. Expected one of: url. Run `gptprouse tunnel --help`."
+    },
+    {
+      args: ["tasks", "remove"],
+      expected: "Unknown tasks subcommand: remove. Expected one of: create, list, show, claim, complete, block. Run `gptprouse tasks --help`."
+    },
+    {
+      args: ["results", "list"],
+      expected: "Unknown results subcommand: list. Expected one of: show, artifact. Run `gptprouse results --help`."
+    },
+    {
+      args: ["receipts", "delete"],
+      expected: "Unknown receipts subcommand: delete. Expected one of: list, show. Run `gptprouse receipts --help`."
+    },
+    {
+      args: ["sessions", "delete"],
+      expected: "Unknown sessions subcommand: delete. Expected one of: list, show. Run `gptprouse sessions --help`."
+    },
+    {
       args: ["project", "verify"],
       expected: "Unknown project subcommand: verify. Expected one of: prompt. Run `gptprouse project --help`."
     },
@@ -203,6 +223,10 @@ try {
     {
       args: ["pro", "browser", "verify"],
       expected: "Unknown pro browser subcommand: verify. Expected one of: login, ask, smoke, check. Run `gptprouse pro browser --help`."
+    },
+    {
+      args: ["pro", "verify"],
+      expected: "Unknown pro subcommand: verify. Expected one of: ask, browser, list, latest, show. Run `gptprouse pro --help`."
     }
   ];
   for (const item of unknownSubcommandCases) {

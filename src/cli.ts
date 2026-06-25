@@ -200,7 +200,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       printTunnelHelp(io.stdout);
       return 0;
     }
-    if (subcommand !== "url") throw new Error("tunnel requires url");
+    if (subcommand !== "url") throw unknownSubcommandError("tunnel", subcommand, ["url"]);
     if (isHelpArgs(tunnelArgs)) {
       assertNoExtraArgs(tunnelArgs.slice(1), "tunnel url help", 0);
       printTunnelUrlHelp(io.stdout);
@@ -533,6 +533,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       io.stdout(`${result.task_id}\t${result.status}\t${result.summary}`);
       return 0;
     }
+    throw unknownSubcommandError("tasks", subcommand, ["create", "list", "show", "claim", "complete", "block"]);
   }
 
   if (command === "results") {
@@ -561,6 +562,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       io.stdout(artifact.content);
       return 0;
     }
+    throw unknownSubcommandError("results", subcommand, ["show", "artifact"]);
   }
 
   if (command === "receipts") {
@@ -592,6 +594,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       io.stdout(JSON.stringify(receipt, null, 2));
       return 0;
     }
+    throw unknownSubcommandError("receipts", subcommand, ["list", "show"]);
   }
 
   if (command === "sessions") {
@@ -621,6 +624,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       io.stdout(formatSession(session));
       return 0;
     }
+    throw unknownSubcommandError("sessions", subcommand, ["list", "show"]);
   }
 
   if (command === "pro") {
@@ -735,6 +739,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       io.stdout(formatProAnswer(consult, sourceCli));
       return 0;
     }
+    throw unknownSubcommandError("pro", subcommand, ["ask", "browser", "list", "latest", "show"]);
   }
 
   if (command === "consults") {
