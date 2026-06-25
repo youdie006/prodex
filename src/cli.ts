@@ -1043,6 +1043,10 @@ function formatReleasePackCommand(sourceCli?: string): string {
   return `${formatCliCommand(sourceCli)} release pack${formatSourceCliOption(sourceCli)} --pack-destination <dir>`;
 }
 
+function formatGitPushUpstreamCommand(branch: string): string {
+  return `git push -u origin ${shellQuote(branch)}`;
+}
+
 function sourceAwareBrowserNextStep(nextStep: string | undefined, sourceCli?: string): string | undefined {
   if (!nextStep || !sourceCli) return nextStep;
   return nextStep
@@ -1466,14 +1470,14 @@ async function readReleaseGitStatus(cwd: string): Promise<ReleaseGitStatus> {
   if (remotes.length === 0) {
     return {
       line: `git: blocked no remote configured ${gitContext}`,
-      next: "add a git remote before public release"
+      next: `add a remote, then push with upstream tracking: git remote add origin <git-url>; ${formatGitPushUpstreamCommand(branch)}`
     };
   }
 
   if (!upstream) {
     return {
       line: `git: blocked no upstream configured ${gitContext} remote=${remoteText}`,
-      next: "push the branch with upstream tracking before public release"
+      next: `push the branch with upstream tracking: ${formatGitPushUpstreamCommand(branch)}`
     };
   }
 

@@ -735,6 +735,8 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertIncludes(readme, "npm run release:pack", "installed README");
   assertIncludes(readme, "npm publish --dry-run <tarball>", "installed README");
   assertIncludes(readme, "npm publish <tarball>", "installed README");
+  assertIncludes(readme, "git remote add origin <git-url>", "installed README");
+  assertIncludes(readme, "git push -u origin <branch>", "installed README");
   assertIncludes(readme, "installed `release-pack` script and `gptprouse release pack` CLI success paths", "installed README");
   assertIncludes(readme, "regular file", "installed README");
   assertIncludes(readme, "symlinked packed files", "installed README");
@@ -1035,6 +1037,7 @@ async function smokeInstalledReleaseGitReadiness(binPath, tmp, launcherCwd) {
   const noRemote = await run(binPath, ["release", "status", "--cwd", noRemoteDir], { cwd: launcherCwd });
   assertIncludes(noRemote.stdout, "metadata: ok", "installed release status no-remote output");
   assertIncludes(noRemote.stdout, "git: blocked no remote", "installed release status no-remote output");
+  assertIncludes(noRemote.stdout, "git remote add origin <git-url>; git push -u origin", "installed release status no-remote output");
 
   const dirtyDir = await createReleaseGitFixture(path.join(tmp, "release-dirty"), { remote: true });
   await writeFile(path.join(dirtyDir, "README.md"), "dirty\n");
@@ -1052,6 +1055,7 @@ async function smokeInstalledReleaseGitReadiness(binPath, tmp, launcherCwd) {
   });
   const noUpstream = await run(binPath, ["release", "status", "--cwd", noUpstreamDir], { cwd: launcherCwd });
   assertIncludes(noUpstream.stdout, "git: blocked no upstream configured", "installed release status no-upstream output");
+  assertIncludes(noUpstream.stdout, "git push -u origin", "installed release status no-upstream output");
 
   const unpushedDir = await createReleaseGitFixture(path.join(tmp, "release-unpushed"), { remote: true });
   await writeFile(path.join(unpushedDir, "README.md"), "unpushed\n");

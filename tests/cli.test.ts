@@ -2378,7 +2378,9 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     const text = out.join("\n");
     expect(text).toContain("metadata: ok license=MIT license_file=present");
     expect(text).toContain(`git: blocked no remote configured branch=${branch} commit=${commit}`);
-    expect(text).toContain("git_next: add a git remote before public release");
+    expect(text).toContain(
+      `git_next: add a remote, then push with upstream tracking: git remote add origin <git-url>; git push -u origin ${branch}`
+    );
   });
 
   it("release status reports dirty git worktrees before release", async () => {
@@ -2472,7 +2474,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     const text = out.join("\n");
     expect(text).toContain("metadata: ok license=MIT license_file=present");
     expect(text).toContain(`git: blocked no upstream configured branch=${branch} commit=${commit} remote=origin`);
-    expect(text).toContain("git_next: push the branch with upstream tracking before public release");
+    expect(text).toContain(`git_next: push the branch with upstream tracking: git push -u origin ${branch}`);
     expect(text).not.toContain("git: ok");
   });
 
