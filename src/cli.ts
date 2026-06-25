@@ -689,7 +689,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       }
       if (browserSubcommand === "login") {
         if (
-          printHelpIfRequested(browserArgs, "pro browser login", io.stdout, printProBrowserHelp, {
+          printProBrowserHelpIfRequested(browserArgs, "pro browser login", io, {
             valueFlags: ["--profile-dir", "--port", "--url", "--source-cli", "--launch-timeout-ms"],
             booleanFlags: ["--dry-run"]
           })
@@ -735,7 +735,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       }
       if (browserSubcommand === "ask") {
         if (
-          printHelpIfRequested(browserArgs, "pro browser ask", io.stdout, printProBrowserHelp, {
+          printProBrowserHelpIfRequested(browserArgs, "pro browser ask", io, {
             valueFlags: [...ASK_PRO_VALUE_FLAGS],
             booleanFlags: [...ASK_PRO_BOOLEAN_FLAGS]
           })
@@ -756,11 +756,11 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
         throw new Error(`Use \`gptprouse pro browser ${replacement}\` for explicit browser automation.`);
       }
       if (browserSubcommand === "smoke") {
-        if (printHelpIfRequested(browserArgs, "pro browser smoke", io.stdout, printProBrowserHelp, { valueFlags: ["--port", "--timeout-ms", "--source-cli"] })) return 0;
+        if (printProBrowserHelpIfRequested(browserArgs, "pro browser smoke", io, { valueFlags: ["--port", "--timeout-ms", "--source-cli"] })) return 0;
         return runCli(["chatgpt", browserSubcommand, ...browserArgs], io);
       }
       if (browserSubcommand === "check") {
-        if (printHelpIfRequested(browserArgs, "pro browser check", io.stdout, printProBrowserHelp, { valueFlags: ["--cwd", "--port", "--timeout-ms", "--source-cli"] })) return 0;
+        if (printProBrowserHelpIfRequested(browserArgs, "pro browser check", io, { valueFlags: ["--cwd", "--port", "--timeout-ms", "--source-cli"] })) return 0;
         assertOnlyOptions(browserArgs, "pro browser check", ["--cwd", "--port", "--timeout-ms", "--source-cli"]);
         const targetCwd = resolveCwdFlag(io.cwd, browserArgs);
         readPortFlag(browserArgs, "--port");
@@ -1265,6 +1265,14 @@ function printHelpIfRequested(
   if (helpIndex === -1) return false;
   assertHelpRequestArgs(args, command, options);
   printHelp(stdout);
+  return true;
+}
+
+function printProBrowserHelpIfRequested(args: string[], command: string, io: CliIO, options: HelpRequestOptions): boolean {
+  const helpIndex = findHelpFlagIndexBeforePromptDelimiter(args);
+  if (helpIndex === -1) return false;
+  assertHelpRequestArgs(args, command, options);
+  printProBrowserHelp(io.stdout, resolveOptionalFileFlag(io.cwd, args, "--source-cli"));
   return true;
 }
 
@@ -1792,7 +1800,7 @@ async function readReleasePackStatus(cwd: string, packageJson: { bin?: unknown }
       return {
         line: `pack: blocked packed files have unexpected executable modes outside package bin entries: ${formatPathList(invalid)}`,
         next: sourceAwareReleaseMessage(
-          "fix file modes or publish from a filesystem that preserves executable bits, then run `npm run release:check`; on WSL/Windows mounts, create a sanitized tarball with `gptprouse release pack --pack-destination <dir>` after `npm run release:verify`; release pack prints `npm publish --dry-run <tarball>` and prints `npm publish <tarball>` only after git readiness is clear",
+          "fix file modes or publish from a filesystem that preserves executable bits, then run `npm run release:check`; on WSL/Windows mounts, create a sanitized tarball with `gptprouse release pack --pack-destination <dir>` after `npm run release:verify`; release pack prints `npm publish --dry-run <tarball>` and warns that tarball publish bypasses prepublishOnly before printing `npm publish <tarball>`",
           sourceCli
         )
       };

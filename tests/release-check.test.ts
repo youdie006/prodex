@@ -9,6 +9,14 @@ const execFileAsync = promisify(execFile);
 const repoRoot = path.resolve(import.meta.dirname, "..");
 
 describe("release-check", () => {
+  it("runs release metadata before release verification in CI", async () => {
+    const workflow = await readFile(path.join(repoRoot, ".github", "workflows", "ci.yml"), "utf8");
+
+    expect(workflow).toContain("npm run release:check");
+    expect(workflow).toContain("npm run release:verify");
+    expect(workflow.indexOf("npm run release:check")).toBeLessThan(workflow.indexOf("npm run release:verify"));
+  });
+
   it("fails release metadata with a friendly message when package.json is missing", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "gptprouse-release-check-missing-"));
 

@@ -448,7 +448,12 @@ esac
     expect(result.code).toBe(0);
     expect(result.stdout).toContain(`release_pack_git: ok branch=${branch} commit=${commit}`);
     expect(result.stdout).toContain(`release_pack_verify: npm publish --dry-run ${tarballPath}`);
+    expect(result.stdout).toContain(
+      "release_pack_publish_guard: npm publish <tarball> bypasses prepublishOnly; run the release_pack_verify command first, then publish only that verified tarball if it succeeds."
+    );
     expect(result.stdout).toContain(`release_pack_publish: npm publish ${tarballPath}`);
+    expect(result.stdout.indexOf("release_pack_verify:")).toBeLessThan(result.stdout.indexOf("release_pack_publish_guard:"));
+    expect(result.stdout.indexOf("release_pack_publish_guard:")).toBeLessThan(result.stdout.indexOf("release_pack_publish:"));
     expect(result.stdout).not.toContain("release_pack_publish_blocked");
   });
 

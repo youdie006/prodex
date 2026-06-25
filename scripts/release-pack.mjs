@@ -52,6 +52,9 @@ async function releasePack(args) {
   if (gitStatus.next) console.log(`release_pack_git_next: ${gitStatus.next}`);
   console.log(`release_pack_verify: npm publish --dry-run ${shellQuote(packedTarball)}`);
   if (isReleaseGitReady(gitStatus)) {
+    console.log(
+      "release_pack_publish_guard: npm publish <tarball> bypasses prepublishOnly; run the release_pack_verify command first, then publish only that verified tarball if it succeeds."
+    );
     console.log(`release_pack_publish: npm publish ${shellQuote(packedTarball)}`);
   } else {
     console.log("release_pack_publish_blocked: fix git readiness before npm publish; run `gptprouse release status`, then rerun release pack after blockers are clear.");

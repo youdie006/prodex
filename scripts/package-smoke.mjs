@@ -57,6 +57,7 @@ try {
     throw new Error("installed package.json must keep prepublishOnly wired to release-check");
   }
   const installedSourceCli = path.join(consumerDir, "node_modules", "gptprouse", "dist", "cli.js");
+  const sourcePrefix = `node ${installedSourceCli}`;
   const version = await run(binPath, ["--version"], { cwd: consumerDir });
   if (version.stdout.trim() !== installedPackageJson.version) {
     throw new Error(`Installed --version returned ${version.stdout.trim()}, expected ${installedPackageJson.version}`);
@@ -215,7 +216,7 @@ try {
     },
     {
       args: ["pro", "browser", "ask", "--source-cli", installedSourceCli, "--help"],
-      expected: "gptprouse pro browser ask [--source-cli /absolute/path/to/dist/cli.js]"
+      expected: `${sourcePrefix} pro browser ask --source-cli ${installedSourceCli}`
     },
     {
       args: ["pro", "show", "latest", "--source-cli", installedSourceCli, "--help"],
@@ -433,6 +434,11 @@ try {
   );
   assertIncludes(
     releasePackGitReadySuccess.stdout,
+    "release_pack_publish_guard: npm publish <tarball> bypasses prepublishOnly; run the release_pack_verify command first, then publish only that verified tarball if it succeeds.",
+    "installed git-ready release pack CLI output"
+  );
+  assertIncludes(
+    releasePackGitReadySuccess.stdout,
     `release_pack_publish: npm publish ${releasePackGitReadyTarballPath}`,
     "installed git-ready release pack CLI output"
   );
@@ -569,7 +575,6 @@ try {
   assertIncludes(onboard.stdout, "usage-limit", "installed onboard output");
   assertNotIncludes(onboard.stdout, "gptprouse_token=", "installed onboard output");
   const sourceOnboard = await run(binPath, ["onboard", "--cwd", consumerDir, "--source-cli", installedSourceCli], { cwd: path.dirname(consumerDir) });
-  const sourcePrefix = `node ${installedSourceCli}`;
   assertIncludes(sourceOnboard.stdout, `${sourcePrefix} init --cwd ${consumerDir}`, "installed source onboard output");
   assertIncludes(
     sourceOnboard.stdout,
@@ -881,6 +886,22 @@ try {
     "installed source browser help"
   );
   assertNotIncludes(sourceBrowserHelp.stdout, "Use `gptprouse pro ask`", "installed source browser help");
+  for (const subcommand of ["login", "check", "smoke", "ask"]) {
+    const sourceBrowserSubcommandHelp = await run(binPath, ["pro", "browser", subcommand, "--source-cli", installedSourceCli, "--help"], {
+      cwd: consumerDir
+    });
+    assertIncludes(
+      sourceBrowserSubcommandHelp.stdout,
+      `${sourcePrefix} pro browser login --source-cli ${installedSourceCli} [--dry-run]`,
+      `installed source browser ${subcommand} help`
+    );
+    assertIncludes(
+      sourceBrowserSubcommandHelp.stdout,
+      `${sourcePrefix} pro browser ask --source-cli ${installedSourceCli}`,
+      `installed source browser ${subcommand} help`
+    );
+    assertNotIncludes(sourceBrowserSubcommandHelp.stdout, "Use `gptprouse pro ask`", `installed source browser ${subcommand} help`);
+  }
   const invalidBrowserPort = await runExpectFailure(binPath, ["pro", "browser", "check", "--port", "-1", "--timeout-ms", "10"], {
     cwd: consumerDir
   });
@@ -1258,10 +1279,12 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertIncludes(readme, "release pack --source-cli", "installed README");
   assertIncludes(readme, "pack file-mode, non-regular file, or hard-link blockers", "installed README");
   assertIncludes(readme, "Run `pro ask` and `pro browser ask` from the repo root", "installed README");
+  assertIncludes(readme, "npm run release:check", "installed README");
   assertIncludes(readme, "npm run release:verify", "installed README");
   assertIncludes(readme, "npm run release:pack", "installed README");
   assertIncludes(readme, "npm publish --dry-run <tarball>", "installed README");
-  assertIncludes(readme, "prints `npm publish <tarball>` only after git readiness is clear", "installed README");
+  assertIncludes(readme, "Tarball publish commands bypass npm `prepublishOnly`", "installed README");
+  assertIncludes(readme, "release_pack_publish_guard", "installed README");
   assertIncludes(readme, "git remote add origin <git-url>", "installed README");
   assertIncludes(readme, "git push -u origin <branch>", "installed README");
   assertIncludes(readme, "release_pack_git", "installed README");
@@ -1271,7 +1294,7 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertIncludes(readme, "behind upstream", "installed README");
   assertIncludes(readme, "installed `release-pack` script and `gptprouse release pack` CLI success paths", "installed README");
   assertIncludes(readme, "runs `npm publish --dry-run` against those normalized tarballs", "installed README");
-  assertIncludes(readme, "git-ready release-pack output includes the guarded `release_pack_publish` command", "installed README");
+  assertIncludes(readme, "git-ready release-pack output includes the tarball publish lifecycle warning and guarded `release_pack_publish` command", "installed README");
   assertIncludes(readme, "regular file", "installed README");
   assertIncludes(readme, "symlinked packed files", "installed README");
   assertIncludes(readme, "hard link", "installed README");
