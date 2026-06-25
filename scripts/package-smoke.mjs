@@ -85,8 +85,8 @@ try {
   const installedPackageDir = path.join(consumerDir, "node_modules", "gptprouse");
   const releaseStatus = await run(binPath, ["release", "status", "--cwd", installedPackageDir], { cwd: consumerDir });
   assertIncludes(releaseStatus.stdout, "gptprouse release status", "installed release status output");
-  assertIncludes(releaseStatus.stdout, "metadata: blocked", "installed release status output");
-  assertIncludes(releaseStatus.stdout, "explicit license", "installed release status output");
+  assertIncludes(releaseStatus.stdout, "metadata: ok license=MIT license_file=present", "installed release status output");
+  assertNotIncludes(releaseStatus.stdout, "explicit license", "installed release status output");
   assertIncludes(releaseStatus.stdout, "pack:", "installed release status output");
   assertIncludes(releaseStatus.stdout, "git: blocked", "installed release status output");
   assertIncludes(releaseStatus.stdout, "not a git worktree", "installed release status output");

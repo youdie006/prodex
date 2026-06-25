@@ -2,6 +2,7 @@
   "name": "gptprouse",
   "version": "0.2.0",
   "description": "Local receipt bus for coordinating Codex execution with ChatGPT Pro/Projects consultation.",
+  "license": "MIT",
   "type": "module",
   "bin": {
     "gptprouse": "./dist/cli.js"
@@ -9,6 +10,7 @@
   "exports": {},
   "files": [
     "dist",
+    "LICENSE",
     "README.md",
     "docs/claude.md",
     "docs/http-mcp.md",
