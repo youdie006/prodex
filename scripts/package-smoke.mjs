@@ -226,6 +226,16 @@ try {
   });
   assertIncludes(invalidTokenTtl.stderr, "--token-ttl-hours must be greater than 0", "installed invalid token TTL output");
   await assertMissingFile(path.join(consumerDir, ".bridge"), "installed consumer bridge after invalid token TTL");
+  const invalidProAskPort = await runExpectFailure(binPath, ["pro", "browser", "ask", "--port", "-1", "--timeout-ms", "10", "Review this"], {
+    cwd: consumerDir
+  });
+  assertIncludes(invalidProAskPort.stderr, "--port must be an integer from 1 to 65535", "installed invalid pro browser ask port output");
+  await assertMissingFile(path.join(consumerDir, ".bridge"), "installed consumer bridge after invalid pro browser ask port");
+  const invalidProAskTimeout = await runExpectFailure(binPath, ["pro", "browser", "ask", "--port", "65534", "--timeout-ms", "0", "Review this"], {
+    cwd: consumerDir
+  });
+  assertIncludes(invalidProAskTimeout.stderr, "--timeout-ms must be greater than 0", "installed invalid pro browser ask timeout output");
+  await assertMissingFile(path.join(consumerDir, ".bridge"), "installed consumer bridge after invalid pro browser ask timeout");
   await assertMissingFile(path.join(consumerDir, ".bridge"), "installed consumer bridge before pro ask alias guard");
   const proAskSendAlias = await runExpectFailure(binPath, ["pro", "ask", "--send", "--timeout-ms", "1", "Review this"], {
     cwd: consumerDir

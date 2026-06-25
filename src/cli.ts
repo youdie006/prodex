@@ -541,6 +541,8 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
     }
     const prompt = parsedAskPro.promptParts.join(" ").trim();
     if (!prompt) throw new Error("ask-pro requires a prompt");
+    const browserPort = hasSendMode ? (readPortFlag(parsedAskPro.optionArgs, "--port") ?? 9333) : undefined;
+    const browserTimeoutMs = hasSendMode ? (readPositiveNumberFlag(parsedAskPro.optionArgs, "--timeout-ms") ?? 90000) : undefined;
     const bundle = await buildDryRunBundle(io.cwd, { prompt, files });
     if (hasSendMode) {
       const task = await store.createTask({
@@ -573,10 +575,10 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       let consult: Awaited<ReturnType<typeof sendChatGptPrompt>>;
       try {
         consult = await sendChatGptPrompt({
-          port: readPortFlag(parsedAskPro.optionArgs, "--port") ?? 9333,
+          port: browserPort,
           prompt: bundle.text,
           targetUrl: normalizedTargetUrl,
-          timeoutMs: readPositiveNumberFlag(parsedAskPro.optionArgs, "--timeout-ms") ?? 90000
+          timeoutMs: browserTimeoutMs
         });
       } catch (error) {
         const message = errorMessage(error);

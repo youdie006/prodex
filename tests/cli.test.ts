@@ -479,6 +479,24 @@ describe("runCli", () => {
     ).rejects.toThrow("--timeout-ms must be greater than 0");
     expect(out).toEqual([]);
 
+    await expect(
+      runCli(["pro", "browser", "ask", "--port", "-1", "--timeout-ms", "10", "Review this"], {
+        cwd,
+        stdout: (line) => out.push(line),
+        stderr: () => {}
+      })
+    ).rejects.toThrow("--port must be an integer from 1 to 65535");
+    expect(out).toEqual([]);
+
+    await expect(
+      runCli(["pro", "browser", "ask", "--port", "65534", "--timeout-ms", "0", "Review this"], {
+        cwd,
+        stdout: (line) => out.push(line),
+        stderr: () => {}
+      })
+    ).rejects.toThrow("--timeout-ms must be greater than 0");
+    expect(out).toEqual([]);
+
     await expect(readdir(path.join(cwd, ".bridge"))).rejects.toThrow();
   });
 
