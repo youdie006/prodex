@@ -249,6 +249,14 @@ npm run release:verify
 
 This runs tests, typecheck, build, package smoke, and `doctor` without weakening the publish guard.
 
+If direct `npm pack` is blocked because a WSL/Windows mount reports normal source files as executable, build the publish tarball from a temporary Linux staging directory:
+
+```bash
+npm run release:pack -- --pack-destination /tmp/gptprouse-release
+```
+
+`release:pack` does not publish anything. It still refuses missing publish metadata, non-regular or hard-linked packed files, and missing package release checks; it only normalizes packed file modes in the staging copy so package `bin` entries remain executable and other packed files become regular `0644` files. Run `npm run release:verify` and `gptprouse release status` before publishing the tarball it creates.
+
 To see the current publish blocker and next step from the CLI:
 
 ```bash
@@ -257,7 +265,7 @@ gptprouse release status
 
 It reports package metadata blockers, pack file-mode or hard-link blockers when package identity is readable, and local git readiness, including a dirty worktree, missing git remote, branch without upstream tracking, or unpushed local commits.
 
-Before publishing to npm, make sure `package.json` has an npm-publishable `name` and valid semver `version`, choose an explicit license, add the matching `LICENSE` regular file, and make sure `package.json` does not have `private: true`. `release:check` treats missing or malformed package identity and `private: true` as publish blockers because npm will refuse to publish those packages. It also rejects a `LICENSE` path that is a directory, symlink, or hard link, blocks packed files with unexpected executable modes outside package `bin` entries, and rejects hard-linked packed files. If you are on a WSL/Windows mount that reports every file as executable, publish from a Linux filesystem or fix mount metadata/chmod first. `npm publish` is intentionally guarded by `prepublishOnly`; it runs:
+Before publishing to npm, make sure `package.json` has an npm-publishable `name` and valid semver `version`, choose an explicit license, add the matching `LICENSE` regular file, and make sure `package.json` does not have `private: true`. `release:check` treats missing or malformed package identity and `private: true` as publish blockers because npm will refuse to publish those packages. It also rejects a `LICENSE` path that is a directory, symlink, or hard link, blocks packed files with unexpected executable modes outside package `bin` entries, and rejects hard-linked packed files. If you are on a WSL/Windows mount that reports every file as executable, publish from a Linux filesystem, fix mount metadata/chmod first, or use `npm run release:pack -- --pack-destination <dir>` after release verification to create the tarball from normalized staging files. `npm publish` is intentionally guarded by `prepublishOnly`; it runs:
 
 ```bash
 npm run release:check

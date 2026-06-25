@@ -12,12 +12,14 @@
     "README.md",
     "docs/claude.md",
     "docs/http-mcp.md",
-    "scripts/release-check.mjs"
+    "scripts/release-check.mjs",
+    "scripts/release-pack.mjs"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "dev": "tsx src/cli.ts",
     "release:check": "node scripts/release-check.mjs",
+    "release:pack": "node scripts/release-pack.mjs",
     "release:verify": "node scripts/release-check.mjs --verification-only",
     "smoke:package": "node scripts/package-smoke.mjs",
     "test": "vitest run",

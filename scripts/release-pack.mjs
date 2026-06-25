@@ -1,0 +1,151 @@
+#!/usr/bin/env node
+import { execFile } from "node:child_process";
+import { chmod, copyFile, lstat, mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
+
+const execFileAsync = promisify(execFile);
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
+
+try {
+  const args = parseArgs(process.argv.slice(2));
+  await releasePack(args);
+} catch (error) {
+  console.error(`release pack failed: ${errorMessage(error)}`);
+  process.exitCode = 1;
+}
+
+async function releasePack(args) {
+  const root = path.resolve(args.root ?? repoRoot);
+  const destination = path.resolve(args.packDestination ?? root);
+  await mkdir(destination, { recursive: true });
+
+  const packageJson = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
+  const binPaths = packageBinPaths(packageJson.bin);
+  const files = await readPackedFiles(root);
+  const staging = await mkdtemp(path.join(tmpdir(), "gptprouse-release-pack-"));
+  let packedTarball;
+  try {
+    await copyPackedFilesToStaging(root, staging, files, binPaths);
+    await run(process.execPath, [path.join(staging, "scripts", "release-check.mjs"), "--metadata-only", "--root", staging], staging);
+    const { stdout } = await run(npmCommand, ["pack", "--json", "--ignore-scripts", "--pack-destination", destination], staging);
+    packedTarball = resolvePackedTarball(destination, stdout);
+  } finally {
+    if (!args.keepWorkdir) {
+      await rm(staging, { recursive: true, force: true });
+    }
+  }
+
+  console.log(`release_pack=ok tarball=${packedTarball} file_modes=ok staging=${args.keepWorkdir ? staging : "removed"}`);
+  console.log("release_pack_next: run `npm run release:verify` and `gptprouse release status` before publishing this tarball.");
+}
+
+async function copyPackedFilesToStaging(root, staging, files, binPaths) {
+  for (const file of files) {
+    const packagePath = normalizePackagePath(file.path);
+    const source = path.join(root, packagePath);
+    const sourceRelative = path.relative(root, source);
+    if (sourceRelative.startsWith("..") || path.isAbsolute(sourceRelative)) {
+      throw new Error(`packed file path escapes package root: ${packagePath}`);
+    }
+    const sourceStat = await lstat(source);
+    if (sourceStat.isSymbolicLink() || !sourceStat.isFile()) {
+      throw new Error(`packed file must be a regular non-symlink file: ${packagePath}`);
+    }
+    if (sourceStat.nlink > 1) {
+      throw new Error(`packed files must not have hard links: ${packagePath}`);
+    }
+    const target = path.join(staging, packagePath);
+    await mkdir(path.dirname(target), { recursive: true });
+    await copyFile(source, target);
+    await chmod(target, binPaths.has(packagePath) ? 0o755 : 0o644);
+  }
+}
+
+async function readPackedFiles(root) {
+  const { stdout } = await run(npmCommand, ["pack", "--json", "--dry-run", "--ignore-scripts"], root);
+  const entries = JSON.parse(stdout);
+  const files = entries?.[0]?.files;
+  if (!Array.isArray(files)) {
+    throw new Error("npm pack dry-run did not return a file list");
+  }
+  return files.filter((file) => typeof file?.path === "string");
+}
+
+function resolvePackedTarball(destination, stdout) {
+  const entries = JSON.parse(stdout);
+  const filename = entries?.[0]?.filename;
+  if (typeof filename !== "string" || !filename.endsWith(".tgz")) {
+    throw new Error(`could not determine npm pack tarball from output: ${stdout}`);
+  }
+  return path.isAbsolute(filename) ? filename : path.join(destination, filename);
+}
+
+async function run(command, commandArgs, cwd) {
+  return execFileAsync(command, commandArgs, {
+    cwd,
+    timeout: 120_000,
+    maxBuffer: 20 * 1024 * 1024
+  });
+}
+
+function packageBinPaths(bin) {
+  const paths = new Set();
+  if (typeof bin === "string") {
+    paths.add(normalizePackagePath(bin));
+  } else if (bin && typeof bin === "object") {
+    for (const value of Object.values(bin)) {
+      if (typeof value === "string") paths.add(normalizePackagePath(value));
+    }
+  }
+  return paths;
+}
+
+function normalizePackagePath(value) {
+  return value.replaceAll("\\", "/").replace(/^\.\/+/, "");
+}
+
+function parseArgs(values) {
+  const parsed = {
+    root: undefined,
+    packDestination: undefined,
+    keepWorkdir: false
+  };
+  for (let index = 0; index < values.length; index += 1) {
+    const arg = values[index];
+    if (arg === "--root") {
+      const value = values[index + 1];
+      if (!value || value.startsWith("-")) {
+        throw new Error("release pack flags failed: --root requires a value");
+      }
+      parsed.root = value;
+      index += 1;
+      continue;
+    }
+    if (arg === "--pack-destination") {
+      const value = values[index + 1];
+      if (!value || value.startsWith("-")) {
+        throw new Error("release pack flags failed: --pack-destination requires a value");
+      }
+      parsed.packDestination = value;
+      index += 1;
+      continue;
+    }
+    if (arg === "--keep-workdir") {
+      parsed.keepWorkdir = true;
+      continue;
+    }
+    if (arg.startsWith("-")) {
+      throw new Error(`release pack flags failed: unknown option ${arg}`);
+    }
+    throw new Error(`release pack flags failed: unexpected argument ${arg}`);
+  }
+  return parsed;
+}
+
+function errorMessage(error) {
+  return error instanceof Error ? error.message : String(error);
+}

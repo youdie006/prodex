@@ -1683,6 +1683,7 @@ describe("runCli", () => {
     expect(text).toContain("pack: blocked packed files have unexpected executable modes");
     expect(text).toContain("README.md");
     expect(text).toContain("pack_next: fix file modes or publish from a filesystem that preserves executable bits");
+    expect(text).toContain("npm run release:pack -- --pack-destination <dir>");
     expect(text).toContain("next: choose a license, add LICENSE, then run `npm run release:check`");
     expect(text).not.toContain("metadata: ok");
   });
@@ -1859,6 +1860,7 @@ describe("runCli", () => {
     expect(text).toContain("metadata: ok license=MIT license_file=present");
     expect(text).toContain("pack: blocked packed files have unexpected executable modes");
     expect(text).toContain("README.md");
+    expect(text).toContain("npm run release:pack -- --pack-destination <dir>");
     expect(text).not.toContain("pack: ok");
   });
 

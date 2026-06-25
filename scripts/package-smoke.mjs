@@ -365,6 +365,7 @@ function assertPackageFileScope(files) {
   assertArrayIncludes(paths, "docs/http-mcp.md", "packed files");
   assertArrayIncludes(paths, "docs/claude.md", "packed files");
   assertArrayIncludes(paths, "scripts/release-check.mjs", "packed files");
+  assertArrayIncludes(paths, "scripts/release-pack.mjs", "packed files");
   assertArrayNotIncludes(paths, "docs/research.md", "packed files");
   assertArrayNotIncludes(paths, "docs/todo.md", "packed files");
   if (paths.some((filePath) => filePath.startsWith("docs/superpowers/"))) {
@@ -403,6 +404,7 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertIncludes(readme, "pack file-mode or hard-link blockers", "installed README");
   assertIncludes(readme, "Run `pro ask` and `pro browser ask` from the repo root", "installed README");
   assertIncludes(readme, "npm run release:verify", "installed README");
+  assertIncludes(readme, "npm run release:pack", "installed README");
   assertIncludes(readme, "regular file", "installed README");
   assertIncludes(readme, "hard link", "installed README");
   assertIncludes(readme, "unexpected executable modes", "installed README");
