@@ -10,6 +10,49 @@ const repoRoot = path.resolve(import.meta.dirname, "..");
 const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
 
 describe("release-pack", () => {
+  it("prints usage without inspecting package metadata", async () => {
+    const result = await runReleasePack(["--help"]);
+
+    const output = `${result.stdout}\n${result.stderr}`;
+    expect(result.code).toBe(0);
+    expect(output).toContain("Usage: npm run release:pack -- --pack-destination <dir>");
+    expect(output).toContain("--root <dir>");
+    expect(output).toContain("--keep-workdir");
+    expect(output).not.toContain("release pack failed");
+    expect(output).not.toContain("release metadata failed");
+  });
+
+  it("fails with a friendly message when package.json is missing", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-release-pack-missing-"));
+    const destination = await mkdtemp(path.join(tmpdir(), "gptprouse-release-pack-dest-"));
+
+    const result = await runReleasePack(["--root", root, "--pack-destination", destination]);
+
+    const output = `${result.stdout}\n${result.stderr}`;
+    expect(result.code).toBe(1);
+    expect(output).toContain("release pack failed");
+    expect(output).toContain("package.json not found");
+    expect(output).not.toContain("ENOENT");
+    expect(output).not.toContain("SyntaxError");
+    expect((await readdir(destination)).filter((entry) => entry.endsWith(".tgz"))).toEqual([]);
+  });
+
+  it("fails with a friendly message when package.json is malformed", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-release-pack-malformed-"));
+    const destination = await mkdtemp(path.join(tmpdir(), "gptprouse-release-pack-dest-"));
+    await writeFile(path.join(root, "package.json"), "{ broken json\n", "utf8");
+
+    const result = await runReleasePack(["--root", root, "--pack-destination", destination]);
+
+    const output = `${result.stdout}\n${result.stderr}`;
+    expect(result.code).toBe(1);
+    expect(output).toContain("release pack failed");
+    expect(output).toContain("package.json is not valid JSON");
+    expect(output).not.toContain("SyntaxError");
+    expect(output).not.toContain("at JSON.parse");
+    expect((await readdir(destination)).filter((entry) => entry.endsWith(".tgz"))).toEqual([]);
+  });
+
   it("creates a sanitized tarball from a package with executable non-bin file modes", async () => {
     const root = await createReleasePackFixture();
     await chmod(path.join(root, "README.md"), 0o755);

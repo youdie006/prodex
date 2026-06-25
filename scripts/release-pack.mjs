@@ -12,6 +12,10 @@ const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
 
 try {
   const args = parseArgs(process.argv.slice(2));
+  if (args.help) {
+    console.log(formatHelp());
+    process.exit(0);
+  }
   await releasePack(args);
 } catch (error) {
   console.error(`release pack failed: ${errorMessage(error)}`);
@@ -23,7 +27,7 @@ async function releasePack(args) {
   const destination = path.resolve(args.packDestination ?? root);
   await mkdir(destination, { recursive: true });
 
-  const packageJson = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
+  const packageJson = await readPackageJson(root);
   const binPaths = packageBinPaths(packageJson.bin);
   const files = await readPackedFiles(root);
   const staging = await mkdtemp(path.join(tmpdir(), "gptprouse-release-pack-"));
@@ -75,6 +79,24 @@ async function readPackedFiles(root) {
   return files.filter((file) => typeof file?.path === "string");
 }
 
+async function readPackageJson(root) {
+  const packageJsonPath = path.join(root, "package.json");
+  let raw;
+  try {
+    raw = await readFile(packageJsonPath, "utf8");
+  } catch (error) {
+    if (isMissingFileError(error)) {
+      throw new Error(`release metadata failed: package.json not found at ${packageJsonPath}`);
+    }
+    throw error;
+  }
+  try {
+    return JSON.parse(raw);
+  } catch {
+    throw new Error(`release metadata failed: package.json is not valid JSON at ${packageJsonPath}`);
+  }
+}
+
 function resolvePackedTarball(destination, stdout) {
   const entries = JSON.parse(stdout);
   const filename = entries?.[0]?.filename;
@@ -112,10 +134,15 @@ function parseArgs(values) {
   const parsed = {
     root: undefined,
     packDestination: undefined,
-    keepWorkdir: false
+    keepWorkdir: false,
+    help: false
   };
   for (let index = 0; index < values.length; index += 1) {
     const arg = values[index];
+    if (arg === "--help" || arg === "-h") {
+      parsed.help = true;
+      continue;
+    }
     if (arg === "--root") {
       const value = values[index + 1];
       if (!value || value.startsWith("-")) {
@@ -146,6 +173,23 @@ function parseArgs(values) {
   return parsed;
 }
 
+function formatHelp() {
+  return `Usage: npm run release:pack -- --pack-destination <dir> [options]
+
+Create a publish tarball from a temporary staging directory with normalized package file modes.
+
+Options:
+  --pack-destination <dir>  Directory where the .tgz tarball is written
+  --root <dir>              Package root to pack (default: current gptprouse checkout)
+  --keep-workdir            Keep the temporary staging directory for inspection
+  --help, -h                Show this help text
+`;
+}
+
 function errorMessage(error) {
   return error instanceof Error ? error.message : String(error);
+}
+
+function isMissingFileError(error) {
+  return error && typeof error === "object" && "code" in error && error.code === "ENOENT";
 }
