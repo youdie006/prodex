@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildChromeLaunchArgs,
   assertChatGptPageAvailable,
+  assertChatGptReadyForPrompt,
   assertChatGptTargetUrlMatches,
   assertChatGptTargetTabAvailable,
   assertVisibleChatGptTab,
@@ -369,6 +370,25 @@ describe("ChatGPT browser adapter", () => {
         code: "chatgpt_page_missing",
         retryable: true,
         next_step: "Open https://chatgpt.com/ in the dedicated Chrome profile."
+      })
+    );
+  });
+
+  it("throws a structured blocker when ChatGPT is not ready for prompts", () => {
+    let thrown: unknown;
+
+    try {
+      assertChatGptReadyForPrompt(false, false);
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(ChatGptBrowserBlockerError);
+    expect((thrown as ChatGptBrowserBlockerError).blocker).toEqual(
+      expect.objectContaining({
+        code: "chatgpt_not_ready",
+        retryable: true,
+        next_step: "Log in manually and open a normal chat or Project thread with the prompt composer visible, then retry."
       })
     );
   });

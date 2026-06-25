@@ -391,6 +391,20 @@ export function assertChatGptPageAvailable(): never {
   });
 }
 
+export function assertChatGptReadyForPrompt(loggedInLikely: boolean, hasComposer: boolean): void {
+  if (loggedInLikely && hasComposer) return;
+  const missing = [
+    loggedInLikely ? undefined : "a clear logged-in ChatGPT session",
+    hasComposer ? undefined : "a visible prompt composer"
+  ].filter(Boolean);
+  throw new ChatGptBrowserBlockerError({
+    code: "chatgpt_not_ready",
+    message: `ChatGPT browser is reachable, but it is missing ${missing.join(" and ")}.`,
+    retryable: true,
+    next_step: "Log in manually and open a normal chat or Project thread with the prompt composer visible, then retry."
+  });
+}
+
 export function chatGptVisibilityBlocker(
   visibilityState: string | undefined,
   url: string | undefined
@@ -520,9 +534,7 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
   if (blocker) {
     throw new ChatGptBrowserBlockerError(blocker);
   }
-  if (!inferChatGptPageLoggedInLikely(status) || !status.hasComposer) {
-    throw new Error("ChatGPT browser is reachable, but it is not logged in with an active composer.");
-  }
+  assertChatGptReadyForPrompt(inferChatGptPageLoggedInLikely(status), status.hasComposer);
   if (normalizedTargetUrl) assertChatGptTargetUrlMatches(status.url, normalizedTargetUrl);
   assertVisibleChatGptTab(status.visibilityState, status.url, normalizedTargetUrl);
   const busyBlocker = chatGptBusyBlocker(status.generating);
