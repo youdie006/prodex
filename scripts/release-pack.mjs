@@ -98,7 +98,12 @@ async function readPackedFiles(root) {
   if (!Array.isArray(files)) {
     throw new Error("npm pack dry-run did not return a file list");
   }
-  return files.filter((file) => typeof file?.path === "string");
+  for (const file of files) {
+    if (typeof file?.path !== "string" || file.path.trim() === "") {
+      throw new Error("npm pack dry-run file entry is missing a path");
+    }
+  }
+  return files;
 }
 
 async function readPackageJson(root) {

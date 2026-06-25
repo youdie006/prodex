@@ -138,6 +138,41 @@ describe("release-pack", () => {
     expect((await readdir(destination)).filter((entry) => entry.endsWith(".tgz"))).toEqual([]);
   });
 
+  it("fails with a friendly message when npm pack dry-run includes a file entry without a path", async () => {
+    const root = await createReleasePackFixture();
+    const destination = await mkdtemp(path.join(tmpdir(), "gptprouse-release-pack-dest-"));
+    const fakeBin = await mkdtemp(path.join(tmpdir(), "gptprouse-release-pack-fake-bin-"));
+    await writeFile(
+      path.join(fakeBin, npmCommand),
+      `#!/bin/sh
+case " $* " in
+  *" --dry-run "*)
+    if [ "$(pwd)" = "${root}" ]; then
+      printf '[{"files":[{"path":"package.json","mode":420},{"path":"README.md","mode":420},{"path":"LICENSE","mode":420},{"path":"dist/cli.js","mode":493},{"path":"scripts/release-check.mjs","mode":420},{"mode":420}]}]\\n'
+    else
+      printf '[{"files":[{"path":"package.json","mode":420},{"path":"README.md","mode":420},{"path":"LICENSE","mode":420},{"path":"dist/cli.js","mode":493},{"path":"scripts/release-check.mjs","mode":420}]}]\\n'
+    fi
+    ;;
+  *) printf 'final pack should not run\\n' >&2; exit 24 ;;
+esac
+`,
+      "utf8"
+    );
+    await chmod(path.join(fakeBin, npmCommand), 0o755);
+
+    const result = await runReleasePack(["--root", root, "--pack-destination", destination], {
+      env: { PATH: `${fakeBin}${path.delimiter}${process.env.PATH ?? ""}` }
+    });
+
+    const output = `${result.stdout}\n${result.stderr}`;
+    expect(result.code).toBe(1);
+    expect(output).toContain("release pack failed");
+    expect(output).toContain("npm pack dry-run file entry is missing a path");
+    expect(output).not.toContain("final pack should not run");
+    expect(output).not.toContain("release_pack=ok");
+    expect((await readdir(destination)).filter((entry) => entry.endsWith(".tgz"))).toEqual([]);
+  });
+
   it("fails with a friendly message when npm pack lists a missing package file", async () => {
     const root = await createReleasePackFixture();
     const destination = await mkdtemp(path.join(tmpdir(), "gptprouse-release-pack-dest-"));
