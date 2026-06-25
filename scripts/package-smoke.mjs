@@ -277,6 +277,10 @@ try {
       expected: "Unknown option: --fil. Did you mean `--file`?"
     },
     {
+      args: ["release", "pack", "--pack-dest", "/tmp/out"],
+      expected: "Unknown option for release pack: --pack-dest. Did you mean `--pack-destination`?"
+    },
+    {
       args: ["start", "--token", "runtime-token"],
       expected: "Unknown option for start: --token"
     }

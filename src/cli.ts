@@ -1212,12 +1212,19 @@ function unknownOptionError(option: string, command: string | undefined, candida
 }
 
 function closestSuggestion<T extends string>(value: string, candidates: readonly T[]): T | undefined {
-  let best: { command: string; distance: number } | undefined;
+  let best: { command: string; distance: number; prefixMatch: boolean } | undefined;
   for (const candidate of candidates) {
     const distance = editDistance(value, candidate);
-    if (!best || distance < best.distance) best = { command: candidate, distance };
+    const prefixMatch = isUsefulPrefixSuggestion(value, candidate);
+    if (!best || (prefixMatch && !best.prefixMatch) || (prefixMatch === best.prefixMatch && distance < best.distance)) {
+      best = { command: candidate, distance, prefixMatch };
+    }
   }
-  return best && best.distance <= 2 ? (best.command as T) : undefined;
+  return best && (best.prefixMatch || best.distance <= 2) ? (best.command as T) : undefined;
+}
+
+function isUsefulPrefixSuggestion(value: string, candidate: string): boolean {
+  return value.length >= 5 && candidate.startsWith(value);
 }
 
 function editDistance(left: string, right: string): number {
