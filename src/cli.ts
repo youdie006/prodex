@@ -227,16 +227,16 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
   if (command === "project") {
     const [subcommand, ...projectArgs] = rest;
     if (subcommand !== "prompt") throw new Error("project requires prompt");
-    assertOnlyOptions(projectArgs, "project prompt", ["--cwd"]);
-    io.stdout(formatProjectVerificationPrompt(resolveCwdFlag(io.cwd, projectArgs)));
+    assertOnlyOptions(projectArgs, "project prompt", ["--cwd", "--source-cli"]);
+    io.stdout(formatProjectVerificationPrompt(resolveCwdFlag(io.cwd, projectArgs), resolveOptionalFileFlag(io.cwd, projectArgs, "--source-cli")));
     return 0;
   }
 
   if (command === "claude") {
     const [subcommand, ...claudeArgs] = rest;
     if (subcommand === "prompt") {
-      assertOnlyOptions(claudeArgs, "claude prompt", ["--cwd"]);
-      io.stdout(formatClaudeVerificationPrompt(resolveCwdFlag(io.cwd, claudeArgs)));
+      assertOnlyOptions(claudeArgs, "claude prompt", ["--cwd", "--source-cli"]);
+      io.stdout(formatClaudeVerificationPrompt(resolveCwdFlag(io.cwd, claudeArgs), resolveOptionalFileFlag(io.cwd, claudeArgs, "--source-cli")));
       return 0;
     }
     if (subcommand === "config") {
@@ -731,8 +731,8 @@ Commands:
   gptprouse tunnel url [--cwd /absolute/path/to/repo] --public-url https://... [--show-token] [--url-only]
   gptprouse release status [--cwd /absolute/path/to/repo]
   gptprouse onboard [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]
-  gptprouse project prompt [--cwd /absolute/path/to/repo]
-  gptprouse claude prompt [--cwd /absolute/path/to/repo]
+  gptprouse project prompt [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]
+  gptprouse claude prompt [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]
   gptprouse claude config [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]
   gptprouse pro ask [--dry-run] [--file path] "prompt"  # dry-run preview
   gptprouse pro browser login [--dry-run]  # preview/open visible browser login
@@ -757,7 +757,8 @@ Commands:
   gptprouse mcp [--cwd /absolute/path/to/repo]`);
 }
 
-function formatProjectVerificationPrompt(cwd: string): string {
+function formatProjectVerificationPrompt(cwd: string, sourceCli?: string): string {
+  const cli = formatCliCommand(sourceCli);
   return `ChatGPT Project MCP verification prompt
 
 Paste this into the ChatGPT Project after adding the gptprouse MCP server URL.
@@ -783,8 +784,8 @@ Please verify the gptprouse MCP bridge for this private project:
 Local follow-up after ChatGPT replies:
 
 cd ${shellQuote(cwd)}
-gptprouse tasks list --status new
-gptprouse tasks show <task-id>`;
+${cli} tasks list --status new
+${cli} tasks show <task-id>`;
 }
 
 function formatOnboardingGuide(cwd: string, hasReadme: boolean, sourceCli?: string): string {
@@ -805,7 +806,7 @@ repo: ${cwd}
 
 2. Claude stdio MCP:
    ${cli} claude config --cwd ${quotedCwd}${sourceCliOption}
-   ${cli} claude prompt --cwd ${quotedCwd}
+   ${cli} claude prompt --cwd ${quotedCwd}${sourceCliOption}
 
 3. ChatGPT Project HTTP MCP:
    Note: HTTP MCP uses a short-lived token. Paste token-bearing URLs only into your own trusted private MCP client.
@@ -813,7 +814,7 @@ repo: ${cwd}
    ${cli} start --cwd ${quotedCwd}
    Keep this terminal open while ChatGPT uses the bridge; run the next commands in a second terminal.
    ${cli} status --cwd ${quotedCwd} --show-token --url-only
-   ${cli} project prompt --cwd ${quotedCwd}
+   ${cli} project prompt --cwd ${quotedCwd}${sourceCliOption}
 
 4. Optional ChatGPT Pro consults:
    cd ${quotedCwd}
@@ -840,7 +841,8 @@ async function hasOnboardingReadme(cwd: string): Promise<boolean> {
   }
 }
 
-function formatClaudeVerificationPrompt(cwd: string): string {
+function formatClaudeVerificationPrompt(cwd: string, sourceCli?: string): string {
+  const cli = formatCliCommand(sourceCli);
   return `Claude MCP verification prompt
 
 Paste this into Claude after adding the gptprouse stdio MCP server.
@@ -866,8 +868,8 @@ Please verify the gptprouse MCP bridge for this private repo:
 Local follow-up after Claude replies:
 
 cd ${shellQuote(cwd)}
-gptprouse tasks list --status new
-gptprouse tasks show <task-id>`;
+${cli} tasks list --status new
+${cli} tasks show <task-id>`;
 }
 
 function formatClaudeConfig(cwd: string, sourceCli: string | undefined): string {
@@ -886,6 +888,10 @@ function formatClaudeConfig(cwd: string, sourceCli: string | undefined): string 
 
 function shellQuote(value: string): string {
   return /^[A-Za-z0-9_./:@=-]+$/.test(value) ? value : `'${value.replaceAll("'", "'\\''")}'`;
+}
+
+function formatCliCommand(sourceCli?: string): string {
+  return sourceCli ? `node ${shellQuote(sourceCli)}` : "gptprouse";
 }
 
 async function formatReleaseStatus(cwd: string): Promise<string> {

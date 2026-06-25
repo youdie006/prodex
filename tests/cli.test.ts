@@ -1380,8 +1380,8 @@ describe("runCli", () => {
       stderr: () => {}
     });
 
-    expect(out.join("\n")).toContain("gptprouse project prompt [--cwd /absolute/path/to/repo]");
-    expect(out.join("\n")).toContain("gptprouse claude prompt [--cwd /absolute/path/to/repo]");
+    expect(out.join("\n")).toContain("gptprouse project prompt [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]");
+    expect(out.join("\n")).toContain("gptprouse claude prompt [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]");
     expect(out.join("\n")).toContain(
       "gptprouse claude config [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]"
     );
@@ -1407,6 +1407,27 @@ describe("runCli", () => {
     expect(text).toContain(`cd ${targetCwd}`);
     expect(text).toContain("gptprouse tasks list --status new");
     expect(text).toContain(targetCwd);
+    expect(text).not.toContain("gptprouse_token=");
+  });
+
+  it("project prompt can print source-checkout local follow-up commands", async () => {
+    const launcherCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-launcher-"));
+    const targetCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-target-"));
+    const sourceCli = path.join(launcherCwd, "dist", "cli.js");
+    await mkdir(path.dirname(sourceCli), { recursive: true });
+    await writeFile(sourceCli, "#!/usr/bin/env node\n", "utf8");
+    const out: string[] = [];
+
+    await runCli(["project", "prompt", "--cwd", targetCwd, "--source-cli", sourceCli], {
+      cwd: launcherCwd,
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    const text = out.join("\n");
+    expect(text).toContain(`node ${sourceCli} tasks list --status new`);
+    expect(text).toContain(`node ${sourceCli} tasks show <task-id>`);
+    expect(text).not.toContain("gptprouse tasks list --status new");
     expect(text).not.toContain("gptprouse_token=");
   });
 
@@ -1442,6 +1463,27 @@ describe("runCli", () => {
     expect(text).toContain(`cd ${targetCwd}`);
     expect(text).toContain("gptprouse tasks list --status new");
     expect(text).toContain(targetCwd);
+    expect(text).not.toContain("gptprouse_token=");
+  });
+
+  it("claude prompt can print source-checkout local follow-up commands", async () => {
+    const launcherCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-launcher-"));
+    const targetCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-target-"));
+    const sourceCli = path.join(launcherCwd, "dist", "cli.js");
+    await mkdir(path.dirname(sourceCli), { recursive: true });
+    await writeFile(sourceCli, "#!/usr/bin/env node\n", "utf8");
+    const out: string[] = [];
+
+    await runCli(["claude", "prompt", "--cwd", targetCwd, "--source-cli", sourceCli], {
+      cwd: launcherCwd,
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    const text = out.join("\n");
+    expect(text).toContain(`node ${sourceCli} tasks list --status new`);
+    expect(text).toContain(`node ${sourceCli} tasks show <task-id>`);
+    expect(text).not.toContain("gptprouse tasks list --status new");
     expect(text).not.toContain("gptprouse_token=");
   });
 
@@ -1574,11 +1616,11 @@ describe("runCli", () => {
     expect(text).toContain(`${sourcePrefix} init --cwd ${targetCwd}`);
     expect(text).toContain(`${sourcePrefix} doctor --cwd ${targetCwd}`);
     expect(text).toContain(`${sourcePrefix} claude config --cwd ${targetCwd} --source-cli ${sourceCli}`);
-    expect(text).toContain(`${sourcePrefix} claude prompt --cwd ${targetCwd}`);
+    expect(text).toContain(`${sourcePrefix} claude prompt --cwd ${targetCwd} --source-cli ${sourceCli}`);
     expect(text).toContain(`${sourcePrefix} setup --cwd ${targetCwd} --token-ttl-hours 24`);
     expect(text).toContain(`${sourcePrefix} start --cwd ${targetCwd}`);
     expect(text).toContain(`${sourcePrefix} status --cwd ${targetCwd} --show-token --url-only`);
-    expect(text).toContain(`${sourcePrefix} project prompt --cwd ${targetCwd}`);
+    expect(text).toContain(`${sourcePrefix} project prompt --cwd ${targetCwd} --source-cli ${sourceCli}`);
     expect(text).toContain(`${sourcePrefix} pro browser login --dry-run  # preview, no browser opens`);
     expect(text).toContain(`${sourcePrefix} pro browser ask "Review this repo"  # visible-browser send`);
     expect(text).not.toContain("gptprouse init --cwd");

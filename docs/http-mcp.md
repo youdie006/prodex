@@ -112,6 +112,12 @@ From outside the repo:
 gptprouse project prompt --cwd /absolute/path/to/your/repo
 ```
 
+For a source checkout, include the built CLI path so the generated local follow-up commands also use `node dist/cli.js`:
+
+```bash
+node dist/cli.js project prompt --cwd /absolute/path/to/your/repo --source-cli /absolute/path/to/gptprouse/dist/cli.js
+```
+
 Paste the generated prompt into the ChatGPT Project. It asks ChatGPT to call `bridge_create_task`, `bridge_list_tasks`, and `bridge_get_task`, then reply with the created task id. It deliberately does not ask for any repo write or staging tools.
 
 After ChatGPT replies, confirm the task locally:

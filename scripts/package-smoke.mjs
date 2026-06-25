@@ -150,7 +150,13 @@ try {
     `${sourcePrefix} claude config --cwd ${consumerDir} --source-cli ${installedSourceCli}`,
     "installed source onboard output"
   );
+  assertIncludes(
+    sourceOnboard.stdout,
+    `${sourcePrefix} claude prompt --cwd ${consumerDir} --source-cli ${installedSourceCli}`,
+    "installed source onboard output"
+  );
   assertIncludes(sourceOnboard.stdout, `${sourcePrefix} setup --cwd ${consumerDir} --token-ttl-hours 24`, "installed source onboard output");
+  assertIncludes(sourceOnboard.stdout, `${sourcePrefix} project prompt --cwd ${consumerDir} --source-cli ${installedSourceCli}`, "installed source onboard output");
   assertIncludes(sourceOnboard.stdout, `${sourcePrefix} pro browser ask "Review this repo"  # visible-browser send`, "installed source onboard output");
   assertNotIncludes(sourceOnboard.stdout, "gptprouse init --cwd", "installed source onboard output");
   assertNotIncludes(sourceOnboard.stdout, "gptprouse_token=", "installed source onboard output");
@@ -192,6 +198,13 @@ try {
   assertIncludes(projectPrompt.stdout, "bridge_get_task", "installed project prompt output");
   assertIncludes(projectPrompt.stdout, "gptprouse tasks list --status new", "installed project prompt output");
   assertNotIncludes(projectPrompt.stdout, "gptprouse_token=", "installed project prompt output");
+  const sourceProjectPrompt = await run(binPath, ["project", "prompt", "--cwd", consumerDir, "--source-cli", installedSourceCli], {
+    cwd: path.dirname(consumerDir)
+  });
+  assertIncludes(sourceProjectPrompt.stdout, `${sourcePrefix} tasks list --status new`, "installed source project prompt output");
+  assertIncludes(sourceProjectPrompt.stdout, `${sourcePrefix} tasks show <task-id>`, "installed source project prompt output");
+  assertNotIncludes(sourceProjectPrompt.stdout, "gptprouse tasks list --status new", "installed source project prompt output");
+  assertNotIncludes(sourceProjectPrompt.stdout, "gptprouse_token=", "installed source project prompt output");
   const claudePrompt = await run(binPath, ["claude", "prompt", "--cwd", consumerDir], { cwd: path.dirname(consumerDir) });
   assertIncludes(claudePrompt.stdout, "Claude MCP verification prompt", "installed Claude prompt output");
   assertIncludes(claudePrompt.stdout, "bridge_create_task", "installed Claude prompt output");
@@ -199,6 +212,13 @@ try {
   assertIncludes(claudePrompt.stdout, "bridge_get_task", "installed Claude prompt output");
   assertIncludes(claudePrompt.stdout, "gptprouse tasks list --status new", "installed Claude prompt output");
   assertNotIncludes(claudePrompt.stdout, "gptprouse_token=", "installed Claude prompt output");
+  const sourceClaudePrompt = await run(binPath, ["claude", "prompt", "--cwd", consumerDir, "--source-cli", installedSourceCli], {
+    cwd: path.dirname(consumerDir)
+  });
+  assertIncludes(sourceClaudePrompt.stdout, `${sourcePrefix} tasks list --status new`, "installed source Claude prompt output");
+  assertIncludes(sourceClaudePrompt.stdout, `${sourcePrefix} tasks show <task-id>`, "installed source Claude prompt output");
+  assertNotIncludes(sourceClaudePrompt.stdout, "gptprouse tasks list --status new", "installed source Claude prompt output");
+  assertNotIncludes(sourceClaudePrompt.stdout, "gptprouse_token=", "installed source Claude prompt output");
   const claudeConfig = await run(binPath, ["claude", "config", "--cwd", consumerDir], { cwd: path.dirname(consumerDir) });
   const parsedClaudeConfig = JSON.parse(claudeConfig.stdout);
   if (parsedClaudeConfig?.mcpServers?.gptprouse?.command !== "gptprouse") {
@@ -422,7 +442,9 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertIncludes(readme, "setup --cwd", "installed README");
   assertIncludes(readme, "mcp --cwd", "installed README");
   assertIncludes(readme, "gptprouse project prompt", "installed README");
+  assertIncludes(readme, "project prompt --source-cli", "installed README");
   assertIncludes(readme, "gptprouse claude prompt", "installed README");
+  assertIncludes(readme, "claude prompt --cwd /absolute/path/to/your/repo --source-cli", "installed README");
   assertIncludes(readme, "gptprouse claude config", "installed README");
   assertIncludes(readme, "gptprouse release status", "installed README");
   assertIncludes(readme, "pack file-mode or hard-link blockers", "installed README");
@@ -476,6 +498,7 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertIncludes(httpMcpDoc, "setup --cwd", "installed HTTP MCP docs");
   assertIncludes(httpMcpDoc, "gptprouse setup --token-ttl-hours 24", "installed HTTP MCP docs");
   assertIncludes(httpMcpDoc, "gptprouse project prompt", "installed HTTP MCP docs");
+  assertIncludes(httpMcpDoc, "project prompt --cwd /absolute/path/to/your/repo --source-cli", "installed HTTP MCP docs");
   assertIncludes(httpMcpDoc, "Verify In ChatGPT", "installed HTTP MCP docs");
   assertIncludes(httpMcpDoc, "Keep `gptprouse start` running", "installed HTTP MCP docs");
   assertIncludes(httpMcpDoc, "loopback-only", "installed HTTP MCP docs");
@@ -517,6 +540,7 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertIncludes(claudeDoc, "ripgrep", "installed Claude docs");
   assertIncludes(claudeDoc, "mcp --cwd", "installed Claude docs");
   assertIncludes(claudeDoc, "gptprouse claude prompt", "installed Claude docs");
+  assertIncludes(claudeDoc, "claude prompt --cwd /absolute/path/to/your/repo --source-cli", "installed Claude docs");
   assertIncludes(claudeDoc, "gptprouse claude config", "installed Claude docs");
   assertIncludes(claudeDoc, ".bridge/artifacts/results/", "installed Claude docs");
   assertIncludes(claudeDoc, "fetch rejects the artifact if its content changed afterward", "installed Claude docs");

@@ -188,6 +188,12 @@ After adding the MCP URL to ChatGPT, generate a paste-ready verification prompt:
 gptprouse project prompt
 ```
 
+For a source checkout, pass the same built CLI path so the prompt's local follow-up commands are also source-checkout commands:
+
+```bash
+node dist/cli.js project prompt --source-cli "$(pwd)/dist/cli.js"
+```
+
 Paste that prompt into the ChatGPT Project. It asks ChatGPT to call `bridge_create_task`, `bridge_list_tasks`, and `bridge_get_task` only, then you can confirm the created task locally:
 
 ```bash
@@ -309,6 +315,12 @@ After adding the MCP server in Claude, generate a paste-ready verification promp
 
 ```bash
 gptprouse claude prompt --cwd /absolute/path/to/your/repo
+```
+
+For a source checkout, include the built CLI path:
+
+```bash
+node dist/cli.js claude prompt --cwd /absolute/path/to/your/repo --source-cli /absolute/path/to/gptprouse/dist/cli.js
 ```
 
 The generated prompt asks Claude to create and read a bridge task only; it does not request write, stage, shell, browser, or tunnel actions.
