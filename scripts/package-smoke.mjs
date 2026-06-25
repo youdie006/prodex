@@ -259,6 +259,32 @@ try {
     const unknownSubcommand = await runExpectFailure(binPath, item.args, { cwd: consumerDir });
     assertIncludes(unknownSubcommand.stderr, item.expected, `installed ${item.args.join(" ")} output`);
   }
+  const unknownOptionCases = [
+    {
+      args: ["tasks", "list", "--stauts", "blocked"],
+      expected: "Unknown option for tasks list: --stauts. Did you mean `--status`?"
+    },
+    {
+      args: ["setup", "--token-ttl-hour", "24"],
+      expected: "Unknown option for setup: --token-ttl-hour. Did you mean `--token-ttl-hours`?"
+    },
+    {
+      args: ["pro", "browser", "login", "--dry-rn"],
+      expected: "Unknown option for pro browser login: --dry-rn. Did you mean `--dry-run`?"
+    },
+    {
+      args: ["pro", "browser", "ask", "--fil", "README.md", "Review"],
+      expected: "Unknown option: --fil. Did you mean `--file`?"
+    },
+    {
+      args: ["start", "--token", "runtime-token"],
+      expected: "Unknown option for start: --token"
+    }
+  ];
+  for (const item of unknownOptionCases) {
+    const unknownOption = await runExpectFailure(binPath, item.args, { cwd: consumerDir });
+    assertIncludes(unknownOption.stderr, item.expected, `installed ${item.args.join(" ")} output`);
+  }
   const legacyChatGptHelp = await runExpectFailure(binPath, ["chatgpt", "--help"], { cwd: consumerDir });
   assertIncludes(
     legacyChatGptHelp.stderr,

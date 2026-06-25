@@ -1204,6 +1204,13 @@ function unknownTopLevelCommandError(command: string): Error {
   return new Error(`Unknown command: ${command}.${suggestionText} Run \`gptprouse help\`.`);
 }
 
+function unknownOptionError(option: string, command: string | undefined, candidates: readonly string[]): Error {
+  const suggestion = closestSuggestion(option, candidates);
+  const suggestionText = suggestion ? `. Did you mean \`${suggestion}\`?` : "";
+  const context = command ? ` for ${command}` : "";
+  return new Error(`Unknown option${context}: ${option}${suggestionText}`);
+}
+
 function closestSuggestion<T extends string>(value: string, candidates: readonly T[]): T | undefined {
   let best: { command: string; distance: number } | undefined;
   for (const candidate of candidates) {
@@ -2953,7 +2960,7 @@ function assertOnlyOptions(args: string[], command: string, valueFlags: readonly
     }
     if (booleanFlagSet.has(arg)) continue;
     if (arg.startsWith("-")) {
-      throw new Error(`Unknown option for ${command}: ${arg}`);
+      throw unknownOptionError(arg, command, [...valueFlagSet, ...booleanFlagSet]);
     }
     throw new Error(`Unexpected argument for ${command}: ${arg}`);
   }
@@ -2986,7 +2993,7 @@ function parseAskProArgs(args: string[]): { optionArgs: string[]; promptParts: s
   for (let index = 0; index < optionArgs.length; index += 1) {
     const arg = optionArgs[index];
     if (!arg.startsWith("--")) {
-      if (arg.startsWith("-")) throw new Error(`Unknown option: ${arg}`);
+      if (arg.startsWith("-")) throw unknownOptionError(arg, undefined, [...ASK_PRO_VALUE_FLAGS, ...ASK_PRO_BOOLEAN_FLAGS]);
       positionalPromptParts.push(arg);
       continue;
     }
@@ -2996,7 +3003,7 @@ function parseAskProArgs(args: string[]): { optionArgs: string[]; promptParts: s
       index += 1;
       continue;
     }
-    throw new Error(`Unknown option: ${arg}`);
+    throw unknownOptionError(arg, undefined, [...ASK_PRO_VALUE_FLAGS, ...ASK_PRO_BOOLEAN_FLAGS]);
   }
 
   return { optionArgs, promptParts: [...positionalPromptParts, ...promptTail] };

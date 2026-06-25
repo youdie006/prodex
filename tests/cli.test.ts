@@ -108,6 +108,42 @@ describe("runCli", () => {
     }
   });
 
+  it("guides unknown options with close-match suggestions", async () => {
+    const cases = [
+      {
+        args: ["tasks", "list", "--stauts", "blocked"],
+        expected: "Unknown option for tasks list: --stauts. Did you mean `--status`?"
+      },
+      {
+        args: ["setup", "--token-ttl-hour", "24"],
+        expected: "Unknown option for setup: --token-ttl-hour. Did you mean `--token-ttl-hours`?"
+      },
+      {
+        args: ["pro", "browser", "login", "--dry-rn"],
+        expected: "Unknown option for pro browser login: --dry-rn. Did you mean `--dry-run`?"
+      },
+      {
+        args: ["pro", "browser", "ask", "--fil", "README.md", "Review"],
+        expected: "Unknown option: --fil. Did you mean `--file`?"
+      },
+      {
+        args: ["start", "--token", "runtime-token"],
+        expected: "Unknown option for start: --token"
+      }
+    ];
+
+    for (const item of cases) {
+      const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+      await expect(
+        runCli(item.args, {
+          cwd,
+          stdout: () => {},
+          stderr: () => {}
+        })
+      ).rejects.toThrow(item.expected);
+    }
+  });
+
   it("guides legacy ChatGPT namespace mistakes to pro browser help", async () => {
     const cases = [
       {
