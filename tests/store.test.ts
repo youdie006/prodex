@@ -282,6 +282,28 @@ describe("BridgeStore", () => {
     await expect(store.listReceipts()).rejects.toThrow(/does not match receipt record/i);
   });
 
+  it("cleans up a created task record when the creation receipt cannot be stored", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
+    const store = new BridgeStore(root);
+    setBridgeStoreTestHooks({
+      beforeRecordRename: async (kind) => {
+        if (kind === "receipts") throw new Error("forced task receipt failure");
+      }
+    });
+
+    await expect(
+      store.createTask({
+        source: "codex",
+        title: "Receipt fails",
+        prompt: "Do not leave an unreceipted task.",
+        repo_id: "default",
+        files: [],
+        provenance: { adapter: "cli" }
+      })
+    ).rejects.toThrow(/forced task receipt failure/);
+    await expect(readdir(path.join(root, ".bridge", "tasks"))).resolves.toEqual([]);
+  });
+
   it("repairs a non-terminal task when retrying completion after the matching result was already written", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
     const store = new BridgeStore(root);

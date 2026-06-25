@@ -98,7 +98,9 @@ export async function createRepoWriteDryRun(
   const preimage = sha256(current.content);
   const newSha = sha256(input.content);
   const diff = buildSimpleDiff(input.path, current.content, input.content);
-  const artifactPath = await store.writeArtifactText(`.bridge/artifacts/repo-writes/${newSha}.txt`, input.content);
+  const candidateArtifactPath = `.bridge/artifacts/repo-writes/${newSha}.txt`;
+  const artifactAlreadyExisted = await store.hasArtifactText(candidateArtifactPath);
+  const artifactPath = await store.writeArtifactText(candidateArtifactPath, input.content);
   const metadata: DryRunMetadata = {
     path: input.path,
     expected_head: head,
@@ -107,11 +109,23 @@ export async function createRepoWriteDryRun(
     diff,
     new_content_artifact: artifactPath
   };
-  const receipt = await store.writeReceipt({
-    kind: "repo_write_dry_run",
-    summary: `Dry-run write for ${input.path}`,
-    metadata: metadata as unknown as Record<string, unknown>
-  });
+  let receipt: Receipt;
+  try {
+    receipt = await store.writeReceipt({
+      kind: "repo_write_dry_run",
+      summary: `Dry-run write for ${input.path}`,
+      metadata: metadata as unknown as Record<string, unknown>
+    });
+  } catch (error) {
+    if (!artifactAlreadyExisted) {
+      try {
+        await store.deleteArtifactTextIfPresent(artifactPath);
+      } catch (cleanupError) {
+        throw new Error(`${errorMessage(error)} (also failed to clean up write artifact: ${errorMessage(cleanupError)})`);
+      }
+    }
+    throw error;
+  }
 
   return {
     receipt,

@@ -282,6 +282,29 @@ try {
   ]) {
     await run(binPath, command, { cwd: consumerDir });
   }
+  for (const [command, expectedMessage] of [
+    [["tasks", "show", "latest"], "No tasks found"],
+    [["results", "show", "latest"], "No results found"],
+    [["results", "artifact", "latest"], "No results found"],
+    [["receipts", "show", "latest"], "No receipts found"],
+    [["sessions", "show", "latest"], "No sessions found"],
+    [["pro", "show", "latest"], "No GPT Pro answers found"]
+  ]) {
+    const latestFailure = await runExpectFailure(binPath, command, { cwd: consumerDir });
+    assertIncludes(latestFailure.stderr, expectedMessage, `installed empty ${command.join(" ")} output`);
+  }
+  for (const [command, expectedMessage] of [
+    [["tasks", "show", "task_20990101_000000_missing"], "Task not found: task_20990101_000000_missing"],
+    [["results", "show", "task_20990101_000000_missing"], "Result not found: task_20990101_000000_missing"],
+    [["receipts", "show", "receipt_20990101_000000_missing"], "Receipt not found: receipt_20990101_000000_missing"],
+    [["sessions", "show", "sess_20990101_000000_missing"], "Session not found: sess_20990101_000000_missing"]
+  ]) {
+    const missingRecord = await runExpectFailure(binPath, command, { cwd: consumerDir });
+    assertIncludes(missingRecord.stderr, expectedMessage, `installed missing ${command.join(" ")} output`);
+    assertNotIncludes(missingRecord.stderr, "ENOENT", `installed missing ${command.join(" ")} output`);
+    assertNotIncludes(missingRecord.stderr, "lstat", `installed missing ${command.join(" ")} output`);
+    assertNotIncludes(missingRecord.stderr, "no such file", `installed missing ${command.join(" ")} output`);
+  }
   const legacyConsults = await runExpectFailure(binPath, ["consults", "list"], { cwd: consumerDir });
   assertIncludes(legacyConsults.stderr, "legacy `consults` alias is retired", "installed consults alias guard");
   assertIncludes(legacyConsults.stderr, "gptprouse pro list", "installed consults alias guard");

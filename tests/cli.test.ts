@@ -1134,6 +1134,63 @@ describe("runCli", () => {
     expect(await readdir(cwd)).not.toContain(".bridge");
   });
 
+  it("uses collection-level no-record messages for empty latest inspection aliases", async () => {
+    const cases: Array<{ command: string[]; message: RegExp }> = [
+      { command: ["tasks", "show", "latest"], message: /No tasks found/ },
+      { command: ["results", "show", "latest"], message: /No results found/ },
+      { command: ["results", "artifact", "latest"], message: /No results found/ },
+      { command: ["receipts", "show", "latest"], message: /No receipts found/ },
+      { command: ["sessions", "show", "latest"], message: /No sessions found/ },
+      { command: ["pro", "show", "latest"], message: /No GPT Pro answers found/ }
+    ];
+
+    for (const testCase of cases) {
+      const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+
+      await expect(
+        runCli(testCase.command, {
+          cwd,
+          stdout: () => {},
+          stderr: () => {}
+        }),
+        testCase.command.join(" ")
+      ).rejects.toThrow(testCase.message);
+
+      expect(await readdir(cwd), testCase.command.join(" ")).not.toContain(".bridge");
+    }
+  });
+
+  it("uses friendly no-record messages for missing explicit inspection ids", async () => {
+    const cases: Array<{ command: string[]; message: RegExp }> = [
+      { command: ["tasks", "show", "task_20990101_000000_missing"], message: /Task not found: task_20990101_000000_missing/ },
+      { command: ["results", "show", "task_20990101_000000_missing"], message: /Result not found: task_20990101_000000_missing/ },
+      { command: ["receipts", "show", "receipt_20990101_000000_missing"], message: /Receipt not found: receipt_20990101_000000_missing/ },
+      { command: ["sessions", "show", "sess_20990101_000000_missing"], message: /Session not found: sess_20990101_000000_missing/ }
+    ];
+
+    for (const testCase of cases) {
+      const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+
+      await expect(
+        runCli(testCase.command, {
+          cwd,
+          stdout: () => {},
+          stderr: () => {}
+        }),
+        testCase.command.join(" ")
+      ).rejects.toThrow(testCase.message);
+
+      await expect(
+        runCli(testCase.command, {
+          cwd,
+          stdout: () => {},
+          stderr: () => {}
+        }),
+        testCase.command.join(" ")
+      ).rejects.not.toThrow(/ENOENT|lstat|no such file/i);
+    }
+  });
+
   it("does not initialize bridge storage for empty-repo inspection commands", async () => {
     const commands = [
       ["tasks", "list"],

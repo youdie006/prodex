@@ -144,11 +144,20 @@ export class BridgeStore {
       updated_at: timestamp
     });
     await this.writeRecordJson("tasks", task.id, task);
-    await this.writeReceipt({
-      kind: "task_created",
-      task_id: task.id,
-      summary: `Created task ${task.id}`
-    });
+    try {
+      await this.writeReceipt({
+        kind: "task_created",
+        task_id: task.id,
+        summary: `Created task ${task.id}`
+      });
+    } catch (error) {
+      try {
+        await this.deleteRecordIfPresent("tasks", task.id);
+      } catch (cleanupError) {
+        throw new Error(`${errorMessage(error)} (also failed to clean up task record: ${errorMessage(cleanupError)})`);
+      }
+      throw error;
+    }
     return task;
   }
 
@@ -443,6 +452,46 @@ export class BridgeStore {
     return this.relativeToRoot(artifactPath);
   }
 
+  async hasArtifactText(relativePath: string): Promise<boolean> {
+    const artifactPath = this.resolveArtifactPath(relativePath);
+    try {
+      await this.assertBridgeDirIsRealDirectory();
+      await this.assertArtifactsDirIsRealDirectory();
+      await this.assertArtifactParentDirectory(path.dirname(artifactPath));
+      await this.assertArtifactTargetInside(artifactPath);
+      return true;
+    } catch (error) {
+      if (isErrorCode(error, "ENOENT")) return false;
+      throw error;
+    }
+  }
+
+  async deleteArtifactTextIfPresent(relativePath: string): Promise<void> {
+    await this.assertBridgeDirIsRealDirectory();
+    await this.assertArtifactsDirIsRealDirectory();
+    const artifactPath = this.resolveArtifactPath(relativePath);
+    const parentPath = path.dirname(artifactPath);
+    await this.assertArtifactParentDirectory(parentPath);
+    const parentHandle = await openNoFollowDirectory(parentPath, "Artifact directory");
+    try {
+      const targetPath = path.join(directoryFdPath(parentHandle.fd), path.basename(artifactPath));
+      let stat;
+      try {
+        stat = await lstat(targetPath);
+      } catch (error) {
+        if (isErrorCode(error, "ENOENT")) return;
+        throw error;
+      }
+      if (stat.isSymbolicLink() || !stat.isFile()) {
+        throw new Error("Artifact path must be a regular file and must not be a symlink");
+      }
+      await rm(targetPath, { force: true });
+      await this.assertArtifactParentDirectory(parentPath);
+    } finally {
+      await parentHandle.close();
+    }
+  }
+
   async readArtifactText(relativePath: string, options: { maxBytes?: number } = {}): Promise<string> {
     await this.assertBridgeDirIsRealDirectory();
     await this.assertArtifactsDirIsRealDirectory();
@@ -618,11 +667,18 @@ export class BridgeStore {
     options: { cleanupTempHardLinks?: boolean } = {}
   ): Promise<unknown> {
     const filePath = this.pathFor(kind, id);
-    await this.assertStorageDirIsRealDirectory(kind);
-    if (options.cleanupTempHardLinks ?? true) {
-      await this.cleanupRecordTempHardLinks(kind, filePath);
+    try {
+      await this.assertStorageDirIsRealDirectory(kind);
+      if (options.cleanupTempHardLinks ?? true) {
+        await this.cleanupRecordTempHardLinks(kind, filePath);
+      }
+      return JSON.parse(await readVerifiedUtf8File(filePath, () => this.assertRecordTargetInside(kind, filePath)));
+    } catch (error) {
+      if (isErrorCode(error, "ENOENT")) {
+        throw recordNotFoundError(kind, id);
+      }
+      throw error;
     }
-    return JSON.parse(await readVerifiedUtf8File(filePath, () => this.assertRecordTargetInside(kind, filePath)));
   }
 
   private async writeRecordJson(kind: BridgeRecordKind, id: string, value: unknown): Promise<void> {
@@ -663,6 +719,42 @@ export class BridgeStore {
       return await this.writeTextByStableStorageLinkIfAbsent(kind, filePath, content);
     }
     throw new Error("Bridge record writes require stable directory file descriptor paths on this platform.");
+  }
+
+  private async deleteRecordIfPresent(kind: BridgeRecordKind, id: string): Promise<void> {
+    const filePath = this.pathFor(kind, id);
+    const fileName = path.basename(filePath);
+    const expectedDir = this.dir(kind);
+    if (path.dirname(filePath) !== expectedDir) {
+      throw new Error(`Bridge record path must stay under .bridge/${kind}`);
+    }
+    const bridgeHandle = await openNoFollowDirectory(this.bridgeDir, "Bridge directory");
+    try {
+      const storageHandle = await openNoFollowDirectory(
+        path.join(directoryFdPath(bridgeHandle.fd), kind),
+        `Bridge storage directory .bridge/${kind}`
+      );
+      try {
+        await this.assertStorageDirIsRealDirectory(kind);
+        const targetPath = path.join(directoryFdPath(storageHandle.fd), fileName);
+        let stat;
+        try {
+          stat = await lstat(targetPath);
+        } catch (error) {
+          if (isErrorCode(error, "ENOENT")) return;
+          throw error;
+        }
+        if (stat.isSymbolicLink() || !stat.isFile()) {
+          throw new Error(`Bridge record path for .bridge/${kind} must be a regular file and must not be a symlink`);
+        }
+        await rm(targetPath, { force: true });
+        await this.assertStorageDirIsRealDirectory(kind);
+      } finally {
+        await storageHandle.close();
+      }
+    } finally {
+      await bridgeHandle.close();
+    }
   }
 
   private async writeTextByStableStorageRename(kind: BridgeRecordKind, filePath: string, content: string): Promise<void> {
@@ -935,6 +1027,7 @@ export class BridgeStore {
   }
 
   private async assertRecordTargetInside(kind: BridgeRecordKind, filePath: string): Promise<void> {
+    await this.assertStorageDirIsRealDirectory(kind);
     const stat = await lstat(filePath);
     if (stat.isSymbolicLink() || !stat.isFile()) {
       throw new Error(`Bridge record path for .bridge/${kind} must be a regular file and must not be a symlink`);
@@ -982,6 +1075,25 @@ function validateTaskFiles(files: BridgeFile[]): BridgeFile[] {
     assertRepoRelativePath(file.path);
   }
   return files;
+}
+
+function recordNotFoundError(kind: BridgeRecordKind, id: string): Error & { code: "ENOENT" } {
+  const error = new Error(`${recordLabel(kind)} not found: ${id}`) as Error & { code: "ENOENT" };
+  error.code = "ENOENT";
+  return error;
+}
+
+function recordLabel(kind: BridgeRecordKind): string {
+  switch (kind) {
+    case "tasks":
+      return "Task";
+    case "results":
+      return "Result";
+    case "sessions":
+      return "Session";
+    case "receipts":
+      return "Receipt";
+  }
 }
 
 async function exists(filePath: string): Promise<boolean> {

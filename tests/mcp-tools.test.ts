@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createMcpToolHandlers } from "../src/mcp-tools.js";
 import { setRepoWriteTestHooks } from "../src/repo-write.js";
 import { setSafeFileTestHooks } from "../src/safe-file.js";
-import { BridgeStore } from "../src/store.js";
+import { BridgeStore, setBridgeStoreTestHooks } from "../src/store.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -16,6 +16,7 @@ describe("MCP tool handlers", () => {
   afterEach(() => {
     setSafeFileTestHooks({});
     setRepoWriteTestHooks({});
+    setBridgeStoreTestHooks({});
   });
 
   it("creates tasks and fetches results through Claude-compatible handlers", async () => {
@@ -612,6 +613,27 @@ describe("MCP tool handlers", () => {
     expect(await readFile(path.join(cwd, storedReceipt.metadata.new_content_artifact), "utf8")).toBe("new\n");
   });
 
+  it("cleans up write dry-run replacement artifacts when receipt storage fails", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    await writeFile(path.join(cwd, "notes.md"), "old\n", "utf8");
+    const head = await initGitRepo(cwd);
+    const handlers = createMcpToolHandlers({ cwd });
+    setBridgeStoreTestHooks({
+      beforeRecordRename: async (kind) => {
+        if (kind === "receipts") throw new Error("forced dry-run receipt failure");
+      }
+    });
+
+    await expect(
+      handlers.repo_write_file_dry_run({
+        path: "notes.md",
+        content: "new\n",
+        expected_head: head
+      })
+    ).rejects.toThrow(/forced dry-run receipt failure/);
+    await expect(readdir(path.join(cwd, ".bridge", "artifacts", "repo-writes"))).resolves.toEqual([]);
+  });
+
   it("rejects oversized result artifacts before finalizing tasks", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
     const store = new BridgeStore(cwd);
@@ -1201,6 +1223,30 @@ describe("MCP tool handlers", () => {
     expect(await readFile(path.join(cwd, "notes.md"), "utf8")).toBe("old\n");
   });
 
+  it("rejects missing write receipts without leaking filesystem errors", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    await writeFile(path.join(cwd, "notes.md"), "old\n", "utf8");
+    const head = await initGitRepo(cwd);
+    const handlers = createMcpToolHandlers({ cwd });
+    const missingReceiptId = "receipt_20990101_000000_missing";
+
+    await expect(
+      handlers.repo_write_file_apply({
+        receipt_id: missingReceiptId,
+        expected_head: head,
+        preimage_sha256: sha256("old\n")
+      })
+    ).rejects.toThrow(`Receipt not found: ${missingReceiptId}`);
+    await expect(
+      handlers.repo_write_file_apply({
+        receipt_id: missingReceiptId,
+        expected_head: head,
+        preimage_sha256: sha256("old\n")
+      })
+    ).rejects.not.toThrow(/ENOENT|lstat|no such file/i);
+    expect(await readFile(path.join(cwd, "notes.md"), "utf8")).toBe("old\n");
+  });
+
   it("rejects unsigned forged dry-run receipt content before applying a write", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
     await writeFile(path.join(cwd, "notes.md"), "old\n", "utf8");
@@ -1278,6 +1324,29 @@ describe("MCP tool handlers", () => {
         expected_head: head
       })
     ).rejects.toThrow(/receipt|integrity|trusted/i);
+    const { stdout } = await execFileAsync("git", ["diff", "--cached", "--name-only"], { cwd });
+    expect(stdout.trim()).toBe("");
+  });
+
+  it("rejects missing applied receipts without leaking filesystem errors or staging files", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    await writeFile(path.join(cwd, "notes.md"), "old\n", "utf8");
+    const head = await initGitRepo(cwd);
+    const handlers = createMcpToolHandlers({ cwd });
+    const missingReceiptId = "receipt_20990101_000000_missing-applied";
+
+    await expect(
+      handlers.repo_stage_reviewed_paths({
+        receipt_ids: [missingReceiptId],
+        expected_head: head
+      })
+    ).rejects.toThrow(`Receipt not found: ${missingReceiptId}`);
+    await expect(
+      handlers.repo_stage_reviewed_paths({
+        receipt_ids: [missingReceiptId],
+        expected_head: head
+      })
+    ).rejects.not.toThrow(/ENOENT|lstat|no such file/i);
     const { stdout } = await execFileAsync("git", ["diff", "--cached", "--name-only"], { cwd });
     expect(stdout.trim()).toBe("");
   });

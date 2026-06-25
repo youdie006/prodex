@@ -315,7 +315,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       if (!taskId) throw new Error("tasks show requires <task-id|latest>");
       assertNoExtraArgs(taskArgs, "tasks show", 1);
       const task = taskId === "latest" ? await latestTask(store, { readOnly: true }) : await store.getTaskReadOnly(taskId);
-      if (!task) throw new Error(`Task not found: ${taskId}`);
+      if (!task) throw new Error(taskId === "latest" ? "No tasks found" : `Task not found: ${taskId}`);
       io.stdout(JSON.stringify(task, null, 2));
       return 0;
     }
@@ -399,7 +399,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       if (!receiptId) throw new Error("receipts show requires <receipt-id|latest>");
       assertNoExtraArgs(receiptArgs, "receipts show", 1);
       const receipt = receiptId === "latest" ? (await listReceiptsForInspection(store))[0] : await store.getReceiptForDisplayReadOnly(receiptId);
-      if (!receipt) throw new Error(`Receipt not found: ${receiptId}`);
+      if (!receipt) throw new Error(receiptId === "latest" ? "No receipts found" : `Receipt not found: ${receiptId}`);
       io.stdout(JSON.stringify(receipt, null, 2));
       return 0;
     }
@@ -421,7 +421,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       if (!sessionId) throw new Error("sessions show requires <session-id|latest>");
       assertNoExtraArgs(sessionArgs, "sessions show", 1);
       const session = sessionId === "latest" ? (await listSessionsForInspection(store))[0] : await store.getSessionReadOnly(sessionId);
-      if (!session) throw new Error(`Session not found: ${sessionId}`);
+      if (!session) throw new Error(sessionId === "latest" ? "No sessions found" : `Session not found: ${sessionId}`);
       io.stdout(formatSession(session));
       return 0;
     }
@@ -510,7 +510,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       if (!taskId) throw new Error("pro show requires <task-id|latest>");
       assertNoExtraArgs(proArgs, "pro show", 1);
       const consult = taskId === "latest" ? (await listConsults(store, { readOnly: true }))[0] : await getConsult(store, taskId, { readOnly: true });
-      if (!consult) throw new Error(`GPT Pro answer not found: ${taskId}`);
+      if (!consult) throw new Error(taskId === "latest" ? "No GPT Pro answers found" : `GPT Pro answer not found: ${taskId}`);
       io.stdout(formatProAnswer(consult));
       return 0;
     }
