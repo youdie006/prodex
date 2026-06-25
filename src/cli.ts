@@ -604,10 +604,11 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       throw new Error(`Use \`gptprouse pro browser ${subcommand === "doctor" ? "check" : subcommand}\` for explicit browser automation.`);
     }
     if (subcommand === "list") {
-      assertNoExtraArgs(proArgs, "pro list", 0);
+      assertOnlyOptions(proArgs, "pro list", ["--source-cli"]);
+      const sourceCli = resolveOptionalFileFlag(io.cwd, proArgs, "--source-cli");
       const consults = await listConsults(store, { readOnly: true });
       for (const consult of consults) {
-        io.stdout(`${consult.task.id}\t${consult.result.status}\t${firstLine(consult.result.summary)}`);
+        io.stdout(`${consult.task.id}\t${consult.result.status}\t${formatProListSummary(consult, sourceCli)}`);
       }
       return 0;
     }
@@ -857,7 +858,7 @@ Commands:
   gptprouse pro browser check|smoke [--source-cli /absolute/path/to/dist/cli.js]
   gptprouse pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--target-url url --confirm-target] [--file path] "prompt"  # explicit visible-browser send
   gptprouse pro latest [--source-cli /absolute/path/to/dist/cli.js]
-  gptprouse pro list
+  gptprouse pro list [--source-cli /absolute/path/to/dist/cli.js]
   gptprouse pro show <task-id|latest> [--source-cli /absolute/path/to/dist/cli.js]
   gptprouse tasks create --title "Title" --prompt "Prompt"
   gptprouse tasks list [--status new|claimed|done|blocked]
@@ -2267,6 +2268,11 @@ function formatProAnswer(consult: ConsultRecord, sourceCli?: string): string {
     for (const warning of consult.result.warnings) lines.push(`- ${warning}`);
   }
   return lines.join("\n");
+}
+
+function formatProListSummary(consult: ConsultRecord, sourceCli?: string): string {
+  const blocker = sourceAwareProAnswerBlocker(consult, sourceCli);
+  return firstLine(sourceAwareProAnswerSummary(consult.result.summary, consult.result.blocker, blocker));
 }
 
 function sourceAwareProAnswerBlocker(consult: ConsultRecord, sourceCli?: string): ConsultRecord["result"]["blocker"] {

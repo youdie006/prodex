@@ -204,6 +204,39 @@ describe("pro browser ask persistence", () => {
     expect(text).not.toContain("then retry.");
   });
 
+  it("prints source-checkout retry commands when listing blocked smoke consults", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-pro-send-"));
+    const sourceCli = path.join(cwd, "dist", "cli.js");
+    await mkdir(path.dirname(sourceCli), { recursive: true });
+    await writeFile(sourceCli, "#!/usr/bin/env node\n", "utf8");
+    const blocker = {
+      code: "captcha_required",
+      message: "ChatGPT is asking for captcha or human verification.",
+      retryable: true,
+      next_step: "Solve it manually in the visible browser, then retry."
+    };
+    sendChatGptPromptMock.mockRejectedValueOnce(Object.assign(new Error(`${blocker.message} Next: ${blocker.next_step}`), { blocker }));
+
+    await expect(
+      runCli(["pro", "browser", "smoke", "--timeout-ms", "10"], {
+        cwd,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.toThrow(/captcha/i);
+
+    const out: string[] = [];
+    await runCli(["pro", "list", "--source-cli", sourceCli], {
+      cwd,
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    const text = out.join("\n");
+    expect(text).toContain(`then run \`node ${sourceCli} pro browser smoke --source-cli ${sourceCli}\`.`);
+    expect(text).not.toContain("then retry.");
+  });
+
   it("records source-checkout next steps for blocked pro browser smoke", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-pro-send-"));
     const sourceCli = path.join(cwd, "dist", "cli.js");

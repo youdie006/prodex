@@ -98,7 +98,7 @@ try {
   );
   assertIncludes(help.stdout, "gptprouse pro browser help", "installed help output");
   assertIncludes(help.stdout, "gptprouse pro latest [--source-cli /absolute/path/to/dist/cli.js]", "installed help output");
-  assertIncludes(help.stdout, "gptprouse pro list", "installed help output");
+  assertIncludes(help.stdout, "gptprouse pro list [--source-cli /absolute/path/to/dist/cli.js]", "installed help output");
   assertIncludes(help.stdout, "gptprouse pro show <task-id|latest> [--source-cli /absolute/path/to/dist/cli.js]", "installed help output");
   assertIncludes(help.stdout, "gptprouse mcp [--cwd /absolute/path/to/repo]", "installed help output");
   assertIncludes(help.stdout, `gptprouse v${installedPackageJson.version}`, "installed help output");
@@ -711,7 +711,7 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertIncludes(readme, "pro browser login --dry-run --source-cli", "installed README");
   assertIncludes(readme, "pro browser check --source-cli", "installed README");
   assertIncludes(readme, "pro browser smoke --source-cli", "installed README");
-  assertIncludes(readme, "pro latest` or `pro show <task-id|latest>`", "installed README");
+  assertIncludes(readme, "pro list`, `pro latest`, or `pro show <task-id|latest>`", "installed README");
   assertIncludes(readme, "gptprouse pro browser help", "installed README");
   assertIncludes(readme, "visibility cannot be verified for extra ChatGPT tabs", "installed README");
   assertIncludes(readme, "gptprouse init", "installed README");

@@ -1277,7 +1277,7 @@ describe("runCli", () => {
       'gptprouse pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--target-url url --confirm-target] [--file path] "prompt"  # explicit visible-browser send'
     );
     expect(text).toContain("gptprouse pro latest [--source-cli /absolute/path/to/dist/cli.js]");
-    expect(text).toContain("gptprouse pro list");
+    expect(text).toContain("gptprouse pro list [--source-cli /absolute/path/to/dist/cli.js]");
     expect(text).toContain("gptprouse pro show <task-id|latest> [--source-cli /absolute/path/to/dist/cli.js]");
     expect(text).not.toContain("gptprouse pro latest|list|show <task-id|latest>");
   });
