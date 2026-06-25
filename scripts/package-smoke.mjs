@@ -90,6 +90,19 @@ try {
   assertIncludes(releaseStatus.stdout, "pack:", "installed release status output");
   assertIncludes(releaseStatus.stdout, "git: blocked", "installed release status output");
   assertIncludes(releaseStatus.stdout, "not a git worktree", "installed release status output");
+  const releasePackDestination = path.join(tmp, "installed-release-pack");
+  const releasePackSuccess = await run(
+    process.execPath,
+    [path.join(installedPackageDir, "scripts", "release-pack.mjs"), "--root", installedPackageDir, "--pack-destination", releasePackDestination],
+    { cwd: consumerDir, timeout: 120_000, maxBuffer: 20 * 1024 * 1024 }
+  );
+  assertIncludes(releasePackSuccess.stdout, "release_pack=ok", "installed release-pack success output");
+  assertIncludes(releasePackSuccess.stdout, "file_modes=ok", "installed release-pack success output");
+  assertIncludes(releasePackSuccess.stdout, "release_pack_next:", "installed release-pack success output");
+  const releasePackTarballs = (await readdir(releasePackDestination)).filter((entry) => entry.endsWith(".tgz"));
+  if (releasePackTarballs.length !== 1) {
+    throw new Error(`installed release-pack expected exactly one tarball, found: ${releasePackTarballs.join(", ")}`);
+  }
   const releasePackMissingDestination = await runExpectFailure(
     process.execPath,
     [path.join(installedPackageDir, "scripts", "release-pack.mjs"), "--root", installedPackageDir],
@@ -428,7 +441,7 @@ try {
   await smokeInstalledStdioTaskFinalizers(binPath, consumerDir);
 
   console.log(
-    `package_smoke: ok tarball=${path.basename(packed.filename)} http_onboarding=ok installed_http_mcp=ok http_write_flow=ok http_task_finalizers=ok http_result_artifact_flow=ok http_result_artifact_tamper=ok configured_doctor=ok tunnel_url=ok package_boundary=ok stdio_write_flow=ok stdio_search_overflow=ok stdio_non_git_write=ok stdio_task_flow=ok stdio_task_finalizers=ok stdio_result_artifact_flow=ok stdio_result_artifact_tamper=ok tools=${REQUIRED_MCP_TOOLS.join(",")}`
+    `package_smoke: ok tarball=${path.basename(packed.filename)} http_onboarding=ok installed_http_mcp=ok http_write_flow=ok http_task_finalizers=ok http_result_artifact_flow=ok http_result_artifact_tamper=ok configured_doctor=ok tunnel_url=ok package_boundary=ok installed_release_pack=ok stdio_write_flow=ok stdio_search_overflow=ok stdio_non_git_write=ok stdio_task_flow=ok stdio_task_finalizers=ok stdio_result_artifact_flow=ok stdio_result_artifact_tamper=ok tools=${REQUIRED_MCP_TOOLS.join(",")}`
   );
 } finally {
   await rm(tmp, { recursive: true, force: true });
@@ -451,6 +464,7 @@ async function packPackage(destination) {
 
 function assertPackageFileScope(files) {
   const paths = files.map((file) => file.path);
+  assertArrayIncludes(paths, "LICENSE", "packed files");
   assertArrayIncludes(paths, "README.md", "packed files");
   assertArrayIncludes(paths, "docs/http-mcp.md", "packed files");
   assertArrayIncludes(paths, "docs/claude.md", "packed files");
@@ -499,6 +513,7 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertIncludes(readme, "Run `pro ask` and `pro browser ask` from the repo root", "installed README");
   assertIncludes(readme, "npm run release:verify", "installed README");
   assertIncludes(readme, "npm run release:pack", "installed README");
+  assertIncludes(readme, "installed `release-pack` success path", "installed README");
   assertIncludes(readme, "regular file", "installed README");
   assertIncludes(readme, "symlinked packed files", "installed README");
   assertIncludes(readme, "hard link", "installed README");
