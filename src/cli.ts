@@ -1138,7 +1138,7 @@ async function readReleasePackStatus(cwd: string, packageJson: { bin?: unknown }
       return {
         line: `pack: blocked packed files have unexpected executable modes outside package bin entries: ${formatPathList(invalid)}`,
         next:
-          "fix file modes or publish from a filesystem that preserves executable bits, then run `npm run release:check`; on WSL/Windows mounts, create a sanitized tarball with `npm run release:pack -- --pack-destination <dir>` after `npm run release:verify`"
+          "fix file modes or publish from a filesystem that preserves executable bits, then run `npm run release:check`; on WSL/Windows mounts, create a sanitized tarball with `npm run release:pack -- --pack-destination <dir>` after `npm run release:verify`; release:pack prints `npm publish --dry-run <tarball>` and `npm publish <tarball>`"
       };
     }
     const hardLinked = await findHardLinkedPackedFiles(cwd, files);

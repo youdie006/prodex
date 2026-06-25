@@ -2065,6 +2065,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     expect(text).toContain("pack: blocked packed files have unexpected executable modes");
     expect(text).toContain("README.md");
     expect(text).toContain("npm run release:pack -- --pack-destination <dir>");
+    expect(text).toContain("release:pack prints `npm publish --dry-run <tarball>` and `npm publish <tarball>`");
     expect(text).not.toContain("pack: ok");
   });
 
