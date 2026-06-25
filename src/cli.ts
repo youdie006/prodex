@@ -1193,22 +1193,24 @@ function printHelpIfRequested(args: string[], command: string, stdout: (line: st
 }
 
 function unknownSubcommandError(command: string, subcommand: string, expected: readonly string[]): Error {
-  return new Error(`Unknown ${command} subcommand: ${subcommand}. Expected one of: ${expected.join(", ")}. Run \`gptprouse ${command} --help\`.`);
+  const suggestion = closestSuggestion(subcommand, expected);
+  const suggestionText = suggestion ? ` Did you mean \`gptprouse ${command} ${suggestion}\`?` : "";
+  return new Error(`Unknown ${command} subcommand: ${subcommand}.${suggestionText} Expected one of: ${expected.join(", ")}. Run \`gptprouse ${command} --help\`.`);
 }
 
 function unknownTopLevelCommandError(command: string): Error {
-  const suggestion = closestCommandSuggestion(command);
+  const suggestion = closestSuggestion(command, TOP_LEVEL_COMMANDS);
   const suggestionText = suggestion ? ` Did you mean \`gptprouse ${suggestion}\`?` : "";
   return new Error(`Unknown command: ${command}.${suggestionText} Run \`gptprouse help\`.`);
 }
 
-function closestCommandSuggestion(command: string): string | undefined {
+function closestSuggestion<T extends string>(value: string, candidates: readonly T[]): T | undefined {
   let best: { command: string; distance: number } | undefined;
-  for (const candidate of TOP_LEVEL_COMMANDS) {
-    const distance = editDistance(command, candidate);
+  for (const candidate of candidates) {
+    const distance = editDistance(value, candidate);
     if (!best || distance < best.distance) best = { command: candidate, distance };
   }
-  return best && best.distance <= 2 ? best.command : undefined;
+  return best && best.distance <= 2 ? (best.command as T) : undefined;
 }
 
 function editDistance(left: string, right: string): number {

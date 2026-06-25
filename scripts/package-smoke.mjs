@@ -195,6 +195,26 @@ try {
   );
   const unknownSubcommandCases = [
     {
+      args: ["tasks", "lst"],
+      expected:
+        "Unknown tasks subcommand: lst. Did you mean `gptprouse tasks list`? Expected one of: create, list, show, claim, complete, block. Run `gptprouse tasks --help`."
+    },
+    {
+      args: ["release", "stats"],
+      expected:
+        "Unknown release subcommand: stats. Did you mean `gptprouse release status`? Expected one of: status, pack. Run `gptprouse release --help`."
+    },
+    {
+      args: ["pro", "brower"],
+      expected:
+        "Unknown pro subcommand: brower. Did you mean `gptprouse pro browser`? Expected one of: ask, browser, list, latest, show. Run `gptprouse pro --help`."
+    },
+    {
+      args: ["pro", "browser", "chek"],
+      expected:
+        "Unknown pro browser subcommand: chek. Did you mean `gptprouse pro browser check`? Expected one of: login, ask, smoke, check. Run `gptprouse pro browser --help`."
+    },
+    {
       args: ["tunnel", "create"],
       expected: "Unknown tunnel subcommand: create. Expected one of: url. Run `gptprouse tunnel --help`."
     },
