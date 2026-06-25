@@ -136,6 +136,13 @@ async function runFullReleaseVerification(rootDir) {
 
 async function assertPackedFileModes(rootDir, packageJson) {
   const packedFiles = await readPackedFiles(rootDir);
+  const nonRegular = await findNonRegularPackedFiles(rootDir, packedFiles);
+  if (nonRegular.length > 0) {
+    throw new Error(
+      `release metadata failed: packed files must be regular non-symlink files: ${formatPathList(nonRegular)}. ` +
+        "replace them with regular files, then rerun release:check."
+    );
+  }
   const invalid = findExecutableNonBinPackedFiles(packedFiles, packageJson);
   if (invalid.length > 0) {
     throw new Error(
@@ -184,6 +191,28 @@ async function readPackedFiles(rootDir) {
     }
     throw new Error("release metadata failed: npm pack dry-run did not return valid JSON");
   }
+}
+
+async function findNonRegularPackedFiles(rootDir, files) {
+  const invalid = [];
+  for (const file of files) {
+    if (typeof file?.path !== "string") continue;
+    const packagePath = normalizePackagePath(file.path);
+    const filePath = path.join(rootDir, packagePath);
+    const relative = path.relative(rootDir, filePath);
+    if (relative.startsWith("..") || path.isAbsolute(relative)) {
+      invalid.push(packagePath);
+      continue;
+    }
+    try {
+      const stat = await lstat(filePath);
+      if (stat.isSymbolicLink() || !stat.isFile()) invalid.push(packagePath);
+    } catch (error) {
+      if (isMissingFileError(error)) invalid.push(packagePath);
+      else throw error;
+    }
+  }
+  return invalid;
 }
 
 function findExecutableNonBinPackedFiles(files, packageJson) {

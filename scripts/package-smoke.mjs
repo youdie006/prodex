@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { createHash } from "node:crypto";
 import { execFile, spawn } from "node:child_process";
-import { chmod, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import net from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -344,6 +344,13 @@ try {
   });
   assertIncludes(browserSmoke.stderr, "No Chrome DevTools endpoint is reachable", "installed pro browser smoke output");
   assertIncludes(browserSmoke.stderr, "gptprouse pro browser login", "installed pro browser smoke output");
+  const browserCheck = await runExpectFailure(binPath, ["pro", "browser", "check", "--port", "65534", "--timeout-ms", "10"], {
+    cwd: consumerDir,
+    timeout: 60_000
+  });
+  assertIncludes(browserCheck.stdout, "gptprouse product check", "installed pro browser check output");
+  assertIncludes(browserCheck.stdout, "chatgpt: browser_unreachable", "installed pro browser check output");
+  assertIncludes(browserCheck.stdout, "gptprouse pro browser login", "installed pro browser check output");
   for (const [alias, replacement] of [
     ["open", "login"],
     ["status", "check"],
@@ -488,11 +495,12 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertIncludes(readme, "claude prompt --cwd /absolute/path/to/your/repo --source-cli", "installed README");
   assertIncludes(readme, "gptprouse claude config", "installed README");
   assertIncludes(readme, "gptprouse release status", "installed README");
-  assertIncludes(readme, "pack file-mode or hard-link blockers", "installed README");
+  assertIncludes(readme, "pack file-mode, non-regular file, or hard-link blockers", "installed README");
   assertIncludes(readme, "Run `pro ask` and `pro browser ask` from the repo root", "installed README");
   assertIncludes(readme, "npm run release:verify", "installed README");
   assertIncludes(readme, "npm run release:pack", "installed README");
   assertIncludes(readme, "regular file", "installed README");
+  assertIncludes(readme, "symlinked packed files", "installed README");
   assertIncludes(readme, "hard link", "installed README");
   assertIncludes(readme, "unexpected executable modes", "installed README");
   assertNotIncludes(readme, "hard links outside the package `bin` entries", "installed README");
@@ -666,7 +674,7 @@ async function smokeInstalledProBlockedConsult(binPath, cwd) {
   assertIncludes(latest.stdout, "- code: browser_send_failed", "installed pro latest blocked output");
   assertIncludes(latest.stdout, "- retryable: true", "installed pro latest blocked output");
   assertIncludes(latest.stdout, "- next_step: Log in manually, then retry.", "installed pro latest blocked output");
-  const check = await run(binPath, ["pro", "browser", "check", "--port", "65534", "--timeout-ms", "10"], { cwd, timeout: 60_000 });
+  const check = await runExpectFailure(binPath, ["pro", "browser", "check", "--port", "65534", "--timeout-ms", "10"], { cwd, timeout: 60_000 });
   assertIncludes(check.stdout, `latest_pro: blocked ${taskId}`, "installed pro browser check blocked output");
   assertNotIncludes(check.stdout, `latest_pro: ok ${taskId} blocked`, "installed pro browser check blocked output");
 }
@@ -749,6 +757,35 @@ async function smokeInstalledReleaseGitReadiness(binPath, tmp, launcherCwd) {
   );
   assertNotIncludes(silentPack.stdout, "Command failed:", "installed release status silent pack output");
   assertNotIncludes(silentPack.stdout, "pack: ok", "installed release status silent pack output");
+
+  const symlinkPackDir = path.join(tmp, "release-symlink-pack");
+  await mkdir(symlinkPackDir, { recursive: true });
+  await writeFile(
+    path.join(symlinkPackDir, "package.json"),
+    `${JSON.stringify({ name: "symlink-pack-demo", version: "1.0.0", license: "MIT", files: ["README.md"] }, null, 2)}\n`
+  );
+  await writeFile(path.join(symlinkPackDir, "LICENSE"), "MIT License\n");
+  const outsideReadme = path.join(tmp, "release-symlink-pack-outside-readme.md");
+  await writeFile(outsideReadme, "# Outside README\n");
+  await symlink(outsideReadme, path.join(symlinkPackDir, "README.md"));
+  const symlinkFakeBin = path.join(tmp, "release-symlink-pack-bin");
+  await mkdir(symlinkFakeBin, { recursive: true });
+  await writeFakeNpmDryRun(
+    symlinkFakeBin,
+    '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":420},{"path":"README.md","mode":420}]}]\n'
+  );
+  const symlinkPack = await run(binPath, ["release", "status", "--cwd", symlinkPackDir], {
+    cwd: launcherCwd,
+    env: { PATH: `${symlinkFakeBin}${path.delimiter}${process.env.PATH ?? ""}` }
+  });
+  assertIncludes(symlinkPack.stdout, "metadata: ok", "installed release status symlink pack output");
+  assertIncludes(
+    symlinkPack.stdout,
+    "pack: blocked packed files must be regular non-symlink files",
+    "installed release status symlink pack output"
+  );
+  assertIncludes(symlinkPack.stdout, "README.md", "installed release status symlink pack output");
+  assertNotIncludes(symlinkPack.stdout, "pack: ok", "installed release status symlink pack output");
 
   const noRemoteDir = await createReleaseGitFixture(path.join(tmp, "release-no-remote"), { remote: false });
   const noRemote = await run(binPath, ["release", "status", "--cwd", noRemoteDir], { cwd: launcherCwd });

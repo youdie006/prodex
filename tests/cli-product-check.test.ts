@@ -31,22 +31,27 @@ vi.mock("../src/chatgpt-browser.js", async (importOriginal) => {
 
 const { runCli } = await import("../src/cli.js");
 
-async function runBrowserCheck(): Promise<string> {
+async function runBrowserCheckResult(): Promise<{ code: number; text: string }> {
   const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-product-check-"));
   const out: string[] = [];
 
-  await runCli(["pro", "browser", "check"], {
+  const code = await runCli(["pro", "browser", "check"], {
     cwd,
     stdout: (line) => out.push(line),
     stderr: () => {}
   });
 
-  return out.join("\n");
+  return { code, text: out.join("\n") };
+}
+
+async function runBrowserCheck(): Promise<string> {
+  return (await runBrowserCheckResult()).text;
 }
 
 describe("browser product check", () => {
   it("reports blockers even when ChatGPT is logged in with a composer", async () => {
-    const text = await runBrowserCheck();
+    const { code, text } = await runBrowserCheckResult();
+    expect(code).toBe(1);
     expect(text).toContain("chatgpt: blocked captcha_required");
     expect(text).toContain("Solve it manually");
     expect(text).not.toContain("chatgpt: ok");

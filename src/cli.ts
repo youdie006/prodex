@@ -482,8 +482,8 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
         assertOnlyOptions(browserArgs, "pro browser check", ["--port", "--timeout-ms"]);
         readPortFlag(browserArgs, "--port");
         readPositiveNumberFlag(browserArgs, "--timeout-ms");
-        await printProductCheck(store, io, browserArgs);
-        return 0;
+        const healthy = await printProductCheck(store, io, browserArgs);
+        return healthy ? 0 : 1;
       }
       throw new Error("pro browser requires login|ask|smoke|check");
     }
@@ -1048,6 +1048,13 @@ async function readReleasePackStatus(cwd: string, packageJson: { bin?: unknown }
       maxBuffer: 20 * 1024 * 1024
     });
     const files = parsePackedFiles(stdout);
+    const nonRegular = await findNonRegularPackedFiles(cwd, files);
+    if (nonRegular.length > 0) {
+      return {
+        line: `pack: blocked packed files must be regular non-symlink files: ${formatPathList(nonRegular)}`,
+        next: "replace non-regular or symlinked packed files with regular files, then run `npm run release:check`"
+      };
+    }
     const invalid = findExecutableNonBinPackedFiles(files, packageJson);
     if (invalid.length > 0) {
       return {
@@ -1105,6 +1112,27 @@ function findExecutableNonBinPackedFiles(files: PackedFile[], packageJson: { bin
     .filter((file) => (file.mode & 0o111) !== 0)
     .map((file) => normalizePackagePath(file.path))
     .filter((filePath) => !binPaths.has(filePath));
+}
+
+async function findNonRegularPackedFiles(cwd: string, files: PackedFile[]): Promise<string[]> {
+  const invalid: string[] = [];
+  for (const file of files) {
+    const packagePath = normalizePackagePath(file.path);
+    const filePath = path.join(cwd, packagePath);
+    const relative = path.relative(cwd, filePath);
+    if (relative.startsWith("..") || path.isAbsolute(relative)) {
+      invalid.push(packagePath);
+      continue;
+    }
+    try {
+      const stat = await lstat(filePath);
+      if (stat.isSymbolicLink() || !stat.isFile()) invalid.push(packagePath);
+    } catch (error) {
+      if (isMissingFileError(error)) invalid.push(packagePath);
+      else throw error;
+    }
+  }
+  return invalid;
 }
 
 async function findHardLinkedPackedFiles(cwd: string, files: PackedFile[]): Promise<string[]> {
@@ -1843,7 +1871,7 @@ function browserReadinessNextStep(input: { loggedInLikely: boolean; hasComposer:
   return "Review the visible ChatGPT browser state, then retry.";
 }
 
-async function printProductCheck(store: BridgeStore, io: CliIO, args: string[]): Promise<void> {
+async function printProductCheck(store: BridgeStore, io: CliIO, args: string[]): Promise<boolean> {
   io.stdout("gptprouse product check");
   let bridgeReady = false;
   try {
@@ -1853,6 +1881,7 @@ async function printProductCheck(store: BridgeStore, io: CliIO, args: string[]):
     io.stdout(`bridge: blocked - ${errorMessage(error)}`);
   }
 
+  let configReady = false;
   try {
     const config = await loadLocalConfig(io.cwd);
     const tokenStatus = getTokenExpiryStatus(config);
@@ -1860,6 +1889,7 @@ async function printProductCheck(store: BridgeStore, io: CliIO, args: string[]):
       io.stdout(`config: expired - run \`gptprouse setup\``);
     } else {
       io.stdout(`config: ok ${redactServerUrl(config.server_url)} token_status=${tokenStatus.status}`);
+      configReady = true;
     }
   } catch (error) {
     if (isMissingFileError(error)) {
@@ -1873,6 +1903,7 @@ async function printProductCheck(store: BridgeStore, io: CliIO, args: string[]):
     port: readPortFlag(args, "--port") ?? 9333,
     timeoutMs: readPositiveNumberFlag(args, "--timeout-ms") ?? 1500
   });
+  let chatgptReady = false;
   const visibilityBlocker = chatGptVisibilityBlocker(browserStatus.visibilityState, browserStatus.url);
   if (!browserStatus.reachable) {
     io.stdout(`chatgpt: ${browserStatus.blocker?.code ?? "unreachable"} - ${browserStatus.blocker?.message ?? "browser is not reachable"}`);
@@ -1887,6 +1918,7 @@ async function printProductCheck(store: BridgeStore, io: CliIO, args: string[]):
     if (visibilityBlocker.next_step) io.stdout(`next: ${visibilityBlocker.next_step}`);
   } else if (browserStatus.loggedInLikely && browserStatus.hasComposer) {
     io.stdout(`chatgpt: ok logged_in=true composer=true${browserStatus.url ? ` url=${browserStatus.url}` : ""}`);
+    chatgptReady = true;
   } else {
     io.stdout(`chatgpt: blocked logged_in=${browserStatus.loggedInLikely} composer=${browserStatus.hasComposer}`);
     io.stdout(`next: ${browserReadinessNextStep(browserStatus)}`);
@@ -1901,6 +1933,7 @@ async function printProductCheck(store: BridgeStore, io: CliIO, args: string[]):
   } else {
     io.stdout("latest_pro: missing");
   }
+  return bridgeReady && configReady && chatgptReady;
 }
 
 type ConsultRecord = {
@@ -2416,8 +2449,12 @@ function isDirectCliInvocation(): boolean {
 }
 
 if (isDirectCliInvocation()) {
-  runCli(process.argv.slice(2)).catch((error: unknown) => {
-    console.error(error instanceof Error ? error.message : String(error));
-    process.exitCode = 1;
-  });
+  runCli(process.argv.slice(2))
+    .then((code) => {
+      if (code !== 0) process.exitCode = code;
+    })
+    .catch((error: unknown) => {
+      console.error(error instanceof Error ? error.message : String(error));
+      process.exitCode = 1;
+    });
 }
