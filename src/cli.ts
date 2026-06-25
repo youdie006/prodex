@@ -674,8 +674,9 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
     if (subcommand === "browser") {
       const [browserSubcommand, ...browserArgs] = proArgs;
       if (!browserSubcommand || isHelpSubcommand(browserSubcommand)) {
-        assertNoExtraArgs(browserArgs, "pro browser help", 0);
-        printProBrowserHelp(io.stdout);
+        assertOnlyOptions(browserArgs, "pro browser help", ["--source-cli"]);
+        const sourceCli = resolveOptionalFileFlag(io.cwd, browserArgs, "--source-cli");
+        printProBrowserHelp(io.stdout, sourceCli);
         return 0;
       }
       if (browserSubcommand === "login") {
@@ -1035,7 +1036,7 @@ Commands:
   gptprouse claude config [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]
   gptprouse pro ask [--dry-run] [--file path] "prompt"  # dry-run preview
   gptprouse pro browser login [--dry-run] [--source-cli /absolute/path/to/dist/cli.js] [--launch-timeout-ms 5000]  # preview/open visible browser login
-  gptprouse pro browser help
+  gptprouse pro browser help [--source-cli /absolute/path/to/dist/cli.js]
   gptprouse pro browser check [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]
   gptprouse pro browser smoke [--source-cli /absolute/path/to/dist/cli.js]
   gptprouse pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--target-url url --confirm-target] [--file path] "prompt"  # explicit visible-browser send
@@ -1153,7 +1154,7 @@ function printProHelp(stdout: (line: string) => void): void {
 
 Commands:
   gptprouse pro ask [--dry-run] [--file path] "prompt"
-  gptprouse pro browser help
+  gptprouse pro browser help [--source-cli /absolute/path/to/dist/cli.js]
   gptprouse pro browser login [--dry-run] [--source-cli /absolute/path/to/dist/cli.js] [--launch-timeout-ms 5000]
   gptprouse pro browser check [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]
   gptprouse pro browser smoke [--source-cli /absolute/path/to/dist/cli.js]
@@ -1365,7 +1366,7 @@ repo: ${cwd}
    ${proAskCommand}  # dry-run/manual preview
    ${cli} pro browser login --dry-run${sourceCliOption}  # preview, no browser opens
    ${cli} pro browser login${sourceCliOption}  # opens visible browser
-   ${cli} pro browser help
+   ${cli} pro browser help${sourceCliOption}
    ${cli} pro browser check${sourceCliOption}
    ${cli} pro browser smoke${sourceCliOption}
    ${proBrowserAskCommand}  # visible-browser send
@@ -2502,18 +2503,32 @@ function printBrowserLoginGuide(
   }
 }
 
-function printProBrowserHelp(stdout: (line: string) => void): void {
-  stdout(`gptprouse pro browser
+function printProBrowserHelp(stdout: (line: string) => void, sourceCli?: string): void {
+  const cli = formatCliCommand(sourceCli);
+  const sourceCliOption = formatSourceCliOption(sourceCli);
+  const loginUsage = sourceCli
+    ? `${cli} pro browser login${sourceCliOption} [--dry-run] [--profile-dir path] [--port 9333] [--url https://chatgpt.com/...] [--launch-timeout-ms 5000]`
+    : "gptprouse pro browser login [--dry-run] [--source-cli /absolute/path/to/dist/cli.js] [--profile-dir path] [--port 9333] [--url https://chatgpt.com/...] [--launch-timeout-ms 5000]";
+  const checkUsage = sourceCli
+    ? `${cli} pro browser check${sourceCliOption} [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 1500]`
+    : "gptprouse pro browser check [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 1500]";
+  const smokeUsage = sourceCli
+    ? `${cli} pro browser smoke${sourceCliOption} [--port 9333] [--timeout-ms 30000]`
+    : "gptprouse pro browser smoke [--source-cli /absolute/path/to/dist/cli.js] [--port 9333] [--timeout-ms 30000]";
+  const askUsage = sourceCli
+    ? `${cli} pro browser ask${sourceCliOption} [--port 9333] [--timeout-ms 90000] [--target-url url --confirm-target] [--file path] "prompt"`
+    : 'gptprouse pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--port 9333] [--timeout-ms 90000] [--target-url url --confirm-target] [--file path] "prompt"';
+  stdout(`${cli} pro browser
 
 Commands:
-  gptprouse pro browser login [--dry-run] [--source-cli /absolute/path/to/dist/cli.js] [--profile-dir path] [--port 9333] [--url https://chatgpt.com/...] [--launch-timeout-ms 5000]
-  gptprouse pro browser check [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 1500]
-  gptprouse pro browser smoke [--source-cli /absolute/path/to/dist/cli.js] [--port 9333] [--timeout-ms 30000]
-  gptprouse pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--port 9333] [--timeout-ms 90000] [--target-url url --confirm-target] [--file path] "prompt"
+  ${loginUsage}
+  ${checkUsage}
+  ${smokeUsage}
+  ${askUsage}
 
 Visible-browser sends require a manual browser session and stop on login, captcha, Cloudflare, permission, rate-limit, or usage-limit blockers.
-Use \`gptprouse pro ask\` for dry-run/manual previews.
-\`gptprouse pro browser ask\` always attempts an explicit visible-browser send.`);
+Use \`${cli} pro ask\` for dry-run/manual previews.
+\`${cli} pro browser ask${sourceCliOption}\` always attempts an explicit visible-browser send.`);
 }
 
 async function assertBrowserLaunchStayedAlive(opened: ChatGptBrowserLaunch, timeoutMs?: number): Promise<void> {

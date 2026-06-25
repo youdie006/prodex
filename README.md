@@ -127,6 +127,7 @@ For a source checkout, keep the follow-up commands in source-checkout form too:
 SOURCE_CLI="$(pwd)/dist/cli.js"
 node dist/cli.js pro browser login --dry-run --source-cli "$SOURCE_CLI"
 node dist/cli.js pro browser login --source-cli "$SOURCE_CLI"
+node dist/cli.js pro browser help --source-cli "$SOURCE_CLI"
 node dist/cli.js pro browser check --source-cli "$SOURCE_CLI"
 node dist/cli.js pro browser smoke --source-cli "$SOURCE_CLI"
 ```

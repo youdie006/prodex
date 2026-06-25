@@ -2246,6 +2246,7 @@ describe("runCli", () => {
     expect(text).toContain(`${sourcePrefix} project prompt --cwd ${targetCwd} --source-cli ${sourceCli}`);
     expect(text).toContain(`${sourcePrefix} pro browser login --dry-run --source-cli ${sourceCli}  # preview, no browser opens`);
     expect(text).toContain(`${sourcePrefix} pro browser login --source-cli ${sourceCli}  # opens visible browser`);
+    expect(text).toContain(`${sourcePrefix} pro browser help --source-cli ${sourceCli}`);
     expect(text).toContain(`${sourcePrefix} pro browser check --source-cli ${sourceCli}`);
     expect(text).toContain(`${sourcePrefix} pro browser smoke --source-cli ${sourceCli}`);
     expect(text).toContain(`${sourcePrefix} pro browser ask --source-cli ${sourceCli} "Review this repo"  # visible-browser send`);
@@ -3371,6 +3372,32 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     );
     expect(text).toContain("Use `gptprouse pro ask` for dry-run/manual previews.");
     expect(text).toContain("`gptprouse pro browser ask` always attempts an explicit visible-browser send.");
+  });
+
+  it("prints source-checkout browser-specific help when source-cli is supplied", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const sourceCli = path.join(cwd, "dist", "cli.js");
+    await mkdir(path.dirname(sourceCli), { recursive: true });
+    await writeFile(sourceCli, "#!/usr/bin/env node\n", "utf8");
+    const out: string[] = [];
+
+    await runCli(["pro", "browser", "help", "--source-cli", sourceCli], {
+      cwd,
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    const text = out.join("\n");
+    const sourcePrefix = `node ${sourceCli}`;
+    expect(text).toContain(`${sourcePrefix} pro browser login --source-cli ${sourceCli} [--dry-run]`);
+    expect(text).toContain(`${sourcePrefix} pro browser check --source-cli ${sourceCli}`);
+    expect(text).toContain(`${sourcePrefix} pro browser smoke --source-cli ${sourceCli}`);
+    expect(text).toContain(
+      `${sourcePrefix} pro browser ask --source-cli ${sourceCli} [--port 9333] [--timeout-ms 90000] [--target-url url --confirm-target] [--file path] "prompt"`
+    );
+    expect(text).toContain(`Use \`${sourcePrefix} pro ask\` for dry-run/manual previews.`);
+    expect(text).toContain(`\`${sourcePrefix} pro browser ask --source-cli ${sourceCli}\` always attempts an explicit visible-browser send.`);
+    expect(text).not.toContain("Use `gptprouse pro ask`");
   });
 
   it("rejects non-ChatGPT browser login URLs before opening Chrome", async () => {

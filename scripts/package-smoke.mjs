@@ -100,7 +100,7 @@ try {
     "installed help output"
   );
   assertIncludes(help.stdout, "gptprouse pro browser smoke [--source-cli /absolute/path/to/dist/cli.js]", "installed help output");
-  assertIncludes(help.stdout, "gptprouse pro browser help", "installed help output");
+  assertIncludes(help.stdout, "gptprouse pro browser help [--source-cli /absolute/path/to/dist/cli.js]", "installed help output");
   assertIncludes(help.stdout, "gptprouse pro latest [--source-cli /absolute/path/to/dist/cli.js]", "installed help output");
   assertIncludes(help.stdout, "gptprouse pro list [--source-cli /absolute/path/to/dist/cli.js]", "installed help output");
   assertIncludes(help.stdout, "gptprouse pro show <task-id|latest> [--source-cli /absolute/path/to/dist/cli.js]", "installed help output");
@@ -112,7 +112,7 @@ try {
   assertNotIncludes(help.stdout, "gptprouse chatgpt open|status|smoke", "installed help output");
   const proHelp = await run(binPath, ["pro", "--help"], { cwd: consumerDir });
   assertIncludes(proHelp.stdout, "gptprouse pro", "installed pro help output");
-  assertIncludes(proHelp.stdout, "gptprouse pro browser help", "installed pro help output");
+  assertIncludes(proHelp.stdout, "gptprouse pro browser help [--source-cli /absolute/path/to/dist/cli.js]", "installed pro help output");
   assertIncludes(proHelp.stdout, "gptprouse pro latest [--source-cli /absolute/path/to/dist/cli.js]", "installed pro help output");
   const releaseHelp = await run(binPath, ["release", "--help"], { cwd: consumerDir });
   assertIncludes(releaseHelp.stdout, "gptprouse release", "installed release help output");
@@ -535,6 +535,11 @@ try {
   );
   assertIncludes(
     sourceOnboard.stdout,
+    `${sourcePrefix} pro browser help --source-cli ${installedSourceCli}`,
+    "installed source onboard output"
+  );
+  assertIncludes(
+    sourceOnboard.stdout,
     `${sourcePrefix} pro browser check --source-cli ${installedSourceCli}`,
     "installed source onboard output"
   );
@@ -774,6 +779,33 @@ try {
     "`gptprouse pro browser ask` always attempts an explicit visible-browser send.",
     "installed browser help"
   );
+  const sourceBrowserHelp = await run(binPath, ["pro", "browser", "help", "--source-cli", installedSourceCli], { cwd: consumerDir });
+  assertIncludes(
+    sourceBrowserHelp.stdout,
+    `${sourcePrefix} pro browser login --source-cli ${installedSourceCli} [--dry-run]`,
+    "installed source browser help"
+  );
+  assertIncludes(
+    sourceBrowserHelp.stdout,
+    `${sourcePrefix} pro browser check --source-cli ${installedSourceCli}`,
+    "installed source browser help"
+  );
+  assertIncludes(
+    sourceBrowserHelp.stdout,
+    `${sourcePrefix} pro browser smoke --source-cli ${installedSourceCli}`,
+    "installed source browser help"
+  );
+  assertIncludes(
+    sourceBrowserHelp.stdout,
+    `${sourcePrefix} pro browser ask --source-cli ${installedSourceCli} [--port 9333] [--timeout-ms 90000] [--target-url url --confirm-target] [--file path] "prompt"`,
+    "installed source browser help"
+  );
+  assertIncludes(
+    sourceBrowserHelp.stdout,
+    `Use \`${sourcePrefix} pro ask\` for dry-run/manual previews.`,
+    "installed source browser help"
+  );
+  assertNotIncludes(sourceBrowserHelp.stdout, "Use `gptprouse pro ask`", "installed source browser help");
   const invalidBrowserPort = await runExpectFailure(binPath, ["pro", "browser", "check", "--port", "-1", "--timeout-ms", "10"], {
     cwd: consumerDir
   });
