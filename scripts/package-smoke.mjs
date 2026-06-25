@@ -128,6 +128,7 @@ try {
   assertIncludes(releasePackSuccess.stdout, "release_pack=ok", "installed release-pack success output");
   assertIncludes(releasePackSuccess.stdout, "file_modes=ok", "installed release-pack success output");
   assertIncludes(releasePackSuccess.stdout, "release_pack_next:", "installed release-pack success output");
+  assertIncludes(releasePackSuccess.stdout, "release_pack_git: blocked not a git worktree", "installed release-pack success output");
   assertIncludes(releasePackSuccess.stdout, "release_pack_verify: npm publish --dry-run", "installed release-pack success output");
   assertIncludes(releasePackSuccess.stdout, "release_pack_publish: npm publish", "installed release-pack success output");
   const releasePackTarballs = (await readdir(releasePackDestination)).filter((entry) => entry.endsWith(".tgz"));
@@ -141,6 +142,7 @@ try {
     { cwd: consumerDir, timeout: 120_000, maxBuffer: 20 * 1024 * 1024 }
   );
   assertIncludes(releasePackCliSuccess.stdout, "release_pack=ok", "installed release pack CLI output");
+  assertIncludes(releasePackCliSuccess.stdout, "release_pack_git: blocked not a git worktree", "installed release pack CLI output");
   assertIncludes(releasePackCliSuccess.stdout, "release_pack_verify: npm publish --dry-run", "installed release pack CLI output");
   assertIncludes(releasePackCliSuccess.stdout, "release_pack_publish: npm publish", "installed release pack CLI output");
   const releasePackCliTarballs = (await readdir(releasePackCliDestination)).filter((entry) => entry.endsWith(".tgz"));
@@ -737,6 +739,7 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertIncludes(readme, "npm publish <tarball>", "installed README");
   assertIncludes(readme, "git remote add origin <git-url>", "installed README");
   assertIncludes(readme, "git push -u origin <branch>", "installed README");
+  assertIncludes(readme, "release_pack_git", "installed README");
   assertIncludes(readme, "installed `release-pack` script and `gptprouse release pack` CLI success paths", "installed README");
   assertIncludes(readme, "regular file", "installed README");
   assertIncludes(readme, "symlinked packed files", "installed README");

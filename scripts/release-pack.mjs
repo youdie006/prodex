@@ -47,6 +47,9 @@ async function releasePack(args) {
 
   console.log(`release_pack=ok tarball=${packedTarball} file_modes=ok staging=${args.keepWorkdir ? staging : "removed"}`);
   console.log("release_pack_next: run `npm run release:verify` and `gptprouse release status` before publishing this tarball.");
+  const gitStatus = await readReleaseGitStatus(root);
+  console.log(`release_pack_${gitStatus.line}`);
+  if (gitStatus.next) console.log(`release_pack_git_next: ${gitStatus.next}`);
   console.log(`release_pack_verify: npm publish --dry-run ${shellQuote(packedTarball)}`);
   console.log(`release_pack_publish: npm publish ${shellQuote(packedTarball)}`);
 }
@@ -266,6 +269,114 @@ function errorMessage(error) {
 
 function shellQuote(value) {
   return /^[A-Za-z0-9_./:@=-]+$/.test(value) ? value : `'${value.replaceAll("'", "'\\''")}'`;
+}
+
+async function readReleaseGitStatus(root) {
+  try {
+    const insideWorkTree = (await gitStdout(root, ["rev-parse", "--is-inside-work-tree"])).trim();
+    if (insideWorkTree !== "true") {
+      return {
+        line: "git: blocked not a git worktree",
+        next: "initialize a git repo and commit the release state before public release"
+      };
+    }
+  } catch {
+    return {
+      line: "git: blocked not a git worktree",
+      next: "initialize a git repo and commit the release state before public release"
+    };
+  }
+
+  const [branch, commit, statusOutput, branchStatusOutput, remoteOutput, upstream] = await Promise.all([
+    gitStdout(root, ["rev-parse", "--abbrev-ref", "HEAD"]).then((value) => value.trim() || "unknown", () => "unknown"),
+    gitStdout(root, ["rev-parse", "--short", "HEAD"]).then((value) => value.trim() || "unknown", () => "unknown"),
+    gitStdout(root, ["status", "--porcelain"]).then((value) => value.trim(), () => ""),
+    gitStdout(root, ["status", "--porcelain=v1", "--branch"]).then((value) => value.trim(), () => ""),
+    gitStdout(root, ["remote"]).then((value) => value.trim(), () => ""),
+    gitStdout(root, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"]).then(
+      (value) => value.trim(),
+      () => ""
+    )
+  ]);
+  const dirtyCount = statusOutput ? statusOutput.split(/\r?\n/).filter(Boolean).length : 0;
+  const remotes = remoteOutput ? remoteOutput.split(/\r?\n/).map((remote) => remote.trim()).filter(Boolean) : [];
+  const remoteText = remotes.length > 0 ? remotes.join(",") : "none";
+  const gitContext = `branch=${branch} commit=${commit}`;
+
+  if (dirtyCount > 0) {
+    return {
+      line: `git: blocked worktree has uncommitted changes files=${dirtyCount} ${gitContext} remote=${remoteText}`,
+      next: "commit or stash local changes before release"
+    };
+  }
+
+  if (branch === "HEAD") {
+    return {
+      line: `git: blocked detached HEAD commit=${commit} remote=${remoteText}`,
+      next: "check out a release branch before public release"
+    };
+  }
+
+  if (remotes.length === 0) {
+    return {
+      line: `git: blocked no remote configured ${gitContext}`,
+      next: `add a remote, then push with upstream tracking: git remote add origin <git-url>; ${formatGitPushUpstreamCommand(branch)}`
+    };
+  }
+
+  if (!upstream) {
+    return {
+      line: `git: blocked no upstream configured ${gitContext} remote=${remoteText}`,
+      next: `push the branch with upstream tracking: ${formatGitPushUpstreamCommand(branch)}`
+    };
+  }
+
+  const relation = parseGitBranchRelation(branchStatusOutput);
+  if (relation.gone) {
+    return {
+      line: `git: blocked upstream is gone ${gitContext} remote=${remoteText} upstream=${upstream}`,
+      next: "restore upstream tracking before public release"
+    };
+  }
+  if (relation.ahead > 0 && relation.behind > 0) {
+    return {
+      line: `git: blocked branch diverged ahead=${relation.ahead} behind=${relation.behind} ${gitContext} remote=${remoteText} upstream=${upstream}`,
+      next: "sync the branch with upstream before public release"
+    };
+  }
+  if (relation.ahead > 0) {
+    return {
+      line: `git: blocked branch has unpushed commits ahead=${relation.ahead} ${gitContext} remote=${remoteText} upstream=${upstream}`,
+      next: "push local commits before public release"
+    };
+  }
+  if (relation.behind > 0) {
+    return {
+      line: `git: blocked branch is behind upstream behind=${relation.behind} ${gitContext} remote=${remoteText} upstream=${upstream}`,
+      next: "sync the branch with upstream before public release"
+    };
+  }
+
+  return {
+    line: `git: ok ${gitContext} remote=${remoteText} upstream=${upstream}`
+  };
+}
+
+function formatGitPushUpstreamCommand(branch) {
+  return `git push -u origin ${shellQuote(branch)}`;
+}
+
+function parseGitBranchRelation(statusOutput) {
+  const branchLine = statusOutput.split(/\r?\n/).find((line) => line.startsWith("## ")) ?? "";
+  const relationText = /\[([^\]]+)\]/.exec(branchLine)?.[1] ?? "";
+  const ahead = Number(/\bahead (\d+)\b/.exec(relationText)?.[1] ?? 0);
+  const behind = Number(/\bbehind (\d+)\b/.exec(relationText)?.[1] ?? 0);
+  return { ahead, behind, gone: /\bgone\b/.test(relationText) };
+}
+
+async function gitStdout(root, args) {
+  const { stdout } = await execFileAsync("git", args, { cwd: root });
+  return stdout;
 }
 
 function commandFailureDetail(error) {

@@ -385,6 +385,30 @@ esac
     expect((await stat(path.join(installedRoot, "dist", "cli.js"))).mode & 0o777).toBe(0o755);
   });
 
+  it("prints git readiness before publish commands", async () => {
+    const root = await createReleasePackFixture();
+    await execFileAsync("git", ["init"], { cwd: root });
+    await execFileAsync("git", ["config", "user.email", "release@example.com"], { cwd: root });
+    await execFileAsync("git", ["config", "user.name", "Release Test"], { cwd: root });
+    await execFileAsync("git", ["add", "package.json", "README.md", "LICENSE", "dist/cli.js", "scripts/release-check.mjs"], {
+      cwd: root
+    });
+    await execFileAsync("git", ["commit", "-m", "initial"], { cwd: root });
+    const branch = (await execFileAsync("git", ["rev-parse", "--abbrev-ref", "HEAD"], { cwd: root })).stdout.trim();
+    const commit = (await execFileAsync("git", ["rev-parse", "--short", "HEAD"], { cwd: root })).stdout.trim();
+    const destination = await mkdtemp(path.join(tmpdir(), "gptprouse-release-pack-dest-"));
+
+    const result = await runReleasePack(["--root", root, "--pack-destination", destination]);
+
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain(`release_pack_git: blocked no remote configured branch=${branch} commit=${commit}`);
+    expect(result.stdout).toContain(
+      `release_pack_git_next: add a remote, then push with upstream tracking: git remote add origin <git-url>; git push -u origin ${branch}`
+    );
+    expect(result.stdout.indexOf("release_pack_git:")).toBeLessThan(result.stdout.indexOf("release_pack_verify:"));
+    expect(result.stdout.indexOf("release_pack_git_next:")).toBeLessThan(result.stdout.indexOf("release_pack_publish:"));
+  });
+
   it("rejects hard-linked source package files instead of hiding them in the staging copy", async () => {
     const root = await createReleasePackFixture();
     const outside = path.join(path.dirname(root), "outside-readme.md");
