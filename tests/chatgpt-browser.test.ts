@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildChromeLaunchArgs,
   assertChatGptTargetUrlMatches,
+  assertChatGptTargetTabAvailable,
   assertVisibleChatGptTab,
   ChatGptBrowserBlockerError,
   chatGptUrlsReferToSameTarget,
@@ -329,6 +330,25 @@ describe("ChatGPT browser adapter", () => {
         code: "target_url_mismatch",
         retryable: true,
         next_step: "Open https://chatgpt.com/c/target in the visible browser and retry. Current: https://chatgpt.com/c/current"
+      })
+    );
+  });
+
+  it("throws a structured blocker when the confirmed ChatGPT target tab is not open", () => {
+    let thrown: unknown;
+
+    try {
+      assertChatGptTargetTabAvailable("https://chatgpt.com/c/missing");
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(ChatGptBrowserBlockerError);
+    expect((thrown as ChatGptBrowserBlockerError).blocker).toEqual(
+      expect.objectContaining({
+        code: "target_tab_missing",
+        retryable: true,
+        next_step: "Open https://chatgpt.com/c/missing in the dedicated browser and retry."
       })
     );
   });

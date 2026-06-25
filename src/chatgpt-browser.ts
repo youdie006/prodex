@@ -373,6 +373,15 @@ export function assertChatGptTargetUrlMatches(currentUrl: string, targetUrl: str
   });
 }
 
+export function assertChatGptTargetTabAvailable(targetUrl: string): void {
+  throw new ChatGptBrowserBlockerError({
+    code: "target_tab_missing",
+    message: "No open ChatGPT tab matches the confirmed target URL.",
+    retryable: true,
+    next_step: `Open ${targetUrl} in the dedicated browser and retry.`
+  });
+}
+
 export function chatGptVisibilityBlocker(
   visibilityState: string | undefined,
   url: string | undefined
@@ -492,7 +501,7 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
       throw new ChatGptBrowserBlockerError(pageResult.blocker);
     }
     if (normalizedTargetUrl) {
-      throw new Error(`No open ChatGPT tab matches the confirmed target URL. Open ${normalizedTargetUrl} in the dedicated browser and retry.`);
+      assertChatGptTargetTabAvailable(normalizedTargetUrl);
     }
     throw new Error("Chrome debug port is reachable, but no chatgpt.com tab is open.");
   }
