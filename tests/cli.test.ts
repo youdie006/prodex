@@ -1544,6 +1544,7 @@ describe("runCli", () => {
     expect(text).not.toContain("--file README.md");
     expect(text).toContain("gptprouse pro browser login --dry-run  # preview, no browser opens");
     expect(text).toContain("gptprouse pro browser login  # opens visible browser");
+    expect(text).toContain("gptprouse pro browser help");
     expect(text).toContain("gptprouse pro browser check");
     expect(text).toContain("gptprouse pro browser smoke");
     expect(text).toContain('gptprouse pro browser ask "Review this repo"  # visible-browser send');

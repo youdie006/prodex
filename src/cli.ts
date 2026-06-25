@@ -818,6 +818,7 @@ repo: ${cwd}
    ${proAskCommand}  # dry-run/manual preview
    gptprouse pro browser login --dry-run  # preview, no browser opens
    gptprouse pro browser login  # opens visible browser
+   gptprouse pro browser help
    gptprouse pro browser check
    gptprouse pro browser smoke
    ${proBrowserAskCommand}  # visible-browser send

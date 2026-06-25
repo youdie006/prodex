@@ -112,6 +112,7 @@ Use this only when you explicitly want to use your logged-in ChatGPT Pro web ses
 ```bash
 gptprouse pro browser login --dry-run
 gptprouse pro browser login
+gptprouse pro browser help
 gptprouse pro browser check
 gptprouse pro browser smoke
 ```
