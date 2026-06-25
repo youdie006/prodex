@@ -122,6 +122,32 @@ try {
     "Release commands are local checks and package preparation helpers; they do not publish or push.",
     "installed release help output"
   );
+  const initHelp = await run(binPath, ["init", "--help"], { cwd: consumerDir });
+  assertIncludes(initHelp.stdout, "gptprouse init [--cwd /absolute/path/to/repo]", "installed init help output");
+  const setupHelp = await run(binPath, ["setup", "--help"], { cwd: consumerDir });
+  assertIncludes(
+    setupHelp.stdout,
+    "gptprouse setup [--cwd /absolute/path/to/repo] [--host 127.0.0.1] [--port 8787] [--token-ttl-hours <hours>]",
+    "installed setup help output"
+  );
+  const startHelp = await run(binPath, ["start", "--help"], { cwd: consumerDir });
+  assertIncludes(startHelp.stdout, "gptprouse start [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]", "installed start help output");
+  const statusHelp = await run(binPath, ["status", "--help"], { cwd: consumerDir });
+  assertIncludes(
+    statusHelp.stdout,
+    "gptprouse status [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js] [--show-token] [--url-only] [--unsafe-show-non-expiring-token]",
+    "installed status help output"
+  );
+  const tunnelHelp = await run(binPath, ["tunnel", "--help"], { cwd: consumerDir });
+  assertIncludes(tunnelHelp.stdout, "gptprouse tunnel url [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]", "installed tunnel help output");
+  const tunnelUrlHelp = await run(binPath, ["tunnel", "url", "--help"], { cwd: consumerDir });
+  assertIncludes(tunnelUrlHelp.stdout, "This command does not create a tunnel.", "installed tunnel url help output");
+  const doctorHelp = await run(binPath, ["doctor", "--help"], { cwd: consumerDir });
+  assertIncludes(doctorHelp.stdout, "gptprouse doctor [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]", "installed doctor help output");
+  const onboardHelp = await run(binPath, ["onboard", "--help"], { cwd: consumerDir });
+  assertIncludes(onboardHelp.stdout, "gptprouse onboard [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]", "installed onboard help output");
+  const mcpHelp = await run(binPath, ["mcp", "--help"], { cwd: consumerDir });
+  assertIncludes(mcpHelp.stdout, "gptprouse mcp [--cwd /absolute/path/to/repo]", "installed MCP help output");
   const projectHelp = await run(binPath, ["project", "--help"], { cwd: consumerDir });
   assertIncludes(projectHelp.stdout, "gptprouse project", "installed project help output");
   assertIncludes(projectHelp.stdout, "gptprouse project prompt [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]", "installed project help output");

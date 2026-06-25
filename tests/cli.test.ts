@@ -1381,6 +1381,76 @@ describe("runCli", () => {
     }
   });
 
+  it("prints command help for local setup and runtime commands", async () => {
+    const cases = [
+      {
+        args: ["init", "--help"],
+        header: "gptprouse init",
+        commands: ["gptprouse init [--cwd /absolute/path/to/repo]"]
+      },
+      {
+        args: ["setup", "--help"],
+        header: "gptprouse setup",
+        commands: ["gptprouse setup [--cwd /absolute/path/to/repo] [--host 127.0.0.1] [--port 8787] [--token-ttl-hours <hours>]"]
+      },
+      {
+        args: ["start", "--help"],
+        header: "gptprouse start",
+        commands: ["gptprouse start [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]"]
+      },
+      {
+        args: ["status", "--help"],
+        header: "gptprouse status",
+        commands: [
+          "gptprouse status [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js] [--show-token] [--url-only] [--unsafe-show-non-expiring-token]"
+        ]
+      },
+      {
+        args: ["tunnel", "--help"],
+        header: "gptprouse tunnel",
+        commands: ["gptprouse tunnel url [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js] --public-url https://... [--show-token] [--url-only]"]
+      },
+      {
+        args: ["tunnel", "url", "--help"],
+        header: "gptprouse tunnel url",
+        commands: ["This command does not create a tunnel."]
+      },
+      {
+        args: ["doctor", "--help"],
+        header: "gptprouse doctor",
+        commands: ["gptprouse doctor [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]"]
+      },
+      {
+        args: ["onboard", "--help"],
+        header: "gptprouse onboard",
+        commands: ["gptprouse onboard [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]"]
+      },
+      {
+        args: ["mcp", "--help"],
+        header: "gptprouse mcp",
+        commands: ["gptprouse mcp [--cwd /absolute/path/to/repo]"]
+      }
+    ];
+
+    for (const item of cases) {
+      const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+      const out: string[] = [];
+
+      const code = await runCli(item.args, {
+        cwd,
+        stdout: (line) => out.push(line),
+        stderr: () => {}
+      });
+
+      const text = out.join("\n");
+      expect(code).toBe(0);
+      expect(text).toContain(item.header);
+      for (const command of item.commands) {
+        expect(text).toContain(command);
+      }
+    }
+  });
+
   it("lists task blocking command in help", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
     const out: string[] = [];

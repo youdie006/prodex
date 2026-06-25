@@ -78,6 +78,11 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
   }
 
   if (command === "init") {
+    if (isHelpArgs(rest)) {
+      assertNoExtraArgs(rest.slice(1), "init help", 0);
+      printInitHelp(io.stdout);
+      return 0;
+    }
     assertOnlyOptions(rest, "init", ["--cwd"]);
     const targetCwd = resolveCwdFlag(io.cwd, rest);
     const targetStore = new BridgeStore(targetCwd);
@@ -88,6 +93,11 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
   }
 
   if (command === "setup") {
+    if (isHelpArgs(rest)) {
+      assertNoExtraArgs(rest.slice(1), "setup help", 0);
+      printSetupHelp(io.stdout);
+      return 0;
+    }
     assertOnlyOptions(rest, "setup", ["--cwd", "--host", "--port", "--token", "--token-ttl-hours"]);
     const targetCwd = resolveCwdFlag(io.cwd, rest);
     const config = await writeLocalConfig(targetCwd, {
@@ -104,6 +114,11 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
   }
 
   if (command === "start") {
+    if (isHelpArgs(rest)) {
+      assertNoExtraArgs(rest.slice(1), "start help", 0);
+      printStartHelp(io.stdout);
+      return 0;
+    }
     assertOnlyOptions(rest, "start", ["--cwd", "--source-cli"]);
     const targetCwd = resolveCwdFlag(io.cwd, rest);
     const sourceCli = resolveOptionalFileFlag(io.cwd, rest, "--source-cli");
@@ -123,6 +138,11 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
   }
 
   if (command === "status") {
+    if (isHelpArgs(rest)) {
+      assertNoExtraArgs(rest.slice(1), "status help", 0);
+      printStatusHelp(io.stdout);
+      return 0;
+    }
     assertOnlyOptions(rest, "status", ["--cwd", "--source-cli"], ["--show-token", "--url-only", "--unsafe-show-non-expiring-token"]);
     const targetCwd = resolveCwdFlag(io.cwd, rest);
     const sourceCli = resolveOptionalFileFlag(io.cwd, rest, "--source-cli");
@@ -175,7 +195,17 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
 
   if (command === "tunnel") {
     const [subcommand, ...tunnelArgs] = rest;
+    if (!subcommand || isHelpSubcommand(subcommand)) {
+      assertNoExtraArgs(tunnelArgs, "tunnel help", 0);
+      printTunnelHelp(io.stdout);
+      return 0;
+    }
     if (subcommand !== "url") throw new Error("tunnel requires url");
+    if (isHelpArgs(tunnelArgs)) {
+      assertNoExtraArgs(tunnelArgs.slice(1), "tunnel url help", 0);
+      printTunnelUrlHelp(io.stdout);
+      return 0;
+    }
     assertOnlyOptions(tunnelArgs, "tunnel url", ["--cwd", "--public-url", "--source-cli"], ["--show-token", "--url-only"]);
     const targetCwd = resolveCwdFlag(io.cwd, tunnelArgs);
     const sourceCli = resolveOptionalFileFlag(io.cwd, tunnelArgs, "--source-cli");
@@ -219,6 +249,11 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
   }
 
   if (command === "doctor") {
+    if (isHelpArgs(rest)) {
+      assertNoExtraArgs(rest.slice(1), "doctor help", 0);
+      printDoctorHelp(io.stdout);
+      return 0;
+    }
     assertOnlyOptions(rest, "doctor", ["--cwd", "--source-cli"]);
     const targetCwd = resolveCwdFlag(io.cwd, rest);
     const sourceCli = resolveOptionalFileFlag(io.cwd, rest, "--source-cli");
@@ -260,6 +295,11 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
   }
 
   if (command === "onboard") {
+    if (isHelpArgs(rest)) {
+      assertNoExtraArgs(rest.slice(1), "onboard help", 0);
+      printOnboardHelp(io.stdout);
+      return 0;
+    }
     assertOnlyOptions(rest, "onboard", ["--cwd", "--source-cli"]);
     const targetCwd = resolveCwdFlag(io.cwd, rest);
     io.stdout(formatOnboardingGuide(targetCwd, await hasOnboardingReadme(targetCwd), resolveOptionalFileFlag(io.cwd, rest, "--source-cli")));
@@ -859,6 +899,11 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
   }
 
   if (command === "mcp") {
+    if (isHelpArgs(rest)) {
+      assertNoExtraArgs(rest.slice(1), "mcp help", 0);
+      printMcpHelp(io.stdout);
+      return 0;
+    }
     assertOnlyOptions(rest, "mcp", ["--cwd"]);
     await runMcpServer(resolveCwdFlag(io.cwd, rest));
     return 0;
@@ -913,6 +958,87 @@ Commands:
   gptprouse sessions list [--status preview|running|done|blocked]
   gptprouse sessions show <session-id|latest>
   gptprouse mcp [--cwd /absolute/path/to/repo]`);
+}
+
+function printInitHelp(stdout: (line: string) => void): void {
+  stdout(`gptprouse init
+
+Commands:
+  gptprouse init [--cwd /absolute/path/to/repo]
+
+Initialize the local .bridge receipt ledger and bridge .gitignore entries.`);
+}
+
+function printSetupHelp(stdout: (line: string) => void): void {
+  stdout(`gptprouse setup
+
+Commands:
+  gptprouse setup [--cwd /absolute/path/to/repo] [--host 127.0.0.1] [--port 8787] [--token-ttl-hours <hours>]
+
+Save a loopback-only HTTP MCP profile in .bridge/config.local.json. Use --token-ttl-hours before tunnels or ChatGPT Project use.`);
+}
+
+function printStartHelp(stdout: (line: string) => void): void {
+  stdout(`gptprouse start
+
+Commands:
+  gptprouse start [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]
+
+Start the local loopback HTTP MCP server from the saved setup profile.`);
+}
+
+function printStatusHelp(stdout: (line: string) => void): void {
+  stdout(`gptprouse status
+
+Commands:
+  gptprouse status [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js] [--show-token] [--url-only] [--unsafe-show-non-expiring-token]
+
+Show the saved local MCP URL with tokens redacted by default.`);
+}
+
+function printTunnelHelp(stdout: (line: string) => void): void {
+  stdout(`gptprouse tunnel
+
+Commands:
+  gptprouse tunnel url [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js] --public-url https://... [--show-token] [--url-only]
+
+Format a public tunnel MCP URL from an existing local setup. This command does not create a tunnel.`);
+}
+
+function printTunnelUrlHelp(stdout: (line: string) => void): void {
+  stdout(`gptprouse tunnel url
+
+Commands:
+  gptprouse tunnel url [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js] --public-url https://... [--show-token] [--url-only]
+
+This command does not create a tunnel. It only formats your supplied public URL with the saved short-lived MCP token.`);
+}
+
+function printDoctorHelp(stdout: (line: string) => void): void {
+  stdout(`gptprouse doctor
+
+Commands:
+  gptprouse doctor [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]
+
+Run local bridge, MCP, write/apply/stage, and HTTP MCP smoke checks without opening ChatGPT.`);
+}
+
+function printOnboardHelp(stdout: (line: string) => void): void {
+  stdout(`gptprouse onboard
+
+Commands:
+  gptprouse onboard [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]
+
+Print a local-first setup guide for Codex, ChatGPT Projects, Claude, and visible-browser Pro consults.`);
+}
+
+function printMcpHelp(stdout: (line: string) => void): void {
+  stdout(`gptprouse mcp
+
+Commands:
+  gptprouse mcp [--cwd /absolute/path/to/repo]
+
+Run the stdio MCP server for local clients such as Claude. This does not reveal HTTP MCP URL tokens.`);
 }
 
 function printReleaseHelp(stdout: (line: string) => void): void {
@@ -1000,6 +1126,10 @@ Commands:
 
 function isHelpSubcommand(value: string): boolean {
   return value === "help" || value === "--help" || value === "-h";
+}
+
+function isHelpArgs(args: string[]): boolean {
+  return args.length > 0 && isHelpSubcommand(args[0]);
 }
 
 function formatProjectVerificationPrompt(cwd: string, sourceCli?: string): string {
