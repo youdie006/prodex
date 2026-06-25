@@ -236,6 +236,13 @@ try {
   });
   assertIncludes(invalidProAskTimeout.stderr, "--timeout-ms must be greater than 0", "installed invalid pro browser ask timeout output");
   await assertMissingFile(path.join(consumerDir, ".bridge"), "installed consumer bridge after invalid pro browser ask timeout");
+  const missingProAskFile = await runExpectFailure(binPath, ["pro", "ask", "--file", "missing.md", "Review this"], {
+    cwd: consumerDir
+  });
+  assertIncludes(missingProAskFile.stderr, "Path missing.md was not found in the repo", "installed missing pro ask file output");
+  assertNotIncludes(missingProAskFile.stderr, "ENOENT", "installed missing pro ask file output");
+  assertNotIncludes(missingProAskFile.stderr, "realpath", "installed missing pro ask file output");
+  await assertMissingFile(path.join(consumerDir, ".bridge"), "installed consumer bridge after missing pro ask file");
   await assertMissingFile(path.join(consumerDir, ".bridge"), "installed consumer bridge before pro ask alias guard");
   const proAskSendAlias = await runExpectFailure(binPath, ["pro", "ask", "--send", "--timeout-ms", "1", "Review this"], {
     cwd: consumerDir

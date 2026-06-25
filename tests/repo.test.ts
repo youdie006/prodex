@@ -21,6 +21,13 @@ describe("repo path policy", () => {
     expect(result.content).toBe("two");
   });
 
+  it("reports missing repo files without leaking raw filesystem paths", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-repo-"));
+
+    await expect(readRepoFile(root, "missing.md")).rejects.toThrow("Path missing.md was not found in the repo");
+    await expect(readRepoFile(root, "missing.md")).rejects.not.toThrow(/ENOENT|realpath|no such file/i);
+  });
+
   it("rejects traversal, absolute paths, and symlink escapes", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "gptprouse-repo-"));
     const outside = await mkdtemp(path.join(tmpdir(), "gptprouse-outside-"));

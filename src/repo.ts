@@ -378,7 +378,16 @@ function splitBraceAlternatives(input: string): string[] {
 }
 
 export async function assertResolvedRepoPathAllowed(root: string, resolved: string, repoPath: string): Promise<void> {
-  const [realRoot, realTarget] = await Promise.all([realpath(root), realpath(resolved)]);
+  const realRoot = await realpath(root);
+  let realTarget: string;
+  try {
+    realTarget = await realpath(resolved);
+  } catch (error) {
+    if (isErrorCode(error, "ENOENT")) {
+      throw new Error(`Path ${repoPath} was not found in the repo`);
+    }
+    throw error;
+  }
   const relative = path.relative(realRoot, realTarget);
   if (relative.startsWith("..") || path.isAbsolute(relative)) {
     throw new Error(`Path ${repoPath} escapes the repository root after resolving symlinks`);
@@ -386,4 +395,8 @@ export async function assertResolvedRepoPathAllowed(root: string, resolved: stri
   if (relative) {
     assertNotSensitiveRepoPath(path.posix.normalize(relative.split(path.sep).join("/")));
   }
+}
+
+function isErrorCode(error: unknown, code: string): boolean {
+  return typeof error === "object" && error !== null && "code" in error && (error as { code?: unknown }).code === code;
 }
