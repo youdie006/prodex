@@ -176,6 +176,112 @@ describe("BridgeStore", () => {
     await expect(store.getResult(task.id)).resolves.toEqual(expect.objectContaining({ summary: "Recovered summary." }));
   });
 
+  it("rejects result records whose internal task_id does not match the filename", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
+    const store = new BridgeStore(root);
+    const task = await store.createTask({
+      source: "codex",
+      title: "Mismatched result identity",
+      prompt: "Reject result records that point at a different task.",
+      repo_id: "default",
+      files: [],
+      provenance: { adapter: "cli" }
+    });
+    const otherTaskId = "task_20990101_000000_other-result";
+    await writeFile(
+      path.join(root, ".bridge", "results", `${task.id}.json`),
+      `${JSON.stringify(
+        {
+          schema_version: 1,
+          task_id: otherTaskId,
+          status: "done",
+          summary: "This belongs to a different task.",
+          artifacts: [],
+          commands: [],
+          warnings: [],
+          created_at: "2099-01-01T00:00:00.000Z"
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+
+    await expect(store.getResult(task.id)).rejects.toThrow(/does not match result record/i);
+    await expect(store.listResults()).rejects.toThrow(/does not match result record/i);
+  });
+
+  it("rejects task, session, and receipt records whose internal ids do not match the filename", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
+    const store = new BridgeStore(root);
+    await store.ensure();
+    const taskRecordId = "task_20990101_000000_task-record";
+    const sessionRecordId = "sess_20990101_000000_session-record";
+    const receiptRecordId = "receipt_20990101_000000_receipt-record";
+    await writeFile(
+      path.join(root, ".bridge", "tasks", `${taskRecordId}.json`),
+      `${JSON.stringify(
+        {
+          schema_version: 1,
+          id: "task_20990101_000000_other-task",
+          source: "codex",
+          status: "new",
+          title: "Mismatched task",
+          prompt: "This task id does not match the record filename.",
+          repo_id: "default",
+          files: [],
+          provenance: { adapter: "cli", warnings: [] },
+          created_at: "2099-01-01T00:00:00.000Z",
+          updated_at: "2099-01-01T00:00:00.000Z"
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+    await writeFile(
+      path.join(root, ".bridge", "sessions", `${sessionRecordId}.json`),
+      `${JSON.stringify(
+        {
+          schema_version: 1,
+          id: "sess_20990101_000000_other-session",
+          direction: "codex_to_chatgpt",
+          backend: "manual",
+          status: "preview",
+          warnings: [],
+          created_at: "2099-01-01T00:00:00.000Z",
+          last_used_at: "2099-01-01T00:00:00.000Z"
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+    await writeFile(
+      path.join(root, ".bridge", "receipts", `${receiptRecordId}.json`),
+      `${JSON.stringify(
+        {
+          schema_version: 1,
+          id: "receipt_20990101_000000_other-receipt",
+          kind: "task_created",
+          summary: "Mismatched receipt id",
+          metadata: {},
+          created_at: "2099-01-01T00:00:00.000Z"
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+
+    await expect(store.getTask(taskRecordId)).rejects.toThrow(/does not match task record/i);
+    await expect(store.listTasks()).rejects.toThrow(/does not match task record/i);
+    await expect(store.getSession(sessionRecordId)).rejects.toThrow(/does not match session record/i);
+    await expect(store.listSessions()).rejects.toThrow(/does not match session record/i);
+    await expect(store.getReceipt(receiptRecordId)).rejects.toThrow(/does not match receipt record/i);
+    await expect(store.listReceipts()).rejects.toThrow(/does not match receipt record/i);
+  });
+
   it("repairs a non-terminal task when retrying completion after the matching result was already written", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
     const store = new BridgeStore(root);

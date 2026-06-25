@@ -142,7 +142,7 @@ export class BridgeStore {
 
   async listTasks(status?: Task["status"]): Promise<Task[]> {
     await this.ensure();
-    const tasks = await this.readAll("tasks", TaskSchema);
+    const tasks = await this.readAll("tasks", parseTaskRecord);
     return tasks
       .filter((task) => (status ? task.status === status : true))
       .sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id));
@@ -150,18 +150,18 @@ export class BridgeStore {
 
   async listTasksReadOnly(status?: Task["status"]): Promise<Task[]> {
     if (!(await this.hasReadyStorageDirReadOnly("tasks"))) return [];
-    const tasks = await this.readAll("tasks", TaskSchema, { cleanupTempHardLinks: false });
+    const tasks = await this.readAll("tasks", parseTaskRecord, { cleanupTempHardLinks: false });
     return tasks
       .filter((task) => (status ? task.status === status : true))
       .sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id));
   }
 
   async getTask(taskId: string): Promise<Task> {
-    return TaskSchema.parse(await this.readRecordJson("tasks", taskId));
+    return parseTaskRecord(taskId, await this.readRecordJson("tasks", taskId));
   }
 
   async getTaskReadOnly(taskId: string): Promise<Task> {
-    return TaskSchema.parse(await this.readRecordJson("tasks", taskId, { cleanupTempHardLinks: false }));
+    return parseTaskRecord(taskId, await this.readRecordJson("tasks", taskId, { cleanupTempHardLinks: false }));
   }
 
   async claimTask(taskId: string, claimedBy: string): Promise<Task> {
@@ -251,24 +251,24 @@ export class BridgeStore {
 
   async listResults(): Promise<Result[]> {
     await this.ensure();
-    return (await this.readAll("results", ResultSchema)).sort(
+    return (await this.readAll("results", parseResultRecord)).sort(
       (a, b) => a.created_at.localeCompare(b.created_at) || a.task_id.localeCompare(b.task_id)
     );
   }
 
   async listResultsReadOnly(): Promise<Result[]> {
     if (!(await this.hasReadyStorageDirReadOnly("results"))) return [];
-    return (await this.readAll("results", ResultSchema, { cleanupTempHardLinks: false })).sort(
+    return (await this.readAll("results", parseResultRecord, { cleanupTempHardLinks: false })).sort(
       (a, b) => a.created_at.localeCompare(b.created_at) || a.task_id.localeCompare(b.task_id)
     );
   }
 
   async getResult(taskId: string): Promise<Result> {
-    return ResultSchema.parse(await this.readRecordJson("results", taskId));
+    return parseResultRecord(taskId, await this.readRecordJson("results", taskId));
   }
 
   async getResultReadOnly(taskId: string): Promise<Result> {
-    return ResultSchema.parse(await this.readRecordJson("results", taskId, { cleanupTempHardLinks: false }));
+    return parseResultRecord(taskId, await this.readRecordJson("results", taskId, { cleanupTempHardLinks: false }));
   }
 
   async readResultArtifactText(
@@ -338,16 +338,16 @@ export class BridgeStore {
   }
 
   async getSession(sessionId: string): Promise<Session> {
-    return SessionSchema.parse(await this.readRecordJson("sessions", sessionId));
+    return parseSessionRecord(sessionId, await this.readRecordJson("sessions", sessionId));
   }
 
   async getSessionReadOnly(sessionId: string): Promise<Session> {
-    return SessionSchema.parse(await this.readRecordJson("sessions", sessionId, { cleanupTempHardLinks: false }));
+    return parseSessionRecord(sessionId, await this.readRecordJson("sessions", sessionId, { cleanupTempHardLinks: false }));
   }
 
   async listSessions(status?: Session["status"]): Promise<Session[]> {
     await this.ensure();
-    const sessions = await this.readAll("sessions", SessionSchema);
+    const sessions = await this.readAll("sessions", parseSessionRecord);
     return sessions
       .filter((session) => (status ? session.status === status : true))
       .sort((a, b) => b.last_used_at.localeCompare(a.last_used_at) || b.id.localeCompare(a.id));
@@ -355,23 +355,23 @@ export class BridgeStore {
 
   async listSessionsReadOnly(status?: Session["status"]): Promise<Session[]> {
     if (!(await this.hasReadyStorageDirReadOnly("sessions"))) return [];
-    const sessions = await this.readAll("sessions", SessionSchema, { cleanupTempHardLinks: false });
+    const sessions = await this.readAll("sessions", parseSessionRecord, { cleanupTempHardLinks: false });
     return sessions
       .filter((session) => (status ? session.status === status : true))
       .sort((a, b) => b.last_used_at.localeCompare(a.last_used_at) || b.id.localeCompare(a.id));
   }
 
   async getReceipt(receiptId: string): Promise<Receipt> {
-    return ReceiptSchema.parse(await this.readRecordJson("receipts", receiptId));
+    return parseReceiptRecord(receiptId, await this.readRecordJson("receipts", receiptId));
   }
 
   async getReceiptReadOnly(receiptId: string): Promise<Receipt> {
-    return ReceiptSchema.parse(await this.readRecordJson("receipts", receiptId, { cleanupTempHardLinks: false }));
+    return parseReceiptRecord(receiptId, await this.readRecordJson("receipts", receiptId, { cleanupTempHardLinks: false }));
   }
 
   async listReceipts(input: ListReceiptsInput = {}): Promise<Receipt[]> {
     await this.ensure();
-    return (await this.readAll("receipts", ReceiptSchema))
+    return (await this.readAll("receipts", parseReceiptRecord))
       .filter((receipt) => (input.kind ? receipt.kind === input.kind : true))
       .filter((receipt) => (input.task_id ? receipt.task_id === input.task_id : true))
       .sort((a, b) => b.created_at.localeCompare(a.created_at) || b.id.localeCompare(a.id))
@@ -380,7 +380,7 @@ export class BridgeStore {
 
   async listReceiptsReadOnly(input: ListReceiptsInput = {}): Promise<Receipt[]> {
     if (!(await this.hasReadyStorageDirReadOnly("receipts"))) return [];
-    return (await this.readAll("receipts", ReceiptSchema, { cleanupTempHardLinks: false }))
+    return (await this.readAll("receipts", parseReceiptRecord, { cleanupTempHardLinks: false }))
       .filter((receipt) => (input.kind ? receipt.kind === input.kind : true))
       .filter((receipt) => (input.task_id ? receipt.task_id === input.task_id : true))
       .sort((a, b) => b.created_at.localeCompare(a.created_at) || b.id.localeCompare(a.id))
@@ -484,7 +484,7 @@ export class BridgeStore {
 
   private async readAll<T>(
     kind: "tasks" | "results" | "sessions" | "receipts",
-    schema: { parse(value: unknown): T },
+    parseRecord: (id: string, value: unknown) => T,
     options: { cleanupTempHardLinks?: boolean } = {}
   ): Promise<T[]> {
     const dir = this.dir(kind);
@@ -494,7 +494,7 @@ export class BridgeStore {
       if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
       const id = entry.name.replace(/\.json$/, "");
       if (!isBridgeRecordId(kind, id)) continue;
-      items.push(schema.parse(await this.readRecordJson(kind, id, options)));
+      items.push(parseRecord(id, await this.readRecordJson(kind, id, options)));
     }
     return items;
   }
@@ -865,6 +865,36 @@ function assertFetchableResultArtifacts(artifacts: BridgeFile[]): void {
     if (!isFetchableResultArtifactPath(normalizedPath) || normalizedPath !== artifact.path) {
       throw new Error(`Artifact is not a fetchable result artifact: ${artifact.path}`);
     }
+  }
+}
+
+function parseTaskRecord(expectedId: string, value: unknown): Task {
+  const task = TaskSchema.parse(value);
+  assertMatchingRecordIdentity("task", expectedId, task.id);
+  return task;
+}
+
+function parseResultRecord(expectedTaskId: string, value: unknown): Result {
+  const result = ResultSchema.parse(value);
+  assertMatchingRecordIdentity("result", expectedTaskId, result.task_id, "task_id");
+  return result;
+}
+
+function parseSessionRecord(expectedId: string, value: unknown): Session {
+  const session = SessionSchema.parse(value);
+  assertMatchingRecordIdentity("session", expectedId, session.id);
+  return session;
+}
+
+function parseReceiptRecord(expectedId: string, value: unknown): Receipt {
+  const receipt = ReceiptSchema.parse(value);
+  assertMatchingRecordIdentity("receipt", expectedId, receipt.id);
+  return receipt;
+}
+
+function assertMatchingRecordIdentity(kind: string, expectedId: string, actualId: string, field = "id"): void {
+  if (actualId !== expectedId) {
+    throw new Error(`${kind} ${field} ${actualId} does not match ${kind} record ${expectedId}`);
   }
 }
 
