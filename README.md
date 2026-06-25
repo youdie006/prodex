@@ -164,7 +164,7 @@ gptprouse pro browser ask --target-url "https://chatgpt.com/c/..." --confirm-tar
 ```
 
 `gptprouse` does not silently switch Projects or threads. If the visible ChatGPT tab is not already on the confirmed URL, the send is refused.
-If more than one ChatGPT tab or window is visible, an untargeted browser send is also refused; close the extra visible ChatGPT windows or use `--target-url ... --confirm-target`.
+If more than one ChatGPT tab or window is visible or visibility cannot be verified for extra ChatGPT tabs, an untargeted browser send is also refused; close the extra ChatGPT windows or use `--target-url ... --confirm-target`.
 
 For optional ChatGPT Project -> local handoff, start the HTTP MCP bridge:
 
@@ -275,7 +275,14 @@ If direct `npm pack` is blocked because a WSL/Windows mount reports normal sourc
 gptprouse release pack --pack-destination /tmp/gptprouse-release
 ```
 
-For a source checkout, the npm script is equivalent:
+For a source checkout, use the built CLI with `--source-cli` so follow-up commands stay in source-checkout form:
+
+```bash
+node dist/cli.js release pack --source-cli "$(pwd)/dist/cli.js" --pack-destination /tmp/gptprouse-release
+node dist/cli.js release status --source-cli "$(pwd)/dist/cli.js"
+```
+
+The npm script is equivalent when you only need the tarball:
 
 ```bash
 npm run release:pack -- --pack-destination /tmp/gptprouse-release

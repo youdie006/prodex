@@ -73,6 +73,19 @@ describe("repo path policy", () => {
     await expect(readRepoFile(root, "links/hard.txt")).rejects.toThrow(/linked|hard link/i);
   });
 
+  it("rejects unsafe repo reads without leaking raw filesystem paths", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-repo-"));
+    const outside = await mkdtemp(path.join(tmpdir(), "gptprouse-outside-"));
+    const outsideFile = path.join(outside, "secret.txt");
+    await writeFile(outsideFile, "outside secret\n", "utf8");
+    await mkdir(path.join(root, "links"));
+    await link(outsideFile, path.join(root, "links", "hard.txt"));
+
+    await expect(readRepoFile(root, "links/hard.txt")).rejects.toThrow(/linked|hard link/i);
+    await expect(readRepoFile(root, "links/hard.txt")).rejects.not.toThrow(root);
+    await expect(readRepoFile(root, "links/hard.txt")).rejects.not.toThrow(outside);
+  });
+
   it("does not return repo search matches from hard-linked files", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "gptprouse-repo-"));
     const outside = await mkdtemp(path.join(tmpdir(), "gptprouse-outside-"));

@@ -41,6 +41,21 @@ describe("pro browser ask persistence", () => {
     await expect(readdir(path.join(cwd, ".bridge"))).rejects.toThrow();
   });
 
+  it("rejects pro browser ask dry-run mode before creating a preview", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-pro-send-"));
+
+    await expect(
+      runCli(["pro", "browser", "ask", "--dry-run", "Review this"], {
+        cwd,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.toThrow(/pro browser ask.*visible-browser send|Use `gptprouse pro ask`/i);
+
+    expect(sendChatGptPromptMock).not.toHaveBeenCalled();
+    await expect(readdir(path.join(cwd, ".bridge"))).rejects.toThrow();
+  });
+
   it("rejects direct raw ask-pro sends before touching the browser", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-pro-send-"));
 
@@ -572,7 +587,28 @@ describe("pro browser ask persistence", () => {
     expect(result.warnings.join("\n")).toContain("forced receipt write failure");
   });
 
-  it("completes the browser consult when optional session writes fail", async () => {
+  it("rejects the browser consult before send when the running session record cannot be written", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-pro-send-"));
+    setSafeFileTestHooks({
+      beforeOpen: (filePath, operation) => {
+        if (operation === "write" && filePath.includes(`${path.sep}.sess_`)) {
+          throw new Error("forced running session write failure");
+        }
+      }
+    });
+
+    await expect(
+      runCli(["pro", "browser", "ask", "Review this"], {
+        cwd,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.toThrow(/record.*session.*before.*send|forced running session write failure/i);
+
+    expect(sendChatGptPromptMock).not.toHaveBeenCalled();
+  });
+
+  it("completes the browser consult when optional final session writes fail", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-pro-send-"));
     sendChatGptPromptMock.mockResolvedValueOnce({
       url: "https://chatgpt.com/c/abc",
@@ -581,10 +617,14 @@ describe("pro browser ask persistence", () => {
       modelHints: [],
       warnings: []
     });
+    let sessionWriteCount = 0;
     setSafeFileTestHooks({
       beforeOpen: (filePath, operation) => {
         if (operation === "write" && filePath.includes(`${path.sep}.sess_`)) {
-          throw new Error("forced session write failure");
+          sessionWriteCount += 1;
+          if (sessionWriteCount > 1) {
+            throw new Error("forced final session write failure");
+          }
         }
       }
     });
@@ -603,5 +643,6 @@ describe("pro browser ask persistence", () => {
       "Session recording can fail without losing the answer."
     );
     expect(err.join("\n")).toContain("session_record_warning");
+    expect(err.join("\n")).toContain("forced final session write failure");
   });
 });

@@ -37,11 +37,11 @@ export async function readVerifiedUtf8File(
   try {
     const stat = await handle.stat();
     if (!stat.isFile()) {
-      throw new Error(`Path ${filePath} is not a regular file`);
+      throw new Error("Target path is not a regular file");
     }
     assertNotHardLinked(filePath, stat.nlink);
     if (options.maxBytes !== undefined && stat.size > options.maxBytes) {
-      throw new Error(`Path ${filePath} is too large (${stat.size} bytes)`);
+      throw new Error(`Target file is too large (${stat.size} bytes)`);
     }
     const content = await readHandleUtf8(handle, filePath, options.maxBytes);
     if (options.mode !== undefined) {
@@ -83,7 +83,7 @@ export async function writeVerifiedUtf8File(
   try {
     const stat = await handle.stat();
     if (!stat.isFile()) {
-      throw new Error(`Path ${filePath} is not a regular file`);
+      throw new Error("Target path is not a regular file");
     }
     assertNotHardLinked(filePath, stat.nlink);
     await testHooks.beforeWrite?.(filePath, "write");
@@ -183,11 +183,11 @@ async function replaceByVerifiedTempFile(
 async function readHandleUtf8(handle: FileHandle, filePath: string, maxBytes?: number): Promise<string> {
   const stat = await handle.stat();
   if (!stat.isFile()) {
-    throw new Error(`Path ${filePath} is not a regular file`);
+    throw new Error("Target path is not a regular file");
   }
   assertNotHardLinked(filePath, stat.nlink);
   if (maxBytes !== undefined && stat.size > maxBytes) {
-    throw new Error(`Path ${filePath} is too large (${stat.size} bytes)`);
+    throw new Error(`Target file is too large (${stat.size} bytes)`);
   }
   const buffer = Buffer.alloc(maxBytes === undefined ? stat.size : maxBytes + 1);
   let offset = 0;
@@ -196,7 +196,7 @@ async function readHandleUtf8(handle: FileHandle, filePath: string, maxBytes?: n
     if (bytesRead === 0) break;
     offset += bytesRead;
     if (maxBytes !== undefined && offset > maxBytes) {
-      throw new Error(`Path ${filePath} is too large (${offset} bytes)`);
+      throw new Error(`Target file is too large (${offset} bytes)`);
     }
   }
   return buffer.subarray(0, offset).toString("utf8");
@@ -210,7 +210,7 @@ async function writeHandleUtf8(handle: FileHandle, filePath: string, content: st
   while (offset < replacement.length) {
     const { bytesWritten } = await handle.write(replacement, offset, replacement.length - offset, offset);
     if (bytesWritten === 0) {
-      throw new Error(`Could not write content to ${filePath}`);
+      throw new Error("Could not write content to target file");
     }
     offset += bytesWritten;
   }
@@ -219,14 +219,14 @@ async function writeHandleUtf8(handle: FileHandle, filePath: string, content: st
 async function assertSafeOpenFile(handle: FileHandle, filePath: string): Promise<void> {
   const stat = await handle.stat();
   if (!stat.isFile()) {
-    throw new Error(`Path ${filePath} is not a regular file`);
+    throw new Error("Target path is not a regular file");
   }
   assertNotHardLinked(filePath, stat.nlink);
 }
 
 function assertNotHardLinked(filePath: string, linkCount: number): void {
   if (linkCount > 1) {
-    throw new Error(`Path ${filePath} is hard linked and cannot be used through safe file operations`);
+    throw new Error("Target path is hard linked and cannot be used through safe file operations");
   }
 }
 
@@ -234,10 +234,10 @@ async function assertExistingTargetNotHardLinked(filePath: string): Promise<void
   try {
     const stat = await lstat(filePath);
     if (stat.isSymbolicLink()) {
-      throw new Error(`Path ${filePath} is a symlink and cannot be used through safe file operations`);
+      throw new Error("Target path is a symlink and cannot be used through safe file operations");
     }
     if (!stat.isFile()) {
-      throw new Error(`Path ${filePath} is not a regular file`);
+      throw new Error("Target path is not a regular file");
     }
     assertNotHardLinked(filePath, stat.nlink);
   } catch (error) {
@@ -249,7 +249,7 @@ async function assertExistingTargetNotHardLinked(filePath: string): Promise<void
 async function assertParentSnapshotStable(parentSnapshot: ParentSnapshot | undefined): Promise<void> {
   if (!parentSnapshot) return;
   if ((await realpath(parentSnapshot.path)) !== parentSnapshot.realPath) {
-    throw new Error(`Path ${parentSnapshot.path} changed during write file operation`);
+    throw new Error("Parent directory changed during write file operation");
   }
 }
 
@@ -282,13 +282,13 @@ async function openStableNoFollow(
   if (process.platform !== "linux") {
     const actualParentBeforeOpen = await realpath(parentSnapshot.path);
     if (actualParentBeforeOpen !== parentSnapshot.realPath) {
-      throw new Error(`Path ${filePath} changed during ${operation} file operation`);
+      throw new Error(`Parent directory changed before ${operation} file operation`);
     }
     const handle = await openNoFollow(filePath, flags, operation, mode);
     try {
       const actualParentAfterOpen = await realpath(parentSnapshot.path);
       if (actualParentAfterOpen !== parentSnapshot.realPath) {
-        throw new Error(`Path ${filePath} changed during ${operation} file operation`);
+        throw new Error(`Parent directory changed during ${operation} file operation`);
       }
       return handle;
     } catch (error) {
@@ -301,7 +301,7 @@ async function openStableNoFollow(
     const parentFdPath = procFdPath(parentHandle.fd);
     const actualParent = await realpath(parentFdPath);
     if (actualParent !== parentSnapshot.realPath) {
-      throw new Error(`Path ${filePath} changed during ${operation} file operation`);
+      throw new Error(`Parent directory changed during ${operation} file operation`);
     }
     return await openNoFollow(path.join(parentFdPath, path.basename(filePath)), flags, operation, mode);
   } finally {
@@ -317,13 +317,13 @@ async function openNoFollowDirectory(dirPath: string, operation: SafeFileOperati
     const stat = await handle.stat();
     if (!stat.isDirectory()) {
       await handle.close().catch(() => undefined);
-      throw new Error(`Path ${dirPath} is not a directory`);
+      throw new Error("Target parent is not a directory");
     }
     return handle;
   } catch (error) {
     const maybe = error as { code?: string };
     if (maybe.code === "ELOOP") {
-      throw new Error(`Path ${dirPath} is a symlink or changed during ${operation} file operation`);
+      throw new Error(`Target parent is a symlink or changed during ${operation} file operation`);
     }
     throw error;
   }
@@ -336,7 +336,7 @@ async function openNoFollow(filePath: string, flags: number, operation: SafeFile
   } catch (error) {
     const maybe = error as { code?: string };
     if (maybe.code === "ELOOP") {
-      throw new Error(`Path ${filePath} is a symlink or changed during ${operation} file operation`);
+      throw new Error(`Target path is a symlink or changed during ${operation} file operation`);
     }
     throw error;
   }

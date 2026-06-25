@@ -737,6 +737,20 @@ describe("BridgeStore", () => {
     expect(await readFile(outsideFile, "utf8")).toBe("outside\n");
   });
 
+  it("rejects unsafe artifact reads without leaking raw bridge filesystem paths", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
+    const store = new BridgeStore(root);
+    const relativePath = ".bridge/artifacts/results/hard-linked-artifact.txt";
+    await store.writeArtifactText(relativePath, "payload\n");
+    const artifactPath = path.join(root, relativePath);
+    const outside = await mkdtemp(path.join(tmpdir(), "gptprouse-outside-"));
+    await link(artifactPath, path.join(outside, "hard-linked-artifact.txt"));
+
+    await expect(store.readArtifactText(relativePath)).rejects.toThrow(/linked|hard link/i);
+    await expect(store.readArtifactText(relativePath)).rejects.not.toThrow(root);
+    await expect(store.readArtifactText(relativePath)).rejects.not.toThrow(path.join(root, ".bridge"));
+  });
+
   it("rejects receipt storage when the receipts directory itself is a symlink", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
     const outside = await mkdtemp(path.join(tmpdir(), "gptprouse-outside-"));

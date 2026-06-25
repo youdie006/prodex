@@ -228,14 +228,16 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
   if (command === "release") {
     const [subcommand, ...releaseArgs] = rest;
     if (subcommand === "status") {
-      assertOnlyOptions(releaseArgs, "release status", ["--cwd"]);
+      assertOnlyOptions(releaseArgs, "release status", ["--cwd", "--source-cli"]);
       const targetCwd = resolveCwdFlag(io.cwd, releaseArgs);
-      io.stdout(await formatReleaseStatus(targetCwd));
+      const sourceCli = resolveOptionalFileFlag(io.cwd, releaseArgs, "--source-cli");
+      io.stdout(await formatReleaseStatus(targetCwd, sourceCli));
       return 0;
     }
     if (subcommand === "pack") {
-      assertOnlyOptions(releaseArgs, "release pack", ["--cwd", "--pack-destination"], ["--keep-workdir"]);
+      assertOnlyOptions(releaseArgs, "release pack", ["--cwd", "--pack-destination", "--source-cli"], ["--keep-workdir"]);
       const targetCwd = resolveCwdFlag(io.cwd, releaseArgs);
+      const sourceCli = resolveOptionalFileFlag(io.cwd, releaseArgs, "--source-cli");
       const packDestination = readFlag(releaseArgs, "--pack-destination");
       if (!packDestination) throw new Error("release pack requires --pack-destination <dir>");
       await runReleasePackCommand({
@@ -243,6 +245,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
         packageRoot: targetCwd,
         packDestination: path.resolve(io.cwd, packDestination),
         keepWorkdir: releaseArgs.includes("--keep-workdir"),
+        sourceCli,
         stdout: io.stdout,
         stderr: io.stderr
       });
@@ -572,6 +575,12 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
         return 0;
       }
       if (browserSubcommand === "ask") {
+        if (hasAskProDryRunMode(browserArgs) && hasAskProSendMode(browserArgs)) {
+          throw new Error("ask-pro cannot combine --dry-run and --send");
+        }
+        if (hasAskProDryRunMode(browserArgs)) {
+          throw new Error("gptprouse pro browser ask is an explicit visible-browser send. Use `gptprouse pro ask` for dry-run previews.");
+        }
         const hasMode = hasAskProMode(browserArgs);
         return runCli(["ask-pro", ...(hasMode ? [] : ["--send"]), ...browserArgs], { ...io, allowAskProBrowserSend: true });
       }
@@ -664,7 +673,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
         }
       });
       await store.claimTask(task.id, "chatgpt-pro");
-      await writeSessionBestEffort(
+      await writeSessionBeforeBrowserSend(
         store,
         {
           id: bundle.id,
@@ -674,8 +683,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
           thread: normalizedTargetUrl,
           status: "running",
           warnings: []
-        },
-        io
+        }
       );
       let consult: Awaited<ReturnType<typeof sendChatGptPrompt>>;
       try {
@@ -835,8 +843,8 @@ Commands:
   gptprouse start [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]
   gptprouse status [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js] [--show-token] [--url-only] [--unsafe-show-non-expiring-token]
   gptprouse tunnel url [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js] --public-url https://... [--show-token] [--url-only]
-  gptprouse release status [--cwd /absolute/path/to/repo]
-  gptprouse release pack [--cwd /absolute/path/to/repo] --pack-destination /absolute/path
+  gptprouse release status [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]
+  gptprouse release pack [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js] --pack-destination /absolute/path
   gptprouse onboard [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]
   gptprouse project prompt [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]
   gptprouse claude prompt [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]
@@ -1027,6 +1035,14 @@ function formatBrowserSmokeCommand(sourceCli?: string): string {
   return `${formatCliCommand(sourceCli)} pro browser smoke${formatSourceCliOption(sourceCli)}`;
 }
 
+function formatReleaseStatusCommand(sourceCli?: string): string {
+  return `${formatCliCommand(sourceCli)} release status${formatSourceCliOption(sourceCli)}`;
+}
+
+function formatReleasePackCommand(sourceCli?: string): string {
+  return `${formatCliCommand(sourceCli)} release pack${formatSourceCliOption(sourceCli)} --pack-destination <dir>`;
+}
+
 function sourceAwareBrowserNextStep(nextStep: string | undefined, sourceCli?: string): string | undefined {
   if (!nextStep || !sourceCli) return nextStep;
   return nextStep
@@ -1046,14 +1062,21 @@ function sourceAwareSetupMessage(message: string, sourceCli?: string): string {
     .replaceAll("`gptprouse setup`", `\`${formatCliCommand(sourceCli)} setup\``);
 }
 
-async function formatReleaseStatus(cwd: string): Promise<string> {
+function sourceAwareReleaseMessage(message: string, sourceCli?: string): string {
+  if (!sourceCli) return message;
+  return message
+    .replaceAll("`gptprouse release pack --pack-destination <dir>`", `\`${formatReleasePackCommand(sourceCli)}\``)
+    .replaceAll("`gptprouse release status`", `\`${formatReleaseStatusCommand(sourceCli)}\``);
+}
+
+async function formatReleaseStatus(cwd: string, sourceCli?: string): Promise<string> {
   const packageJsonPath = path.join(cwd, "package.json");
   const raw = await readReleasePackageJson(packageJsonPath).catch(async (error) => {
     if (!isMissingFileError(error)) throw error;
     return undefined;
   });
   if (raw === undefined) {
-    const lines = ["gptprouse release status", "package: <missing package.json>"];
+    const lines = [formatReleaseStatusCommand(sourceCli), "package: <missing package.json>"];
     lines.push(`metadata: blocked package.json not found at ${packageJsonPath}`);
     const gitStatus = await readReleaseGitStatus(cwd);
     lines.push(gitStatus.line);
@@ -1066,7 +1089,7 @@ async function formatReleaseStatus(cwd: string): Promise<string> {
   try {
     packageJson = JSON.parse(raw) as { name?: unknown; version?: unknown; license?: unknown; private?: unknown; bin?: unknown };
   } catch {
-    const lines = ["gptprouse release status", "package: <invalid package.json>"];
+    const lines = [formatReleaseStatusCommand(sourceCli), "package: <invalid package.json>"];
     lines.push(`metadata: blocked package.json is not valid JSON at ${packageJsonPath}`);
     const gitStatus = await readReleaseGitStatus(cwd);
     lines.push(gitStatus.line);
@@ -1077,7 +1100,7 @@ async function formatReleaseStatus(cwd: string): Promise<string> {
   }
   const name = typeof packageJson.name === "string" && packageJson.name.trim() ? packageJson.name : "<unnamed>";
   const version = typeof packageJson.version === "string" && packageJson.version.trim() ? packageJson.version : "<unversioned>";
-  const lines = ["gptprouse release status", `package: ${name}@${version}`];
+  const lines = [formatReleaseStatusCommand(sourceCli), `package: ${name}@${version}`];
   const license = typeof packageJson.license === "string" ? packageJson.license.trim() : "";
   const identityError = packageIdentityError(packageJson);
   let metadataNext = "run `npm run release:check` before publishing";
@@ -1116,7 +1139,7 @@ async function formatReleaseStatus(cwd: string): Promise<string> {
     }
   }
   if (packCheckEligible) {
-    const packStatus = await readReleasePackStatus(cwd, packageJson);
+    const packStatus = await readReleasePackStatus(cwd, packageJson, sourceCli);
     lines.push(packStatus.line);
     if (packStatus.next) {
       if (metadataReady) {
@@ -1129,7 +1152,7 @@ async function formatReleaseStatus(cwd: string): Promise<string> {
   const gitStatus = await readReleaseGitStatus(cwd);
   lines.push(gitStatus.line);
   if (gitStatus.next) lines.push(`git_next: ${gitStatus.next}`);
-  lines.push(`next: ${metadataNext}`);
+  lines.push(`next: ${sourceAwareReleaseMessage(metadataNext, sourceCli)}`);
   lines.push("verification: run `npm run release:verify` anytime without weakening the publish guard");
   return lines.join("\n");
 }
@@ -1192,7 +1215,7 @@ type ReleasePackStatus = {
   next?: string;
 };
 
-async function readReleasePackStatus(cwd: string, packageJson: { bin?: unknown }): Promise<ReleasePackStatus> {
+async function readReleasePackStatus(cwd: string, packageJson: { bin?: unknown }, sourceCli?: string): Promise<ReleasePackStatus> {
   try {
     const { stdout } = await execFileAsync(commandForPlatform("npm"), ["pack", "--json", "--dry-run", "--ignore-scripts"], {
       cwd,
@@ -1211,8 +1234,10 @@ async function readReleasePackStatus(cwd: string, packageJson: { bin?: unknown }
     if (invalid.length > 0) {
       return {
         line: `pack: blocked packed files have unexpected executable modes outside package bin entries: ${formatPathList(invalid)}`,
-        next:
-          "fix file modes or publish from a filesystem that preserves executable bits, then run `npm run release:check`; on WSL/Windows mounts, create a sanitized tarball with `gptprouse release pack --pack-destination <dir>` after `npm run release:verify`; release pack prints `npm publish --dry-run <tarball>` and `npm publish <tarball>`"
+        next: sourceAwareReleaseMessage(
+          "fix file modes or publish from a filesystem that preserves executable bits, then run `npm run release:check`; on WSL/Windows mounts, create a sanitized tarball with `gptprouse release pack --pack-destination <dir>` after `npm run release:verify`; release pack prints `npm publish --dry-run <tarball>` and `npm publish <tarball>`",
+          sourceCli
+        )
       };
     }
     const hardLinked = await findHardLinkedPackedFiles(cwd, files);
@@ -1334,6 +1359,7 @@ async function runReleasePackCommand(input: {
   packageRoot: string;
   packDestination: string;
   keepWorkdir: boolean;
+  sourceCli?: string;
   stdout: (line: string) => void;
   stderr: (line: string) => void;
 }): Promise<void> {
@@ -1346,7 +1372,7 @@ async function runReleasePackCommand(input: {
       timeout: 120_000,
       maxBuffer: 20 * 1024 * 1024
     });
-    writeCommandOutput(stdout, input.stdout);
+    writeCommandOutput(sourceAwareReleaseMessage(stdout, input.sourceCli), input.stdout);
     writeCommandOutput(stderr, input.stderr);
   } catch (error) {
     throw new Error(firstErrorLine(error));
@@ -2280,6 +2306,14 @@ async function writeSessionBestEffort(
     await store.writeSession(input);
   } catch (error) {
     io.stderr(`session_record_warning: ${errorMessage(error)}`);
+  }
+}
+
+async function writeSessionBeforeBrowserSend(store: BridgeStore, input: Parameters<BridgeStore["writeSession"]>[0]): Promise<void> {
+  try {
+    await store.writeSession(input);
+  } catch (error) {
+    throw new Error(`failed to record running consult session before browser send: ${errorMessage(error)}`);
   }
 }
 

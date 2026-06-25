@@ -72,8 +72,16 @@ try {
     "installed help output"
   );
   assertIncludes(help.stdout, "gptprouse onboard [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]", "installed help output");
-  assertIncludes(help.stdout, "gptprouse release status", "installed help output");
-  assertIncludes(help.stdout, "gptprouse release pack [--cwd /absolute/path/to/repo] --pack-destination /absolute/path", "installed help output");
+  assertIncludes(
+    help.stdout,
+    "gptprouse release status [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]",
+    "installed help output"
+  );
+  assertIncludes(
+    help.stdout,
+    "gptprouse release pack [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js] --pack-destination /absolute/path",
+    "installed help output"
+  );
   assertIncludes(help.stdout, "gptprouse project prompt", "installed help output");
   assertIncludes(help.stdout, "gptprouse claude prompt", "installed help output");
   assertIncludes(help.stdout, "gptprouse claude config", "installed help output");
@@ -491,6 +499,11 @@ try {
   });
   assertIncludes(proAskSendAlias.stderr, "pro ask is a dry-run preview", "installed pro ask send alias guard");
   assertIncludes(proAskSendAlias.stderr, "pro browser ask", "installed pro ask send alias guard");
+  const browserAskDryRun = await runExpectFailure(binPath, ["pro", "browser", "ask", "--dry-run", "Installed dry-run smoke"], {
+    cwd: consumerDir
+  });
+  assertIncludes(browserAskDryRun.stderr, "gptprouse pro browser ask is an explicit visible-browser send", "installed browser ask dry-run guard");
+  assertIncludes(browserAskDryRun.stderr, "Use `gptprouse pro ask` for dry-run previews", "installed browser ask dry-run guard");
   const rawAskProSend = await runExpectFailure(binPath, ["ask-pro", "--send", "--timeout-ms", "1", "Review this"], {
     cwd: consumerDir
   });
@@ -687,6 +700,7 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertIncludes(readme, "pro browser check --source-cli", "installed README");
   assertIncludes(readme, "pro browser smoke --source-cli", "installed README");
   assertIncludes(readme, "gptprouse pro browser help", "installed README");
+  assertIncludes(readme, "visibility cannot be verified for extra ChatGPT tabs", "installed README");
   assertIncludes(readme, "gptprouse init", "installed README");
   assertIncludes(readme, "CLI-only", "installed README");
   assertIncludes(readme, "ripgrep", "installed README");
@@ -703,6 +717,8 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertIncludes(readme, "gptprouse claude config", "installed README");
   assertIncludes(readme, "gptprouse release status", "installed README");
   assertIncludes(readme, "gptprouse release pack --pack-destination", "installed README");
+  assertIncludes(readme, "release status --source-cli", "installed README");
+  assertIncludes(readme, "release pack --source-cli", "installed README");
   assertIncludes(readme, "pack file-mode, non-regular file, or hard-link blockers", "installed README");
   assertIncludes(readme, "Run `pro ask` and `pro browser ask` from the repo root", "installed README");
   assertIncludes(readme, "npm run release:verify", "installed README");

@@ -683,7 +683,7 @@ describe("MCP tool handlers", () => {
         expected_head: head,
         preimage_sha256: sha256("old\n")
       })
-    ).rejects.toThrow(/Path .*too large|1000000/i);
+    ).rejects.toThrow(/Target file is too large|1000000/i);
     expect(await readFile(path.join(cwd, "notes.md"), "utf8")).toBe("old\n");
   });
 

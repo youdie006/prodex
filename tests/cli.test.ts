@@ -1777,8 +1777,10 @@ describe("runCli", () => {
     });
 
     const text = out.join("\n");
-    expect(text).toContain("gptprouse release status [--cwd /absolute/path/to/repo]");
-    expect(text).toContain("gptprouse release pack [--cwd /absolute/path/to/repo] --pack-destination /absolute/path");
+    expect(text).toContain("gptprouse release status [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]");
+    expect(text).toContain(
+      "gptprouse release pack [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js] --pack-destination /absolute/path"
+    );
   });
 
   it("release pack creates a normalized publish tarball through the CLI", async () => {
@@ -1801,6 +1803,25 @@ describe("runCli", () => {
     expect(text).toContain("release_pack_verify: npm publish --dry-run");
     expect(text).toContain("release_pack_publish: npm publish");
     expect(text).not.toContain("gptprouse_token=");
+  });
+
+  it("release pack can print source-checkout follow-up commands", async () => {
+    const cwd = await createReleasePackCliFixture();
+    const destination = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-release-pack-dest-"));
+    const sourceCli = path.join(cwd, "dist", "cli.js");
+    await mkdir(path.dirname(sourceCli), { recursive: true });
+    await writeFile(sourceCli, "#!/usr/bin/env node\n", "utf8");
+    const out: string[] = [];
+
+    await runCli(["release", "pack", "--cwd", cwd, "--pack-destination", destination, "--source-cli", sourceCli], {
+      cwd: "/tmp",
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    const text = out.join("\n");
+    expect(text).toContain(`release_pack_next: run \`npm run release:verify\` and \`node ${sourceCli} release status --source-cli ${sourceCli}\``);
+    expect(text).not.toContain("`gptprouse release status`");
   });
 
   it("release pack reports script failures without raw exec output", async () => {
@@ -2122,6 +2143,32 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     expect(text).toContain("gptprouse release pack --pack-destination <dir>");
     expect(text).toContain("release pack prints `npm publish --dry-run <tarball>` and `npm publish <tarball>`");
     expect(text).not.toContain("pack: ok");
+  });
+
+  it("release status can print source-checkout release pack remediation", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-release-"));
+    const sourceCli = path.join(cwd, "dist", "cli.js");
+    await writeFile(
+      path.join(cwd, "package.json"),
+      `${JSON.stringify({ name: "demo", version: "1.0.0", license: "MIT", files: ["README.md"] }, null, 2)}\n`,
+      "utf8"
+    );
+    await writeFile(path.join(cwd, "LICENSE"), "MIT License\n", "utf8");
+    await writeFile(path.join(cwd, "README.md"), "# Demo\n", "utf8");
+    await mkdir(path.dirname(sourceCli), { recursive: true });
+    await writeFile(sourceCli, "#!/usr/bin/env node\n", "utf8");
+    await chmod(path.join(cwd, "README.md"), 0o755);
+    const out: string[] = [];
+
+    await runCli(["release", "status", "--cwd", cwd, "--source-cli", sourceCli], {
+      cwd: "/tmp",
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    const text = out.join("\n");
+    expect(text).toContain(`node ${sourceCli} release pack --source-cli ${sourceCli} --pack-destination <dir>`);
+    expect(text).not.toContain("gptprouse release pack --pack-destination <dir>");
   });
 
   it("release status reports non-regular license paths as release blockers", async () => {
