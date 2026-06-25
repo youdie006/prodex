@@ -199,6 +199,11 @@ try {
     cwd: consumerDir
   });
   assertIncludes(invalidBrowserTimeout.stderr, "--timeout-ms must be greater than 0", "installed invalid browser timeout output");
+  const invalidTokenTtl = await runExpectFailure(binPath, ["setup", "--token-ttl-hours", "0"], {
+    cwd: consumerDir
+  });
+  assertIncludes(invalidTokenTtl.stderr, "--token-ttl-hours must be greater than 0", "installed invalid token TTL output");
+  await assertMissingFile(path.join(consumerDir, ".bridge"), "installed consumer bridge after invalid token TTL");
   await assertMissingFile(path.join(consumerDir, ".bridge"), "installed consumer bridge before pro ask alias guard");
   const proAskSendAlias = await runExpectFailure(binPath, ["pro", "ask", "--send", "--timeout-ms", "1", "Review this"], {
     cwd: consumerDir

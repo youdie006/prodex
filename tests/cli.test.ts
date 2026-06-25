@@ -453,6 +453,15 @@ describe("runCli", () => {
     expect(out).toEqual([]);
 
     await expect(
+      runCli(["setup", "--token-ttl-hours", "0"], {
+        cwd,
+        stdout: (line) => out.push(line),
+        stderr: () => {}
+      })
+    ).rejects.toThrow("--token-ttl-hours must be greater than 0");
+    expect(out).toEqual([]);
+
+    await expect(
       runCli(["pro", "browser", "check", "--port", "-1", "--timeout-ms", "10"], {
         cwd,
         stdout: (line) => out.push(line),

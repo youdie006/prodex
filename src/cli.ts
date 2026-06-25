@@ -92,7 +92,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       host: readFlag(rest, "--host") ?? "127.0.0.1",
       port: readPortFlag(rest, "--port") ?? 8787,
       token: readFlag(rest, "--token"),
-      tokenTtlHours: readNumberFlag(rest, "--token-ttl-hours")
+      tokenTtlHours: readPositiveNumberFlag(rest, "--token-ttl-hours")
     });
     io.stdout("Saved local ChatGPT Developer Mode MCP profile.");
     io.stdout(`Server URL: ${redactServerUrl(config.server_url)}`);
