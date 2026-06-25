@@ -2481,9 +2481,9 @@ describe("runCli", () => {
     });
 
     const text = out.join("\n");
-    expect(text).toContain(`release_pack_next: run \`npm run release:verify\` and \`node ${sourceCli} release status --source-cli ${sourceCli}\``);
+    expect(text).toContain(`release_pack_next: run \`npm run release:verify\` and \`node ${sourceCli} release status --source-cli ${sourceCli} --cwd ${cwd}\``);
     expect(text).toContain(
-      `release_pack_publish_blocked: fix git readiness before npm publish; run \`node ${sourceCli} release status --source-cli ${sourceCli}\``
+      `release_pack_publish_blocked: fix git readiness before npm publish; run \`node ${sourceCli} release status --source-cli ${sourceCli} --cwd ${cwd}\``
     );
     expect(text).not.toContain("`gptprouse release status`");
   });
@@ -2555,7 +2555,7 @@ describe("runCli", () => {
     expect(text).toContain("pack: blocked packed files have unexpected executable modes");
     expect(text).toContain("README.md");
     expect(text).toContain("pack_next: fix file modes or publish from a filesystem that preserves executable bits");
-    expect(text).toContain("gptprouse release pack --pack-destination <dir>");
+    expect(text).toContain(`gptprouse release pack --cwd ${cwd} --pack-destination <dir>`);
     expect(text).toContain("next: choose a license, add LICENSE, then run `npm run release:check`");
     expect(text).not.toContain("metadata: ok");
   });
@@ -2848,7 +2848,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     expect(text).toContain("metadata: ok license=MIT license_file=present");
     expect(text).toContain("pack: blocked packed files have unexpected executable modes");
     expect(text).toContain("README.md");
-    expect(text).toContain("gptprouse release pack --pack-destination <dir>");
+    expect(text).toContain(`gptprouse release pack --cwd ${cwd} --pack-destination <dir>`);
     expect(text).toContain("release pack prints `npm publish --dry-run <tarball>`");
     expect(text).toContain("warns that tarball publish bypasses prepublishOnly before printing `npm publish <tarball>`");
     expect(text).not.toContain("pack: ok");
@@ -2876,8 +2876,35 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     });
 
     const text = out.join("\n");
-    expect(text).toContain(`node ${sourceCli} release pack --source-cli ${sourceCli} --pack-destination <dir>`);
+    expect(text).toContain(`node ${sourceCli} release pack --source-cli ${sourceCli} --cwd ${cwd} --pack-destination <dir>`);
     expect(text).not.toContain("gptprouse release pack --pack-destination <dir>");
+  });
+
+  it("release status keeps source-checkout and explicit --cwd remediation commands", async () => {
+    const launcherCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-launcher-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-release-"));
+    const sourceCli = path.join(launcherCwd, "dist", "cli.js");
+    await writeFile(
+      path.join(cwd, "package.json"),
+      `${JSON.stringify({ name: "demo", version: "1.0.0", license: "MIT", files: ["README.md"] }, null, 2)}\n`,
+      "utf8"
+    );
+    await writeFile(path.join(cwd, "LICENSE"), "MIT License\n", "utf8");
+    await writeFile(path.join(cwd, "README.md"), "# Demo\n", "utf8");
+    await mkdir(path.dirname(sourceCli), { recursive: true });
+    await writeFile(sourceCli, "#!/usr/bin/env node\n", "utf8");
+    await chmod(path.join(cwd, "README.md"), 0o755);
+    const out: string[] = [];
+
+    await runCli(["release", "status", "--cwd", cwd, "--source-cli", sourceCli], {
+      cwd: launcherCwd,
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    const text = out.join("\n");
+    expect(text).toContain(`node ${sourceCli} release status --source-cli ${sourceCli} --cwd ${cwd}`);
+    expect(text).toContain(`node ${sourceCli} release pack --source-cli ${sourceCli} --cwd ${cwd} --pack-destination <dir>`);
   });
 
   it("release status reports non-regular license paths as release blockers", async () => {

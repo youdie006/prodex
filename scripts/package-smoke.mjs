@@ -354,6 +354,14 @@ try {
   assertIncludes(releaseStatus.stdout, "pack:", "installed release status output");
   assertIncludes(releaseStatus.stdout, "git: blocked", "installed release status output");
   assertIncludes(releaseStatus.stdout, "not a git worktree", "installed release status output");
+  const sourceReleaseStatus = await run(binPath, ["release", "status", "--cwd", installedPackageDir, "--source-cli", installedSourceCli], {
+    cwd: consumerDir
+  });
+  assertIncludes(
+    sourceReleaseStatus.stdout,
+    `node ${installedSourceCli} release status --source-cli ${installedSourceCli} --cwd ${installedPackageDir}`,
+    "installed source release status --cwd output"
+  );
   const releasePackDestination = path.join(tmp, "installed-release-pack");
   const releasePackSuccess = await run(
     process.execPath,

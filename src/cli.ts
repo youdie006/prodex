@@ -294,7 +294,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       assertOnlyOptions(releaseArgs, "release status", ["--cwd", "--source-cli"]);
       const targetCwd = resolveCwdFlag(io.cwd, releaseArgs);
       const sourceCli = resolveOptionalFileFlag(io.cwd, releaseArgs, "--source-cli");
-      io.stdout(await formatReleaseStatus(targetCwd, sourceCli));
+      io.stdout(await formatReleaseStatus(targetCwd, sourceCli, readFlag(releaseArgs, "--cwd") ? targetCwd : undefined));
       return 0;
     }
     if (subcommand === "pack") {
@@ -317,6 +317,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
         packDestination: path.resolve(io.cwd, packDestination),
         keepWorkdir: releaseArgs.includes("--keep-workdir"),
         sourceCli,
+        releaseStatusCwd: readFlag(releaseArgs, "--cwd") ? targetCwd : undefined,
         stdout: io.stdout,
         stderr: io.stderr
       });
@@ -1591,12 +1592,20 @@ function formatBlockedConsultRecordedMessage(message: string, taskId: string, so
   return `${message}\nblocked consult recorded: ${taskId}; inspect with \`${formatProShowCommand(taskId, sourceCli)}\` or \`${formatProLatestCommand(sourceCli)}\`.`;
 }
 
-function formatReleaseStatusCommand(sourceCli?: string): string {
-  return `${formatCliCommand(sourceCli)} release status${formatSourceCliOption(sourceCli)}`;
+function formatReleaseStatusCommand(sourceCli?: string, options: { cwd?: string } = {}): string {
+  return [`${formatCliCommand(sourceCli)} release status${formatSourceCliOption(sourceCli)}`, options.cwd ? `--cwd ${shellQuote(options.cwd)}` : undefined]
+    .filter(Boolean)
+    .join(" ");
 }
 
-function formatReleasePackCommand(sourceCli?: string): string {
-  return `${formatCliCommand(sourceCli)} release pack${formatSourceCliOption(sourceCli)} --pack-destination <dir>`;
+function formatReleasePackCommand(sourceCli?: string, options: { cwd?: string } = {}): string {
+  return [
+    `${formatCliCommand(sourceCli)} release pack${formatSourceCliOption(sourceCli)}`,
+    options.cwd ? `--cwd ${shellQuote(options.cwd)}` : undefined,
+    "--pack-destination <dir>"
+  ]
+    .filter(Boolean)
+    .join(" ");
 }
 
 function formatGitPushUpstreamCommand(branch: string): string {
@@ -1634,21 +1643,21 @@ function sourceAwareSetupMessage(message: string, sourceCli?: string, options: {
     .replaceAll("`gptprouse setup`", `\`${setupCommand}\``);
 }
 
-function sourceAwareReleaseMessage(message: string, sourceCli?: string): string {
-  if (!sourceCli) return message;
+function sourceAwareReleaseMessage(message: string, sourceCli?: string, options: { cwd?: string } = {}): string {
+  if (!sourceCli && !options.cwd) return message;
   return message
-    .replaceAll("`gptprouse release pack --pack-destination <dir>`", `\`${formatReleasePackCommand(sourceCli)}\``)
-    .replaceAll("`gptprouse release status`", `\`${formatReleaseStatusCommand(sourceCli)}\``);
+    .replaceAll("`gptprouse release pack --pack-destination <dir>`", `\`${formatReleasePackCommand(sourceCli, options)}\``)
+    .replaceAll("`gptprouse release status`", `\`${formatReleaseStatusCommand(sourceCli, options)}\``);
 }
 
-async function formatReleaseStatus(cwd: string, sourceCli?: string): Promise<string> {
+async function formatReleaseStatus(cwd: string, sourceCli?: string, releaseHintCwd?: string): Promise<string> {
   const packageJsonPath = path.join(cwd, "package.json");
   const raw = await readReleasePackageJson(packageJsonPath).catch(async (error) => {
     if (!isMissingFileError(error)) throw error;
     return undefined;
   });
   if (raw === undefined) {
-    const lines = [formatReleaseStatusCommand(sourceCli), "package: <missing package.json>"];
+    const lines = [formatReleaseStatusCommand(sourceCli, { cwd: releaseHintCwd }), "package: <missing package.json>"];
     lines.push(`metadata: blocked package.json not found at ${packageJsonPath}`);
     const gitStatus = await readReleaseGitStatus(cwd);
     lines.push(gitStatus.line);
@@ -1661,7 +1670,7 @@ async function formatReleaseStatus(cwd: string, sourceCli?: string): Promise<str
   try {
     packageJson = JSON.parse(raw) as { name?: unknown; version?: unknown; license?: unknown; private?: unknown; bin?: unknown };
   } catch {
-    const lines = [formatReleaseStatusCommand(sourceCli), "package: <invalid package.json>"];
+    const lines = [formatReleaseStatusCommand(sourceCli, { cwd: releaseHintCwd }), "package: <invalid package.json>"];
     lines.push(`metadata: blocked package.json is not valid JSON at ${packageJsonPath}`);
     const gitStatus = await readReleaseGitStatus(cwd);
     lines.push(gitStatus.line);
@@ -1672,7 +1681,7 @@ async function formatReleaseStatus(cwd: string, sourceCli?: string): Promise<str
   }
   const name = typeof packageJson.name === "string" && packageJson.name.trim() ? packageJson.name : "<unnamed>";
   const version = typeof packageJson.version === "string" && packageJson.version.trim() ? packageJson.version : "<unversioned>";
-  const lines = [formatReleaseStatusCommand(sourceCli), `package: ${name}@${version}`];
+  const lines = [formatReleaseStatusCommand(sourceCli, { cwd: releaseHintCwd }), `package: ${name}@${version}`];
   const license = typeof packageJson.license === "string" ? packageJson.license.trim() : "";
   const identityError = packageIdentityError(packageJson);
   let metadataNext = "run `npm run release:check` before publishing";
@@ -1710,7 +1719,7 @@ async function formatReleaseStatus(cwd: string, sourceCli?: string): Promise<str
     }
   }
   if (packCheckEligible) {
-    const packStatus = await readReleasePackStatus(cwd, packageJson, sourceCli);
+    const packStatus = await readReleasePackStatus(cwd, packageJson, sourceCli, releaseHintCwd);
     lines.push(packStatus.line);
     if (packStatus.next) {
       if (metadataReady) {
@@ -1723,7 +1732,7 @@ async function formatReleaseStatus(cwd: string, sourceCli?: string): Promise<str
   const gitStatus = await readReleaseGitStatus(cwd);
   lines.push(gitStatus.line);
   if (gitStatus.next) lines.push(`git_next: ${gitStatus.next}`);
-  lines.push(`next: ${sourceAwareReleaseMessage(metadataNext, sourceCli)}`);
+  lines.push(`next: ${sourceAwareReleaseMessage(metadataNext, sourceCli, { cwd: releaseHintCwd })}`);
   lines.push("verification: run `npm run release:verify` anytime without weakening the publish guard");
   return lines.join("\n");
 }
@@ -1800,7 +1809,7 @@ type ReleasePackStatus = {
   next?: string;
 };
 
-async function readReleasePackStatus(cwd: string, packageJson: { bin?: unknown }, sourceCli?: string): Promise<ReleasePackStatus> {
+async function readReleasePackStatus(cwd: string, packageJson: { bin?: unknown }, sourceCli?: string, releaseHintCwd?: string): Promise<ReleasePackStatus> {
   try {
     const { stdout } = await execFileAsync(commandForPlatform("npm"), ["pack", "--json", "--dry-run", "--ignore-scripts"], {
       cwd,
@@ -1821,7 +1830,8 @@ async function readReleasePackStatus(cwd: string, packageJson: { bin?: unknown }
         line: `pack: blocked packed files have unexpected executable modes outside package bin entries: ${formatPathList(invalid)}`,
         next: sourceAwareReleaseMessage(
           "fix file modes or publish from a filesystem that preserves executable bits, then run `npm run release:check`; on WSL/Windows mounts, create a sanitized tarball with `gptprouse release pack --pack-destination <dir>` after `npm run release:verify`; release pack prints `npm publish --dry-run <tarball>` and warns that tarball publish bypasses prepublishOnly before printing `npm publish <tarball>`",
-          sourceCli
+          sourceCli,
+          { cwd: releaseHintCwd }
         )
       };
     }
@@ -1945,6 +1955,7 @@ async function runReleasePackCommand(input: {
   packDestination: string;
   keepWorkdir: boolean;
   sourceCli?: string;
+  releaseStatusCwd?: string;
   stdout: (line: string) => void;
   stderr: (line: string) => void;
 }): Promise<void> {
@@ -1957,7 +1968,7 @@ async function runReleasePackCommand(input: {
       timeout: 120_000,
       maxBuffer: 20 * 1024 * 1024
     });
-    writeCommandOutput(sourceAwareReleaseMessage(stdout, input.sourceCli), input.stdout);
+    writeCommandOutput(sourceAwareReleaseMessage(stdout, input.sourceCli, { cwd: input.releaseStatusCwd }), input.stdout);
     writeCommandOutput(stderr, input.stderr);
   } catch (error) {
     throw new Error(firstErrorLine(error));
