@@ -111,6 +111,7 @@ export async function loadLocalConfig(cwd: string): Promise<LocalConfig> {
   }
   assertLoopbackHttpHost(config.host);
   assertLoopbackHttpHost(new URL(config.server_url).hostname);
+  assertServerUrlMatchesConfig(config);
   return config;
 }
 
@@ -152,6 +153,23 @@ function computeTokenExpiresAt(tokenTtlHours: number | undefined, nowIso: string
 function isTokenExpired(tokenExpiresAt: string, now: Date): boolean {
   const expiresAtMs = Date.parse(tokenExpiresAt);
   return !Number.isFinite(expiresAtMs) || expiresAtMs <= now.getTime();
+}
+
+function assertServerUrlMatchesConfig(config: LocalConfig): void {
+  const serverUrl = new URL(config.server_url);
+  const tokenParams = serverUrl.searchParams.getAll("gptprouse_token");
+  const hostMatches = normalizeLoopbackHttpHost(serverUrl.hostname) === normalizeLoopbackHttpHost(config.host);
+  const portMatches = effectiveUrlPort(serverUrl) === config.port;
+  const tokenMatches = tokenParams.length === 1 && tokenParams[0] === config.token;
+  const shapeMatches = serverUrl.protocol === "http:" && serverUrl.pathname === "/mcp" && Array.from(serverUrl.searchParams.keys()).length === 1;
+  if (!hostMatches || !portMatches || !tokenMatches || !shapeMatches) {
+    throw new Error(".bridge/config.local.json server_url must match host, port, and token. Run `gptprouse setup` to replace it.");
+  }
+}
+
+function effectiveUrlPort(url: URL): number {
+  if (url.port) return Number(url.port);
+  return url.protocol === "http:" ? 80 : Number.NaN;
 }
 
 async function readExistingConfig(cwd: string): Promise<LocalConfig | undefined> {

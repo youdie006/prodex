@@ -899,6 +899,32 @@ async function smokeInstalledHttpOnboarding(binPath, cwd) {
   assertIncludes(expiredRevealOutput, "token expired", "installed expired status reveal refusal");
   assertNotIncludes(expiredRevealOutput, expiredToken, "installed expired status reveal refusal");
 
+  const staleUrlCwd = path.join(launcherCwd, "stale-url-http");
+  await mkdir(path.join(staleUrlCwd, ".bridge"), { recursive: true });
+  await writeFile(
+    path.join(staleUrlCwd, ".bridge", "config.local.json"),
+    `${JSON.stringify(
+      {
+        schema_version: 1,
+        host: "127.0.0.1",
+        port: 8792,
+        token: "real-package-smoke-token",
+        server_url: "http://127.0.0.1:8792/mcp?gptprouse_token=stale-package-smoke-token",
+        token_expires_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      },
+      null,
+      2
+    )}\n`,
+    "utf8"
+  );
+  const staleUrlReveal = await runExpectFailure(binPath, ["status", "--cwd", staleUrlCwd, "--show-token", "--url-only"], { cwd: launcherCwd });
+  const staleUrlRevealOutput = `${staleUrlReveal.stdout}\n${staleUrlReveal.stderr}`;
+  assertIncludes(staleUrlRevealOutput, "server_url must match host, port, and token", "installed stale server URL refusal");
+  assertNotIncludes(staleUrlRevealOutput, "stale-package-smoke-token", "installed stale server URL refusal");
+  assertNotIncludes(staleUrlRevealOutput, "real-package-smoke-token", "installed stale server URL refusal");
+
   const configuredDoctor = await run(binPath, ["doctor", "--cwd", cwd], { cwd: launcherCwd, timeout: 60_000 });
   assertIncludes(configuredDoctor.stdout, "config: ok", "installed configured doctor output");
   assertIncludes(configuredDoctor.stdout, "token_status=valid", "installed configured doctor output");

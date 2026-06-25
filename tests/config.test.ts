@@ -36,6 +36,16 @@ describe("local bridge config", () => {
     expect(expiryMs).toBeLessThanOrEqual(Date.now() + 2 * 60 * 60 * 1000 + 1000);
   });
 
+  it("loads local MCP configs that use the explicit HTTP default port", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-config-"));
+
+    const config = await writeLocalConfig(cwd, { port: 80, token: "test-token" });
+    const loaded = await loadLocalConfig(cwd);
+
+    expect(config.server_url).toBe("http://127.0.0.1:80/mcp?gptprouse_token=test-token");
+    expect(loaded.port).toBe(80);
+  });
+
   it("loads legacy local MCP config files without token expiry", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-config-"));
     await mkdir(path.join(cwd, ".bridge"), { recursive: true });
@@ -92,6 +102,30 @@ describe("local bridge config", () => {
     );
 
     await expect(loadLocalConfig(cwd)).rejects.toThrow(/loopback|local/i);
+  });
+
+  it("rejects local MCP config files whose server_url does not match the listener token", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-config-"));
+    await mkdir(path.join(cwd, ".bridge"), { recursive: true });
+    await writeFile(
+      localConfigPath(cwd),
+      `${JSON.stringify(
+        {
+          schema_version: 1,
+          host: "127.0.0.1",
+          port: 9797,
+          token: "real-token",
+          server_url: "http://127.0.0.1:9797/mcp?gptprouse_token=stale-token",
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+
+    await expect(loadLocalConfig(cwd)).rejects.toThrow(/server_url|token|match/i);
   });
 
   it("rejects non-positive token TTL values", async () => {

@@ -2832,6 +2832,41 @@ describe("runCli", () => {
     expect(out.join("\n")).not.toContain("expired-secret-token");
   });
 
+  it("refuses stale local MCP server URLs before printing paste-ready tokens", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    await mkdir(path.join(cwd, ".bridge"), { recursive: true });
+    await writeFile(
+      path.join(cwd, ".bridge", "config.local.json"),
+      `${JSON.stringify(
+        {
+          schema_version: 1,
+          host: "127.0.0.1",
+          port: 8789,
+          token: "real-secret-token",
+          server_url: "http://127.0.0.1:8789/mcp?gptprouse_token=stale-secret-token",
+          token_expires_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+    const out: string[] = [];
+
+    await expect(
+      runCli(["status", "--show-token", "--url-only"], {
+        cwd,
+        stdout: (line) => out.push(line),
+        stderr: () => {}
+      })
+    ).rejects.toThrow(/server_url|token|match/i);
+
+    expect(out.join("\n")).not.toContain("stale-secret-token");
+    expect(out.join("\n")).not.toContain("real-secret-token");
+  });
+
   it("prints token expiry status when setup uses a TTL", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
     await runCli(["setup", "--port", "8789", "--token", "super-secret-token", "--token-ttl-hours", "1"], {
