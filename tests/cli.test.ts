@@ -1,7 +1,7 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { execFile } from "node:child_process";
-import { chmod, link, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, copyFile, link, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { createRequire } from "node:module";
@@ -1776,7 +1776,51 @@ describe("runCli", () => {
       stderr: () => {}
     });
 
-    expect(out.join("\n")).toContain("gptprouse release status [--cwd /absolute/path/to/repo]");
+    const text = out.join("\n");
+    expect(text).toContain("gptprouse release status [--cwd /absolute/path/to/repo]");
+    expect(text).toContain("gptprouse release pack [--cwd /absolute/path/to/repo] --pack-destination /absolute/path");
+  });
+
+  it("release pack creates a normalized publish tarball through the CLI", async () => {
+    const cwd = await createReleasePackCliFixture();
+    const destination = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-release-pack-dest-"));
+    const out: string[] = [];
+
+    const code = await runCli(["release", "pack", "--cwd", cwd, "--pack-destination", destination], {
+      cwd: "/tmp",
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    const text = out.join("\n");
+    const tarballs = (await readdir(destination)).filter((entry) => entry.endsWith(".tgz"));
+    expect(code).toBe(0);
+    expect(tarballs).toHaveLength(1);
+    expect(text).toContain("release_pack=ok");
+    expect(text).toContain(`tarball=${path.join(destination, tarballs[0])}`);
+    expect(text).toContain("release_pack_verify: npm publish --dry-run");
+    expect(text).toContain("release_pack_publish: npm publish");
+    expect(text).not.toContain("gptprouse_token=");
+  });
+
+  it("release pack reports script failures without raw exec output", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-release-pack-missing-"));
+    const destination = path.join(cwd, "packed");
+
+    await expect(
+      runCli(["release", "pack", "--cwd", cwd, "--pack-destination", destination], {
+        cwd: "/tmp",
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.toThrow("release pack failed: release metadata failed: package.json not found");
+    await expect(
+      runCli(["release", "pack", "--cwd", cwd, "--pack-destination", destination], {
+        cwd: "/tmp",
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.not.toThrow("Command failed:");
   });
 
   it("release status reports the missing public license blocker", async () => {
@@ -1826,7 +1870,7 @@ describe("runCli", () => {
     expect(text).toContain("pack: blocked packed files have unexpected executable modes");
     expect(text).toContain("README.md");
     expect(text).toContain("pack_next: fix file modes or publish from a filesystem that preserves executable bits");
-    expect(text).toContain("npm run release:pack -- --pack-destination <dir>");
+    expect(text).toContain("gptprouse release pack --pack-destination <dir>");
     expect(text).toContain("next: choose a license, add LICENSE, then run `npm run release:check`");
     expect(text).not.toContain("metadata: ok");
   });
@@ -2075,8 +2119,8 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     expect(text).toContain("metadata: ok license=MIT license_file=present");
     expect(text).toContain("pack: blocked packed files have unexpected executable modes");
     expect(text).toContain("README.md");
-    expect(text).toContain("npm run release:pack -- --pack-destination <dir>");
-    expect(text).toContain("release:pack prints `npm publish --dry-run <tarball>` and `npm publish <tarball>`");
+    expect(text).toContain("gptprouse release pack --pack-destination <dir>");
+    expect(text).toContain("release pack prints `npm publish --dry-run <tarball>` and `npm publish <tarball>`");
     expect(text).not.toContain("pack: ok");
   });
 
@@ -2462,7 +2506,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
         stdout: () => {},
         stderr: () => {}
       })
-    ).rejects.toThrow("release requires status");
+    ).rejects.toThrow("release requires status or pack");
   });
 
   it("requires explicit browser namespace for browser product checks", async () => {
@@ -3918,6 +3962,30 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     ).rejects.toThrow(/http or https/i);
   });
 });
+
+async function createReleasePackCliFixture(): Promise<string> {
+  const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-release-pack-"));
+  const repoRoot = path.resolve(import.meta.dirname, "..");
+  await mkdir(path.join(cwd, "scripts"), { recursive: true });
+  await writeFile(
+    path.join(cwd, "package.json"),
+    `${JSON.stringify(
+      {
+        name: "cli-release-pack-demo",
+        version: "1.0.0",
+        license: "MIT",
+        files: ["README.md", "LICENSE", "scripts/release-check.mjs"]
+      },
+      null,
+      2
+    )}\n`,
+    "utf8"
+  );
+  await writeFile(path.join(cwd, "README.md"), "# CLI release pack demo\n", "utf8");
+  await writeFile(path.join(cwd, "LICENSE"), "MIT License\n", "utf8");
+  await copyFile(path.join(repoRoot, "scripts", "release-check.mjs"), path.join(cwd, "scripts", "release-check.mjs"));
+  return cwd;
+}
 
 async function writeExpiredLocalConfig(cwd: string): Promise<void> {
   await mkdir(path.join(cwd, ".bridge"), { recursive: true });

@@ -73,6 +73,7 @@ try {
   );
   assertIncludes(help.stdout, "gptprouse onboard [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]", "installed help output");
   assertIncludes(help.stdout, "gptprouse release status", "installed help output");
+  assertIncludes(help.stdout, "gptprouse release pack [--cwd /absolute/path/to/repo] --pack-destination /absolute/path", "installed help output");
   assertIncludes(help.stdout, "gptprouse project prompt", "installed help output");
   assertIncludes(help.stdout, "gptprouse claude prompt", "installed help output");
   assertIncludes(help.stdout, "gptprouse claude config", "installed help output");
@@ -124,6 +125,19 @@ try {
   const releasePackTarballs = (await readdir(releasePackDestination)).filter((entry) => entry.endsWith(".tgz"));
   if (releasePackTarballs.length !== 1) {
     throw new Error(`installed release-pack expected exactly one tarball, found: ${releasePackTarballs.join(", ")}`);
+  }
+  const releasePackCliDestination = path.join(tmp, "installed-release-pack-cli");
+  const releasePackCliSuccess = await run(
+    binPath,
+    ["release", "pack", "--cwd", installedPackageDir, "--pack-destination", releasePackCliDestination],
+    { cwd: consumerDir, timeout: 120_000, maxBuffer: 20 * 1024 * 1024 }
+  );
+  assertIncludes(releasePackCliSuccess.stdout, "release_pack=ok", "installed release pack CLI output");
+  assertIncludes(releasePackCliSuccess.stdout, "release_pack_verify: npm publish --dry-run", "installed release pack CLI output");
+  assertIncludes(releasePackCliSuccess.stdout, "release_pack_publish: npm publish", "installed release pack CLI output");
+  const releasePackCliTarballs = (await readdir(releasePackCliDestination)).filter((entry) => entry.endsWith(".tgz"));
+  if (releasePackCliTarballs.length !== 1) {
+    throw new Error(`installed release pack CLI expected exactly one tarball, found: ${releasePackCliTarballs.join(", ")}`);
   }
   const releasePackMissingDestination = await runExpectFailure(
     process.execPath,
@@ -611,7 +625,7 @@ try {
   await smokeInstalledStdioTaskFinalizers(binPath, consumerDir);
 
   console.log(
-    `package_smoke: ok tarball=${path.basename(packed.filename)} http_onboarding=ok installed_http_mcp=ok http_write_flow=ok http_task_finalizers=ok http_result_artifact_flow=ok http_result_artifact_tamper=ok configured_doctor=ok tunnel_url=ok package_boundary=ok installed_release_pack=ok stdio_write_flow=ok stdio_search_overflow=ok stdio_non_git_write=ok stdio_task_flow=ok stdio_task_finalizers=ok stdio_result_artifact_flow=ok stdio_result_artifact_tamper=ok tools=${REQUIRED_MCP_TOOLS.join(",")}`
+    `package_smoke: ok tarball=${path.basename(packed.filename)} http_onboarding=ok installed_http_mcp=ok http_write_flow=ok http_task_finalizers=ok http_result_artifact_flow=ok http_result_artifact_tamper=ok configured_doctor=ok tunnel_url=ok package_boundary=ok installed_release_pack=ok installed_release_pack_cli=ok stdio_write_flow=ok stdio_search_overflow=ok stdio_non_git_write=ok stdio_task_flow=ok stdio_task_finalizers=ok stdio_result_artifact_flow=ok stdio_result_artifact_tamper=ok tools=${REQUIRED_MCP_TOOLS.join(",")}`
   );
 } finally {
   await rm(tmp, { recursive: true, force: true });
@@ -688,13 +702,14 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertIncludes(readme, "claude config --cwd ...", "installed README");
   assertIncludes(readme, "gptprouse claude config", "installed README");
   assertIncludes(readme, "gptprouse release status", "installed README");
+  assertIncludes(readme, "gptprouse release pack --pack-destination", "installed README");
   assertIncludes(readme, "pack file-mode, non-regular file, or hard-link blockers", "installed README");
   assertIncludes(readme, "Run `pro ask` and `pro browser ask` from the repo root", "installed README");
   assertIncludes(readme, "npm run release:verify", "installed README");
   assertIncludes(readme, "npm run release:pack", "installed README");
   assertIncludes(readme, "npm publish --dry-run <tarball>", "installed README");
   assertIncludes(readme, "npm publish <tarball>", "installed README");
-  assertIncludes(readme, "installed `release-pack` success path", "installed README");
+  assertIncludes(readme, "installed `release-pack` script and `gptprouse release pack` CLI success paths", "installed README");
   assertIncludes(readme, "regular file", "installed README");
   assertIncludes(readme, "symlinked packed files", "installed README");
   assertIncludes(readme, "hard link", "installed README");

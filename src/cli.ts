@@ -30,6 +30,7 @@ import { BridgeStore, MAX_FETCHABLE_RESULT_ARTIFACT_BYTES, type ListReceiptsInpu
 const execFileAsync = promisify(execFile);
 const requirePackageJson = createRequire(import.meta.url);
 const packageJson = requirePackageJson("../package.json") as { version?: string };
+const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const CLI_VERSION = packageJson.version ?? "0.0.0";
 const RESERVED_PACKAGE_NAMES = new Set(["node_modules", "favicon.ico"]);
 const PRO_BROWSER_SMOKE_TOKEN = "GPTPROUSE_PRO_SMOKE_OK";
@@ -226,11 +227,28 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
 
   if (command === "release") {
     const [subcommand, ...releaseArgs] = rest;
-    if (subcommand !== "status") throw new Error("release requires status");
-    assertOnlyOptions(releaseArgs, "release status", ["--cwd"]);
-    const targetCwd = resolveCwdFlag(io.cwd, releaseArgs);
-    io.stdout(await formatReleaseStatus(targetCwd));
-    return 0;
+    if (subcommand === "status") {
+      assertOnlyOptions(releaseArgs, "release status", ["--cwd"]);
+      const targetCwd = resolveCwdFlag(io.cwd, releaseArgs);
+      io.stdout(await formatReleaseStatus(targetCwd));
+      return 0;
+    }
+    if (subcommand === "pack") {
+      assertOnlyOptions(releaseArgs, "release pack", ["--cwd", "--pack-destination"], ["--keep-workdir"]);
+      const targetCwd = resolveCwdFlag(io.cwd, releaseArgs);
+      const packDestination = readFlag(releaseArgs, "--pack-destination");
+      if (!packDestination) throw new Error("release pack requires --pack-destination <dir>");
+      await runReleasePackCommand({
+        cwd: io.cwd,
+        packageRoot: targetCwd,
+        packDestination: path.resolve(io.cwd, packDestination),
+        keepWorkdir: releaseArgs.includes("--keep-workdir"),
+        stdout: io.stdout,
+        stderr: io.stderr
+      });
+      return 0;
+    }
+    throw new Error("release requires status or pack");
   }
 
   if (command === "onboard") {
@@ -818,6 +836,7 @@ Commands:
   gptprouse status [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js] [--show-token] [--url-only] [--unsafe-show-non-expiring-token]
   gptprouse tunnel url [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js] --public-url https://... [--show-token] [--url-only]
   gptprouse release status [--cwd /absolute/path/to/repo]
+  gptprouse release pack [--cwd /absolute/path/to/repo] --pack-destination /absolute/path
   gptprouse onboard [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]
   gptprouse project prompt [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]
   gptprouse claude prompt [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]
@@ -1193,7 +1212,7 @@ async function readReleasePackStatus(cwd: string, packageJson: { bin?: unknown }
       return {
         line: `pack: blocked packed files have unexpected executable modes outside package bin entries: ${formatPathList(invalid)}`,
         next:
-          "fix file modes or publish from a filesystem that preserves executable bits, then run `npm run release:check`; on WSL/Windows mounts, create a sanitized tarball with `npm run release:pack -- --pack-destination <dir>` after `npm run release:verify`; release:pack prints `npm publish --dry-run <tarball>` and `npm publish <tarball>`"
+          "fix file modes or publish from a filesystem that preserves executable bits, then run `npm run release:check`; on WSL/Windows mounts, create a sanitized tarball with `gptprouse release pack --pack-destination <dir>` after `npm run release:verify`; release pack prints `npm publish --dry-run <tarball>` and `npm publish <tarball>`"
       };
     }
     const hardLinked = await findHardLinkedPackedFiles(cwd, files);
@@ -1308,6 +1327,36 @@ function normalizePackagePath(value: string): string {
 function formatPathList(paths: string[]): string {
   const shown = paths.slice(0, 8).join(", ");
   return paths.length > 8 ? `${shown}, ... (${paths.length} files)` : shown;
+}
+
+async function runReleasePackCommand(input: {
+  cwd: string;
+  packageRoot: string;
+  packDestination: string;
+  keepWorkdir: boolean;
+  stdout: (line: string) => void;
+  stderr: (line: string) => void;
+}): Promise<void> {
+  const scriptPath = path.join(packageRoot, "scripts", "release-pack.mjs");
+  const args = [scriptPath, "--root", input.packageRoot, "--pack-destination", input.packDestination];
+  if (input.keepWorkdir) args.push("--keep-workdir");
+  try {
+    const { stdout, stderr } = await execFileAsync(process.execPath, args, {
+      cwd: input.cwd,
+      timeout: 120_000,
+      maxBuffer: 20 * 1024 * 1024
+    });
+    writeCommandOutput(stdout, input.stdout);
+    writeCommandOutput(stderr, input.stderr);
+  } catch (error) {
+    throw new Error(firstErrorLine(error));
+  }
+}
+
+function writeCommandOutput(output: string, write: (line: string) => void): void {
+  const trimmed = output.replace(/\r?\n$/, "");
+  if (!trimmed) return;
+  for (const line of trimmed.split(/\r?\n/)) write(line);
 }
 
 function commandForPlatform(command: string): string {
