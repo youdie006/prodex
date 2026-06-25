@@ -349,6 +349,8 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertIncludes(readme, ".bridge/artifacts/results/", "installed README");
   assertIncludes(readme, "generic MCP handoff artifacts", "installed README");
   assertIncludes(readme, "sha256 recorded at finalization", "installed README");
+  assertIncludes(readme, "answer_artifact_warning", "installed README");
+  assertIncludes(readme, "too large for `bridge_fetch_result_artifact`", "installed README");
   assertIncludes(readme, "more than one ChatGPT tab or window is visible", "installed README");
   assertIncludes(readme, "blocker code and next step", "installed README");
   assertIncludes(readme, "fatal finalization failures print the received answer", "installed README");
@@ -384,6 +386,8 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertIncludes(httpMcpDoc, "CLI-only", "installed HTTP MCP docs");
   assertIncludes(httpMcpDoc, ".bridge/artifacts/results/", "installed HTTP MCP docs");
   assertIncludes(httpMcpDoc, "fetch rejects the artifact if its content changed afterward", "installed HTTP MCP docs");
+  assertIncludes(httpMcpDoc, "oversized result artifacts", "installed HTTP MCP docs");
+  assertIncludes(httpMcpDoc, "too large for `bridge_fetch_result_artifact`", "installed HTTP MCP docs");
   assertNotIncludes(httpMcpDoc, "start --host", "installed HTTP MCP docs");
   assertAppearsBefore(
     httpMcpDoc,
@@ -416,6 +420,8 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertIncludes(claudeDoc, "gptprouse claude config", "installed Claude docs");
   assertIncludes(claudeDoc, ".bridge/artifacts/results/", "installed Claude docs");
   assertIncludes(claudeDoc, "fetch rejects the artifact if its content changed afterward", "installed Claude docs");
+  assertIncludes(claudeDoc, "oversized result artifacts", "installed Claude docs");
+  assertIncludes(claudeDoc, "too large for `bridge_fetch_result_artifact`", "installed Claude docs");
 }
 
 async function assertInstalledPackageImportBoundary(consumerDir, packedFiles) {

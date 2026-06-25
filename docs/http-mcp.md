@@ -166,7 +166,7 @@ The HTTP server exposes the same tool catalog as stdio MCP:
 - `repo_write_file_apply`
 - `repo_stage_reviewed_paths`
 
-`bridge_complete_task` and `bridge_block_task` close tasks by writing durable `.bridge/results` records; they do not modify repo files. `bridge_fetch_result_artifact` only returns text artifacts that are listed on a result record and stored under `.bridge/artifacts/pro-consults/` or `.bridge/artifacts/results/`; it does not expose arbitrary `.bridge/artifacts` files. Newly finalized result artifacts record a sha256, and fetch rejects the artifact if its content changed afterward.
+`bridge_complete_task` and `bridge_block_task` close tasks by writing durable `.bridge/results` records; they do not modify repo files. `bridge_fetch_result_artifact` only returns text artifacts that are listed on a result record and stored under `.bridge/artifacts/pro-consults/` or `.bridge/artifacts/results/`; it does not expose arbitrary `.bridge/artifacts` files. Newly finalized result artifacts record a sha256, and fetch rejects the artifact if its content changed afterward. The bridge rejects oversized result artifacts before task finalization; if a Pro browser answer is too large for `bridge_fetch_result_artifact`, it stays in the result summary with `answer_artifact_warning` instead of listing an unfetchable artifact.
 
 ## Write Flow
 
