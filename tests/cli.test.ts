@@ -3315,6 +3315,23 @@ describe("runCli", () => {
 
     expect(out).toEqual(["http://localhost:7777/mcp?gptprouse_token=super-secret-token"]);
   });
+
+  it("rejects non-HTTP loopback tunnel URL schemes", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    await runCli(["setup", "--port", "8789", "--token", "super-secret-token", "--token-ttl-hours", "1"], {
+      cwd,
+      stdout: () => {},
+      stderr: () => {}
+    });
+
+    await expect(
+      runCli(["tunnel", "url", "--public-url", "ftp://localhost:7777/dev", "--show-token", "--url-only"], {
+        cwd,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.toThrow(/http or https/i);
+  });
 });
 
 async function writeExpiredLocalConfig(cwd: string): Promise<void> {

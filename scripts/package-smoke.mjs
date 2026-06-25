@@ -904,6 +904,10 @@ async function smokeInstalledHttpOnboarding(binPath, cwd) {
   const expiredRevealOutput = `${expiredReveal.stdout}\n${expiredReveal.stderr}`;
   assertIncludes(expiredRevealOutput, "token expired", "installed expired status reveal refusal");
   assertNotIncludes(expiredRevealOutput, expiredToken, "installed expired status reveal refusal");
+  const expiredStart = await runExpectFailure(binPath, ["start", "--cwd", expiredCwd], { cwd: launcherCwd, timeout: 10_000 });
+  const expiredStartOutput = `${expiredStart.stdout}\n${expiredStart.stderr}`;
+  assertIncludes(expiredStartOutput, "token expired", "installed expired start refusal");
+  assertNotIncludes(expiredStartOutput, expiredToken, "installed expired start refusal");
 
   const staleUrlCwd = path.join(launcherCwd, "stale-url-http");
   await mkdir(path.join(staleUrlCwd, ".bridge"), { recursive: true });
@@ -953,6 +957,12 @@ async function smokeInstalledHttpOnboarding(binPath, cwd) {
   if (tunnelUrl.stdout.trim() !== expectedTunnelUrl) {
     throw new Error(`Installed tunnel url returned ${redactSmokeSecrets(tunnelUrl.stdout.trim())}, expected ${redactSmokeSecrets(expectedTunnelUrl)}`);
   }
+  const invalidTunnelScheme = await runExpectFailure(
+    binPath,
+    ["tunnel", "url", "--cwd", cwd, "--public-url", "ftp://localhost:7777/dev", "--show-token", "--url-only"],
+    { cwd: launcherCwd }
+  );
+  assertIncludes(invalidTunnelScheme.stderr, "--public-url must use http or https", "installed tunnel url invalid scheme output");
 
   const child = spawn(binPath, ["start", "--cwd", cwd], {
     cwd: launcherCwd,

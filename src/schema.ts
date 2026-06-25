@@ -17,6 +17,11 @@ export const ReceiptKindSchema = z.enum([
   "repo_stage_reviewed_paths"
 ]);
 
+export const ReceiptIntegritySchema = z.object({
+  algorithm: z.literal("hmac-sha256"),
+  digest: z.string().regex(/^[a-f0-9]{64}$/)
+});
+
 export const ProvenanceSchema = z.object({
   adapter: AdapterSchema,
   session_id: z.string().optional(),
@@ -93,6 +98,7 @@ export const ReceiptSchema = z.object({
   session_id: z.string().optional(),
   summary: z.string(),
   metadata: z.record(z.unknown()).default({}),
+  integrity: ReceiptIntegritySchema.optional(),
   created_at: z.string().datetime()
 });
 

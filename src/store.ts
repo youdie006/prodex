@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { constants, existsSync } from "node:fs";
 import { link, lstat, mkdir, open, readdir, realpath, rename, rm } from "node:fs/promises";
 import type { FileHandle } from "node:fs/promises";
@@ -45,6 +45,7 @@ const SESSION_ID_PATTERN = /^sess_\d{8}_\d{6}_[a-z0-9-]+$/;
 const RECEIPT_ID_PATTERN = /^receipt_\d{8}_\d{6}_[a-z0-9-]+$/;
 const BRIDGE_DIRECTORY_MODE = 0o700;
 const BRIDGE_FILE_MODE = 0o600;
+const RECEIPT_INTEGRITY_KEY_BYTES = 32;
 const FETCHABLE_RESULT_ARTIFACT_PREFIXES = [".bridge/artifacts/pro-consults/", ".bridge/artifacts/results/"];
 export const MAX_FETCHABLE_RESULT_ARTIFACT_BYTES = 100_000;
 const MAX_BRIDGE_ARTIFACT_READ_BYTES = 1_000_000;
@@ -68,7 +69,7 @@ export interface CompleteTaskInput {
   provenance?: Partial<Provenance>;
 }
 
-export type WriteReceiptInput = Omit<Receipt, "schema_version" | "id" | "created_at" | "metadata"> & {
+export type WriteReceiptInput = Omit<Receipt, "schema_version" | "id" | "created_at" | "metadata" | "integrity"> & {
   metadata?: Record<string, unknown>;
 };
 
@@ -108,10 +109,16 @@ export class BridgeStore {
       ensurePrivateDirectory(this.dir("receipts"), "Bridge storage directory .bridge/receipts")
     ]);
     await this.assertStorageDirsAreRealDirectories();
+    await this.ensureBridgeGitignore();
+    await this.ensureReceiptIntegrityKey();
   }
 
   dir(kind: BridgeStorageKind): string {
     return path.join(this.bridgeDir, kind);
+  }
+
+  private receiptIntegrityKeyPath(): string {
+    return path.join(this.bridgeDir, "receipt-key.local");
   }
 
   async createTask(input: CreateTaskInput): Promise<Task> {
@@ -365,6 +372,12 @@ export class BridgeStore {
     return parseReceiptRecord(receiptId, await this.readRecordJson("receipts", receiptId));
   }
 
+  async getTrustedReceipt(receiptId: string): Promise<Receipt> {
+    const receipt = await this.getReceipt(receiptId);
+    await this.assertReceiptIntegrity(receipt);
+    return receipt;
+  }
+
   async getReceiptReadOnly(receiptId: string): Promise<Receipt> {
     return parseReceiptRecord(receiptId, await this.readRecordJson("receipts", receiptId, { cleanupTempHardLinks: false }));
   }
@@ -437,14 +450,87 @@ export class BridgeStore {
 
   async writeReceipt(input: WriteReceiptInput): Promise<Receipt> {
     await this.ensure();
-    const receipt = ReceiptSchema.parse({
+    const unsigned = ReceiptSchema.parse({
       schema_version: SCHEMA_VERSION,
       id: await this.uniqueId("receipt", input.kind, "receipts"),
       created_at: nowIso(),
       ...input
     });
+    const receipt = ReceiptSchema.parse({
+      ...unsigned,
+      integrity: {
+        algorithm: "hmac-sha256",
+        digest: await this.receiptDigest(unsigned)
+      }
+    });
     await this.writeRecordJson("receipts", receipt.id, receipt);
     return receipt;
+  }
+
+  private async assertReceiptIntegrity(receipt: Receipt): Promise<void> {
+    if (receipt.integrity?.algorithm !== "hmac-sha256") {
+      throw new Error(`Receipt ${receipt.id} is missing local integrity seal. Recreate the write dry-run before applying or staging.`);
+    }
+    const expected = await this.receiptDigest(receipt);
+    if (!safeHexEqual(receipt.integrity.digest, expected)) {
+      throw new Error(`Receipt ${receipt.id} failed local integrity verification. Recreate the write dry-run before applying or staging.`);
+    }
+  }
+
+  private async receiptDigest(receipt: Receipt): Promise<string> {
+    const key = await this.readReceiptIntegrityKey();
+    return createHmac("sha256", Buffer.from(key, "hex")).update(canonicalJson(stripReceiptIntegrity(receipt))).digest("hex");
+  }
+
+  private async ensureReceiptIntegrityKey(): Promise<string> {
+    try {
+      return await this.readReceiptIntegrityKey();
+    } catch (error) {
+      if (!isErrorCode(error, "ENOENT")) throw error;
+    }
+    const key = randomBytes(RECEIPT_INTEGRITY_KEY_BYTES).toString("hex");
+    await writeVerifiedUtf8File(this.receiptIntegrityKeyPath(), `${key}\n`, () => this.assertReceiptIntegrityKeyTargetSafe(), {
+      create: true,
+      mode: BRIDGE_FILE_MODE
+    });
+    return key;
+  }
+
+  private async readReceiptIntegrityKey(): Promise<string> {
+    const key = (
+      await readVerifiedUtf8File(this.receiptIntegrityKeyPath(), () => this.assertReceiptIntegrityKeyTargetSafe({ allowMissing: false }), {
+        mode: BRIDGE_FILE_MODE
+      })
+    ).trim();
+    if (!/^[a-f0-9]{64}$/.test(key)) {
+      throw new Error(".bridge/receipt-key.local is corrupt. Move it aside and recreate write receipts.");
+    }
+    return key;
+  }
+
+  private async ensureBridgeGitignore(): Promise<void> {
+    const ignorePath = path.join(this.bridgeDir, ".gitignore");
+    let current = "";
+    try {
+      current = await readVerifiedUtf8File(ignorePath, () => this.assertBridgeGitignoreTargetSafe());
+    } catch (error) {
+      if (!isErrorCode(error, "ENOENT")) throw error;
+    }
+    const required = [
+      "tasks/*.json",
+      "results/*.json",
+      "sessions/*.json",
+      "receipts/*.json",
+      "artifacts/*",
+      "config.local.json",
+      "receipt-key.local",
+      "!.gitignore"
+    ];
+    const lines = new Set(current.split(/\r?\n/).filter(Boolean));
+    for (const line of required) lines.add(line);
+    await writeVerifiedUtf8File(ignorePath, `${Array.from(lines).join("\n")}\n`, () => this.assertBridgeGitignoreTargetSafe(), {
+      create: true
+    });
   }
 
   async hasReadyBridgeStorageReadOnly(): Promise<boolean> {
@@ -771,6 +857,40 @@ export class BridgeStore {
     }
   }
 
+  private async assertBridgeGitignoreTargetSafe(options: { allowMissing?: boolean } = { allowMissing: true }): Promise<void> {
+    await this.assertBridgeDirIsRealDirectory();
+    const ignorePath = path.join(this.bridgeDir, ".gitignore");
+    try {
+      const stat = await lstat(ignorePath);
+      if (stat.isSymbolicLink()) {
+        throw new Error(".bridge/.gitignore must not be a symlink");
+      }
+      if (!stat.isFile()) {
+        throw new Error(".bridge/.gitignore must be a regular file");
+      }
+    } catch (error) {
+      if (isErrorCode(error, "ENOENT") && options.allowMissing !== false) return;
+      throw error;
+    }
+  }
+
+  private async assertReceiptIntegrityKeyTargetSafe(options: { allowMissing?: boolean } = { allowMissing: true }): Promise<void> {
+    await this.assertBridgeDirIsRealDirectory();
+    const keyPath = this.receiptIntegrityKeyPath();
+    try {
+      const stat = await lstat(keyPath);
+      if (stat.isSymbolicLink()) {
+        throw new Error(".bridge/receipt-key.local must not be a symlink");
+      }
+      if (!stat.isFile()) {
+        throw new Error(".bridge/receipt-key.local must be a regular file");
+      }
+    } catch (error) {
+      if (isErrorCode(error, "ENOENT") && options.allowMissing !== false) return;
+      throw error;
+    }
+  }
+
   private async assertStorageDirsAreRealDirectories(): Promise<void> {
     await Promise.all(
       (["tasks", "results", "sessions", "artifacts", "receipts"] as const).map((kind) =>
@@ -896,6 +1016,33 @@ function assertMatchingRecordIdentity(kind: string, expectedId: string, actualId
   if (actualId !== expectedId) {
     throw new Error(`${kind} ${field} ${actualId} does not match ${kind} record ${expectedId}`);
   }
+}
+
+function stripReceiptIntegrity(receipt: Receipt): Omit<Receipt, "integrity"> {
+  const { integrity: _integrity, ...unsigned } = receipt;
+  return unsigned;
+}
+
+function canonicalJson(value: unknown): string {
+  return JSON.stringify(canonicalize(value));
+}
+
+function canonicalize(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map((item) => canonicalize(item));
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    const canonical: Record<string, unknown> = {};
+    for (const key of Object.keys(record).sort()) {
+      if (record[key] !== undefined) canonical[key] = canonicalize(record[key]);
+    }
+    return canonical;
+  }
+  return value;
+}
+
+function safeHexEqual(left: string, right: string): boolean {
+  if (!/^[a-f0-9]{64}$/.test(left) || !/^[a-f0-9]{64}$/.test(right)) return false;
+  return timingSafeEqual(Buffer.from(left, "hex"), Buffer.from(right, "hex"));
 }
 
 function assertResultMatchesRetry(taskId: string, existing: Result, retry: Result): void {

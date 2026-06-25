@@ -5,3 +5,4 @@ receipts/*.json
 artifacts/*
 config.local.json
 !.gitignore
+receipt-key.local

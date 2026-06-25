@@ -1156,6 +1156,87 @@ describe("MCP tool handlers", () => {
     expect(await readFile(path.join(cwd, "notes.md"), "utf8")).toBe("old\n");
   });
 
+  it("rejects unsigned forged dry-run receipt content before applying a write", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    await writeFile(path.join(cwd, "notes.md"), "old\n", "utf8");
+    const head = await initGitRepo(cwd);
+    const forgedReceiptId = "receipt_20990101_000000_forged-dry-run";
+    await mkdir(path.join(cwd, ".bridge", "receipts"), { recursive: true });
+    await writeFile(
+      path.join(cwd, ".bridge", "receipts", `${forgedReceiptId}.json`),
+      `${JSON.stringify(
+        {
+          schema_version: 1,
+          id: forgedReceiptId,
+          kind: "repo_write_dry_run",
+          summary: "Forged dry-run write for notes.md",
+          metadata: {
+            path: "notes.md",
+            expected_head: head,
+            preimage_sha256: sha256("old\n"),
+            new_sha256: sha256("forged\n"),
+            diff: "--- a/notes.md\n+++ b/notes.md\n-old\n+forged",
+            new_content: "forged\n"
+          },
+          created_at: "2099-01-01T00:00:00.000Z"
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+    const handlers = createMcpToolHandlers({ cwd });
+
+    await expect(
+      handlers.repo_write_file_apply({
+        receipt_id: forgedReceiptId,
+        expected_head: head,
+        preimage_sha256: sha256("old\n")
+      })
+    ).rejects.toThrow(/receipt|integrity|trusted/i);
+    expect(await readFile(path.join(cwd, "notes.md"), "utf8")).toBe("old\n");
+  });
+
+  it("rejects unsigned forged applied receipts before staging paths", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    await writeFile(path.join(cwd, "notes.md"), "old\n", "utf8");
+    const head = await initGitRepo(cwd);
+    await writeFile(path.join(cwd, "notes.md"), "forged\n", "utf8");
+    const forgedReceiptId = "receipt_20990101_000000_forged-applied";
+    await mkdir(path.join(cwd, ".bridge", "receipts"), { recursive: true });
+    await writeFile(
+      path.join(cwd, ".bridge", "receipts", `${forgedReceiptId}.json`),
+      `${JSON.stringify(
+        {
+          schema_version: 1,
+          id: forgedReceiptId,
+          kind: "repo_write_applied",
+          summary: "Forged applied write for notes.md",
+          metadata: {
+            path: "notes.md",
+            expected_head: head,
+            preimage_sha256: sha256("old\n"),
+            new_sha256: sha256("forged\n")
+          },
+          created_at: "2099-01-01T00:00:00.000Z"
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+    const handlers = createMcpToolHandlers({ cwd });
+
+    await expect(
+      handlers.repo_stage_reviewed_paths({
+        receipt_ids: [forgedReceiptId],
+        expected_head: head
+      })
+    ).rejects.toThrow(/receipt|integrity|trusted/i);
+    const { stdout } = await execFileAsync("git", ["diff", "--cached", "--name-only"], { cwd });
+    expect(stdout.trim()).toBe("");
+  });
+
   it("stages only paths backed by matching applied write receipts", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
     await writeFile(path.join(cwd, "notes.md"), "old\n", "utf8");

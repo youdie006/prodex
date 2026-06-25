@@ -199,6 +199,7 @@ async function ensureBridgeLocalFiles(cwd: string): Promise<void> {
     "receipts/*.json",
     "artifacts/*",
     "config.local.json",
+    "receipt-key.local",
     "!.gitignore"
   ];
   const lines = new Set(current.split(/\r?\n/).filter(Boolean));

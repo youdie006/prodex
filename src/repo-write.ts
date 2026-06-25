@@ -128,7 +128,7 @@ export async function applyRepoWriteDryRun(
   store: BridgeStore,
   input: RepoWriteApplyInput
 ): Promise<RepoWriteApplyResult> {
-  const dryRunReceipt = await store.getReceipt(input.receipt_id);
+  const dryRunReceipt = await store.getTrustedReceipt(input.receipt_id);
   if (dryRunReceipt.kind !== "repo_write_dry_run") {
     throw new Error(`Receipt ${input.receipt_id} is not a repo_write_dry_run receipt`);
   }
@@ -209,7 +209,7 @@ export async function stageReviewedPaths(
   const paths = new Set<string>();
   const expectedObjectIdByPath = new Map<string, string>();
   for (const receiptId of input.receipt_ids) {
-    const receipt = await store.getReceipt(receiptId);
+    const receipt = await store.getTrustedReceipt(receiptId);
     if (receipt.kind !== "repo_write_applied") {
       throw new Error(`Receipt ${receiptId} is not a repo_write_applied receipt`);
     }

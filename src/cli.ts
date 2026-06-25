@@ -2068,6 +2068,9 @@ function makeTunnelMcpUrl(publicUrl: string, token: string): string {
   } catch {
     throw new Error("--public-url must be a valid URL");
   }
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    throw new Error("--public-url must use http or https");
+  }
   if (url.protocol !== "https:" && !isLoopbackHost(url.hostname)) {
     throw new Error("--public-url must use https for non-loopback tunnel URLs");
   }
@@ -2292,7 +2295,7 @@ async function ensureBridgeGitignore(cwd: string): Promise<void> {
   await mkdir(path.dirname(bridgeIgnorePath), { recursive: true });
   await writeVerifiedUtf8File(
     bridgeIgnorePath,
-    ["tasks/*.json", "results/*.json", "sessions/*.json", "receipts/*.json", "artifacts/*", "config.local.json", "!.gitignore", ""].join("\n"),
+    ["tasks/*.json", "results/*.json", "sessions/*.json", "receipts/*.json", "artifacts/*", "config.local.json", "receipt-key.local", "!.gitignore", ""].join("\n"),
     () => assertGitignoreTargetSafe(bridgeIgnorePath),
     { create: true }
   );
