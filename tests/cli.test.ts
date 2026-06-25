@@ -1598,6 +1598,7 @@ describe("runCli", () => {
     const text = out.join("\n");
     expect(text).toContain("gptprouse pro ask [--dry-run] [--file path]");
     expect(text).toContain("gptprouse pro browser login [--dry-run]");
+    expect(text).toContain("gptprouse pro browser help");
     expect(text).toContain("gptprouse pro browser check|smoke");
     expect(text).toContain("gptprouse pro browser ask");
     expect(text).not.toContain("gptprouse ask-pro");

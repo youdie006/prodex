@@ -66,6 +66,7 @@ try {
   assertIncludes(help.stdout, "gptprouse claude config", "installed help output");
   assertIncludes(help.stdout, "gptprouse pro ask [--dry-run] [--file path]", "installed help output");
   assertIncludes(help.stdout, "gptprouse pro browser login [--dry-run]", "installed help output");
+  assertIncludes(help.stdout, "gptprouse pro browser help", "installed help output");
   assertIncludes(help.stdout, "gptprouse pro latest", "installed help output");
   assertIncludes(help.stdout, "gptprouse pro list", "installed help output");
   assertIncludes(help.stdout, "gptprouse pro show <task-id|latest>", "installed help output");
