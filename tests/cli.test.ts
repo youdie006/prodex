@@ -1684,7 +1684,7 @@ describe("runCli", () => {
         stdout: () => {},
         stderr: () => {}
       })
-    ).rejects.toThrow("project requires prompt");
+    ).rejects.toThrow("Unknown project subcommand: verify. Expected one of: prompt. Run `gptprouse project --help`.");
   });
 
   it("claude prompt prints a paste-ready Claude MCP verification prompt", async () => {
@@ -1793,7 +1793,7 @@ describe("runCli", () => {
         stdout: () => {},
         stderr: () => {}
       })
-    ).rejects.toThrow("claude requires prompt or config");
+    ).rejects.toThrow("Unknown claude subcommand: verify. Expected one of: prompt, config. Run `gptprouse claude --help`.");
   });
 
   it("claude config prints installed-package Claude MCP JSON", async () => {
@@ -2816,7 +2816,21 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
         stdout: () => {},
         stderr: () => {}
       })
-    ).rejects.toThrow("release requires status or pack");
+    ).rejects.toThrow("Unknown release subcommand: publish. Expected one of: status, pack. Run `gptprouse release --help`.");
+  });
+
+  it("pro browser rejects unknown helper subcommands with guidance", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+
+    await expect(
+      runCli(["pro", "browser", "verify"], {
+        cwd,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.toThrow(
+      "Unknown pro browser subcommand: verify. Expected one of: login, ask, smoke, check. Run `gptprouse pro browser --help`."
+    );
   });
 
   it("requires explicit browser namespace for browser product checks", async () => {

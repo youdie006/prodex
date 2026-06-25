@@ -187,6 +187,28 @@ try {
     const commandHelp = await run(binPath, item.args, { cwd: consumerDir });
     assertIncludes(commandHelp.stdout, item.expected, `installed ${item.args.join(" ")} output`);
   }
+  const unknownSubcommandCases = [
+    {
+      args: ["project", "verify"],
+      expected: "Unknown project subcommand: verify. Expected one of: prompt. Run `gptprouse project --help`."
+    },
+    {
+      args: ["claude", "verify"],
+      expected: "Unknown claude subcommand: verify. Expected one of: prompt, config. Run `gptprouse claude --help`."
+    },
+    {
+      args: ["release", "publish"],
+      expected: "Unknown release subcommand: publish. Expected one of: status, pack. Run `gptprouse release --help`."
+    },
+    {
+      args: ["pro", "browser", "verify"],
+      expected: "Unknown pro browser subcommand: verify. Expected one of: login, ask, smoke, check. Run `gptprouse pro browser --help`."
+    }
+  ];
+  for (const item of unknownSubcommandCases) {
+    const unknownSubcommand = await runExpectFailure(binPath, item.args, { cwd: consumerDir });
+    assertIncludes(unknownSubcommand.stderr, item.expected, `installed ${item.args.join(" ")} output`);
+  }
   const freshDoctorDir = path.join(tmp, "fresh-doctor");
   await mkdir(freshDoctorDir, { recursive: true });
   const freshDoctor = await run(binPath, ["doctor"], { cwd: freshDoctorDir });

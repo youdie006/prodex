@@ -293,7 +293,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       });
       return 0;
     }
-    throw new Error("release requires status or pack");
+    throw unknownSubcommandError("release", subcommand, ["status", "pack"]);
   }
 
   if (command === "onboard") {
@@ -315,7 +315,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       printProjectHelp(io.stdout);
       return 0;
     }
-    if (subcommand !== "prompt") throw new Error("project requires prompt");
+    if (subcommand !== "prompt") throw unknownSubcommandError("project", subcommand, ["prompt"]);
     if (printHelpIfRequested(projectArgs, "project prompt", io.stdout, printProjectHelp)) return 0;
     assertOnlyOptions(projectArgs, "project prompt", ["--cwd", "--source-cli"]);
     io.stdout(formatProjectVerificationPrompt(resolveCwdFlag(io.cwd, projectArgs), resolveOptionalFileFlag(io.cwd, projectArgs, "--source-cli")));
@@ -341,7 +341,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       io.stdout(formatClaudeConfig(resolveCwdFlag(io.cwd, claudeArgs), resolveOptionalFileFlag(io.cwd, claudeArgs, "--source-cli")));
       return 0;
     }
-    throw new Error("claude requires prompt or config");
+    throw unknownSubcommandError("claude", subcommand, ["prompt", "config"]);
   }
 
   if (command === "chatgpt") {
@@ -700,7 +700,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
         const healthy = await printProductCheck(store, io, browserArgs);
         return healthy ? 0 : 1;
       }
-      throw new Error("pro browser requires login|ask|smoke|check");
+      throw unknownSubcommandError("pro browser", browserSubcommand, ["login", "ask", "smoke", "check"]);
     }
     if (subcommand === "open" || subcommand === "status" || subcommand === "smoke" || subcommand === "check" || subcommand === "doctor") {
       throw new Error(`Use \`gptprouse pro browser ${subcommand === "doctor" ? "check" : subcommand}\` for explicit browser automation.`);
@@ -1161,6 +1161,10 @@ function printHelpIfRequested(args: string[], command: string, stdout: (line: st
   assertNoExtraArgs(args.slice(1), `${command} help`, 0);
   printHelp(stdout);
   return true;
+}
+
+function unknownSubcommandError(command: string, subcommand: string, expected: readonly string[]): Error {
+  return new Error(`Unknown ${command} subcommand: ${subcommand}. Expected one of: ${expected.join(", ")}. Run \`gptprouse ${command} --help\`.`);
 }
 
 function formatProjectVerificationPrompt(cwd: string, sourceCli?: string): string {
