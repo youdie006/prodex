@@ -756,19 +756,21 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       if (browserSubcommand === "login") {
         if (
           printProBrowserHelpIfRequested(browserArgs, "pro browser login", io, {
-            valueFlags: ["--profile-dir", "--port", "--url", "--source-cli", "--launch-timeout-ms"],
+            valueFlags: ["--cwd", "--profile-dir", "--port", "--url", "--source-cli", "--launch-timeout-ms"],
             booleanFlags: ["--dry-run"]
           })
         ) {
           return 0;
         }
-        assertOnlyOptions(browserArgs, "pro browser login", ["--profile-dir", "--port", "--url", "--source-cli", "--launch-timeout-ms"], ["--dry-run"]);
+        assertOnlyOptions(browserArgs, "pro browser login", ["--cwd", "--profile-dir", "--port", "--url", "--source-cli", "--launch-timeout-ms"], ["--dry-run"]);
         const loginUrl = readChatGptBrowserUrlFlag(browserArgs);
         const sourceCli = resolveOptionalFileFlag(io.cwd, browserArgs, "--source-cli");
+        const targetCwd = readFlag(browserArgs, "--cwd") ? resolveCwdFlag(io.cwd, browserArgs) : undefined;
         const profileDir = readFlag(browserArgs, "--profile-dir");
         const port = readPortFlag(browserArgs, "--port") ?? 9333;
         const launchTimeoutMs = readPositiveNumberFlag(browserArgs, "--launch-timeout-ms");
         const commandOptions = {
+          ...(targetCwd ? { cwd: targetCwd } : {}),
           ...(profileDir ? { profileDir } : {}),
           ...(port !== 9333 ? { port } : {}),
           ...(readFlag(browserArgs, "--url") ? { url: loginUrl } : {}),
@@ -1143,7 +1145,7 @@ Commands:
   gptprouse claude prompt [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]
   gptprouse claude config [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]
   gptprouse pro ask [--dry-run] [--file path] "prompt"  # dry-run preview
-  gptprouse pro browser login [--dry-run] [--source-cli /absolute/path/to/dist/cli.js] [--profile-dir path] [--port 9333] [--url https://chatgpt.com/...] [--launch-timeout-ms 5000]  # preview/open visible browser login
+  gptprouse pro browser login [--cwd /absolute/path/to/repo] [--dry-run] [--source-cli /absolute/path/to/dist/cli.js] [--profile-dir path] [--port 9333] [--url https://chatgpt.com/...] [--launch-timeout-ms 5000]  # preview/open visible browser login
   gptprouse pro browser help [--source-cli /absolute/path/to/dist/cli.js]
   gptprouse pro browser check [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 1500]
   gptprouse pro browser smoke [--source-cli /absolute/path/to/dist/cli.js] [--port 9333] [--timeout-ms 30000]
@@ -1264,7 +1266,7 @@ function printProHelp(stdout: (line: string) => void): void {
 Commands:
   gptprouse pro ask [--dry-run] [--file path] "prompt"
   gptprouse pro browser help [--source-cli /absolute/path/to/dist/cli.js]
-  gptprouse pro browser login [--dry-run] [--source-cli /absolute/path/to/dist/cli.js] [--launch-timeout-ms 5000]
+  gptprouse pro browser login [--cwd /absolute/path/to/repo] [--dry-run] [--source-cli /absolute/path/to/dist/cli.js] [--launch-timeout-ms 5000]
   gptprouse pro browser check [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]
   gptprouse pro browser smoke [--source-cli /absolute/path/to/dist/cli.js]
   gptprouse pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--target-url url --confirm-target] [--file path] "prompt"
@@ -2775,7 +2777,10 @@ function printBrowserLoginGuide(
   input: { opened: boolean; loginUrl: string; profileDir: string; port: number; sourceCli?: string; commandOptions?: BrowserCommandOptions }
 ): void {
   const loginCommand = formatBrowserLoginCommand(input.sourceCli, input.commandOptions);
-  const runtimeCommandOptions = input.commandOptions?.port ? { port: input.commandOptions.port } : {};
+  const runtimeCommandOptions = {
+    ...(input.commandOptions?.cwd ? { cwd: input.commandOptions.cwd } : {}),
+    ...(input.commandOptions?.port ? { port: input.commandOptions.port } : {})
+  };
   const checkCommand = formatBrowserCheckCommand(input.sourceCli, runtimeCommandOptions);
   const smokeCommand = formatBrowserSmokeCommand(input.sourceCli, runtimeCommandOptions);
   stdout("ChatGPT Pro browser login");
@@ -2814,8 +2819,8 @@ function printProBrowserHelp(stdout: (line: string) => void, sourceCli?: string)
   const cli = formatCliCommand(sourceCli);
   const sourceCliOption = formatSourceCliOption(sourceCli);
   const loginUsage = sourceCli
-    ? `${cli} pro browser login${sourceCliOption} [--dry-run] [--profile-dir path] [--port 9333] [--url https://chatgpt.com/...] [--launch-timeout-ms 5000]`
-    : "gptprouse pro browser login [--dry-run] [--source-cli /absolute/path/to/dist/cli.js] [--profile-dir path] [--port 9333] [--url https://chatgpt.com/...] [--launch-timeout-ms 5000]";
+    ? `${cli} pro browser login${sourceCliOption} [--cwd /absolute/path/to/repo] [--dry-run] [--profile-dir path] [--port 9333] [--url https://chatgpt.com/...] [--launch-timeout-ms 5000]`
+    : "gptprouse pro browser login [--cwd /absolute/path/to/repo] [--dry-run] [--source-cli /absolute/path/to/dist/cli.js] [--profile-dir path] [--port 9333] [--url https://chatgpt.com/...] [--launch-timeout-ms 5000]";
   const checkUsage = sourceCli
     ? `${cli} pro browser check${sourceCliOption} [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 1500]`
     : "gptprouse pro browser check [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 1500]";

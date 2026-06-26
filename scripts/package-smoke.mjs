@@ -92,7 +92,7 @@ try {
   assertIncludes(help.stdout, "gptprouse pro ask [--dry-run] [--file path]", "installed help output");
   assertIncludes(
     help.stdout,
-    "gptprouse pro browser login [--dry-run] [--source-cli /absolute/path/to/dist/cli.js] [--profile-dir path] [--port 9333] [--url https://chatgpt.com/...] [--launch-timeout-ms 5000]",
+    "gptprouse pro browser login [--cwd /absolute/path/to/repo] [--dry-run] [--source-cli /absolute/path/to/dist/cli.js] [--profile-dir path] [--port 9333] [--url https://chatgpt.com/...] [--launch-timeout-ms 5000]",
     "installed help output"
   );
   assertIncludes(
@@ -970,6 +970,19 @@ try {
     "installed source browser login guide"
   );
   assertNotIncludes(sourceBrowserLoginGuide.stdout, "Run `gptprouse pro browser login`", "installed source browser login guide");
+  const sourceCwdBrowserLoginGuide = await run(binPath, ["pro", "browser", "login", "--dry-run", "--cwd", consumerDir, "--source-cli", installedSourceCli], {
+    cwd: path.dirname(consumerDir)
+  });
+  assertIncludes(
+    sourceCwdBrowserLoginGuide.stdout,
+    `Run \`cd ${consumerDir} && ${sourcePrefix} pro browser check --source-cli ${installedSourceCli}\` to confirm the session is reachable.`,
+    "installed source cwd browser login guide"
+  );
+  assertIncludes(
+    sourceCwdBrowserLoginGuide.stdout,
+    `Run \`cd ${consumerDir} && ${sourcePrefix} pro browser smoke --source-cli ${installedSourceCli}\` to verify a real Pro response path.`,
+    "installed source cwd browser login guide"
+  );
   const customBrowserProfile = path.join(tmp, "custom-browser-profile");
   const customBrowserLoginGuide = await run(
     binPath,
@@ -1009,7 +1022,7 @@ try {
   const browserHelp = await run(binPath, ["pro", "browser", "help"], { cwd: consumerDir });
   assertIncludes(
     browserHelp.stdout,
-    "gptprouse pro browser login [--dry-run] [--source-cli /absolute/path/to/dist/cli.js]",
+    "gptprouse pro browser login [--cwd /absolute/path/to/repo] [--dry-run] [--source-cli /absolute/path/to/dist/cli.js]",
     "installed browser help"
   );
   assertIncludes(
@@ -1040,7 +1053,7 @@ try {
   const sourceBrowserHelp = await run(binPath, ["pro", "browser", "help", "--source-cli", installedSourceCli], { cwd: consumerDir });
   assertIncludes(
     sourceBrowserHelp.stdout,
-    `${sourcePrefix} pro browser login --source-cli ${installedSourceCli} [--dry-run]`,
+    `${sourcePrefix} pro browser login --source-cli ${installedSourceCli} [--cwd /absolute/path/to/repo] [--dry-run]`,
     "installed source browser help"
   );
   assertIncludes(
@@ -1070,7 +1083,7 @@ try {
     });
     assertIncludes(
       sourceBrowserSubcommandHelp.stdout,
-      `${sourcePrefix} pro browser login --source-cli ${installedSourceCli} [--dry-run]`,
+      `${sourcePrefix} pro browser login --source-cli ${installedSourceCli} [--cwd /absolute/path/to/repo] [--dry-run]`,
       `installed source browser ${subcommand} help`
     );
     assertIncludes(
@@ -1473,6 +1486,7 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertIncludes(readme, "gptprouse tasks block <task-id> --cwd /absolute/path/to/your/repo", "installed README");
   assertIncludes(readme, 'gptprouse pro ask "Review the project positioning"', "installed README");
   assertIncludes(readme, "gptprouse pro browser login --dry-run", "installed README");
+  assertIncludes(readme, "also pass `--cwd /absolute/path/to/your/repo` to `login`", "installed README");
   assertIncludes(readme, "Open a normal ChatGPT chat or the intended Project/thread so the prompt composer is visible.", "installed README");
   assertIncludes(readme, "If ChatGPT shows a usage limit, message limit, model limit, or rate limit, wait for the reset or choose an available model in the browser.", "installed README");
   assertNotIncludes(readme, "If ChatGPT asks for captcha, permission, or account verification, handle it in that browser.", "installed README");

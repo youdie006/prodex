@@ -121,7 +121,7 @@ gptprouse pro browser check
 gptprouse pro browser smoke
 ```
 
-If you use a non-default debug port or Chrome profile, pass it to `login`; the printed follow-up `check` and `smoke` commands keep the matching `--port`. On slower first launches, add `--launch-timeout-ms 12000`.
+If you use a non-default debug port or Chrome profile, pass it to `login`; the printed follow-up `check` and `smoke` commands keep the matching `--port`. If you launch from outside the repo you want to inspect, also pass `--cwd /absolute/path/to/your/repo` to `login` so the printed `check` and `smoke` commands target the same bridge. On slower first launches, add `--launch-timeout-ms 12000`.
 
 For a source checkout, keep the follow-up commands in source-checkout form too:
 

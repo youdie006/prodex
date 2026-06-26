@@ -2267,7 +2267,7 @@ describe("runCli", () => {
     const text = out.join("\n");
     expect(text).toContain('gptprouse pro ask [--dry-run] [--file path] "prompt"  # dry-run preview');
     expect(text).toContain(
-      "gptprouse pro browser login [--dry-run] [--source-cli /absolute/path/to/dist/cli.js] [--profile-dir path] [--port 9333] [--url https://chatgpt.com/...] [--launch-timeout-ms 5000]  # preview/open visible browser login"
+      "gptprouse pro browser login [--cwd /absolute/path/to/repo] [--dry-run] [--source-cli /absolute/path/to/dist/cli.js] [--profile-dir path] [--port 9333] [--url https://chatgpt.com/...] [--launch-timeout-ms 5000]  # preview/open visible browser login"
     );
     expect(text).toContain(
       "gptprouse pro browser check [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 1500]"
@@ -2497,7 +2497,7 @@ describe("runCli", () => {
       { args: ["pro", "ask", "--help"], expected: 'gptprouse pro ask [--dry-run] [--file path] "prompt"' },
       {
         args: ["pro", "browser", "login", "--help"],
-        expected: "gptprouse pro browser login [--dry-run] [--source-cli /absolute/path/to/dist/cli.js]"
+        expected: "gptprouse pro browser login [--cwd /absolute/path/to/repo] [--dry-run] [--source-cli /absolute/path/to/dist/cli.js]"
       },
       {
         args: ["pro", "browser", "check", "--help"],
@@ -3119,7 +3119,7 @@ describe("runCli", () => {
 
     const text = out.join("\n");
     expect(text).toContain("gptprouse pro ask [--dry-run] [--file path]");
-    expect(text).toContain("gptprouse pro browser login [--dry-run]");
+    expect(text).toContain("gptprouse pro browser login [--cwd /absolute/path/to/repo] [--dry-run]");
     expect(text).toContain("gptprouse pro browser help");
     expect(text).toContain("gptprouse pro browser check [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]");
     expect(text).toContain("gptprouse pro browser smoke [--source-cli /absolute/path/to/dist/cli.js]");
@@ -4244,6 +4244,30 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     expect(text).not.toContain("gptprouse pro browser check");
   });
 
+  it("keeps explicit --cwd in browser login follow-up commands", async () => {
+    const launcherCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-launcher-"));
+    const targetCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-target-"));
+    const sourceCli = path.join(launcherCwd, "dist", "cli.js");
+    await mkdir(path.dirname(sourceCli), { recursive: true });
+    await writeFile(sourceCli, "#!/usr/bin/env node\n", "utf8");
+    const out: string[] = [];
+
+    await runCli(["pro", "browser", "login", "--dry-run", "--cwd", targetCwd, "--source-cli", sourceCli], {
+      cwd: launcherCwd,
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    const text = out.join("\n");
+    expect(text).toContain(`Run \`cd ${targetCwd} && node ${sourceCli} pro browser check --source-cli ${sourceCli}\` to confirm the session is reachable.`);
+    expect(text).toContain(`Run \`cd ${targetCwd} && node ${sourceCli} pro browser smoke --source-cli ${sourceCli}\` to verify a real Pro response path.`);
+    expect(text).toContain(
+      `1. Run \`cd ${targetCwd} && node ${sourceCli} pro browser login --source-cli ${sourceCli}\` without \`--dry-run\` to open the dedicated Chrome window.`
+    );
+    expect(await readdir(launcherCwd)).not.toContain(".bridge");
+    expect(await readdir(targetCwd)).not.toContain(".bridge");
+  });
+
   it("keeps custom browser launch flags in dry-run follow-up commands", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
     const sourceCli = path.join(cwd, "dist", "cli.js");
@@ -4301,7 +4325,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
 
     const text = out.join("\n");
     expect(text).toContain("gptprouse pro browser");
-    expect(text).toContain("gptprouse pro browser login [--dry-run] [--source-cli /absolute/path/to/dist/cli.js]");
+    expect(text).toContain("gptprouse pro browser login [--cwd /absolute/path/to/repo] [--dry-run] [--source-cli /absolute/path/to/dist/cli.js]");
     expect(text).toContain("gptprouse pro browser check [--source-cli /absolute/path/to/dist/cli.js]");
     expect(text).toContain("gptprouse pro browser smoke [--source-cli /absolute/path/to/dist/cli.js]");
     expect(text).toContain(
@@ -4326,7 +4350,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
 
     const text = out.join("\n");
     const sourcePrefix = `node ${sourceCli}`;
-    expect(text).toContain(`${sourcePrefix} pro browser login --source-cli ${sourceCli} [--dry-run]`);
+    expect(text).toContain(`${sourcePrefix} pro browser login --source-cli ${sourceCli} [--cwd /absolute/path/to/repo] [--dry-run]`);
     expect(text).toContain(`${sourcePrefix} pro browser check --source-cli ${sourceCli}`);
     expect(text).toContain(`${sourcePrefix} pro browser smoke --source-cli ${sourceCli}`);
     expect(text).toContain(
@@ -4360,7 +4384,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
       });
 
       const text = out.join("\n");
-      expect(text).toContain(`${sourcePrefix} pro browser login --source-cli ${sourceCli} [--dry-run]`);
+      expect(text).toContain(`${sourcePrefix} pro browser login --source-cli ${sourceCli} [--cwd /absolute/path/to/repo] [--dry-run]`);
       expect(text).toContain(`${sourcePrefix} pro browser check --source-cli ${sourceCli}`);
       expect(text).toContain(`${sourcePrefix} pro browser smoke --source-cli ${sourceCli}`);
       expect(text).toContain(`${sourcePrefix} pro browser ask --source-cli ${sourceCli}`);
