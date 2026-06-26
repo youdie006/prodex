@@ -87,16 +87,17 @@ gptprouse pro ask "Review the project positioning"
 For a source checkout:
 
 ```bash
+cd /absolute/path/to/gptprouse
 npm install
 npm run build
-SOURCE_CLI="$(pwd)/dist/cli.js"
-node dist/cli.js onboard --source-cli "$SOURCE_CLI"
-node dist/cli.js init
-node dist/cli.js doctor --source-cli "$SOURCE_CLI"
-node dist/cli.js pro ask "Review the project positioning"
+SOURCE_CLI="/absolute/path/to/gptprouse/dist/cli.js"
+node "$SOURCE_CLI" onboard --source-cli "$SOURCE_CLI"
+node "$SOURCE_CLI" init
+node "$SOURCE_CLI" doctor --source-cli "$SOURCE_CLI"
+node "$SOURCE_CLI" pro ask "Review the project positioning"
 ```
 
-The examples below use the installed `gptprouse` binary. In a source checkout, replace `gptprouse` with `node dist/cli.js` after building, and pass `--source-cli "$(pwd)/dist/cli.js"` to onboarding, browser, prompt, and local MCP troubleshooting commands so their follow-up guidance stays in source-checkout form.
+The examples below use the installed `gptprouse` binary. In a source checkout, replace `gptprouse` with `node /absolute/path/to/gptprouse/dist/cli.js` after building, and pass `--source-cli /absolute/path/to/gptprouse/dist/cli.js` to onboarding, browser, prompt, and local MCP troubleshooting commands so their follow-up guidance stays in source-checkout form.
 `onboard` prints the Claude, ChatGPT Project, and optional ChatGPT Pro consult commands without changing local state.
 
 `init` creates the local `.bridge/` ledger directories and ignore rules. On a source checkout it may also add `node_modules/` and `dist/` to the repo root `.gitignore` so local dependencies and build output stay out of git.
@@ -125,12 +126,13 @@ If you use a non-default debug port or Chrome profile, pass it to `login`; the p
 For a source checkout, keep the follow-up commands in source-checkout form too:
 
 ```bash
-SOURCE_CLI="$(pwd)/dist/cli.js"
-node dist/cli.js pro browser login --dry-run --source-cli "$SOURCE_CLI"
-node dist/cli.js pro browser login --source-cli "$SOURCE_CLI"
-node dist/cli.js pro browser help --source-cli "$SOURCE_CLI"
-node dist/cli.js pro browser check --source-cli "$SOURCE_CLI"
-node dist/cli.js pro browser smoke --source-cli "$SOURCE_CLI"
+cd /absolute/path/to/gptprouse
+SOURCE_CLI="/absolute/path/to/gptprouse/dist/cli.js"
+node "$SOURCE_CLI" pro browser login --dry-run --source-cli "$SOURCE_CLI"
+node "$SOURCE_CLI" pro browser login --source-cli "$SOURCE_CLI"
+node "$SOURCE_CLI" pro browser help --source-cli "$SOURCE_CLI"
+node "$SOURCE_CLI" pro browser check --source-cli "$SOURCE_CLI"
+node "$SOURCE_CLI" pro browser smoke --source-cli "$SOURCE_CLI"
 ```
 
 What happens:
@@ -166,12 +168,13 @@ This uses the currently available ChatGPT web session and model selection. It is
 For a source checkout, keep the explicit send and inspection commands source-aware too:
 
 ```bash
-SOURCE_CLI="$(pwd)/dist/cli.js"
-node dist/cli.js pro browser ask --source-cli "$SOURCE_CLI" --file README.md "Review the project positioning"
-node dist/cli.js pro latest --source-cli "$SOURCE_CLI"
+cd /absolute/path/to/gptprouse
+SOURCE_CLI="/absolute/path/to/gptprouse/dist/cli.js"
+node "$SOURCE_CLI" pro browser ask --source-cli "$SOURCE_CLI" --file README.md "Review the project positioning"
+node "$SOURCE_CLI" pro latest --source-cli "$SOURCE_CLI"
 ```
 
-Pass `--source-cli "$(pwd)/dist/cli.js"` to `pro browser ask`, `pro list`, `pro latest`, or `pro show <task-id|latest>` so blocked consults display source-checkout retry commands instead of installed-binary commands.
+Pass `--source-cli /absolute/path/to/gptprouse/dist/cli.js` to `pro browser ask`, `pro list`, `pro latest`, or `pro show <task-id|latest>` so blocked consults display source-checkout retry commands instead of installed-binary commands.
 
 Each explicit browser consult creates a `.bridge` task and `.bridge/sessions` record before sending. If the visible browser is blocked by login, captcha, permission, or usage limits, the task is completed as a blocked consult so `gptprouse pro latest` still shows what happened, including the blocker code and next step; the failed command also prints the recorded task id plus `pro show`/`pro latest` inspection commands. Successful answers are normally saved as result artifacts under `.bridge/artifacts/pro-consults/` before the task result is finalized; if artifact or receipt recording fails after an answer is received, the answer is still completed as the result summary with a warning, and fatal finalization failures print the received answer before exiting. If a Pro answer is too large for `bridge_fetch_result_artifact`, it stays in the result summary with `answer_artifact_warning` and no unfetchable artifact is listed. Generic MCP handoff result artifacts can be stored under `.bridge/artifacts/results/`; `bridge_fetch_result_artifact` only reads artifacts explicitly listed on the result record, and newly finalized result artifacts are checked against the sha256 recorded at finalization time.
 
@@ -317,8 +320,10 @@ gptprouse release pack --pack-destination /tmp/gptprouse-release
 For a source checkout, use the built CLI with `--source-cli` so follow-up commands stay in source-checkout form:
 
 ```bash
-node dist/cli.js release pack --source-cli "$(pwd)/dist/cli.js" --pack-destination /tmp/gptprouse-release
-node dist/cli.js release status --source-cli "$(pwd)/dist/cli.js"
+cd /absolute/path/to/gptprouse
+SOURCE_CLI="/absolute/path/to/gptprouse/dist/cli.js"
+node "$SOURCE_CLI" release pack --source-cli "$SOURCE_CLI" --pack-destination /tmp/gptprouse-release
+node "$SOURCE_CLI" release status --source-cli "$SOURCE_CLI"
 ```
 
 The npm script is equivalent when you only need the tarball:
@@ -329,9 +334,9 @@ npm run release:pack -- --pack-destination /tmp/gptprouse-release
 
 For source-checkout release commands, prefer the CLI wrapper when you want follow-up guidance to stay in `node dist/cli.js ... --source-cli` form. The npm script creates the same normalized tarball, but it cannot know which source CLI path should appear in later recovery commands.
 
-`release pack` does not publish anything. It still refuses missing publish metadata, non-regular or hard-linked packed files, and missing package release checks; it only normalizes packed file modes in the staging copy so package `bin` entries remain executable and other packed files become regular `0644` files. Run `npm run release:verify` and the matching status command before publishing the tarball it creates: `gptprouse release status` for installed-package use, or `node dist/cli.js release status --source-cli "$(pwd)/dist/cli.js"` from a source checkout. When the tarball is ready, `release pack` prints `release_pack_git` and `release_pack_git_next` lines before publish guidance so git remote/upstream blockers stay visible. It always prints `npm publish --dry-run <tarball>` for inspecting the exact tarball. Tarball publish commands bypass npm `prepublishOnly`, so `release pack` prints `release_pack_publish_guard` before `npm publish <tarball>`; run the dry-run command first, then publish only that verified tarball if it succeeds. If git readiness is blocked, it prints `release_pack_publish_blocked` instead.
+`release pack` does not publish anything. It still refuses missing publish metadata, non-regular or hard-linked packed files, and missing package release checks; it only normalizes packed file modes in the staging copy so package `bin` entries remain executable and other packed files become regular `0644` files. Run `npm run release:verify` and the matching status command before publishing the tarball it creates: `gptprouse release status` for installed-package use, or `node /absolute/path/to/gptprouse/dist/cli.js release status --source-cli /absolute/path/to/gptprouse/dist/cli.js` from a source checkout. When the tarball is ready, `release pack` prints `release_pack_git` and `release_pack_git_next` lines before publish guidance so git remote/upstream blockers stay visible. It always prints `npm publish --dry-run <tarball>` for inspecting the exact tarball. Tarball publish commands bypass npm `prepublishOnly`, so `release pack` prints `release_pack_publish_guard` before `npm publish <tarball>`; run the dry-run command first, then publish only that verified tarball if it succeeds. If git readiness is blocked, it prints `release_pack_publish_blocked` instead.
 
-Add `--keep-workdir` to `gptprouse release pack`, `node dist/cli.js release pack --source-cli "$(pwd)/dist/cli.js" --pack-destination <dir>`, or `npm run release:pack -- ...` when you need to inspect the temporary normalized staging directory.
+Add `--keep-workdir` to `gptprouse release pack`, `node /absolute/path/to/gptprouse/dist/cli.js release pack --source-cli /absolute/path/to/gptprouse/dist/cli.js --pack-destination <dir>`, or `npm run release:pack -- ...` when you need to inspect the temporary normalized staging directory.
 
 To see the current publish blocker and next step from the CLI:
 
@@ -341,7 +346,7 @@ gptprouse release status
 
 It reports package metadata blockers, pack file-mode, non-regular file, or hard-link blockers when package identity is readable, and local git readiness, including a dirty worktree, detached HEAD, missing git remote, branch without upstream tracking, upstream is gone, branch divergence, unpushed local commits, or a branch behind upstream. For a new public repo, create the remote yourself, then run `git remote add origin <git-url>` and `git push -u origin <branch>`; `release status` prints those handoff commands when the local git state is missing a remote or upstream.
 
-Before publishing to npm, make sure `package.json` has an npm-publishable `name` and valid semver `version`, keep the explicit MIT `license` metadata and matching `LICENSE` regular file, and make sure `package.json` does not have `private: true`. `release:check` treats missing or malformed package identity and `private: true` as publish blockers because npm will refuse to publish those packages. It also rejects a `LICENSE` path that is a directory, symlink, or hard link, rejects non-regular or symlinked packed files, blocks packed files with unexpected executable modes outside package `bin` entries, and rejects hard-linked packed files. If you are on a WSL/Windows mount that reports every file as executable, publish from a Linux filesystem, fix mount metadata/chmod first, or use `gptprouse release pack --pack-destination <dir>` after release verification to create the tarball from normalized staging files. From a source checkout, use `node dist/cli.js release pack --source-cli "$(pwd)/dist/cli.js" --pack-destination <dir>` for the same normalized tarball plus source-aware follow-up guidance. Source-tree `npm publish` is intentionally guarded by `prepublishOnly`; it runs:
+Before publishing to npm, make sure `package.json` has an npm-publishable `name` and valid semver `version`, keep the explicit MIT `license` metadata and matching `LICENSE` regular file, and make sure `package.json` does not have `private: true`. `release:check` treats missing or malformed package identity and `private: true` as publish blockers because npm will refuse to publish those packages. It also rejects a `LICENSE` path that is a directory, symlink, or hard link, rejects non-regular or symlinked packed files, blocks packed files with unexpected executable modes outside package `bin` entries, and rejects hard-linked packed files. If you are on a WSL/Windows mount that reports every file as executable, publish from a Linux filesystem, fix mount metadata/chmod first, or use `gptprouse release pack --pack-destination <dir>` after release verification to create the tarball from normalized staging files. From a source checkout, use `node /absolute/path/to/gptprouse/dist/cli.js release pack --source-cli /absolute/path/to/gptprouse/dist/cli.js --pack-destination <dir>` for the same normalized tarball plus source-aware follow-up guidance. Source-tree `npm publish` is intentionally guarded by `prepublishOnly`; it runs:
 
 ```bash
 npm run release:check

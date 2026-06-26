@@ -2903,6 +2903,11 @@ describe("runCli", () => {
     expect(onboardText).toContain(`node ${quotedSource} claude prompt --cwd ${quotedTarget} --source-cli ${quotedSource}`);
     expect(onboardText).toContain(`node ${quotedSource} project prompt --cwd ${quotedTarget} --source-cli ${quotedSource}`);
     expect(onboardText).toContain(`cd ${quotedTarget}`);
+    expect(onboardText).toContain(`node ${quotedSource} pro list --source-cli ${quotedSource} --cwd ${quotedTarget}`);
+    expect(onboardText).toContain(`node ${quotedSource} pro latest --source-cli ${quotedSource} --cwd ${quotedTarget}`);
+    expect(onboardText).toContain(`node ${quotedSource} results show latest --cwd ${quotedTarget}`);
+    expect(onboardText).toContain(`node ${quotedSource} results artifact latest --cwd ${quotedTarget}`);
+    expect(onboardText).toContain(`node ${quotedSource} results reseal <task-id> --confirm-current-result --cwd ${quotedTarget}`);
     expect(onboardText).not.toContain("gptprouse_token=");
   });
 
@@ -3006,15 +3011,15 @@ describe("runCli", () => {
     expect(text).toContain("gptprouse pro browser login --dry-run  # preview, no browser opens");
     expect(text).toContain("gptprouse pro browser login  # opens visible browser");
     expect(text).toContain("gptprouse pro browser help");
-    expect(text).toContain("gptprouse pro browser check");
+    expect(text).toContain(`gptprouse pro browser check --cwd ${targetCwd}`);
     expect(text).toContain("gptprouse pro browser smoke");
     expect(text).toContain('gptprouse pro browser ask "Review this repo"  # visible-browser send');
-    expect(text).toContain("gptprouse pro list");
-    expect(text).toContain("gptprouse pro latest");
-    expect(text).toContain("gptprouse results show latest");
-    expect(text).toContain("gptprouse results artifact latest");
-    expect(text).toContain("gptprouse results reseal <task-id> --confirm-current-result");
-    expect(text.indexOf("gptprouse results reseal <task-id> --confirm-current-result")).toBeGreaterThan(
+    expect(text).toContain(`gptprouse pro list --cwd ${targetCwd}`);
+    expect(text).toContain(`gptprouse pro latest --cwd ${targetCwd}`);
+    expect(text).toContain(`gptprouse results show latest --cwd ${targetCwd}`);
+    expect(text).toContain(`gptprouse results artifact latest --cwd ${targetCwd}`);
+    expect(text).toContain(`gptprouse results reseal <task-id> --confirm-current-result --cwd ${targetCwd}`);
+    expect(text.indexOf(`gptprouse results reseal <task-id> --confirm-current-result --cwd ${targetCwd}`)).toBeGreaterThan(
       text.indexOf("gptprouse pro browser ask")
     );
     expect(text).toContain("manual, visible browser");
@@ -3051,13 +3056,13 @@ describe("runCli", () => {
     expect(text).toContain(`${sourcePrefix} pro browser login --dry-run --source-cli ${sourceCli}  # preview, no browser opens`);
     expect(text).toContain(`${sourcePrefix} pro browser login --source-cli ${sourceCli}  # opens visible browser`);
     expect(text).toContain(`${sourcePrefix} pro browser help --source-cli ${sourceCli}`);
-    expect(text).toContain(`${sourcePrefix} pro browser check --source-cli ${sourceCli}`);
+    expect(text).toContain(`${sourcePrefix} pro browser check --source-cli ${sourceCli} --cwd ${targetCwd}`);
     expect(text).toContain(`${sourcePrefix} pro browser smoke --source-cli ${sourceCli}`);
-    expect(text).toContain(`${sourcePrefix} pro list --source-cli ${sourceCli}`);
-    expect(text).toContain(`${sourcePrefix} pro latest --source-cli ${sourceCli}`);
-    expect(text).toContain(`${sourcePrefix} results show latest`);
-    expect(text).toContain(`${sourcePrefix} results artifact latest`);
-    expect(text).toContain(`${sourcePrefix} results reseal <task-id> --confirm-current-result`);
+    expect(text).toContain(`${sourcePrefix} pro list --source-cli ${sourceCli} --cwd ${targetCwd}`);
+    expect(text).toContain(`${sourcePrefix} pro latest --source-cli ${sourceCli} --cwd ${targetCwd}`);
+    expect(text).toContain(`${sourcePrefix} results show latest --cwd ${targetCwd}`);
+    expect(text).toContain(`${sourcePrefix} results artifact latest --cwd ${targetCwd}`);
+    expect(text).toContain(`${sourcePrefix} results reseal <task-id> --confirm-current-result --cwd ${targetCwd}`);
     expect(text).toContain(`${sourcePrefix} pro browser ask --source-cli ${sourceCli} "Review this repo"  # visible-browser send`);
     expect(text).not.toContain("gptprouse init --cwd");
     expect(text).not.toContain("gptprouse_token=");
@@ -5238,14 +5243,16 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
       stderr: () => {}
     });
     const out: string[] = [];
+    const err: string[] = [];
 
     await runCli(["status", "--show-token", "--unsafe-show-non-expiring-token", "--url-only"], {
       cwd,
       stdout: (line) => out.push(line),
-      stderr: () => {}
+      stderr: (line) => err.push(line)
     });
 
     expect(out).toEqual(["http://127.0.0.1:8789/mcp?gptprouse_token=super-secret-token"]);
+    expect(err.join("\n")).toContain("Showing a non-expiring token. Keep this local-only");
   });
 
   it("prints a paste-ready local MCP URL when url-only is requested", async () => {

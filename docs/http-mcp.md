@@ -34,6 +34,7 @@ Run the local bridge commands from the repo root, or pass `--cwd /absolute/path/
 For a source checkout:
 
 ```bash
+cd /absolute/path/to/gptprouse
 npm install
 npm run build
 node dist/cli.js setup --cwd /absolute/path/to/your/repo --token-ttl-hours 24
@@ -97,6 +98,12 @@ gptprouse status --cwd /absolute/path/to/your/repo --show-token --url-only
 ## Add It To ChatGPT
 
 In your ChatGPT Project MCP or Developer Mode setup, add the token-bearing URL generated in the previous step. Use it as a remote Streamable HTTP MCP server URL. Keep `gptprouse start` running and rotate the URL with `setup` when you no longer need it.
+
+If your ChatGPT MCP client cannot reach localhost, keep `gptprouse start` loopback-only and put your own explicit tunnel in front of it. Public tunnel MCP URLs are also secrets; use the next command only when you are ready to paste the URL into your own trusted private MCP client configuration:
+
+```bash
+gptprouse tunnel url --public-url "https://your-tunnel.example" --show-token --url-only
+```
 
 ## Verify In ChatGPT
 

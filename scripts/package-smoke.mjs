@@ -666,12 +666,13 @@ try {
   assertIncludes(onboard.stdout, "gptprouse pro browser login --dry-run  # preview, no browser opens", "installed onboard output");
   assertIncludes(onboard.stdout, "gptprouse pro browser login  # opens visible browser", "installed onboard output");
   assertIncludes(onboard.stdout, "gptprouse pro browser help", "installed onboard output");
+  assertIncludes(onboard.stdout, `gptprouse pro browser check --cwd ${consumerDir}`, "installed onboard output");
   assertIncludes(onboard.stdout, 'gptprouse pro browser ask "Review this repo"  # visible-browser send', "installed onboard output");
-  assertIncludes(onboard.stdout, "gptprouse pro list", "installed onboard output");
-  assertIncludes(onboard.stdout, "gptprouse pro latest", "installed onboard output");
-  assertIncludes(onboard.stdout, "gptprouse results show latest", "installed onboard output");
-  assertIncludes(onboard.stdout, "gptprouse results artifact latest", "installed onboard output");
-  assertIncludes(onboard.stdout, "gptprouse results reseal <task-id> --confirm-current-result", "installed onboard output");
+  assertIncludes(onboard.stdout, `gptprouse pro list --cwd ${consumerDir}`, "installed onboard output");
+  assertIncludes(onboard.stdout, `gptprouse pro latest --cwd ${consumerDir}`, "installed onboard output");
+  assertIncludes(onboard.stdout, `gptprouse results show latest --cwd ${consumerDir}`, "installed onboard output");
+  assertIncludes(onboard.stdout, `gptprouse results artifact latest --cwd ${consumerDir}`, "installed onboard output");
+  assertIncludes(onboard.stdout, `gptprouse results reseal <task-id> --confirm-current-result --cwd ${consumerDir}`, "installed onboard output");
   assertIncludes(onboard.stdout, "Cloudflare", "installed onboard output");
   assertIncludes(onboard.stdout, "usage-limit", "installed onboard output");
   assertNotIncludes(onboard.stdout, "gptprouse_token=", "installed onboard output");
@@ -721,7 +722,7 @@ try {
   );
   assertIncludes(
     sourceOnboard.stdout,
-    `${sourcePrefix} pro browser check --source-cli ${installedSourceCli}`,
+    `${sourcePrefix} pro browser check --source-cli ${installedSourceCli} --cwd ${consumerDir}`,
     "installed source onboard output"
   );
   assertIncludes(
@@ -734,11 +735,15 @@ try {
     `${sourcePrefix} pro browser ask --source-cli ${installedSourceCli} "Review this repo"  # visible-browser send`,
     "installed source onboard output"
   );
-  assertIncludes(sourceOnboard.stdout, `${sourcePrefix} pro list --source-cli ${installedSourceCli}`, "installed source onboard output");
-  assertIncludes(sourceOnboard.stdout, `${sourcePrefix} pro latest --source-cli ${installedSourceCli}`, "installed source onboard output");
-  assertIncludes(sourceOnboard.stdout, `${sourcePrefix} results show latest`, "installed source onboard output");
-  assertIncludes(sourceOnboard.stdout, `${sourcePrefix} results artifact latest`, "installed source onboard output");
-  assertIncludes(sourceOnboard.stdout, `${sourcePrefix} results reseal <task-id> --confirm-current-result`, "installed source onboard output");
+  assertIncludes(sourceOnboard.stdout, `${sourcePrefix} pro list --source-cli ${installedSourceCli} --cwd ${consumerDir}`, "installed source onboard output");
+  assertIncludes(sourceOnboard.stdout, `${sourcePrefix} pro latest --source-cli ${installedSourceCli} --cwd ${consumerDir}`, "installed source onboard output");
+  assertIncludes(sourceOnboard.stdout, `${sourcePrefix} results show latest --cwd ${consumerDir}`, "installed source onboard output");
+  assertIncludes(sourceOnboard.stdout, `${sourcePrefix} results artifact latest --cwd ${consumerDir}`, "installed source onboard output");
+  assertIncludes(
+    sourceOnboard.stdout,
+    `${sourcePrefix} results reseal <task-id> --confirm-current-result --cwd ${consumerDir}`,
+    "installed source onboard output"
+  );
   assertNotIncludes(sourceOnboard.stdout, "gptprouse init --cwd", "installed source onboard output");
   assertNotIncludes(sourceOnboard.stdout, "gptprouse_token=", "installed source onboard output");
   const missingCwd = path.join(consumerDir, "missing-repo");
@@ -1440,6 +1445,9 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertIncludes(readme, "For an installed package", "installed README");
   assertIncludes(readme, "gptprouse onboard", "installed README");
   assertIncludes(readme, "onboard --source-cli", "installed README");
+  assertIncludes(readme, "cd /absolute/path/to/gptprouse", "installed README");
+  assertIncludes(readme, 'SOURCE_CLI="/absolute/path/to/gptprouse/dist/cli.js"', "installed README");
+  assertNotIncludes(readme, 'SOURCE_CLI="$(pwd)/dist/cli.js"', "installed README");
   assertIncludes(readme, 'doctor --source-cli "$SOURCE_CLI"', "installed README");
   assertIncludes(readme, "local MCP troubleshooting commands so their follow-up guidance stays in source-checkout form", "installed README");
   assertIncludes(readme, "tasks create/list/show/claim/complete/block", "installed README");
@@ -1517,12 +1525,12 @@ async function assertInstalledDocsArePortable(consumerDir) {
   );
   assertIncludes(
     readme,
-    'node dist/cli.js release status --source-cli "$(pwd)/dist/cli.js"',
+    "node /absolute/path/to/gptprouse/dist/cli.js release status --source-cli /absolute/path/to/gptprouse/dist/cli.js",
     "installed README"
   );
   assertIncludes(
     readme,
-    'node dist/cli.js release pack --source-cli "$(pwd)/dist/cli.js" --pack-destination <dir>',
+    "node /absolute/path/to/gptprouse/dist/cli.js release pack --source-cli /absolute/path/to/gptprouse/dist/cli.js --pack-destination <dir>",
     "installed README"
   );
   assertIncludes(readme, "pack file-mode, non-regular file, or hard-link blockers", "installed README");
@@ -1604,6 +1612,9 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertIncludes(httpMcpDoc, "For an installed package", "installed HTTP MCP docs");
   assertIncludes(httpMcpDoc, "ripgrep", "installed HTTP MCP docs");
   assertIncludes(httpMcpDoc, "setup --cwd", "installed HTTP MCP docs");
+  assertIncludes(httpMcpDoc, "cd /absolute/path/to/gptprouse", "installed HTTP MCP docs");
+  assertIncludes(httpMcpDoc, "If your ChatGPT MCP client cannot reach localhost", "installed HTTP MCP docs");
+  assertIncludes(httpMcpDoc, "gptprouse tunnel url --public-url \"https://your-tunnel.example\" --show-token --url-only", "installed HTTP MCP docs");
   assertIncludes(httpMcpDoc, "gptprouse setup --token-ttl-hours 24", "installed HTTP MCP docs");
   assertIncludes(
     httpMcpDoc,
@@ -2568,6 +2579,17 @@ async function smokeInstalledHttpOnboarding(binPath, cwd) {
   const nonExpiringRevealOutput = `${nonExpiringReveal.stdout}\n${nonExpiringReveal.stderr}`;
   assertIncludes(nonExpiringRevealOutput, "status --show-token requires a token with expiry", "installed non-expiring status reveal refusal");
   assertNotIncludes(nonExpiringRevealOutput, nonExpiringToken, "installed non-expiring status reveal refusal");
+  const unsafeNonExpiringReveal = await run(
+    binPath,
+    ["status", "--cwd", nonExpiringCwd, "--show-token", "--unsafe-show-non-expiring-token", "--url-only"],
+    { cwd: launcherCwd }
+  );
+  assertIncludes(unsafeNonExpiringReveal.stdout, nonExpiringToken, "installed unsafe non-expiring status reveal output");
+  assertIncludes(
+    unsafeNonExpiringReveal.stderr,
+    "Showing a non-expiring token. Keep this local-only",
+    "installed unsafe non-expiring status reveal warning"
+  );
 
   const expiredCwd = path.join(launcherCwd, "expired-http");
   const expiredToken = "expired-package-smoke-token";

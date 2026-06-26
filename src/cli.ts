@@ -179,21 +179,22 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
         })
       );
     }
+    const nonExpiringRevealWarning =
+      showToken && allowNonExpiringTokenReveal && tokenStatus.status === "non_expiring"
+        ? sourceAwareSetupMessage(
+            "Showing a non-expiring token. Keep this local-only and rotate it with `gptprouse setup --token-ttl-hours <hours>` before any tunnel or ChatGPT Project use.",
+            sourceCli,
+            { cwd: setupHintCwd }
+          )
+        : undefined;
     const serverUrl = formatServerUrlForOutput(config.server_url, { showToken });
     if (rest.includes("--url-only")) {
+      if (nonExpiringRevealWarning) io.stderr(nonExpiringRevealWarning);
       io.stdout(serverUrl);
       return 0;
     }
     const warnings = tokenStatus.warning ? [sourceAwareSetupMessage(tokenStatus.warning, sourceCli, { cwd: setupHintCwd })] : [];
-    if (showToken && allowNonExpiringTokenReveal && tokenStatus.status === "non_expiring") {
-      warnings.push(
-        sourceAwareSetupMessage(
-          "Showing a non-expiring token. Keep this local-only and rotate it with `gptprouse setup --token-ttl-hours <hours>` before any tunnel or ChatGPT Project use.",
-          sourceCli,
-          { cwd: setupHintCwd }
-        )
-      );
-    }
+    if (nonExpiringRevealWarning) warnings.push(nonExpiringRevealWarning);
     io.stdout(
       JSON.stringify(
         {
@@ -1541,14 +1542,14 @@ repo: ${cwd}
    ${cli} pro browser login --dry-run${sourceCliOption}  # preview, no browser opens
    ${cli} pro browser login${sourceCliOption}  # opens visible browser
    ${cli} pro browser help${sourceCliOption}
-   ${cli} pro browser check${sourceCliOption}
+   ${cli} pro browser check${sourceCliOption} --cwd ${quotedCwd}
    ${cli} pro browser smoke${sourceCliOption}
    ${proBrowserAskCommand}  # visible-browser send
-   ${cli} pro list${sourceCliOption}
-   ${cli} pro latest${sourceCliOption}
-   ${cli} results show latest
-   ${cli} results artifact latest
-   ${cli} results reseal <task-id> --confirm-current-result  # only after reviewing .bridge/results/<task-id>.json
+   ${cli} pro list${sourceCliOption} --cwd ${quotedCwd}
+   ${cli} pro latest${sourceCliOption} --cwd ${quotedCwd}
+   ${cli} results show latest --cwd ${quotedCwd}
+   ${cli} results artifact latest --cwd ${quotedCwd}
+   ${cli} results reseal <task-id> --confirm-current-result --cwd ${quotedCwd}  # only after reviewing .bridge/results/<task-id>.json
 
 Safety notes:
 - This command only prints commands; it does not start servers, open browsers, or write files.
