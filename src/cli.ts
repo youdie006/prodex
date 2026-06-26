@@ -1536,10 +1536,10 @@ repo: ${cwd}
    ${cli} claude config --cwd ${quotedCwd}${sourceCliOption}
    ${cli} claude prompt --cwd ${quotedCwd}${sourceCliOption}
 
-	3. ChatGPT Project HTTP MCP:
-	   Note: HTTP MCP uses a short-lived token. Paste token-bearing URLs only into your own trusted private MCP client.
-	   ${TOKEN_BEARING_MCP_URL_AUTHORITY_WARNING}
-	   ${cli} setup --cwd ${quotedCwd} --token-ttl-hours 24
+3. ChatGPT Project HTTP MCP:
+   Note: HTTP MCP uses a short-lived token. Paste token-bearing URLs only into your own trusted private MCP client.
+   ${TOKEN_BEARING_MCP_URL_AUTHORITY_WARNING}
+   ${cli} setup --cwd ${quotedCwd} --token-ttl-hours 24
    ${cli} start --cwd ${quotedCwd}${sourceCliOption}
    Keep this terminal open while ChatGPT uses the bridge; run the next commands in a second terminal.
    ${cli} status --cwd ${quotedCwd} --show-token --url-only${sourceCliOption}

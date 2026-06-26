@@ -2999,6 +2999,8 @@ describe("runCli", () => {
     expect(text).toContain(`gptprouse doctor --cwd ${targetCwd}`);
     expect(text).toContain(`gptprouse claude config --cwd ${targetCwd}`);
     expect(text).toContain(`gptprouse claude prompt --cwd ${targetCwd}`);
+    expect(text).not.toContain("\t");
+    expect(text).toContain("\n3. ChatGPT Project HTTP MCP:");
     expect(text).toContain(`gptprouse setup --cwd ${targetCwd} --token-ttl-hours 24`);
     expect(text).toContain(`gptprouse start --cwd ${targetCwd}`);
     expect(text).toContain("Keep this terminal open while ChatGPT uses the bridge; run the next commands in a second terminal.");
@@ -3053,6 +3055,8 @@ describe("runCli", () => {
     expect(text).toContain(`${sourcePrefix} doctor --cwd ${targetCwd}`);
     expect(text).toContain(`${sourcePrefix} claude config --cwd ${targetCwd} --source-cli ${sourceCli}`);
     expect(text).toContain(`${sourcePrefix} claude prompt --cwd ${targetCwd} --source-cli ${sourceCli}`);
+    expect(text).not.toContain("\t");
+    expect(text).toContain("\n3. ChatGPT Project HTTP MCP:");
     expect(text).toContain(`${sourcePrefix} setup --cwd ${targetCwd} --token-ttl-hours 24`);
     expect(text).toContain(`${sourcePrefix} start --cwd ${targetCwd}`);
     expect(text).toContain(`${sourcePrefix} status --cwd ${targetCwd} --show-token --url-only`);

@@ -643,6 +643,8 @@ try {
   await smokeInstalledReleaseGitReadiness(binPath, tmp, consumerDir);
   const onboard = await run(binPath, ["onboard", "--cwd", consumerDir], { cwd: path.dirname(consumerDir) });
   assertIncludes(onboard.stdout, "gptprouse onboarding", "installed onboard output");
+  assertNotIncludes(onboard.stdout, "\t", "installed onboard output");
+  assertIncludes(onboard.stdout, "\n3. ChatGPT Project HTTP MCP:", "installed onboard output");
   assertIncludes(onboard.stdout, `gptprouse init --cwd ${consumerDir}`, "installed onboard output");
   assertIncludes(onboard.stdout, `gptprouse doctor --cwd ${consumerDir}`, "installed onboard output");
   assertIncludes(onboard.stdout, `gptprouse claude config --cwd ${consumerDir}`, "installed onboard output");
@@ -679,6 +681,8 @@ try {
   assertIncludes(onboard.stdout, "usage-limit", "installed onboard output");
   assertNotIncludes(onboard.stdout, "gptprouse_token=", "installed onboard output");
   const sourceOnboard = await run(binPath, ["onboard", "--cwd", consumerDir, "--source-cli", installedSourceCli], { cwd: path.dirname(consumerDir) });
+  assertNotIncludes(sourceOnboard.stdout, "\t", "installed source onboard output");
+  assertIncludes(sourceOnboard.stdout, "\n3. ChatGPT Project HTTP MCP:", "installed source onboard output");
   assertIncludes(sourceOnboard.stdout, `${sourcePrefix} init --cwd ${consumerDir}`, "installed source onboard output");
   assertIncludes(
     sourceOnboard.stdout,
