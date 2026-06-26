@@ -34,6 +34,8 @@ const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "
 const CLI_VERSION = packageJson.version ?? "0.0.0";
 const RESERVED_PACKAGE_NAMES = new Set(["node_modules", "favicon.ico"]);
 const PRO_BROWSER_SMOKE_TOKEN = "GPTPROUSE_PRO_SMOKE_OK";
+const TOKEN_BEARING_MCP_URL_AUTHORITY_WARNING =
+  "Token-bearing MCP URL authorizes all enabled bridge tools, including repo_read_file, repo_search, repo_write_file_dry_run, repo_write_file_apply, and repo_stage_reviewed_paths. Paste it only into your own trusted private MCP client.";
 const TOP_LEVEL_COMMANDS = [
   "help",
   "version",
@@ -189,11 +191,13 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
         : undefined;
     const serverUrl = formatServerUrlForOutput(config.server_url, { showToken });
     if (rest.includes("--url-only")) {
+      if (showToken) io.stderr(TOKEN_BEARING_MCP_URL_AUTHORITY_WARNING);
       if (nonExpiringRevealWarning) io.stderr(nonExpiringRevealWarning);
       io.stdout(serverUrl);
       return 0;
     }
     const warnings = tokenStatus.warning ? [sourceAwareSetupMessage(tokenStatus.warning, sourceCli, { cwd: setupHintCwd })] : [];
+    if (showToken) warnings.push(TOKEN_BEARING_MCP_URL_AUTHORITY_WARNING);
     if (nonExpiringRevealWarning) warnings.push(nonExpiringRevealWarning);
     io.stdout(
       JSON.stringify(
@@ -254,19 +258,22 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
     const showToken = tunnelArgs.includes("--show-token");
     const outputUrl = showToken ? mcpUrl : redactServerUrl(mcpUrl);
     if (tunnelArgs.includes("--url-only")) {
+      if (showToken) io.stderr(TOKEN_BEARING_MCP_URL_AUTHORITY_WARNING);
       io.stdout(outputUrl);
       return 0;
     }
+    const warnings = [
+      "This command does not create a tunnel. Keep `gptprouse start` running behind your own tunnel.",
+      "Only paste the token-bearing URL into a trusted private MCP client."
+    ];
+    if (showToken) warnings.push(TOKEN_BEARING_MCP_URL_AUTHORITY_WARNING);
     io.stdout(
       JSON.stringify(
         {
           mcp_url: outputUrl,
           token_status: tokenStatus.status,
           token_expires_at: tokenStatus.token_expires_at,
-          warnings: [
-            "This command does not create a tunnel. Keep `gptprouse start` running behind your own tunnel.",
-            "Only paste the token-bearing URL into a trusted private MCP client."
-          ]
+          warnings
         },
         null,
         2
@@ -1462,6 +1469,7 @@ function formatProjectVerificationPrompt(cwd: string, sourceCli?: string): strin
   return `ChatGPT Project MCP verification prompt
 
 Paste this into the ChatGPT Project after adding the gptprouse MCP server URL.
+${TOKEN_BEARING_MCP_URL_AUTHORITY_WARNING}
 
 Please verify the gptprouse MCP bridge for this private project:
 
@@ -1528,9 +1536,10 @@ repo: ${cwd}
    ${cli} claude config --cwd ${quotedCwd}${sourceCliOption}
    ${cli} claude prompt --cwd ${quotedCwd}${sourceCliOption}
 
-3. ChatGPT Project HTTP MCP:
-   Note: HTTP MCP uses a short-lived token. Paste token-bearing URLs only into your own trusted private MCP client.
-   ${cli} setup --cwd ${quotedCwd} --token-ttl-hours 24
+	3. ChatGPT Project HTTP MCP:
+	   Note: HTTP MCP uses a short-lived token. Paste token-bearing URLs only into your own trusted private MCP client.
+	   ${TOKEN_BEARING_MCP_URL_AUTHORITY_WARNING}
+	   ${cli} setup --cwd ${quotedCwd} --token-ttl-hours 24
    ${cli} start --cwd ${quotedCwd}${sourceCliOption}
    Keep this terminal open while ChatGPT uses the bridge; run the next commands in a second terminal.
    ${cli} status --cwd ${quotedCwd} --show-token --url-only${sourceCliOption}

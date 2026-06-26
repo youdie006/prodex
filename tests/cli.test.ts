@@ -2735,6 +2735,8 @@ describe("runCli", () => {
     const text = out.join("\n");
     expect(text).toContain("ChatGPT Project MCP verification prompt");
     expect(text).toContain("Paste this into the ChatGPT Project after adding the gptprouse MCP server URL.");
+    expect(text).toContain("authorizes all enabled bridge tools");
+    expect(text).toContain("repo_stage_reviewed_paths");
     expect(text).toContain("bridge_create_task");
     expect(text).toContain("bridge_list_tasks");
     expect(text).toContain("bridge_get_task");
@@ -3005,6 +3007,8 @@ describe("runCli", () => {
     expect(text.indexOf("HTTP MCP uses a short-lived token")).toBeLessThan(
       text.indexOf(`gptprouse status --cwd ${targetCwd} --show-token --url-only`)
     );
+    expect(text).toContain("authorizes all enabled bridge tools");
+    expect(text).toContain("repo_write_file_apply");
     expect(text).toContain(`cd ${targetCwd}`);
     expect(text).toContain('gptprouse pro ask "Review this repo"  # dry-run/manual preview');
     expect(text).not.toContain("--file README.md");
@@ -5263,14 +5267,37 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
       stderr: () => {}
     });
     const out: string[] = [];
+    const err: string[] = [];
 
     await runCli(["status", "--show-token", "--url-only"], {
+      cwd,
+      stdout: (line) => out.push(line),
+      stderr: (line) => err.push(line)
+    });
+
+    expect(out).toEqual(["http://127.0.0.1:8789/mcp?gptprouse_token=super-secret-token"]);
+    expect(err.join("\n")).toContain("authorizes all enabled bridge tools");
+    expect(err.join("\n")).toContain("repo_write_file_apply");
+  });
+
+  it("includes the enabled-tool authority warning in token-bearing status JSON", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    await runCli(["setup", "--port", "8789", "--token", "super-secret-token", "--token-ttl-hours", "1"], {
+      cwd,
+      stdout: () => {},
+      stderr: () => {}
+    });
+    const out: string[] = [];
+
+    await runCli(["status", "--show-token"], {
       cwd,
       stdout: (line) => out.push(line),
       stderr: () => {}
     });
 
-    expect(out).toEqual(["http://127.0.0.1:8789/mcp?gptprouse_token=super-secret-token"]);
+    const status = JSON.parse(out.join("\n")) as { warnings?: string[] };
+    expect(status.warnings?.join("\n")).toContain("authorizes all enabled bridge tools");
+    expect(status.warnings?.join("\n")).toContain("repo_stage_reviewed_paths");
   });
 
   it("refuses to reveal expired local MCP tokens", async () => {
@@ -5809,14 +5836,17 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
       stderr: () => {}
     });
     const out: string[] = [];
+    const err: string[] = [];
 
     await runCli(["tunnel", "url", "--public-url", "https://example.trycloudflare.com/path?ignored=1", "--show-token", "--url-only"], {
       cwd,
       stdout: (line) => out.push(line),
-      stderr: () => {}
+      stderr: (line) => err.push(line)
     });
 
     expect(out).toEqual(["https://example.trycloudflare.com/mcp?gptprouse_token=super-secret-token"]);
+    expect(err.join("\n")).toContain("authorizes all enabled bridge tools");
+    expect(err.join("\n")).toContain("repo_stage_reviewed_paths");
   });
 
   it("redacts public tunnel MCP URL tokens by default", async () => {

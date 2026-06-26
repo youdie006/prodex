@@ -220,7 +220,7 @@ node dist/cli.js start --cwd /absolute/path/to/your/repo --source-cli /absolute/
 node dist/cli.js status --cwd /absolute/path/to/your/repo --source-cli /absolute/path/to/gptprouse/dist/cli.js --show-token --url-only
 ```
 
-Token-bearing MCP URLs are secrets. Use the next command only when you are ready to paste the URL into your own trusted private ChatGPT Project/App configuration:
+Token-bearing MCP URLs are secrets. They authorize all enabled bridge tools, including repo read, search, write dry-run/apply, and stage-reviewed-paths tools. Use the next command only when you are ready to paste the URL into your own trusted private ChatGPT Project/App configuration:
 
 ```bash
 gptprouse status --show-token --url-only
@@ -254,7 +254,7 @@ The generated prompt also includes local `status --cwd ...` and `doctor --cwd ..
 
 If ChatGPT cannot reach `127.0.0.1` from its app runtime, keep `gptprouse start` local and put your own tunnel in front of it only after creating a short-lived token. `gptprouse` does not create the tunnel for you, but it can format the public MCP URL safely.
 
-Public tunnel MCP URLs are also secrets. Use the next command only when you are ready to paste the public URL into your own trusted private MCP client configuration:
+Public tunnel MCP URLs are also secrets. They authorize all enabled bridge tools, including repo read, search, write dry-run/apply, and stage-reviewed-paths tools. Use the next command only when you are ready to paste the public URL into your own trusted private MCP client configuration:
 
 ```bash
 gptprouse tunnel url --public-url "https://your-tunnel.example" --show-token --url-only

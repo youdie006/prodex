@@ -81,7 +81,7 @@ From outside the repo:
 gptprouse start --cwd /absolute/path/to/your/repo
 ```
 
-Token-bearing MCP URLs are secrets. Use the next command only when you are ready to paste the URL into your own trusted private MCP client configuration:
+Token-bearing MCP URLs are secrets. They authorize all enabled bridge tools, including repo read, search, write dry-run/apply, and stage-reviewed-paths tools. Use the next command only when you are ready to paste the URL into your own trusted private MCP client configuration:
 
 ```bash
 gptprouse status --show-token --url-only
@@ -99,7 +99,7 @@ gptprouse status --cwd /absolute/path/to/your/repo --show-token --url-only
 
 In your ChatGPT Project MCP or Developer Mode setup, add the token-bearing URL generated in the previous step. Use it as a remote Streamable HTTP MCP server URL. Keep `gptprouse start` running and rotate the URL with `setup` when you no longer need it.
 
-If your ChatGPT MCP client cannot reach localhost, keep `gptprouse start` loopback-only and put your own explicit tunnel in front of it. Public tunnel MCP URLs are also secrets; use the next command only when you are ready to paste the URL into your own trusted private MCP client configuration:
+If your ChatGPT MCP client cannot reach localhost, keep `gptprouse start` loopback-only and put your own explicit tunnel in front of it. Public tunnel MCP URLs are also secrets and authorize all enabled bridge tools, including repo read, search, write dry-run/apply, and stage-reviewed-paths tools; use the next command only when you are ready to paste the URL into your own trusted private MCP client configuration:
 
 ```bash
 gptprouse tunnel url --public-url "https://your-tunnel.example" --show-token --url-only
@@ -145,7 +145,7 @@ gptprouse setup --token-ttl-hours 24
 
 After you create your own tunnel, ask `gptprouse` to format the public MCP URL. This command only rewrites the URL; it does not start or manage any tunnel process.
 
-Public tunnel MCP URLs are also secrets. Use the next command only when you are ready to paste the public URL into your own trusted private MCP client configuration:
+Public tunnel MCP URLs are also secrets. They authorize all enabled bridge tools, including repo read, search, write dry-run/apply, and stage-reviewed-paths tools. Use the next command only when you are ready to paste the public URL into your own trusted private MCP client configuration:
 
 ```bash
 gptprouse tunnel url --public-url "https://your-tunnel.example" --show-token --url-only

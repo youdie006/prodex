@@ -660,6 +660,8 @@ try {
     `gptprouse status --cwd ${consumerDir} --show-token --url-only`,
     "installed onboard output"
   );
+  assertIncludes(onboard.stdout, "authorizes all enabled bridge tools", "installed onboard token authority warning");
+  assertIncludes(onboard.stdout, "repo_write_file_apply", "installed onboard token authority warning");
   assertIncludes(onboard.stdout, `cd ${consumerDir}`, "installed onboard output");
   assertIncludes(onboard.stdout, 'gptprouse pro ask "Review this repo"  # dry-run/manual preview', "installed onboard output");
   assertNotIncludes(onboard.stdout, "--file README.md", "installed onboard output");
@@ -829,6 +831,8 @@ try {
   assertNotIncludes(missingSetupSourceTunnel.stderr, "Run `gptprouse setup`", "installed source missing setup tunnel output");
   const projectPrompt = await run(binPath, ["project", "prompt", "--cwd", consumerDir], { cwd: path.dirname(consumerDir) });
   assertIncludes(projectPrompt.stdout, "ChatGPT Project MCP verification prompt", "installed project prompt output");
+  assertIncludes(projectPrompt.stdout, "authorizes all enabled bridge tools", "installed project prompt token authority warning");
+  assertIncludes(projectPrompt.stdout, "repo_stage_reviewed_paths", "installed project prompt token authority warning");
   assertIncludes(projectPrompt.stdout, "bridge_create_task", "installed project prompt output");
   assertIncludes(projectPrompt.stdout, "bridge_list_tasks", "installed project prompt output");
   assertIncludes(projectPrompt.stdout, "bridge_get_task", "installed project prompt output");
@@ -1603,6 +1607,8 @@ async function assertInstalledDocsArePortable(consumerDir) {
     "gptprouse status --show-token --url-only",
     "installed README token URL warning"
   );
+  assertIncludes(readme, "They authorize all enabled bridge tools", "installed README token authority warning");
+  assertIncludes(readme, "stage-reviewed-paths tools", "installed README token authority warning");
   assertAppearsBefore(
     readme,
     "Public tunnel MCP URLs are also secrets",
@@ -1658,6 +1664,8 @@ async function assertInstalledDocsArePortable(consumerDir) {
     "gptprouse status --show-token --url-only",
     "installed HTTP MCP docs token URL warning"
   );
+  assertIncludes(httpMcpDoc, "They authorize all enabled bridge tools", "installed HTTP MCP docs token authority warning");
+  assertIncludes(httpMcpDoc, "stage-reviewed-paths tools", "installed HTTP MCP docs token authority warning");
   assertAppearsBefore(
     httpMcpDoc,
     "Token-bearing MCP URLs are secrets",
@@ -2659,6 +2667,8 @@ async function smokeInstalledHttpOnboarding(binPath, cwd) {
       `Installed status --show-token --url-only returned ${redactSmokeSecrets(pasteReady.stdout.trim())}, expected ${redactSmokeSecrets(expectedUrl)}`
     );
   }
+  assertIncludes(pasteReady.stderr, "authorizes all enabled bridge tools", "installed status token authority warning");
+  assertIncludes(pasteReady.stderr, "repo_write_file_apply", "installed status token authority warning");
 
   const tunnelUrl = await run(
     binPath,
@@ -2669,6 +2679,8 @@ async function smokeInstalledHttpOnboarding(binPath, cwd) {
   if (tunnelUrl.stdout.trim() !== expectedTunnelUrl) {
     throw new Error(`Installed tunnel url returned ${redactSmokeSecrets(tunnelUrl.stdout.trim())}, expected ${redactSmokeSecrets(expectedTunnelUrl)}`);
   }
+  assertIncludes(tunnelUrl.stderr, "authorizes all enabled bridge tools", "installed tunnel token authority warning");
+  assertIncludes(tunnelUrl.stderr, "repo_stage_reviewed_paths", "installed tunnel token authority warning");
   const invalidTunnelScheme = await runExpectFailure(
     binPath,
     ["tunnel", "url", "--cwd", cwd, "--public-url", "ftp://localhost:7777/dev", "--show-token", "--url-only"],
