@@ -111,9 +111,9 @@ try {
     "installed help output"
   );
   assertIncludes(help.stdout, "gptprouse pro browser help [--source-cli /absolute/path/to/dist/cli.js]", "installed help output");
-  assertIncludes(help.stdout, "gptprouse pro latest [--source-cli /absolute/path/to/dist/cli.js]", "installed help output");
-  assertIncludes(help.stdout, "gptprouse pro list [--source-cli /absolute/path/to/dist/cli.js]", "installed help output");
-  assertIncludes(help.stdout, "gptprouse pro show <task-id|latest> [--source-cli /absolute/path/to/dist/cli.js]", "installed help output");
+  assertIncludes(help.stdout, "gptprouse pro latest [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]", "installed help output");
+  assertIncludes(help.stdout, "gptprouse pro list [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]", "installed help output");
+  assertIncludes(help.stdout, "gptprouse pro show <task-id|latest> [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]", "installed help output");
   assertIncludes(help.stdout, "gptprouse mcp [--cwd /absolute/path/to/repo]", "installed help output");
   assertIncludes(help.stdout, `gptprouse v${installedPackageJson.version}`, "installed help output");
   assertNotIncludes(help.stdout, "gptprouse ask-pro", "installed help output");
@@ -123,7 +123,9 @@ try {
   const proHelp = await run(binPath, ["pro", "--help"], { cwd: consumerDir });
   assertIncludes(proHelp.stdout, "gptprouse pro", "installed pro help output");
   assertIncludes(proHelp.stdout, "gptprouse pro browser help [--source-cli /absolute/path/to/dist/cli.js]", "installed pro help output");
-  assertIncludes(proHelp.stdout, "gptprouse pro latest [--source-cli /absolute/path/to/dist/cli.js]", "installed pro help output");
+  assertIncludes(proHelp.stdout, "gptprouse pro latest [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]", "installed pro help output");
+  assertIncludes(proHelp.stdout, "gptprouse pro list [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]", "installed pro help output");
+  assertIncludes(proHelp.stdout, "gptprouse pro show <task-id|latest> [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]", "installed pro help output");
   const releaseHelp = await run(binPath, ["release", "--help"], { cwd: consumerDir });
   assertIncludes(releaseHelp.stdout, "gptprouse release", "installed release help output");
   assertIncludes(
@@ -171,35 +173,72 @@ try {
   assertIncludes(claudeHelp.stdout, "gptprouse claude config [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]", "installed Claude help output");
   const tasksHelp = await run(binPath, ["tasks", "--help"], { cwd: consumerDir });
   assertIncludes(tasksHelp.stdout, "gptprouse tasks", "installed tasks help output");
-  assertIncludes(tasksHelp.stdout, "gptprouse tasks create --title", "installed tasks help output");
+  assertIncludes(
+    tasksHelp.stdout,
+    'gptprouse tasks create [--cwd /absolute/path/to/repo] --title "Title" --prompt "Prompt"',
+    "installed tasks help output"
+  );
+  assertIncludes(
+    tasksHelp.stdout,
+    "gptprouse tasks list [--status new|claimed|done|blocked] [--cwd /absolute/path/to/repo]",
+    "installed tasks help output"
+  );
+  assertIncludes(
+    tasksHelp.stdout,
+    "gptprouse tasks show <task-id|latest> [--cwd /absolute/path/to/repo]",
+    "installed tasks help output"
+  );
+  assertIncludes(
+    tasksHelp.stdout,
+    "gptprouse tasks claim <task-id> [--cwd /absolute/path/to/repo] [--by codex]",
+    "installed tasks help output"
+  );
   assertIncludes(
     tasksHelp.stdout,
     'gptprouse tasks complete <task-id> [--cwd /absolute/path/to/repo] --summary "Summary" [--command "npm test"] [--artifact .bridge/artifacts/results/name.md=text]',
     "installed tasks help output"
   );
+  assertIncludes(
+    tasksHelp.stdout,
+    'gptprouse tasks block <task-id> [--cwd /absolute/path/to/repo] --summary "Summary" [--code code] [--next-step "Next step"] [--retryable]',
+    "installed tasks help output"
+  );
   const resultsHelp = await run(binPath, ["results", "--help"], { cwd: consumerDir });
   assertIncludes(resultsHelp.stdout, "gptprouse results", "installed results help output");
-  assertIncludes(resultsHelp.stdout, "gptprouse results artifact <task-id|latest> [artifact-path]", "installed results help output");
-  assertIncludes(resultsHelp.stdout, "gptprouse results reseal <task-id|latest> --confirm-current-result", "installed results help output");
+  assertIncludes(resultsHelp.stdout, "gptprouse results show <task-id|latest> [--cwd /absolute/path/to/repo]", "installed results help output");
+  assertIncludes(resultsHelp.stdout, "gptprouse results artifact <task-id|latest> [artifact-path] [--cwd /absolute/path/to/repo]", "installed results help output");
+  assertIncludes(resultsHelp.stdout, "gptprouse results reseal <task-id|latest> --confirm-current-result [--cwd /absolute/path/to/repo]", "installed results help output");
   const receiptsHelp = await run(binPath, ["receipts", "--help"], { cwd: consumerDir });
   assertIncludes(receiptsHelp.stdout, "gptprouse receipts", "installed receipts help output");
-  assertIncludes(receiptsHelp.stdout, "gptprouse receipts show <receipt-id|latest>", "installed receipts help output");
+  assertIncludes(receiptsHelp.stdout, "gptprouse receipts list [--kind kind] [--task-id task-id] [--cwd /absolute/path/to/repo]", "installed receipts help output");
+  assertIncludes(receiptsHelp.stdout, "gptprouse receipts show <receipt-id|latest> [--cwd /absolute/path/to/repo]", "installed receipts help output");
   const sessionsHelp = await run(binPath, ["sessions", "--help"], { cwd: consumerDir });
   assertIncludes(sessionsHelp.stdout, "gptprouse sessions", "installed sessions help output");
-  assertIncludes(sessionsHelp.stdout, "gptprouse sessions list [--status preview|running|done|blocked]", "installed sessions help output");
+  assertIncludes(sessionsHelp.stdout, "gptprouse sessions list [--status preview|running|done|blocked] [--cwd /absolute/path/to/repo]", "installed sessions help output");
+  assertIncludes(sessionsHelp.stdout, "gptprouse sessions show <session-id|latest> [--cwd /absolute/path/to/repo]", "installed sessions help output");
   const advertisedSubcommandHelpCases = [
     { args: ["release", "status", "--help"], expected: "gptprouse release status [--cwd /absolute/path/to/repo]" },
     { args: ["release", "pack", "--help"], expected: "gptprouse release pack [--cwd /absolute/path/to/repo]" },
     { args: ["project", "prompt", "--help"], expected: "gptprouse project prompt [--cwd /absolute/path/to/repo]" },
     { args: ["claude", "config", "--help"], expected: "gptprouse claude config [--cwd /absolute/path/to/repo]" },
-    { args: ["tasks", "show", "--help"], expected: "gptprouse tasks show <task-id|latest>" },
-    { args: ["results", "artifact", "--help"], expected: "gptprouse results artifact <task-id|latest> [artifact-path]" },
-    { args: ["results", "reseal", "--help"], expected: "gptprouse results reseal <task-id|latest> --confirm-current-result" },
-    { args: ["receipts", "show", "--help"], expected: "gptprouse receipts show <receipt-id|latest>" },
-    { args: ["sessions", "show", "--help"], expected: "gptprouse sessions show <session-id|latest>" },
+    { args: ["tasks", "create", "--help"], expected: 'gptprouse tasks create [--cwd /absolute/path/to/repo] --title "Title" --prompt "Prompt"' },
+    { args: ["tasks", "list", "--help"], expected: "gptprouse tasks list [--status new|claimed|done|blocked] [--cwd /absolute/path/to/repo]" },
+    { args: ["tasks", "show", "--help"], expected: "gptprouse tasks show <task-id|latest> [--cwd /absolute/path/to/repo]" },
+    { args: ["tasks", "claim", "--help"], expected: "gptprouse tasks claim <task-id> [--cwd /absolute/path/to/repo] [--by codex]" },
+    { args: ["tasks", "complete", "--help"], expected: 'gptprouse tasks complete <task-id> [--cwd /absolute/path/to/repo] --summary "Summary"' },
+    { args: ["tasks", "block", "--help"], expected: 'gptprouse tasks block <task-id> [--cwd /absolute/path/to/repo] --summary "Summary"' },
+    { args: ["results", "show", "--help"], expected: "gptprouse results show <task-id|latest> [--cwd /absolute/path/to/repo]" },
+    { args: ["results", "artifact", "--help"], expected: "gptprouse results artifact <task-id|latest> [artifact-path] [--cwd /absolute/path/to/repo]" },
+    { args: ["results", "reseal", "--help"], expected: "gptprouse results reseal <task-id|latest> --confirm-current-result [--cwd /absolute/path/to/repo]" },
+    { args: ["receipts", "list", "--help"], expected: "gptprouse receipts list [--kind kind] [--task-id task-id] [--cwd /absolute/path/to/repo]" },
+    { args: ["receipts", "show", "--help"], expected: "gptprouse receipts show <receipt-id|latest> [--cwd /absolute/path/to/repo]" },
+    { args: ["sessions", "list", "--help"], expected: "gptprouse sessions list [--status preview|running|done|blocked] [--cwd /absolute/path/to/repo]" },
+    { args: ["sessions", "show", "--help"], expected: "gptprouse sessions show <session-id|latest> [--cwd /absolute/path/to/repo]" },
     { args: ["pro", "ask", "--help"], expected: "gptprouse pro ask [--dry-run] [--file path]" },
     { args: ["pro", "browser", "ask", "--help"], expected: "gptprouse pro browser ask [--source-cli /absolute/path/to/dist/cli.js]" },
-    { args: ["pro", "show", "--help"], expected: "gptprouse pro show <task-id|latest> [--source-cli /absolute/path/to/dist/cli.js]" }
+    { args: ["pro", "latest", "--help"], expected: "gptprouse pro latest [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]" },
+    { args: ["pro", "list", "--help"], expected: "gptprouse pro list [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]" },
+    { args: ["pro", "show", "--help"], expected: "gptprouse pro show <task-id|latest> [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]" }
   ];
   for (const item of advertisedSubcommandHelpCases) {
     const commandHelp = await run(binPath, item.args, { cwd: consumerDir });
@@ -1403,6 +1442,19 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertIncludes(readme, "onboard --source-cli", "installed README");
   assertIncludes(readme, 'doctor --source-cli "$SOURCE_CLI"', "installed README");
   assertIncludes(readme, "local MCP troubleshooting commands so their follow-up guidance stays in source-checkout form", "installed README");
+  assertIncludes(readme, "tasks create/list/show/claim/complete/block", "installed README");
+  assertIncludes(readme, "cd /absolute/path/to/your/repo", "installed README");
+  assertIncludes(readme, "gptprouse tasks create --cwd /absolute/path/to/your/repo", "installed README");
+  assertIncludes(readme, "gptprouse tasks list --status new --cwd /absolute/path/to/your/repo", "installed README");
+  assertIncludes(readme, "gptprouse tasks show <task-id> --cwd /absolute/path/to/your/repo", "installed README");
+  assertIncludes(
+    readme,
+    'gptprouse tasks complete <task-id> --cwd /absolute/path/to/your/repo --summary "gptprouse MCP verification result"',
+    "installed README"
+  );
+  assertIncludes(readme, "gptprouse tasks list --cwd /absolute/path/to/your/repo", "installed README");
+  assertIncludes(readme, "gptprouse tasks show latest --cwd /absolute/path/to/your/repo", "installed README");
+  assertIncludes(readme, "gptprouse tasks block <task-id> --cwd /absolute/path/to/your/repo", "installed README");
   assertIncludes(readme, 'gptprouse pro ask "Review the project positioning"', "installed README");
   assertIncludes(readme, "gptprouse pro browser login --dry-run", "installed README");
   assertIncludes(readme, "Open a normal ChatGPT chat or the intended Project/thread so the prompt composer is visible.", "installed README");
@@ -1561,6 +1613,13 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertNotIncludes(httpMcpDoc, "node dist/cli.js setup --token-ttl-hours 24", "installed HTTP MCP docs");
   assertIncludes(httpMcpDoc, "gptprouse project prompt", "installed HTTP MCP docs");
   assertIncludes(httpMcpDoc, "project prompt --cwd /absolute/path/to/your/repo --source-cli", "installed HTTP MCP docs");
+  assertIncludes(httpMcpDoc, "gptprouse tasks list --status new --cwd /absolute/path/to/your/repo", "installed HTTP MCP docs");
+  assertIncludes(httpMcpDoc, "gptprouse tasks show <task-id> --cwd /absolute/path/to/your/repo", "installed HTTP MCP docs");
+  assertIncludes(
+    httpMcpDoc,
+    'gptprouse tasks complete <task-id> --cwd /absolute/path/to/your/repo --summary "gptprouse MCP verification result"',
+    "installed HTTP MCP docs"
+  );
   assertIncludes(httpMcpDoc, "bridge_fetch_result", "installed HTTP MCP docs");
   assertIncludes(httpMcpDoc, "bridge_fetch_result_artifact", "installed HTTP MCP docs");
   assertNotIncludes(httpMcpDoc, "then reply with the created task id", "installed HTTP MCP docs");
@@ -1611,6 +1670,13 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertIncludes(claudeDoc, "mcp --cwd", "installed Claude docs");
   assertIncludes(claudeDoc, "gptprouse claude prompt", "installed Claude docs");
   assertIncludes(claudeDoc, "claude prompt --cwd /absolute/path/to/your/repo --source-cli", "installed Claude docs");
+  assertIncludes(claudeDoc, "gptprouse tasks list --status new --cwd /absolute/path/to/your/repo", "installed Claude docs");
+  assertIncludes(claudeDoc, "gptprouse tasks show <task-id> --cwd /absolute/path/to/your/repo", "installed Claude docs");
+  assertIncludes(
+    claudeDoc,
+    'gptprouse tasks complete <task-id> --cwd /absolute/path/to/your/repo --summary "gptprouse Claude MCP verification result"',
+    "installed Claude docs"
+  );
   assertIncludes(claudeDoc, "node dist/cli.js claude config --cwd /absolute/path/to/your/repo --source-cli /absolute/path/to/gptprouse/dist/cli.js", "installed Claude docs");
   assertNotIncludes(claudeDoc, "gptprouse claude config --cwd /absolute/path/to/your/repo --source-cli /absolute/path/to/gptprouse/dist/cli.js", "installed Claude docs");
   assertIncludes(claudeDoc, "Source-checkout prompts keep `--source-cli` on those troubleshooting commands too.", "installed Claude docs");
@@ -1695,6 +1761,25 @@ async function smokeInstalledExplicitCwdInspection(binPath, repoCwd, launcherCwd
 
   const result = await run(binPath, ["results", "show", "latest", "--cwd", repoCwd], { cwd: launcherCwd });
   assertIncludes(result.stdout, `"task_id": "${taskId}"`, "installed explicit --cwd results show output");
+
+  const created = await run(binPath, ["tasks", "create", "--cwd", repoCwd, "--title", "Installed cwd mutation", "--prompt", "Create from launcher"], {
+    cwd: launcherCwd
+  });
+  const createdTaskId = created.stdout.split("\t")[0];
+  if (!createdTaskId?.startsWith("task_")) {
+    throw new Error(`Installed explicit --cwd tasks create output did not include a task id: ${created.stdout}`);
+  }
+  const claimed = await run(binPath, ["tasks", "claim", createdTaskId, "--cwd", repoCwd, "--by", "package-smoke"], { cwd: launcherCwd });
+  assertIncludes(claimed.stdout, `${createdTaskId}\tclaimed\tpackage-smoke`, "installed explicit --cwd tasks claim output");
+  const blocked = await run(
+    binPath,
+    ["tasks", "block", createdTaskId, "--cwd", repoCwd, "--summary", "Blocked from launcher.", "--code", "package_smoke_blocker"],
+    { cwd: launcherCwd }
+  );
+  assertIncludes(blocked.stdout, `${createdTaskId}\tblocked\tBlocked from launcher.`, "installed explicit --cwd tasks block output");
+  const blockedResult = await run(binPath, ["results", "show", createdTaskId, "--cwd", repoCwd], { cwd: launcherCwd });
+  assertIncludes(blockedResult.stdout, `"task_id": "${createdTaskId}"`, "installed explicit --cwd tasks block result output");
+  assertIncludes(blockedResult.stdout, `"status": "blocked"`, "installed explicit --cwd tasks block result output");
   await assertMissingFile(path.join(launcherCwd, ".bridge", ".gitignore"), "installed explicit --cwd inspection launcher bridge gitignore");
 }
 

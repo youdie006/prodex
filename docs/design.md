@@ -12,6 +12,7 @@ Create a local project that supports:
 ## Proposed CLI
 
 ```bash
+cd /absolute/path/to/repo
 gptprouse pro ask --file src/server.ts --file docs/design.md "Find risks"
 gptprouse pro browser login
 gptprouse pro browser check
@@ -19,12 +20,12 @@ gptprouse pro browser ask --file src/server.ts --file docs/design.md "Find risks
 gptprouse pro browser ask --target-url "https://chatgpt.com/c/..." --confirm-target --file docs/design.md "Continue in this confirmed thread"
 gptprouse pro list
 gptprouse pro latest
-gptprouse tasks list
-gptprouse tasks show <task-id|latest>
-gptprouse tasks claim <task-id>
-gptprouse tasks block <task-id> --summary "Blocked reason" --code manual_blocker --next-step "What to do next" --retryable
-gptprouse results show <task-id|latest>
-gptprouse results artifact <task-id|latest>
+gptprouse tasks list --cwd /absolute/path/to/repo
+gptprouse tasks show <task-id|latest> --cwd /absolute/path/to/repo
+gptprouse tasks claim <task-id> [--cwd /absolute/path/to/repo]
+gptprouse tasks block <task-id> [--cwd /absolute/path/to/repo] --summary "Blocked reason" --code manual_blocker --next-step "What to do next" --retryable
+gptprouse results show <task-id|latest> --cwd /absolute/path/to/repo
+gptprouse results artifact <task-id|latest> --cwd /absolute/path/to/repo
 gptprouse results reseal <task-id> --confirm-current-result
 gptprouse doctor
 gptprouse setup

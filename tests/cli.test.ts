@@ -469,6 +469,85 @@ describe("runCli", () => {
     ).rejects.toThrow(`Result not found: ${taskId}`);
   });
 
+  it("creates tasks in an explicit cwd from a launcher directory", async () => {
+    const launcherCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-launcher-"));
+    const targetCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-target-"));
+    const createOut: string[] = [];
+
+    await runCli(["tasks", "create", "--cwd", targetCwd, "--title", "Target create", "--prompt", "Create in target"], {
+      cwd: launcherCwd,
+      stdout: (line) => createOut.push(line),
+      stderr: () => {}
+    });
+    const taskId = createOut[0].split("\t")[0];
+    const showOut: string[] = [];
+
+    await runCli(["tasks", "show", taskId, "--cwd", targetCwd], {
+      cwd: launcherCwd,
+      stdout: (line) => showOut.push(line),
+      stderr: () => {}
+    });
+
+    expect(createOut).toEqual([`${taskId}\tnew\tTarget create`]);
+    expect(JSON.parse(showOut.join("\n"))).toEqual(expect.objectContaining({ id: taskId, title: "Target create", prompt: "Create in target" }));
+  });
+
+  it("claims tasks in an explicit cwd from a launcher directory", async () => {
+    const launcherCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-launcher-"));
+    const targetCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-target-"));
+    const createOut: string[] = [];
+    await runCli(["tasks", "create", "--title", "Target claim", "--prompt", "Claim in target"], {
+      cwd: targetCwd,
+      stdout: (line) => createOut.push(line),
+      stderr: () => {}
+    });
+    const taskId = createOut[0].split("\t")[0];
+    const claimOut: string[] = [];
+
+    await runCli(["tasks", "claim", taskId, "--cwd", targetCwd, "--by", "codex"], {
+      cwd: launcherCwd,
+      stdout: (line) => claimOut.push(line),
+      stderr: () => {}
+    });
+    const showOut: string[] = [];
+    await runCli(["tasks", "show", taskId, "--cwd", targetCwd], {
+      cwd: launcherCwd,
+      stdout: (line) => showOut.push(line),
+      stderr: () => {}
+    });
+
+    expect(claimOut).toEqual([`${taskId}\tclaimed\tcodex`]);
+    expect(JSON.parse(showOut.join("\n"))).toEqual(expect.objectContaining({ id: taskId, status: "claimed", claimed_by: "codex" }));
+  });
+
+  it("blocks tasks in an explicit cwd from a launcher directory", async () => {
+    const launcherCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-launcher-"));
+    const targetCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-target-"));
+    const createOut: string[] = [];
+    await runCli(["tasks", "create", "--title", "Target block", "--prompt", "Block in target"], {
+      cwd: targetCwd,
+      stdout: (line) => createOut.push(line),
+      stderr: () => {}
+    });
+    const taskId = createOut[0].split("\t")[0];
+    const blockOut: string[] = [];
+
+    await runCli(["tasks", "block", taskId, "--cwd", targetCwd, "--summary", "Blocked from launcher.", "--code", "manual_blocker"], {
+      cwd: launcherCwd,
+      stdout: (line) => blockOut.push(line),
+      stderr: () => {}
+    });
+    const resultOut: string[] = [];
+    await runCli(["results", "show", taskId, "--cwd", targetCwd], {
+      cwd: launcherCwd,
+      stdout: (line) => resultOut.push(line),
+      stderr: () => {}
+    });
+
+    expect(blockOut).toEqual([`${taskId}\tblocked\tBlocked from launcher.`]);
+    expect(JSON.parse(resultOut.join("\n"))).toEqual(expect.objectContaining({ task_id: taskId, status: "blocked", summary: "Blocked from launcher." }));
+  });
+
   it("lists available result artifact paths when CLI artifact fetch omits a path for multiple artifacts", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
     const createOut: string[] = [];
@@ -2261,12 +2340,20 @@ describe("runCli", () => {
       {
         args: ["tasks"],
         header: "gptprouse tasks",
-        commands: ["gptprouse tasks create --title", "gptprouse tasks list", "gptprouse tasks show <task-id|latest>"]
+        commands: [
+          'gptprouse tasks create [--cwd /absolute/path/to/repo] --title "Title"',
+          "gptprouse tasks list",
+          "gptprouse tasks show <task-id|latest>"
+        ]
       },
       {
         args: ["tasks", "--help"],
         header: "gptprouse tasks",
-        commands: ["gptprouse tasks claim <task-id>", "gptprouse tasks complete <task-id>", "gptprouse tasks block <task-id>"]
+        commands: [
+          "gptprouse tasks claim <task-id> [--cwd /absolute/path/to/repo]",
+          "gptprouse tasks complete <task-id>",
+          "gptprouse tasks block <task-id> [--cwd /absolute/path/to/repo]"
+        ]
       },
       {
         args: ["results"],
@@ -2388,25 +2475,25 @@ describe("runCli", () => {
       { args: ["project", "prompt", "--help"], expected: "gptprouse project prompt [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]" },
       { args: ["claude", "prompt", "--help"], expected: "gptprouse claude prompt [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]" },
       { args: ["claude", "config", "--help"], expected: "gptprouse claude config [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]" },
-      { args: ["tasks", "create", "--help"], expected: 'gptprouse tasks create --title "Title" --prompt "Prompt"' },
-      { args: ["tasks", "list", "--help"], expected: "gptprouse tasks list [--status new|claimed|done|blocked]" },
-      { args: ["tasks", "show", "--help"], expected: "gptprouse tasks show <task-id|latest>" },
-      { args: ["tasks", "claim", "--help"], expected: "gptprouse tasks claim <task-id> [--by codex]" },
+      { args: ["tasks", "create", "--help"], expected: 'gptprouse tasks create [--cwd /absolute/path/to/repo] --title "Title" --prompt "Prompt"' },
+      { args: ["tasks", "list", "--help"], expected: "gptprouse tasks list [--status new|claimed|done|blocked] [--cwd /absolute/path/to/repo]" },
+      { args: ["tasks", "show", "--help"], expected: "gptprouse tasks show <task-id|latest> [--cwd /absolute/path/to/repo]" },
+      { args: ["tasks", "claim", "--help"], expected: "gptprouse tasks claim <task-id> [--cwd /absolute/path/to/repo] [--by codex]" },
       {
         args: ["tasks", "complete", "--help"],
         expected: 'gptprouse tasks complete <task-id> [--cwd /absolute/path/to/repo] --summary "Summary" [--command "npm test"] [--artifact .bridge/artifacts/results/name.md=text]'
       },
       {
         args: ["tasks", "block", "--help"],
-        expected: 'gptprouse tasks block <task-id> --summary "Summary" [--code code] [--next-step "Next step"] [--retryable]'
+        expected: 'gptprouse tasks block <task-id> [--cwd /absolute/path/to/repo] --summary "Summary" [--code code] [--next-step "Next step"] [--retryable]'
       },
-      { args: ["results", "show", "--help"], expected: "gptprouse results show <task-id|latest>" },
-      { args: ["results", "artifact", "--help"], expected: "gptprouse results artifact <task-id|latest> [artifact-path]" },
-      { args: ["results", "reseal", "--help"], expected: "gptprouse results reseal <task-id|latest> --confirm-current-result" },
-      { args: ["receipts", "list", "--help"], expected: "gptprouse receipts list [--kind kind] [--task-id task-id]" },
-      { args: ["receipts", "show", "--help"], expected: "gptprouse receipts show <receipt-id|latest>" },
-      { args: ["sessions", "list", "--help"], expected: "gptprouse sessions list [--status preview|running|done|blocked]" },
-      { args: ["sessions", "show", "--help"], expected: "gptprouse sessions show <session-id|latest>" },
+      { args: ["results", "show", "--help"], expected: "gptprouse results show <task-id|latest> [--cwd /absolute/path/to/repo]" },
+      { args: ["results", "artifact", "--help"], expected: "gptprouse results artifact <task-id|latest> [artifact-path] [--cwd /absolute/path/to/repo]" },
+      { args: ["results", "reseal", "--help"], expected: "gptprouse results reseal <task-id|latest> --confirm-current-result [--cwd /absolute/path/to/repo]" },
+      { args: ["receipts", "list", "--help"], expected: "gptprouse receipts list [--kind kind] [--task-id task-id] [--cwd /absolute/path/to/repo]" },
+      { args: ["receipts", "show", "--help"], expected: "gptprouse receipts show <receipt-id|latest> [--cwd /absolute/path/to/repo]" },
+      { args: ["sessions", "list", "--help"], expected: "gptprouse sessions list [--status preview|running|done|blocked] [--cwd /absolute/path/to/repo]" },
+      { args: ["sessions", "show", "--help"], expected: "gptprouse sessions show <session-id|latest> [--cwd /absolute/path/to/repo]" },
       { args: ["pro", "ask", "--help"], expected: 'gptprouse pro ask [--dry-run] [--file path] "prompt"' },
       {
         args: ["pro", "browser", "login", "--help"],
@@ -2424,9 +2511,9 @@ describe("runCli", () => {
         args: ["pro", "browser", "ask", "--help"],
         expected: "gptprouse pro browser ask [--source-cli /absolute/path/to/dist/cli.js]"
       },
-      { args: ["pro", "latest", "--help"], expected: "gptprouse pro latest [--source-cli /absolute/path/to/dist/cli.js]" },
-      { args: ["pro", "list", "--help"], expected: "gptprouse pro list [--source-cli /absolute/path/to/dist/cli.js]" },
-      { args: ["pro", "show", "--help"], expected: "gptprouse pro show <task-id|latest> [--source-cli /absolute/path/to/dist/cli.js]" }
+      { args: ["pro", "latest", "--help"], expected: "gptprouse pro latest [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]" },
+      { args: ["pro", "list", "--help"], expected: "gptprouse pro list [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]" },
+      { args: ["pro", "show", "--help"], expected: "gptprouse pro show <task-id|latest> [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]" }
     ];
 
     for (const item of cases) {
@@ -2531,7 +2618,7 @@ describe("runCli", () => {
     });
 
     expect(out.join("\n")).toContain(
-      'gptprouse tasks block <task-id> --summary "Summary" [--code code] [--next-step "Next step"] [--retryable]'
+      'gptprouse tasks block <task-id> [--cwd /absolute/path/to/repo] --summary "Summary" [--code code] [--next-step "Next step"] [--retryable]'
     );
   });
 

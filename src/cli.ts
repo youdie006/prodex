@@ -485,12 +485,13 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       return 0;
     }
     if (subcommand === "create") {
-      if (printHelpIfRequested(taskArgs, "tasks create", io.stdout, printTasksHelp, { valueFlags: ["--title", "--prompt", "--repo-id", "--file"] })) return 0;
-      assertOnlyOptions(taskArgs, "tasks create", ["--title", "--prompt", "--repo-id", "--file"]);
+      if (printHelpIfRequested(taskArgs, "tasks create", io.stdout, printTasksHelp, { valueFlags: ["--cwd", "--title", "--prompt", "--repo-id", "--file"] })) return 0;
+      assertOnlyOptions(taskArgs, "tasks create", ["--cwd", "--title", "--prompt", "--repo-id", "--file"]);
       const title = readFlag(taskArgs, "--title");
       const prompt = readFlag(taskArgs, "--prompt");
       if (!title || !prompt) throw new Error("tasks create requires --title and --prompt");
-      const task = await store.createTask({
+      const targetStore = new BridgeStore(resolveCwdFlag(io.cwd, taskArgs));
+      const task = await targetStore.createTask({
         source: "codex",
         title,
         prompt,
@@ -523,10 +524,11 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       return 0;
     }
     if (subcommand === "claim") {
-      if (printHelpIfRequested(taskArgs, "tasks claim", io.stdout, printTasksHelp, { valueFlags: ["--by"], maxPositionals: 1 })) return 0;
-      const taskId = readRequiredLeadingArgument(taskArgs, "tasks claim", "<task-id>");
-      assertOnlyOptions(taskArgs.slice(1), "tasks claim", ["--by"]);
-      const task = await store.claimTask(taskId, readFlag(taskArgs, "--by") ?? "codex");
+      if (printHelpIfRequested(taskArgs, "tasks claim", io.stdout, printTasksHelp, { valueFlags: ["--cwd", "--by"], maxPositionals: 1 })) return 0;
+      const [taskId] = readPositionalsWithOptions(taskArgs, "tasks claim", 1, ["--cwd", "--by"]);
+      if (!taskId) throw new Error("tasks claim requires <task-id>");
+      const targetStore = new BridgeStore(resolveCwdFlag(io.cwd, taskArgs));
+      const task = await targetStore.claimTask(taskId, readFlag(taskArgs, "--by") ?? "codex");
       io.stdout(`${task.id}\t${task.status}\t${task.claimed_by ?? ""}`);
       return 0;
     }
@@ -556,18 +558,19 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
     if (subcommand === "block") {
       if (
         printHelpIfRequested(taskArgs, "tasks block", io.stdout, printTasksHelp, {
-          valueFlags: ["--summary", "--code", "--next-step", "--command"],
+          valueFlags: ["--cwd", "--summary", "--code", "--next-step", "--command"],
           booleanFlags: ["--retryable"],
           maxPositionals: 1
         })
       ) {
         return 0;
       }
-      const taskId = readRequiredLeadingArgument(taskArgs, "tasks block", "<task-id>");
-      assertOnlyOptions(taskArgs.slice(1), "tasks block", ["--summary", "--code", "--next-step", "--command"], ["--retryable"]);
+      const [taskId] = readPositionalsWithOptions(taskArgs, "tasks block", 1, ["--cwd", "--summary", "--code", "--next-step", "--command"], ["--retryable"]);
+      if (!taskId) throw new Error("tasks block requires <task-id> --summary");
       const summary = readFlag(taskArgs, "--summary");
       if (!summary) throw new Error("tasks block requires <task-id> --summary");
-      const result = await store.completeTask(taskId, {
+      const targetStore = new BridgeStore(resolveCwdFlag(io.cwd, taskArgs));
+      const result = await targetStore.completeTask(taskId, {
         status: "blocked",
         summary,
         blocker: {
@@ -1140,12 +1143,12 @@ Commands:
   gptprouse pro latest [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]
   gptprouse pro list [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]
   gptprouse pro show <task-id|latest> [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]
-  gptprouse tasks create --title "Title" --prompt "Prompt"
+  gptprouse tasks create [--cwd /absolute/path/to/repo] --title "Title" --prompt "Prompt"
   gptprouse tasks list [--status new|claimed|done|blocked] [--cwd /absolute/path/to/repo]
   gptprouse tasks show <task-id|latest> [--cwd /absolute/path/to/repo]
-  gptprouse tasks claim <task-id> [--by codex]
+  gptprouse tasks claim <task-id> [--cwd /absolute/path/to/repo] [--by codex]
   gptprouse tasks complete <task-id> [--cwd /absolute/path/to/repo] --summary "Summary" [--command "npm test"] [--artifact .bridge/artifacts/results/name.md=text]
-  gptprouse tasks block <task-id> --summary "Summary" [--code code] [--next-step "Next step"] [--retryable]
+  gptprouse tasks block <task-id> [--cwd /absolute/path/to/repo] --summary "Summary" [--code code] [--next-step "Next step"] [--retryable]
   gptprouse results show <task-id|latest> [--cwd /absolute/path/to/repo]
   gptprouse results artifact <task-id|latest> [artifact-path] [--cwd /absolute/path/to/repo]
   gptprouse results reseal <task-id|latest> --confirm-current-result [--cwd /absolute/path/to/repo]
@@ -1288,12 +1291,12 @@ function printTasksHelp(stdout: (line: string) => void): void {
   stdout(`gptprouse tasks
 
 Commands:
-  gptprouse tasks create --title "Title" --prompt "Prompt"
+  gptprouse tasks create [--cwd /absolute/path/to/repo] --title "Title" --prompt "Prompt"
   gptprouse tasks list [--status new|claimed|done|blocked] [--cwd /absolute/path/to/repo]
   gptprouse tasks show <task-id|latest> [--cwd /absolute/path/to/repo]
-  gptprouse tasks claim <task-id> [--by codex]
+  gptprouse tasks claim <task-id> [--cwd /absolute/path/to/repo] [--by codex]
   gptprouse tasks complete <task-id> [--cwd /absolute/path/to/repo] --summary "Summary" [--command "npm test"] [--artifact .bridge/artifacts/results/name.md=text]
-  gptprouse tasks block <task-id> --summary "Summary" [--code code] [--next-step "Next step"] [--retryable]`);
+  gptprouse tasks block <task-id> [--cwd /absolute/path/to/repo] --summary "Summary" [--code code] [--next-step "Next step"] [--retryable]`);
 }
 
 function printResultsHelp(stdout: (line: string) => void): void {

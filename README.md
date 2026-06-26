@@ -104,7 +104,7 @@ Run `init` from the repo root, or use `gptprouse init --cwd /absolute/path/to/yo
 
 `pro ask` is a dry-run/manual preview. It does not drive a logged-in browser; `pro ask --send` is rejected so accidental sends do not happen through the preview alias. Use `pro browser ask` when you explicitly want the visible browser adapter.
 Run `pro ask` and `pro browser ask` from the repo root so `--file` paths and `.bridge` records resolve to the intended project. If you generated commands with `onboard --cwd`, use the `cd ...` line in the optional Pro section first.
-Inspection commands such as `pro browser check`, `pro latest`, `pro show`, `tasks list`, `results show`, `results artifact`, `receipts show`, and `sessions show` can also be run from elsewhere with `--cwd /absolute/path/to/your/repo`.
+Bridge inspection and task handoff commands such as `pro browser check`, `pro latest`, `pro show`, `tasks create/list/show/claim/complete/block`, `results show`, `results artifact`, `receipts show`, and `sessions show` can also be run from elsewhere with `--cwd /absolute/path/to/your/repo`.
 When the file exists and you want it included, add it explicitly, for example `gptprouse pro ask --file README.md "Review the project positioning"`.
 If your prompt itself starts with flag-like text, put `--` before the prompt. This applies to both preview and visible-browser sends, for example `gptprouse pro ask -- --strict mode review` or `gptprouse pro browser ask -- --strict mode review`.
 
@@ -153,6 +153,7 @@ You can close that Chrome window after check/smoke or when you are done. The nex
 Actual explicit visible-browser consult:
 
 ```bash
+cd /absolute/path/to/your/repo
 gptprouse pro browser ask --file README.md "Review the project positioning"
 gptprouse pro latest
 gptprouse results show latest
@@ -269,11 +270,12 @@ The MCP write path is intentionally narrow:
 For local task-bus smoke tests:
 
 ```bash
+cd /absolute/path/to/your/repo
 gptprouse doctor
-gptprouse tasks create --title "Review plan" --prompt "Review this architecture"
-gptprouse tasks list
-gptprouse tasks show latest
-gptprouse tasks block <task-id> --summary "Blocked reason" --code manual_blocker --next-step "What to do next" --retryable
+gptprouse tasks create --cwd /absolute/path/to/your/repo --title "Review plan" --prompt "Review this architecture"
+gptprouse tasks list --cwd /absolute/path/to/your/repo
+gptprouse tasks show latest --cwd /absolute/path/to/your/repo
+gptprouse tasks block <task-id> --cwd /absolute/path/to/your/repo --summary "Blocked reason" --code manual_blocker --next-step "What to do next" --retryable
 gptprouse pro ask --dry-run --file README.md "Review the project positioning"
 gptprouse sessions list
 ```
