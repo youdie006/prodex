@@ -135,20 +135,21 @@ export class BridgeStore {
     await this.ensure();
     const timestamp = nowIso();
     const taskFiles = validateTaskFiles(input.files ?? []);
-    const task: Task = TaskSchema.parse({
-      schema_version: SCHEMA_VERSION,
-      id: await this.uniqueId("task", input.title, "tasks"),
-      source: input.source,
-      status: "new",
-      title: input.title,
-      prompt: input.prompt,
-      repo_id: input.repo_id ?? "default",
-      files: taskFiles,
-      provenance: input.provenance,
-      created_at: timestamp,
-      updated_at: timestamp
-    });
-    await this.writeRecordJson("tasks", task.id, task);
+    const task: Task = await this.createWithUniqueId("task", input.title, "tasks", (id) =>
+      TaskSchema.parse({
+        schema_version: SCHEMA_VERSION,
+        id,
+        source: input.source,
+        status: "new",
+        title: input.title,
+        prompt: input.prompt,
+        repo_id: input.repo_id ?? "default",
+        files: taskFiles,
+        provenance: input.provenance,
+        created_at: timestamp,
+        updated_at: timestamp
+      })
+    );
     try {
       await this.writeReceipt({
         kind: "task_created",
@@ -421,12 +422,29 @@ export class BridgeStore {
 
   async writeSession(input: WriteSessionInput): Promise<Session> {
     await this.ensure();
-    const id = input.id ?? (await this.uniqueId("sess", input.task_id ?? input.direction, "sessions"));
-    const existing = await this.getSession(id).catch(() => undefined);
     const timestamp = nowIso();
+    if (input.id === undefined) {
+      return this.createWithUniqueId("sess", input.task_id ?? input.direction, "sessions", (id) =>
+        SessionSchema.parse({
+          schema_version: SCHEMA_VERSION,
+          id,
+          direction: input.direction,
+          backend: input.backend,
+          project: input.project,
+          thread: input.thread,
+          task_id: input.task_id,
+          status: input.status ?? "preview",
+          blocker: input.blocker,
+          warnings: input.warnings ?? [],
+          created_at: timestamp,
+          last_used_at: timestamp
+        })
+      );
+    }
+    const existing = await this.getSession(input.id).catch(() => undefined);
     const session = SessionSchema.parse({
       schema_version: SCHEMA_VERSION,
-      id,
+      id: input.id,
       direction: input.direction,
       backend: input.backend,
       project: input.project,
@@ -438,7 +456,7 @@ export class BridgeStore {
       created_at: existing?.created_at ?? timestamp,
       last_used_at: timestamp
     });
-    await this.writeRecordJson("sessions", id, session);
+    await this.writeRecordJson("sessions", input.id, session);
     return session;
   }
 
@@ -683,21 +701,21 @@ export class BridgeStore {
 
   async writeReceipt(input: WriteReceiptInput): Promise<Receipt> {
     await this.ensure();
-    const unsigned = ReceiptSchema.parse({
-      schema_version: SCHEMA_VERSION,
-      id: await this.uniqueId("receipt", input.kind, "receipts"),
-      created_at: nowIso(),
-      ...input
+    return this.createWithUniqueId("receipt", input.kind, "receipts", async (id) => {
+      const unsigned = ReceiptSchema.parse({
+        schema_version: SCHEMA_VERSION,
+        id,
+        created_at: nowIso(),
+        ...input
+      });
+      return ReceiptSchema.parse({
+        ...unsigned,
+        integrity: {
+          algorithm: "hmac-sha256",
+          digest: await this.receiptDigest(unsigned)
+        }
+      });
     });
-    const receipt = ReceiptSchema.parse({
-      ...unsigned,
-      integrity: {
-        algorithm: "hmac-sha256",
-        digest: await this.receiptDigest(unsigned)
-      }
-    });
-    await this.writeRecordJson("receipts", receipt.id, receipt);
-    return receipt;
   }
 
   private async assertReceiptIntegrity(
@@ -814,14 +832,27 @@ export class BridgeStore {
     }
   }
 
-  private async uniqueId(prefix: "task" | "sess" | "receipt", title: string, kind: "tasks" | "sessions" | "receipts"): Promise<string> {
-    let id = makeBridgeId(prefix, title);
-    let counter = 2;
-    while (await exists(this.pathFor(kind, id))) {
-      id = `${makeBridgeId(prefix, title)}-${counter}`;
-      counter += 1;
+  // Allocate a record id and write it with an exclusive create, retrying with a -N suffix on
+  // collision, so id allocation and the write are a single atomic step. The previous check-then-
+  // write (exists() loop + overwrite) was a TOCTOU: two concurrent creates with the same
+  // timestamp+title both saw "absent" and resolved to the same id, silently overwriting one
+  // record under the normal Codex+Claude shared-.bridge mode. This mirrors the exclusive-create
+  // path already used for results.
+  private async createWithUniqueId<T>(
+    prefix: "task" | "sess" | "receipt",
+    title: string,
+    kind: "tasks" | "sessions" | "receipts",
+    build: (id: string) => T | Promise<T>
+  ): Promise<T> {
+    for (let attempt = 1; ; attempt += 1) {
+      const base = makeBridgeId(prefix, title);
+      const id = attempt === 1 ? base : `${base}-${attempt}`;
+      const record = await build(id);
+      if (await this.writeNewRecordJson(kind, id, record)) return record;
+      if (attempt >= 10000) {
+        throw new Error(`Unable to allocate a unique ${prefix} id under .bridge/${kind} after ${attempt} attempts`);
+      }
     }
-    return id;
   }
 
   private pathFor(kind: BridgeRecordKind, id: string): string {
@@ -1313,15 +1344,6 @@ function recordLabel(kind: BridgeRecordKind): string {
       return "Session";
     case "receipts":
       return "Receipt";
-  }
-}
-
-async function exists(filePath: string): Promise<boolean> {
-  try {
-    await lstat(filePath);
-    return true;
-  } catch {
-    return false;
   }
 }
 

@@ -106,6 +106,34 @@ describe("BridgeStore", () => {
     await expect(store.getTask(task.id)).resolves.toEqual(expect.objectContaining({ id: `${firstId}-2` }));
   });
 
+  it("keeps every task when many are created concurrently at the same timestamp and title", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
+    const store = new BridgeStore(root);
+    await store.ensure();
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-25T00:00:00.000Z"));
+
+    const count = 8;
+    const created = await Promise.all(
+      Array.from({ length: count }, (_, index) =>
+        store.createTask({
+          source: "codex",
+          title: "Concurrent review",
+          prompt: `prompt ${index}`,
+          repo_id: "default",
+          files: [],
+          provenance: { adapter: "cli" }
+        })
+      )
+    );
+
+    const ids = new Set(created.map((task) => task.id));
+    expect(ids.size).toBe(count);
+    const listed = await store.listTasks();
+    expect(listed.length).toBe(count);
+    expect(new Set(listed.map((task) => task.prompt)).size).toBe(count);
+  });
+
   it("rejects finalizing a task after it is already done or blocked", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
     const store = new BridgeStore(root);
