@@ -81,7 +81,7 @@ For an installed package:
 gptprouse onboard
 gptprouse init
 gptprouse doctor
-gptprouse pro ask "Review the project positioning"
+gptprouse pro ask --cwd /absolute/path/to/your/repo "Review the project positioning"
 ```
 
 For a source checkout:
@@ -94,7 +94,7 @@ SOURCE_CLI="/absolute/path/to/gptprouse/dist/cli.js"
 node "$SOURCE_CLI" onboard --source-cli "$SOURCE_CLI"
 node "$SOURCE_CLI" init
 node "$SOURCE_CLI" doctor --source-cli "$SOURCE_CLI"
-node "$SOURCE_CLI" pro ask "Review the project positioning"
+node "$SOURCE_CLI" pro ask --cwd /absolute/path/to/your/repo "Review the project positioning"
 ```
 
 The examples below use the installed `gptprouse` binary. In a source checkout, replace `gptprouse` with `node /absolute/path/to/gptprouse/dist/cli.js` after building, and pass `--source-cli /absolute/path/to/gptprouse/dist/cli.js` to onboarding, browser, prompt, and local MCP troubleshooting commands so their follow-up guidance stays in source-checkout form.
@@ -104,9 +104,9 @@ The examples below use the installed `gptprouse` binary. In a source checkout, r
 Run `init` from the repo root, or use `gptprouse init --cwd /absolute/path/to/your/repo` from elsewhere.
 
 `pro ask` is a dry-run/manual preview. It does not drive a logged-in browser; `pro ask --send` is rejected so accidental sends do not happen through the preview alias. Use `pro browser ask` when you explicitly want the visible browser adapter.
-Run `pro ask` and `pro browser ask` from the repo root so `--file` paths and `.bridge` records resolve to the intended project. If you generated commands with `onboard --cwd`, use the `cd ...` line in the optional Pro section first.
+Run `pro ask` and `pro browser ask` from the repo root, or pass `--cwd /absolute/path/to/your/repo` so `--file` paths and `.bridge` records resolve to the intended project. If you generated commands with `onboard --cwd`, those commands already include the target cwd.
 Bridge inspection and task handoff commands such as `pro browser check`, `pro latest`, `pro show`, `tasks create/list/show/claim/complete/block`, `results show`, `results artifact`, `receipts show`, and `sessions show` can also be run from elsewhere with `--cwd /absolute/path/to/your/repo`.
-When the file exists and you want it included, add it explicitly, for example `gptprouse pro ask --file README.md "Review the project positioning"`.
+When the file exists and you want it included, add it explicitly, for example `gptprouse pro ask --cwd /absolute/path/to/your/repo --file README.md "Review the project positioning"`.
 If your prompt itself starts with flag-like text, put `--` before the prompt. This applies to both preview and visible-browser sends, for example `gptprouse pro ask -- --strict mode review` or `gptprouse pro browser ask -- --strict mode review`.
 
 ## First Pro Login
@@ -118,10 +118,10 @@ gptprouse pro browser login --dry-run
 gptprouse pro browser login
 gptprouse pro browser help
 gptprouse pro browser check
-gptprouse pro browser smoke
+gptprouse pro browser smoke --cwd /absolute/path/to/your/repo
 ```
 
-If you use a non-default debug port or Chrome profile, pass it to `login`; the printed follow-up `check` and `smoke` commands keep the matching `--port`. If you launch from outside the repo you want to inspect, also pass `--cwd /absolute/path/to/your/repo` to `login` so the printed `check` and `smoke` commands target the same bridge. On slower first launches, add `--launch-timeout-ms 12000`.
+If you use a non-default debug port or Chrome profile, pass it to `login`; the printed follow-up `check` and `smoke` commands keep the matching `--port`. If you launch from outside the repo you want to inspect, pass `--cwd /absolute/path/to/your/repo` to `login`, `check`, or `smoke` so the command targets the same bridge. On slower first launches, add `--launch-timeout-ms 12000`.
 
 For a source checkout, keep the follow-up commands in source-checkout form too:
 
@@ -132,7 +132,7 @@ node "$SOURCE_CLI" pro browser login --dry-run --source-cli "$SOURCE_CLI"
 node "$SOURCE_CLI" pro browser login --source-cli "$SOURCE_CLI"
 node "$SOURCE_CLI" pro browser help --source-cli "$SOURCE_CLI"
 node "$SOURCE_CLI" pro browser check --source-cli "$SOURCE_CLI"
-node "$SOURCE_CLI" pro browser smoke --source-cli "$SOURCE_CLI"
+node "$SOURCE_CLI" pro browser smoke --source-cli "$SOURCE_CLI" --cwd /absolute/path/to/your/repo
 ```
 
 What happens:
@@ -156,7 +156,7 @@ Actual explicit visible-browser consult:
 
 ```bash
 cd /absolute/path/to/your/repo
-gptprouse pro browser ask --file README.md "Review the project positioning"
+gptprouse pro browser ask --cwd /absolute/path/to/your/repo --file README.md "Review the project positioning"
 gptprouse pro latest
 gptprouse results show latest
 gptprouse results artifact latest
@@ -170,7 +170,7 @@ For a source checkout, keep the explicit send and inspection commands source-awa
 ```bash
 cd /absolute/path/to/gptprouse
 SOURCE_CLI="/absolute/path/to/gptprouse/dist/cli.js"
-node "$SOURCE_CLI" pro browser ask --source-cli "$SOURCE_CLI" --file README.md "Review the project positioning"
+node "$SOURCE_CLI" pro browser ask --source-cli "$SOURCE_CLI" --cwd /absolute/path/to/your/repo --file README.md "Review the project positioning"
 node "$SOURCE_CLI" pro latest --source-cli "$SOURCE_CLI"
 ```
 
@@ -189,7 +189,7 @@ This writes a new local `task_completed` receipt for the current result payload.
 To send into a specific visible Project or thread, open that ChatGPT URL in the dedicated browser first, confirm it is the right destination, then pass the same URL:
 
 ```bash
-gptprouse pro browser ask --target-url "https://chatgpt.com/c/..." --confirm-target --file README.md "Review this in this thread"
+gptprouse pro browser ask --cwd /absolute/path/to/your/repo --target-url "https://chatgpt.com/c/..." --confirm-target --file README.md "Review this in this thread"
 ```
 
 `gptprouse` does not silently switch Projects or threads. If the visible ChatGPT tab is not already on the confirmed URL, the send is refused.
@@ -279,7 +279,7 @@ gptprouse tasks create --cwd /absolute/path/to/your/repo --title "Review plan" -
 gptprouse tasks list --cwd /absolute/path/to/your/repo
 gptprouse tasks show latest --cwd /absolute/path/to/your/repo
 gptprouse tasks block <task-id> --cwd /absolute/path/to/your/repo --summary "Blocked reason" --code manual_blocker --next-step "What to do next" --retryable
-gptprouse pro ask --dry-run --file README.md "Review the project positioning"
+gptprouse pro ask --dry-run --cwd /absolute/path/to/your/repo --file README.md "Review the project positioning"
 gptprouse sessions list
 ```
 

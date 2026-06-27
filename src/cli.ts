@@ -403,16 +403,24 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       return 0;
     }
     if (subcommand === "smoke") {
-      assertOnlyOptions(chatgptArgs, "chatgpt smoke", ["--port", "--timeout-ms", "--source-cli"]);
+      assertOnlyOptions(chatgptArgs, "chatgpt smoke", ["--cwd", "--port", "--timeout-ms", "--source-cli"]);
+      const targetCwd = resolveCwdFlag(io.cwd, chatgptArgs);
+      const targetStore = new BridgeStore(targetCwd);
       const sourceCli = resolveOptionalFileFlag(io.cwd, chatgptArgs, "--source-cli");
+      const port = readPortFlag(chatgptArgs, "--port") ?? 9333;
+      const timeoutMs = readPositiveNumberFlag(chatgptArgs, "--timeout-ms") ?? 90000;
+      const commandOptions = {
+        ...(readFlag(chatgptArgs, "--cwd") ? { cwd: targetCwd } : {}),
+        ...(readFlag(chatgptArgs, "--port") ? { port } : {})
+      };
       const smokePrompt = `This is a one-time gptprouse smoke test. Reply exactly: ${PRO_BROWSER_SMOKE_TOKEN}`;
       const recordBlockedSmoke = async (
         summary: string,
         blocker: { code: string; message: string; retryable: boolean; next_step?: string },
         thread?: string
-      ) => {
-        const bundle = await buildDryRunBundle(io.cwd, { prompt: smokePrompt, files: [] });
-        const task = await store.createTask({
+      ): Promise<string> => {
+        const bundle = await buildDryRunBundle(targetCwd, { prompt: smokePrompt, files: [] });
+        const task = await targetStore.createTask({
           source: "codex",
           title: "GPT Pro smoke",
           prompt: bundle.text,
@@ -424,15 +432,15 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
             warnings: []
           }
         });
-        await store.claimTask(task.id, "chatgpt-pro");
-        await store.completeTask(task.id, {
+        await targetStore.claimTask(task.id, "chatgpt-pro");
+        await targetStore.completeTask(task.id, {
           status: "blocked",
           summary,
           commands: ["visible ChatGPT browser smoke"],
           blocker
         });
         await writeSessionBestEffort(
-          store,
+          targetStore,
           {
             id: bundle.id,
             direction: "codex_to_chatgpt",
@@ -445,24 +453,25 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
           },
           io
         );
+        return task.id;
       };
       let result: Awaited<ReturnType<typeof sendChatGptPrompt>>;
       try {
         result = await sendChatGptPrompt({
-          port: readPortFlag(chatgptArgs, "--port") ?? 9333,
+          port,
           prompt: smokePrompt,
-          timeoutMs: readPositiveNumberFlag(chatgptArgs, "--timeout-ms") ?? 90000
+          timeoutMs
         });
       } catch (error) {
-        const blocker = sourceAwareBrowserBlocker(browserSendBlockerFromError(error), sourceCli);
+        const blocker = sourceAwareBrowserBlocker(browserSendBlockerFromError(error), sourceCli, commandOptions);
         const message = blocker.next_step ? `${blocker.message} Next: ${blocker.next_step}` : errorMessage(error);
+        let taskId: string;
         try {
-          await recordBlockedSmoke(message, blocker);
+          taskId = await recordBlockedSmoke(message, blocker);
         } catch (recordError) {
           throw new Error(`${message} (also failed to record blocked smoke: ${errorMessage(recordError)})`);
         }
-        if (sourceCli) throw new Error(message);
-        throw error;
+        throw new Error(formatBlockedConsultRecordedMessage(message, taskId, sourceCli, { cwd: targetCwd }));
       }
       if (result.answer.trim() !== PRO_BROWSER_SMOKE_TOKEN) {
         const message = `Pro browser smoke returned an unexpected answer. Expected exactly ${PRO_BROWSER_SMOKE_TOKEN}. Actual: ${firstLine(result.answer)}`;
@@ -470,14 +479,15 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
           code: "smoke_token_mismatch",
           message,
           retryable: true,
-          next_step: `Retry \`${formatBrowserSmokeCommand(sourceCli)}\` after selecting the intended Pro model, or inspect the visible ChatGPT answer.`
+          next_step: `Retry \`${formatBrowserSmokeCommand(sourceCli, commandOptions)}\` after selecting the intended Pro model, or inspect the visible ChatGPT answer.`
         };
+        let taskId: string;
         try {
-          await recordBlockedSmoke(message, blocker, result.url);
+          taskId = await recordBlockedSmoke(message, blocker, result.url);
         } catch (recordError) {
           throw new Error(`${message} (also failed to record blocked smoke: ${errorMessage(recordError)})`);
         }
-        throw new Error(message);
+        throw new Error(formatBlockedConsultRecordedMessage(message, taskId, sourceCli, { cwd: targetCwd }));
       }
       io.stdout(JSON.stringify(result, null, 2));
       return 0;
@@ -826,7 +836,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
         throw new Error(`Use \`gptprouse pro browser ${replacement}\` for explicit browser automation.`);
       }
       if (browserSubcommand === "smoke") {
-        if (printProBrowserHelpIfRequested(browserArgs, "pro browser smoke", io, { valueFlags: ["--port", "--timeout-ms", "--source-cli"] })) return 0;
+        if (printProBrowserHelpIfRequested(browserArgs, "pro browser smoke", io, { valueFlags: ["--cwd", "--port", "--timeout-ms", "--source-cli"] })) return 0;
         return runCli(["chatgpt", browserSubcommand, ...browserArgs], io);
       }
       if (browserSubcommand === "check") {
@@ -915,6 +925,8 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
     if (hasSendMode && !io.allowAskProBrowserSend) {
       throw new Error("Direct ask-pro --send is disabled. Use `gptprouse pro browser ask` for explicit visible-browser sends.");
     }
+    const targetCwd = resolveCwdFlag(io.cwd, parsedAskPro.optionArgs);
+    const targetStore = new BridgeStore(targetCwd);
     const files = readRepeatedFlag(parsedAskPro.optionArgs, "--file");
     const targetUrl = readFlag(parsedAskPro.optionArgs, "--target-url");
     const normalizedTargetUrl = targetUrl ? normalizeChatGptTargetUrl(targetUrl) : undefined;
@@ -929,9 +941,13 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
     const browserPort = hasSendMode ? (readPortFlag(parsedAskPro.optionArgs, "--port") ?? 9333) : undefined;
     const browserTimeoutMs = hasSendMode ? (readPositiveNumberFlag(parsedAskPro.optionArgs, "--timeout-ms") ?? 90000) : undefined;
     const sourceCli = resolveOptionalFileFlag(io.cwd, parsedAskPro.optionArgs, "--source-cli");
-    const bundle = await buildDryRunBundle(io.cwd, { prompt, files });
+    const bundle = await buildDryRunBundle(targetCwd, { prompt, files });
     if (hasSendMode) {
-      const task = await store.createTask({
+      const browserCommandOptions = {
+        cwd: targetCwd,
+        port: parsedAskPro.optionArgs.includes("--port") ? browserPort : undefined
+      };
+      const task = await targetStore.createTask({
         source: "codex",
         title: "GPT Pro consult",
         prompt: bundle.text,
@@ -944,10 +960,10 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
           warnings: []
         }
       });
-      await store.claimTask(task.id, "chatgpt-pro");
+      await targetStore.claimTask(task.id, "chatgpt-pro");
       try {
         await writeSessionBeforeBrowserSend(
-          store,
+          targetStore,
           {
             id: bundle.id,
             direction: "codex_to_chatgpt",
@@ -966,7 +982,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
           next_step: "Fix local .bridge write permissions, then rerun the consult."
         };
         try {
-          await store.completeTask(task.id, {
+          await targetStore.completeTask(task.id, {
             status: "blocked",
             summary: blocker.message,
             commands: ["visible ChatGPT browser consult"],
@@ -975,7 +991,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
         } catch (recordError) {
           throw new Error(`${blocker.message} (also failed to record blocked consult: ${errorMessage(recordError)})`);
         }
-        throw new Error(formatBlockedConsultRecordedMessage(blocker.message, task.id, sourceCli, { cwd: io.cwd }));
+        throw new Error(formatBlockedConsultRecordedMessage(blocker.message, task.id, sourceCli, { cwd: targetCwd }));
       }
       let consult: Awaited<ReturnType<typeof sendChatGptPrompt>>;
       try {
@@ -986,20 +1002,17 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
           timeoutMs: browserTimeoutMs
         });
       } catch (error) {
-        const blocker = sourceAwareBrowserBlocker(browserSendBlockerFromError(error), sourceCli, {
-          cwd: io.cwd,
-          port: parsedAskPro.optionArgs.includes("--port") ? browserPort : undefined
-        });
+        const blocker = sourceAwareBrowserBlocker(browserSendBlockerFromError(error), sourceCli, browserCommandOptions);
         const message = blocker.next_step ? `${blocker.message} Next: ${blocker.next_step}` : errorMessage(error);
         try {
-          await store.completeTask(task.id, {
+          await targetStore.completeTask(task.id, {
             status: "blocked",
             summary: message,
             commands: ["visible ChatGPT browser consult"],
             blocker
           });
           await writeSessionBestEffort(
-            store,
+            targetStore,
             {
               id: bundle.id,
               direction: "codex_to_chatgpt",
@@ -1015,7 +1028,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
         } catch (recordError) {
           throw new Error(`${message} (also failed to record blocked consult: ${errorMessage(recordError)})`);
         }
-        throw new Error(formatBlockedConsultRecordedMessage(message, task.id, sourceCli, { cwd: io.cwd }));
+        throw new Error(formatBlockedConsultRecordedMessage(message, task.id, sourceCli, { cwd: targetCwd }));
       }
       const answerArtifactText = formatProConsultArtifact(consult);
       const persistenceWarnings = [...consult.warnings];
@@ -1027,7 +1040,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
         io.stderr(warning);
       } else {
         try {
-          answerArtifactPath = await store.writeArtifactText(`.bridge/artifacts/pro-consults/${task.id}.md`, answerArtifactText);
+          answerArtifactPath = await targetStore.writeArtifactText(`.bridge/artifacts/pro-consults/${task.id}.md`, answerArtifactText);
         } catch (error) {
           const warning = `answer_artifact_warning: ${errorMessage(error)}`;
           persistenceWarnings.push(warning);
@@ -1035,7 +1048,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
         }
       }
       try {
-        await store.writeReceipt({
+        await targetStore.writeReceipt({
           kind: "consult_answer_saved",
           task_id: task.id,
           session_id: bundle.id,
@@ -1053,7 +1066,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       }
       let result: Awaited<ReturnType<BridgeStore["completeTask"]>>;
       try {
-        result = await store.completeTask(task.id, {
+        result = await targetStore.completeTask(task.id, {
           status: "done",
           summary: consult.answer,
           artifacts: answerArtifactPath ? [{ path: answerArtifactPath, role: "result", bytes: Buffer.byteLength(answerArtifactText, "utf8") }] : [],
@@ -1071,7 +1084,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
         throw new Error(`ChatGPT answer was received but local persistence failed: ${errorMessage(error)}`);
       }
       await writeSessionBestEffort(
-        store,
+        targetStore,
         {
           id: bundle.id,
           direction: "codex_to_chatgpt",
@@ -1088,7 +1101,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       io.stdout(result.summary);
     } else {
       await writeSessionBestEffort(
-        store,
+        targetStore,
         {
           id: bundle.id,
           direction: "codex_to_chatgpt",
@@ -1098,7 +1111,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
         },
         io
       );
-      await store.writeReceipt({
+      await targetStore.writeReceipt({
         kind: "consult_preview",
         session_id: bundle.id,
         summary: `Created dry-run consult preview ${bundle.id}`
@@ -1144,12 +1157,12 @@ Commands:
   gptprouse project prompt [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]
   gptprouse claude prompt [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]
   gptprouse claude config [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]
-  gptprouse pro ask [--dry-run] [--file path] "prompt"  # dry-run preview
+  gptprouse pro ask [--dry-run] [--cwd /absolute/path/to/repo] [--file path] "prompt"  # dry-run preview
   gptprouse pro browser login [--cwd /absolute/path/to/repo] [--dry-run] [--source-cli /absolute/path/to/dist/cli.js] [--profile-dir path] [--port 9333] [--url https://chatgpt.com/...] [--launch-timeout-ms 5000]  # preview/open visible browser login
   gptprouse pro browser help [--source-cli /absolute/path/to/dist/cli.js]
   gptprouse pro browser check [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 1500]
-  gptprouse pro browser smoke [--source-cli /absolute/path/to/dist/cli.js] [--port 9333] [--timeout-ms 30000]
-  gptprouse pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--port 9333] [--timeout-ms 90000] [--target-url url --confirm-target] [--file path] "prompt"  # explicit visible-browser send
+  gptprouse pro browser smoke [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 90000]
+  gptprouse pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 90000] [--target-url url --confirm-target] [--file path] "prompt"  # explicit visible-browser send
   gptprouse pro latest [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]
   gptprouse pro list [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]
   gptprouse pro show <task-id|latest> [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]
@@ -1264,12 +1277,12 @@ function printProHelp(stdout: (line: string) => void): void {
   stdout(`gptprouse pro
 
 Commands:
-  gptprouse pro ask [--dry-run] [--file path] "prompt"
+  gptprouse pro ask [--dry-run] [--cwd /absolute/path/to/repo] [--file path] "prompt"
   gptprouse pro browser help [--source-cli /absolute/path/to/dist/cli.js]
   gptprouse pro browser login [--cwd /absolute/path/to/repo] [--dry-run] [--source-cli /absolute/path/to/dist/cli.js] [--launch-timeout-ms 5000]
   gptprouse pro browser check [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]
-  gptprouse pro browser smoke [--source-cli /absolute/path/to/dist/cli.js]
-  gptprouse pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--target-url url --confirm-target] [--file path] "prompt"
+  gptprouse pro browser smoke [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]
+  gptprouse pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--target-url url --confirm-target] [--file path] "prompt"
   gptprouse pro latest [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]
   gptprouse pro list [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]
   gptprouse pro show <task-id|latest> [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]
@@ -1522,10 +1535,10 @@ function formatOnboardingGuide(cwd: string, hasReadme: boolean, sourceCli?: stri
   const quotedCwd = shellQuote(cwd);
   const cli = sourceCli ? `node ${shellQuote(sourceCli)}` : "gptprouse";
   const sourceCliOption = sourceCli ? ` --source-cli ${shellQuote(sourceCli)}` : "";
-  const proAskCommand = hasReadme ? `${cli} pro ask --file README.md "Review this repo"` : `${cli} pro ask "Review this repo"`;
+  const proAskCommand = hasReadme ? `${cli} pro ask --cwd ${quotedCwd} --file README.md "Review this repo"` : `${cli} pro ask --cwd ${quotedCwd} "Review this repo"`;
   const proBrowserAskCommand = hasReadme
-    ? `${cli} pro browser ask${sourceCliOption} --file README.md "Review this repo"`
-    : `${cli} pro browser ask${sourceCliOption} "Review this repo"`;
+    ? `${cli} pro browser ask${sourceCliOption} --cwd ${quotedCwd} --file README.md "Review this repo"`
+    : `${cli} pro browser ask${sourceCliOption} --cwd ${quotedCwd} "Review this repo"`;
   return `gptprouse onboarding
 
 repo: ${cwd}
@@ -1554,7 +1567,7 @@ repo: ${cwd}
    ${cli} pro browser login${sourceCliOption}  # opens visible browser
    ${cli} pro browser help${sourceCliOption}
    ${cli} pro browser check${sourceCliOption} --cwd ${quotedCwd}
-   ${cli} pro browser smoke${sourceCliOption}
+   ${cli} pro browser smoke${sourceCliOption} --cwd ${quotedCwd}
    ${proBrowserAskCommand}  # visible-browser send
    ${cli} pro list${sourceCliOption} --cwd ${quotedCwd}
    ${cli} pro latest${sourceCliOption} --cwd ${quotedCwd}
@@ -1674,6 +1687,10 @@ type BrowserCommandOptions = {
 };
 
 function formatBrowserLoginCommand(sourceCli?: string, options: BrowserCommandOptions = {}): string {
+  return formatCommandInCwd(formatBrowserLoginCommandBody(sourceCli, options), options.cwd);
+}
+
+function formatBrowserLoginCommandBody(sourceCli?: string, options: BrowserCommandOptions = {}): string {
   const command = [
     `${formatCliCommand(sourceCli)} pro browser login${formatSourceCliOption(sourceCli)}`,
     options.profileDir ? `--profile-dir ${shellQuote(options.profileDir)}` : undefined,
@@ -1683,14 +1700,24 @@ function formatBrowserLoginCommand(sourceCli?: string, options: BrowserCommandOp
   ]
     .filter(Boolean)
     .join(" ");
-  return formatCommandInCwd(command, options.cwd);
+  return command;
 }
 
 function formatBrowserSmokeCommand(sourceCli?: string, options: BrowserCommandOptions = {}): string {
+  return formatCommandInCwd(formatBrowserSmokeCommandBody(sourceCli, options), options.cwd);
+}
+
+function formatBrowserSmokeCommandBody(sourceCli?: string, options: BrowserCommandOptions = {}): string {
   const command = [`${formatCliCommand(sourceCli)} pro browser smoke${formatSourceCliOption(sourceCli)}`, options.port ? `--port ${options.port}` : undefined]
     .filter(Boolean)
     .join(" ");
-  return formatCommandInCwd(command, options.cwd);
+  return command;
+}
+
+// ask retry commands carry their own --target-url/--confirm-target/"prompt" tail, so callers
+// preserve the stored argument tail verbatim and only re-point this bare base at the source CLI.
+function formatBrowserAskCommandBody(sourceCli?: string): string {
+  return `${formatCliCommand(sourceCli)} pro browser ask${formatSourceCliOption(sourceCli)}`;
 }
 
 function formatBrowserCheckCommand(sourceCli?: string, options: BrowserCommandOptions = {}): string {
@@ -1785,9 +1812,34 @@ function sourceAwareBrowserNextStep(nextStep: string | undefined, sourceCli?: st
   }
   if (!sourceCli && !options.port && !options.cwd) return nextStep;
   return nextStep
-    .replaceAll("`gptprouse pro browser login`", `\`${formatBrowserLoginCommand(sourceCli, options)}\``)
-    .replaceAll("`gptprouse pro browser smoke`", `\`${formatBrowserSmokeCommand(sourceCli, options)}\``)
+    .replace(/`cd (.+?) && gptprouse pro browser login([^`]*)?`/g, (_match, cwdPrefix: string, storedArgs: string | undefined) => {
+      return `\`cd ${cwdPrefix} && ${formatBrowserLoginCommandBody(sourceCli, browserOptionsWithStoredPort(options, storedArgs))}\``;
+    })
+    .replace(/`cd (.+?) && gptprouse pro browser smoke([^`]*)?`/g, (_match, cwdPrefix: string, storedArgs: string | undefined) => {
+      return `\`cd ${cwdPrefix} && ${formatBrowserSmokeCommandBody(sourceCli, browserOptionsWithStoredPort(options, storedArgs))}\``;
+    })
+    .replace(/`cd (.+?) && gptprouse pro browser ask([^`]*)?`/g, (_match, cwdPrefix: string, storedArgs: string | undefined) => {
+      return `\`cd ${cwdPrefix} && ${formatBrowserAskCommandBody(sourceCli)}${storedArgs ?? ""}\``;
+    })
+    .replace(/`gptprouse pro browser login([^`]*)?`/g, (_match, storedArgs: string | undefined) => {
+      return `\`${formatBrowserLoginCommand(sourceCli, browserOptionsWithStoredPort(options, storedArgs))}\``;
+    })
+    .replace(/`gptprouse pro browser smoke([^`]*)?`/g, (_match, storedArgs: string | undefined) => {
+      return `\`${formatBrowserSmokeCommand(sourceCli, browserOptionsWithStoredPort(options, storedArgs))}\``;
+    })
+    .replace(/`gptprouse pro browser ask([^`]*)?`/g, (_match, storedArgs: string | undefined) => {
+      return `\`${formatBrowserAskCommandBody(sourceCli)}${storedArgs ?? ""}\``;
+    })
     .replaceAll("pass --target-url with --confirm-target", `run \`${formatBrowserTargetAskCommand(sourceCli, options)}\``);
+}
+
+function browserOptionsWithStoredPort(options: BrowserCommandOptions, storedArgs?: string): BrowserCommandOptions {
+  if (options.port || !storedArgs) return options;
+  const match = storedArgs.match(/(?:^|\s)--port\s+(\d{1,5})(?:\s|$)/);
+  if (!match) return options;
+  const port = Number(match[1]);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) return options;
+  return { ...options, port };
 }
 
 function productCheckBrowserNextStep(nextStep: string | undefined, sourceCli?: string, options: BrowserCommandOptions = {}): string | undefined {
@@ -2825,11 +2877,11 @@ function printProBrowserHelp(stdout: (line: string) => void, sourceCli?: string)
     ? `${cli} pro browser check${sourceCliOption} [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 1500]`
     : "gptprouse pro browser check [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 1500]";
   const smokeUsage = sourceCli
-    ? `${cli} pro browser smoke${sourceCliOption} [--port 9333] [--timeout-ms 30000]`
-    : "gptprouse pro browser smoke [--source-cli /absolute/path/to/dist/cli.js] [--port 9333] [--timeout-ms 30000]";
+    ? `${cli} pro browser smoke${sourceCliOption} [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 90000]`
+    : "gptprouse pro browser smoke [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 90000]";
   const askUsage = sourceCli
-    ? `${cli} pro browser ask${sourceCliOption} [--port 9333] [--timeout-ms 90000] [--target-url url --confirm-target] [--file path] "prompt"`
-    : 'gptprouse pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--port 9333] [--timeout-ms 90000] [--target-url url --confirm-target] [--file path] "prompt"';
+    ? `${cli} pro browser ask${sourceCliOption} [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 90000] [--target-url url --confirm-target] [--file path] "prompt"`
+    : 'gptprouse pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 90000] [--target-url url --confirm-target] [--file path] "prompt"';
   stdout(`${cli} pro browser
 
 Commands:
@@ -3608,8 +3660,8 @@ function readRequiredLeadingArgument(args: string[], command: string, placeholde
 }
 
 const ASK_PRO_BOOLEAN_FLAGS = new Set(["--dry-run", "--send", "--confirm-target"]);
-const ASK_PRO_VALUE_FLAGS = new Set(["--file", "--port", "--timeout-ms", "--target-url", "--source-cli"]);
-const ASK_PRO_PREVIEW_VALUE_FLAGS = new Set(["--file", "--port", "--timeout-ms", "--target-url"]);
+const ASK_PRO_VALUE_FLAGS = new Set(["--cwd", "--file", "--port", "--timeout-ms", "--target-url", "--source-cli"]);
+const ASK_PRO_PREVIEW_VALUE_FLAGS = new Set(["--cwd", "--file", "--port", "--timeout-ms", "--target-url"]);
 
 function parseAskProArgs(args: string[], valueFlags = ASK_PRO_VALUE_FLAGS): { optionArgs: string[]; promptParts: string[] } {
   const delimiterIndex = args.indexOf("--");

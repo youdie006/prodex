@@ -148,7 +148,7 @@ describe("pro browser ask persistence", () => {
         stdout: () => {},
         stderr: () => {}
       })
-    ).rejects.toThrow(/captcha/i);
+    ).rejects.toThrow(/blocked consult recorded: task_/);
 
     const out: string[] = [];
     await runCli(["pro", "latest"], {
@@ -319,6 +319,154 @@ describe("pro browser ask persistence", () => {
     expect(text).not.toContain("gptprouse pro browser login");
   });
 
+  it("records smoke blockers in explicit --cwd when launched from elsewhere", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-pro-send-"));
+    const launcherCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-pro-send-launcher-"));
+    const sourceRoot = await mkdtemp(path.join(tmpdir(), "gptprouse-pro-send-source-"));
+    const sourceCli = path.join(sourceRoot, "dist", "cli.js");
+    await mkdir(path.dirname(sourceCli), { recursive: true });
+    await writeFile(sourceCli, "#!/usr/bin/env node\n", "utf8");
+    const blocker = {
+      code: "browser_unreachable",
+      message: "No Chrome DevTools endpoint is reachable on 127.0.0.1:65534.",
+      retryable: true,
+      next_step: "Run `gptprouse pro browser login`, log in, then retry."
+    };
+    sendChatGptPromptMock.mockRejectedValueOnce(Object.assign(new Error(`${blocker.message} Next: ${blocker.next_step}`), { blocker }));
+
+    await expect(
+      runCli(["pro", "browser", "smoke", "--cwd", cwd, "--port", "65534", "--timeout-ms", "10", "--source-cli", sourceCli], {
+        cwd: launcherCwd,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.toThrow(new RegExp(escapeRegExp(`cd ${cwd} && node ${sourceCli} pro browser login --source-cli ${sourceCli} --port 65534`)));
+
+    expect(sendChatGptPromptMock).toHaveBeenCalledWith({
+      port: 65534,
+      prompt: "This is a one-time gptprouse smoke test. Reply exactly: GPTPROUSE_PRO_SMOKE_OK",
+      timeoutMs: 10
+    });
+    await expect(readdir(path.join(launcherCwd, ".bridge"))).rejects.toThrow();
+
+    const out: string[] = [];
+    await runCli(["pro", "latest", "--cwd", cwd], {
+      cwd: launcherCwd,
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    const text = out.join("\n");
+    expect(text).toContain("status: blocked");
+    expect(text).toContain(`- next_step: Run \`cd ${cwd} && node ${sourceCli} pro browser login --source-cli ${sourceCli} --port 65534\`, log in, then retry.`);
+  });
+
+  it("throws cwd-aware smoke blocker guidance without --source-cli", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-pro-send-"));
+    const launcherCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-pro-send-launcher-"));
+    const blocker = {
+      code: "browser_unreachable",
+      message: "No Chrome DevTools endpoint is reachable on 127.0.0.1:65534.",
+      retryable: true,
+      next_step: "Run `gptprouse pro browser login`, log in, then retry."
+    };
+    sendChatGptPromptMock.mockRejectedValueOnce(Object.assign(new Error(`${blocker.message} Next: ${blocker.next_step}`), { blocker }));
+
+    await expect(
+      runCli(["pro", "browser", "smoke", "--cwd", cwd, "--port", "65534", "--timeout-ms", "10"], {
+        cwd: launcherCwd,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.toThrow(`cd ${cwd} && gptprouse pro browser login --port 65534`);
+
+    await expect(readdir(path.join(launcherCwd, ".bridge"))).rejects.toThrow();
+
+    const out: string[] = [];
+    await runCli(["pro", "latest", "--cwd", cwd], {
+      cwd: launcherCwd,
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    expect(out.join("\n")).toContain(`- next_step: Run \`cd ${cwd} && gptprouse pro browser login --port 65534\`, log in, then retry.`);
+  });
+
+  it("upgrades stored cwd smoke retry commands when later inspected with --source-cli", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-pro-send-"));
+    const launcherCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-pro-send-launcher-"));
+    const sourceRoot = await mkdtemp(path.join(tmpdir(), "gptprouse-pro-send-source-"));
+    const sourceCli = path.join(sourceRoot, "dist", "cli.js");
+    await mkdir(path.dirname(sourceCli), { recursive: true });
+    await writeFile(sourceCli, "#!/usr/bin/env node\n", "utf8");
+    const blocker = {
+      code: "browser_unreachable",
+      message: "No Chrome DevTools endpoint is reachable on 127.0.0.1:65534.",
+      retryable: true,
+      next_step: "Run `gptprouse pro browser login`, log in, then retry."
+    };
+    sendChatGptPromptMock.mockRejectedValueOnce(Object.assign(new Error(`${blocker.message} Next: ${blocker.next_step}`), { blocker }));
+
+    await expect(
+      runCli(["pro", "browser", "smoke", "--cwd", cwd, "--port", "65534", "--timeout-ms", "10"], {
+        cwd: launcherCwd,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.toThrow(/blocked consult recorded/);
+
+    const out: string[] = [];
+    await runCli(["pro", "latest", "--cwd", cwd, "--source-cli", sourceCli], {
+      cwd: launcherCwd,
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    const text = out.join("\n");
+    expect(text).toContain(`- next_step: Run \`cd ${cwd} && node ${sourceCli} pro browser login --source-cli ${sourceCli} --port 65534\`, log in, then retry.`);
+    expect(text).not.toContain("gptprouse pro browser login");
+  });
+
+  it("normalizes a stored port-only smoke login next_step when later checked with --source-cli", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-pro-send-"));
+    const sourceRoot = await mkdtemp(path.join(tmpdir(), "gptprouse-pro-send-source-"));
+    const sourceCli = path.join(sourceRoot, "dist", "cli.js");
+    await mkdir(path.dirname(sourceCli), { recursive: true });
+    await writeFile(sourceCli, "#!/usr/bin/env node\n", "utf8");
+    const blocker = {
+      code: "browser_unreachable",
+      message: "No Chrome DevTools endpoint is reachable on 127.0.0.1:65534.",
+      retryable: true,
+      next_step: "Run `gptprouse pro browser login`, log in, then retry."
+    };
+    sendChatGptPromptMock.mockRejectedValueOnce(Object.assign(new Error(`${blocker.message} Next: ${blocker.next_step}`), { blocker }));
+
+    // Store a blocked smoke task with --port but no --source-cli, so the stored next_step
+    // carries the port flag inside the backticked `gptprouse pro browser login` command.
+    await expect(
+      runCli(["pro", "browser", "smoke", "--port", "65534", "--timeout-ms", "10"], {
+        cwd,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.toThrow();
+
+    // A later source-checkout aware check must re-render the stored next_step in node-source
+    // form; a source checkout cannot run the bare gptprouse command.
+    const out: string[] = [];
+    await runCli(["pro", "browser", "check", "--port", "65534", "--timeout-ms", "10", "--source-cli", sourceCli], {
+      cwd,
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    const latestNextLine = out.find((line) => line.startsWith("latest_pro_next:"));
+    expect(out.some((line) => line.startsWith("latest_pro: blocked"))).toBe(true);
+    expect(latestNextLine).toBeDefined();
+    expect(latestNextLine).toContain(`node ${sourceCli} pro browser login --source-cli ${sourceCli} --port 65534`);
+    expect(latestNextLine).not.toContain("gptprouse pro browser login");
+  });
+
   it("records a blocked consult when the visible browser send fails", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-pro-send-"));
     sendChatGptPromptMock.mockRejectedValueOnce(new Error("ChatGPT is asking you to log in."));
@@ -476,6 +624,54 @@ describe("pro browser ask persistence", () => {
     expect(text).not.toContain("gptprouse pro browser login");
   });
 
+  it("records pro browser ask blockers in explicit --cwd when launched from elsewhere", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-pro-send-"));
+    const launcherCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-pro-send-launcher-"));
+    const sourceRoot = await mkdtemp(path.join(tmpdir(), "gptprouse-pro-send-source-"));
+    const sourceCli = path.join(sourceRoot, "dist", "cli.js");
+    await mkdir(path.dirname(sourceCli), { recursive: true });
+    await writeFile(sourceCli, "#!/usr/bin/env node\n", "utf8");
+    await writeFile(path.join(cwd, "notes.md"), "target browser ask notes\n", "utf8");
+    const blocker = {
+      code: "browser_unreachable",
+      message: "No Chrome DevTools endpoint is reachable on 127.0.0.1:65534.",
+      retryable: true,
+      next_step: "Run `gptprouse pro browser login`, log in, then retry."
+    };
+    sendChatGptPromptMock.mockRejectedValueOnce(Object.assign(new Error(`${blocker.message} Next: ${blocker.next_step}`), { blocker }));
+
+    let thrown: Error | undefined;
+    try {
+      await runCli(["pro", "browser", "ask", "--cwd", cwd, "--port", "65534", "--timeout-ms", "10", "--source-cli", sourceCli, "--file", "notes.md", "Review this"], {
+        cwd: launcherCwd,
+        stdout: () => {},
+        stderr: () => {}
+      });
+    } catch (error) {
+      thrown = error as Error;
+    }
+
+    expect(thrown?.message).toContain(`cd ${cwd} && node ${sourceCli} pro browser login --source-cli ${sourceCli} --port 65534`);
+    expect(thrown?.message).toContain(`node ${sourceCli} pro show`);
+    expect(thrown?.message).toContain(`--source-cli ${sourceCli} --cwd ${cwd}`);
+    await expect(readdir(path.join(launcherCwd, ".bridge"))).rejects.toThrow();
+
+    const out: string[] = [];
+    await runCli(["pro", "latest", "--cwd", cwd], {
+      cwd: launcherCwd,
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    const text = out.join("\n");
+    expect(text).toContain("status: blocked");
+    expect(text).toContain(`- next_step: Run \`cd ${cwd} && node ${sourceCli} pro browser login --source-cli ${sourceCli} --port 65534\`, log in, then retry.`);
+    const taskId = text.match(/task_id: (task_[^\n]+)/)?.[1];
+    expect(taskId).toBeDefined();
+    const task = JSON.parse(await readFile(path.join(cwd, ".bridge", "tasks", `${taskId}.json`), "utf8")) as { prompt: string };
+    expect(task.prompt).toContain("target browser ask notes");
+  });
+
   it("prints source-checkout target-url commands when inspecting blocked pro browser asks", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-pro-send-"));
     const sourceCli = path.join(cwd, "dist", "cli.js");
@@ -506,9 +702,10 @@ describe("pro browser ask persistence", () => {
 
     const text = out.join("\n");
     expect(text).toContain(
-      `- next_step: Close extra ChatGPT windows, leave only the intended tab visible, or run \`cd ${cwd} && gptprouse pro browser ask --target-url <chatgpt-url> --confirm-target "prompt"\`.`
+      `- next_step: Close extra ChatGPT windows, leave only the intended tab visible, or run \`cd ${cwd} && node ${sourceCli} pro browser ask --source-cli ${sourceCli} --target-url <chatgpt-url> --confirm-target "prompt"\`.`
     );
     expect(text).not.toContain("pass --target-url with --confirm-target");
+    expect(text).not.toContain("gptprouse pro browser ask");
   });
 
   it("prints actual target-url retry commands for targeted browser ask blockers", async () => {
@@ -887,3 +1084,7 @@ describe("pro browser ask persistence", () => {
     expect(err.join("\n")).toContain("forced final session write failure");
   });
 });
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}

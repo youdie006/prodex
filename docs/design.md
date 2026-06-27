@@ -13,11 +13,11 @@ Create a local project that supports:
 
 ```bash
 cd /absolute/path/to/repo
-gptprouse pro ask --file src/server.ts --file docs/design.md "Find risks"
+gptprouse pro ask --cwd /absolute/path/to/repo --file src/server.ts --file docs/design.md "Find risks"
 gptprouse pro browser login
 gptprouse pro browser check
-gptprouse pro browser ask --file src/server.ts --file docs/design.md "Find risks"
-gptprouse pro browser ask --target-url "https://chatgpt.com/c/..." --confirm-target --file docs/design.md "Continue in this confirmed thread"
+gptprouse pro browser ask --cwd /absolute/path/to/repo --file src/server.ts --file docs/design.md "Find risks"
+gptprouse pro browser ask --cwd /absolute/path/to/repo --target-url "https://chatgpt.com/c/..." --confirm-target --file docs/design.md "Continue in this confirmed thread"
 gptprouse pro list
 gptprouse pro latest
 gptprouse tasks list --cwd /absolute/path/to/repo

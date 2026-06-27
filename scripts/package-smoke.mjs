@@ -89,7 +89,7 @@ try {
   assertIncludes(help.stdout, "gptprouse project prompt", "installed help output");
   assertIncludes(help.stdout, "gptprouse claude prompt", "installed help output");
   assertIncludes(help.stdout, "gptprouse claude config", "installed help output");
-  assertIncludes(help.stdout, "gptprouse pro ask [--dry-run] [--file path]", "installed help output");
+  assertIncludes(help.stdout, "gptprouse pro ask [--dry-run] [--cwd /absolute/path/to/repo] [--file path]", "installed help output");
   assertIncludes(
     help.stdout,
     "gptprouse pro browser login [--cwd /absolute/path/to/repo] [--dry-run] [--source-cli /absolute/path/to/dist/cli.js] [--profile-dir path] [--port 9333] [--url https://chatgpt.com/...] [--launch-timeout-ms 5000]",
@@ -102,12 +102,12 @@ try {
   );
   assertIncludes(
     help.stdout,
-    "gptprouse pro browser smoke [--source-cli /absolute/path/to/dist/cli.js] [--port 9333] [--timeout-ms 30000]",
+    "gptprouse pro browser smoke [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 90000]",
     "installed help output"
   );
   assertIncludes(
     help.stdout,
-    'gptprouse pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--port 9333] [--timeout-ms 90000] [--target-url url --confirm-target] [--file path] "prompt"',
+    'gptprouse pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 90000] [--target-url url --confirm-target] [--file path] "prompt"',
     "installed help output"
   );
   assertIncludes(help.stdout, "gptprouse pro browser help [--source-cli /absolute/path/to/dist/cli.js]", "installed help output");
@@ -234,8 +234,8 @@ try {
     { args: ["receipts", "show", "--help"], expected: "gptprouse receipts show <receipt-id|latest> [--cwd /absolute/path/to/repo]" },
     { args: ["sessions", "list", "--help"], expected: "gptprouse sessions list [--status preview|running|done|blocked] [--cwd /absolute/path/to/repo]" },
     { args: ["sessions", "show", "--help"], expected: "gptprouse sessions show <session-id|latest> [--cwd /absolute/path/to/repo]" },
-    { args: ["pro", "ask", "--help"], expected: "gptprouse pro ask [--dry-run] [--file path]" },
-    { args: ["pro", "browser", "ask", "--help"], expected: "gptprouse pro browser ask [--source-cli /absolute/path/to/dist/cli.js]" },
+    { args: ["pro", "ask", "--help"], expected: "gptprouse pro ask [--dry-run] [--cwd /absolute/path/to/repo] [--file path]" },
+    { args: ["pro", "browser", "ask", "--help"], expected: "gptprouse pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]" },
     { args: ["pro", "latest", "--help"], expected: "gptprouse pro latest [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]" },
     { args: ["pro", "list", "--help"], expected: "gptprouse pro list [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]" },
     { args: ["pro", "show", "--help"], expected: "gptprouse pro show <task-id|latest> [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]" }
@@ -665,13 +665,13 @@ try {
   assertIncludes(onboard.stdout, "authorizes all enabled bridge tools", "installed onboard token authority warning");
   assertIncludes(onboard.stdout, "repo_write_file_apply", "installed onboard token authority warning");
   assertIncludes(onboard.stdout, `cd ${consumerDir}`, "installed onboard output");
-  assertIncludes(onboard.stdout, 'gptprouse pro ask "Review this repo"  # dry-run/manual preview', "installed onboard output");
+  assertIncludes(onboard.stdout, `gptprouse pro ask --cwd ${consumerDir} "Review this repo"  # dry-run/manual preview`, "installed onboard output");
   assertNotIncludes(onboard.stdout, "--file README.md", "installed onboard output");
   assertIncludes(onboard.stdout, "gptprouse pro browser login --dry-run  # preview, no browser opens", "installed onboard output");
   assertIncludes(onboard.stdout, "gptprouse pro browser login  # opens visible browser", "installed onboard output");
   assertIncludes(onboard.stdout, "gptprouse pro browser help", "installed onboard output");
   assertIncludes(onboard.stdout, `gptprouse pro browser check --cwd ${consumerDir}`, "installed onboard output");
-  assertIncludes(onboard.stdout, 'gptprouse pro browser ask "Review this repo"  # visible-browser send', "installed onboard output");
+  assertIncludes(onboard.stdout, `gptprouse pro browser ask --cwd ${consumerDir} "Review this repo"  # visible-browser send`, "installed onboard output");
   assertIncludes(onboard.stdout, `gptprouse pro list --cwd ${consumerDir}`, "installed onboard output");
   assertIncludes(onboard.stdout, `gptprouse pro latest --cwd ${consumerDir}`, "installed onboard output");
   assertIncludes(onboard.stdout, `gptprouse results show latest --cwd ${consumerDir}`, "installed onboard output");
@@ -733,12 +733,12 @@ try {
   );
   assertIncludes(
     sourceOnboard.stdout,
-    `${sourcePrefix} pro browser smoke --source-cli ${installedSourceCli}`,
+    `${sourcePrefix} pro browser smoke --source-cli ${installedSourceCli} --cwd ${consumerDir}`,
     "installed source onboard output"
   );
   assertIncludes(
     sourceOnboard.stdout,
-    `${sourcePrefix} pro browser ask --source-cli ${installedSourceCli} "Review this repo"  # visible-browser send`,
+    `${sourcePrefix} pro browser ask --source-cli ${installedSourceCli} --cwd ${consumerDir} "Review this repo"  # visible-browser send`,
     "installed source onboard output"
   );
   assertIncludes(sourceOnboard.stdout, `${sourcePrefix} pro list --source-cli ${installedSourceCli} --cwd ${consumerDir}`, "installed source onboard output");
@@ -1032,12 +1032,12 @@ try {
   );
   assertIncludes(
     browserHelp.stdout,
-    "gptprouse pro browser smoke [--source-cli /absolute/path/to/dist/cli.js]",
+    "gptprouse pro browser smoke [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]",
     "installed browser help"
   );
   assertIncludes(
     browserHelp.stdout,
-    'gptprouse pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--port 9333] [--timeout-ms 90000] [--target-url url --confirm-target] [--file path] "prompt"',
+    'gptprouse pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 90000] [--target-url url --confirm-target] [--file path] "prompt"',
     "installed browser help"
   );
   assertIncludes(
@@ -1063,12 +1063,12 @@ try {
   );
   assertIncludes(
     sourceBrowserHelp.stdout,
-    `${sourcePrefix} pro browser smoke --source-cli ${installedSourceCli}`,
+    `${sourcePrefix} pro browser smoke --source-cli ${installedSourceCli} [--cwd /absolute/path/to/repo]`,
     "installed source browser help"
   );
   assertIncludes(
     sourceBrowserHelp.stdout,
-    `${sourcePrefix} pro browser ask --source-cli ${installedSourceCli} [--port 9333] [--timeout-ms 90000] [--target-url url --confirm-target] [--file path] "prompt"`,
+    `${sourcePrefix} pro browser ask --source-cli ${installedSourceCli} [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 90000] [--target-url url --confirm-target] [--file path] "prompt"`,
     "installed source browser help"
   );
   assertIncludes(
@@ -1084,6 +1084,11 @@ try {
     assertIncludes(
       sourceBrowserSubcommandHelp.stdout,
       `${sourcePrefix} pro browser login --source-cli ${installedSourceCli} [--cwd /absolute/path/to/repo] [--dry-run]`,
+      `installed source browser ${subcommand} help`
+    );
+    assertIncludes(
+      sourceBrowserSubcommandHelp.stdout,
+      `${sourcePrefix} pro browser smoke --source-cli ${installedSourceCli} [--cwd /absolute/path/to/repo]`,
       `installed source browser ${subcommand} help`
     );
     assertIncludes(
@@ -1127,6 +1132,59 @@ try {
   assertNotIncludes(missingProAskFile.stderr, "ENOENT", "installed missing pro ask file output");
   assertNotIncludes(missingProAskFile.stderr, "realpath", "installed missing pro ask file output");
   await assertMissingFile(path.join(consumerDir, ".bridge"), "installed consumer bridge after missing pro ask file");
+  const proAskCwdTarget = path.join(tmp, "pro ask cwd target");
+  const proAskLauncher = path.join(tmp, "pro ask launcher");
+  await mkdir(proAskCwdTarget, { recursive: true });
+  await mkdir(proAskLauncher, { recursive: true });
+  await writeFile(path.join(proAskCwdTarget, "notes.md"), "installed target pro ask notes\n", "utf8");
+  const proAskCwd = await run(binPath, ["pro", "ask", "--cwd", proAskCwdTarget, "--file", "notes.md", "Review this"], {
+    cwd: proAskLauncher
+  });
+  assertIncludes(proAskCwd.stdout, "DRY RUN", "installed pro ask cwd output");
+  assertIncludes(proAskCwd.stdout, "installed target pro ask notes", "installed pro ask cwd output");
+  await assertMissingFile(path.join(proAskLauncher, ".bridge"), "installed pro ask cwd launcher bridge");
+  const browserAskCwdTarget = path.join(tmp, "browser ask cwd target");
+  const browserAskLauncher = path.join(tmp, "browser ask launcher");
+  await mkdir(browserAskCwdTarget, { recursive: true });
+  await mkdir(browserAskLauncher, { recursive: true });
+  await writeFile(path.join(browserAskCwdTarget, "notes.md"), "installed target browser ask notes\n", "utf8");
+  const browserAskCwd = await runExpectFailure(
+    binPath,
+    [
+      "pro",
+      "browser",
+      "ask",
+      "--cwd",
+      browserAskCwdTarget,
+      "--port",
+      "65534",
+      "--timeout-ms",
+      "10",
+      "--source-cli",
+      installedSourceCli,
+      "--file",
+      "notes.md",
+      "Review this"
+    ],
+    {
+      cwd: browserAskLauncher,
+      timeout: 60_000
+    }
+  );
+  assertIncludes(
+    browserAskCwd.stderr,
+    `cd ${shellQuotedForSmoke(browserAskCwdTarget)} && ${sourcePrefix} pro browser login --source-cli ${installedSourceCli} --port 65534`,
+    "installed pro browser ask cwd output"
+  );
+  await assertMissingFile(path.join(browserAskLauncher, ".bridge"), "installed pro browser ask cwd launcher bridge");
+  const browserAskLatest = await run(binPath, ["pro", "latest", "--cwd", browserAskCwdTarget], { cwd: browserAskLauncher });
+  assertIncludes(browserAskLatest.stdout, "status: blocked", "installed pro browser ask cwd latest output");
+  const browserAskTaskId = browserAskLatest.stdout.match(/^task_id: (task_[^\n]+)/m)?.[1];
+  if (!browserAskTaskId) {
+    throw new Error(`Installed pro browser ask cwd latest output did not include a task id: ${browserAskLatest.stdout}`);
+  }
+  const browserAskTask = JSON.parse(await readFile(path.join(browserAskCwdTarget, ".bridge", "tasks", `${browserAskTaskId}.json`), "utf8"));
+  assertIncludes(browserAskTask.prompt, "installed target browser ask notes", "installed pro browser ask cwd task");
   await assertMissingFile(path.join(consumerDir, ".bridge"), "installed consumer bridge before pro ask alias guard");
   const proAskSendAlias = await runExpectFailure(binPath, ["pro", "ask", "--send", "--timeout-ms", "1", "Review this"], {
     cwd: consumerDir
@@ -1164,9 +1222,61 @@ try {
   });
   assertIncludes(browserSmoke.stderr, "No Chrome DevTools endpoint is reachable", "installed pro browser smoke output");
   assertIncludes(browserSmoke.stderr, "gptprouse pro browser login", "installed pro browser smoke output");
+  assertIncludes(browserSmoke.stderr, "blocked consult recorded: task_", "installed pro browser smoke output");
   const blockedSmoke = await run(binPath, ["pro", "latest"], { cwd: consumerDir });
   assertIncludes(blockedSmoke.stdout, "status: blocked", "installed pro browser smoke blocker output");
   assertIncludes(blockedSmoke.stdout, "- code: browser_unreachable", "installed pro browser smoke blocker output");
+  const browserSmokeCwdTarget = path.join(tmp, "browser smoke cwd target");
+  const browserSmokeLauncher = path.join(tmp, "browser smoke launcher");
+  await mkdir(browserSmokeCwdTarget, { recursive: true });
+  await mkdir(browserSmokeLauncher, { recursive: true });
+  const browserSmokeCwd = await runExpectFailure(
+    binPath,
+    ["pro", "browser", "smoke", "--cwd", browserSmokeCwdTarget, "--port", "65534", "--timeout-ms", "10", "--source-cli", installedSourceCli],
+    {
+      cwd: browserSmokeLauncher,
+      timeout: 60_000
+    }
+  );
+  assertIncludes(
+    browserSmokeCwd.stderr,
+    `cd ${shellQuotedForSmoke(browserSmokeCwdTarget)} && ${sourcePrefix} pro browser login --source-cli ${installedSourceCli} --port 65534`,
+    "installed pro browser smoke cwd output"
+  );
+  await assertMissingFile(path.join(browserSmokeLauncher, ".bridge"), "installed pro browser smoke cwd launcher bridge");
+  const blockedSmokeCwd = await run(binPath, ["pro", "latest", "--cwd", browserSmokeCwdTarget], { cwd: browserSmokeLauncher });
+  assertIncludes(blockedSmokeCwd.stdout, "status: blocked", "installed pro browser smoke cwd blocker output");
+  assertIncludes(blockedSmokeCwd.stdout, "- code: browser_unreachable", "installed pro browser smoke cwd blocker output");
+  assertIncludes(
+    blockedSmokeCwd.stdout,
+    `- next_step: Run \`cd ${shellQuotedForSmoke(browserSmokeCwdTarget)} && ${sourcePrefix} pro browser login --source-cli ${installedSourceCli} --port 65534\`, log in, then retry.`,
+    "installed pro browser smoke cwd blocker output"
+  );
+  const browserSmokeCwdNoSourceTarget = path.join(tmp, "browser smoke cwd nosource target");
+  const browserSmokeNoSourceLauncher = path.join(tmp, "browser smoke nosource launcher");
+  await mkdir(browserSmokeCwdNoSourceTarget, { recursive: true });
+  await mkdir(browserSmokeNoSourceLauncher, { recursive: true });
+  const browserSmokeCwdNoSource = await runExpectFailure(
+    binPath,
+    ["pro", "browser", "smoke", "--cwd", browserSmokeCwdNoSourceTarget, "--port", "65534", "--timeout-ms", "10"],
+    {
+      cwd: browserSmokeNoSourceLauncher,
+      timeout: 60_000
+    }
+  );
+  assertIncludes(
+    browserSmokeCwdNoSource.stderr,
+    `cd ${shellQuotedForSmoke(browserSmokeCwdNoSourceTarget)} && gptprouse pro browser login --port 65534`,
+    "installed pro browser smoke cwd no-source output"
+  );
+  await assertMissingFile(path.join(browserSmokeNoSourceLauncher, ".bridge"), "installed pro browser smoke cwd no-source launcher bridge");
+  const blockedSmokeCwdNoSource = await run(binPath, ["pro", "latest", "--cwd", browserSmokeCwdNoSourceTarget], { cwd: browserSmokeNoSourceLauncher });
+  assertIncludes(blockedSmokeCwdNoSource.stdout, "status: blocked", "installed pro browser smoke cwd no-source blocker output");
+  assertIncludes(
+    blockedSmokeCwdNoSource.stdout,
+    `- next_step: Run \`cd ${shellQuotedForSmoke(browserSmokeCwdNoSourceTarget)} && gptprouse pro browser login --port 65534\`, log in, then retry.`,
+    "installed pro browser smoke cwd no-source blocker output"
+  );
   const browserCheck = await runExpectFailure(binPath, ["pro", "browser", "check", "--port", "65534", "--timeout-ms", "10"], {
     cwd: consumerDir,
     timeout: 60_000
@@ -1484,9 +1594,9 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertIncludes(readme, "gptprouse tasks list --cwd /absolute/path/to/your/repo", "installed README");
   assertIncludes(readme, "gptprouse tasks show latest --cwd /absolute/path/to/your/repo", "installed README");
   assertIncludes(readme, "gptprouse tasks block <task-id> --cwd /absolute/path/to/your/repo", "installed README");
-  assertIncludes(readme, 'gptprouse pro ask "Review the project positioning"', "installed README");
+  assertIncludes(readme, 'gptprouse pro ask --cwd /absolute/path/to/your/repo "Review the project positioning"', "installed README");
   assertIncludes(readme, "gptprouse pro browser login --dry-run", "installed README");
-  assertIncludes(readme, "also pass `--cwd /absolute/path/to/your/repo` to `login`", "installed README");
+  assertIncludes(readme, "pass `--cwd /absolute/path/to/your/repo` to `login`, `check`, or `smoke`", "installed README");
   assertIncludes(readme, "Open a normal ChatGPT chat or the intended Project/thread so the prompt composer is visible.", "installed README");
   assertIncludes(readme, "If ChatGPT shows a usage limit, message limit, model limit, or rate limit, wait for the reset or choose an available model in the browser.", "installed README");
   assertNotIncludes(readme, "If ChatGPT asks for captcha, permission, or account verification, handle it in that browser.", "installed README");
@@ -1494,7 +1604,8 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertNotIncludes(readme, "You can close that Chrome window after login", "installed README");
   assertIncludes(readme, "pro browser login --dry-run --source-cli", "installed README");
   assertIncludes(readme, "pro browser check --source-cli", "installed README");
-  assertIncludes(readme, "pro browser smoke --source-cli", "installed README");
+  assertIncludes(readme, "gptprouse pro browser smoke --cwd /absolute/path/to/your/repo", "installed README");
+  assertIncludes(readme, 'node "$SOURCE_CLI" pro browser smoke --source-cli "$SOURCE_CLI" --cwd /absolute/path/to/your/repo', "installed README");
   assertIncludes(readme, "pro browser ask --source-cli", "installed README");
   assertIncludes(readme, "gptprouse pro browser ask -- --strict mode review", "installed README");
   assertIncludes(readme, "pro list`, `pro latest`, or `pro show <task-id|latest>`", "installed README");
@@ -1556,7 +1667,7 @@ async function assertInstalledDocsArePortable(consumerDir) {
     "installed README"
   );
   assertIncludes(readme, "pack file-mode, non-regular file, or hard-link blockers", "installed README");
-  assertIncludes(readme, "Run `pro ask` and `pro browser ask` from the repo root", "installed README");
+  assertIncludes(readme, "Run `pro ask` and `pro browser ask` from the repo root, or pass `--cwd /absolute/path/to/your/repo`", "installed README");
   assertIncludes(readme, "npm run release:check", "installed README");
   assertIncludes(readme, "npm run release:verify", "installed README");
   assertIncludes(readme, "npm run release:pack", "installed README");
@@ -3237,6 +3348,10 @@ function normalizeUsefulAbsolutePath(candidate) {
   const parsed = path.parse(normalized);
   if (!path.isAbsolute(normalized) || normalized === parsed.root || normalized.length < 8) return undefined;
   return normalized;
+}
+
+function shellQuotedForSmoke(value) {
+  return /^[A-Za-z0-9_./:@=-]+$/.test(value) ? value : `'${value.replaceAll("'", "'\\''")}'`;
 }
 
 function assertAppearsBefore(text, earlier, later, label) {
