@@ -26,6 +26,7 @@ async function releasePack(args) {
   const root = path.resolve(args.root ?? repoRoot);
   const destination = path.resolve(args.packDestination ?? root);
 
+  const rebuilt = await ensureDistBuiltForSource(root);
   const packageJson = await readPackageJson(root);
   const binPaths = packageBinPaths(packageJson.bin);
   const files = await readPackedFiles(root);
@@ -46,6 +47,7 @@ async function releasePack(args) {
   }
 
   console.log(`release_pack=ok tarball=${packedTarball} file_modes=ok staging=${args.keepWorkdir ? staging : "removed"}`);
+  if (rebuilt) console.log("release_pack_build: rebuilt dist from source before packing");
   console.log("release_pack_next: run `npm run release:verify` and `gptprouse release status` before publishing this tarball.");
   const gitStatus = await readReleaseGitStatus(root);
   console.log(`release_pack_${gitStatus.line}`);
@@ -58,6 +60,27 @@ async function releasePack(args) {
     console.log(`release_pack_publish: npm publish ${shellQuote(packedTarball)}`);
   } else {
     console.log("release_pack_publish_blocked: fix git readiness before npm publish; run `gptprouse release status`, then rerun release pack after blockers are clear.");
+  }
+}
+
+async function ensureDistBuiltForSource(root) {
+  // A source checkout must rebuild dist/ before packing so the tarball never freezes a stale build:
+  // npm pack runs with --ignore-scripts so prepack never fires, and dist/ is gitignored, so neither
+  // the pack step nor a clean git tree would catch a stale dist. An installed package ships a prebuilt
+  // dist/ but no src/tsconfig, so there is nothing to build and we skip.
+  const tsconfigPath = path.join(root, "tsconfig.json");
+  const srcDir = path.join(root, "src");
+  if (!(await pathExists(tsconfigPath)) || !(await pathExists(srcDir))) return false;
+  await execFileAsync(npmCommand, ["run", "build"], { cwd: root, maxBuffer: 20 * 1024 * 1024 });
+  return true;
+}
+
+async function pathExists(target) {
+  try {
+    await lstat(target);
+    return true;
+  } catch {
+    return false;
   }
 }
 
