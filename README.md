@@ -1,6 +1,22 @@
+<div align="center">
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/logo-mark-dark.svg" />
+  <img src="assets/logo-mark.svg" alt="gptprouse" width="78" />
+</picture>
+
 # gptprouse
 
-Personal bridge for using ChatGPT Pro/Projects, Claude, and Codex together.
+**Local bridge for using ChatGPT Pro, Codex, and Claude together — with durable receipts.**
+
+[![license](https://img.shields.io/badge/license-MIT-111111.svg)](LICENSE)
+[![node](https://img.shields.io/badge/node-%E2%89%A5%2020-111111.svg)](package.json)
+[![tests](https://img.shields.io/badge/tests-532%20passing-111111.svg)](tests)
+[![status](https://img.shields.io/badge/status-pre--release-111111.svg)](#)
+
+</div>
+
+---
 
 `gptprouse` is a local receipt bus plus MCP bridge for coordinating Codex execution with ChatGPT Pro/Projects and Claude.
 
