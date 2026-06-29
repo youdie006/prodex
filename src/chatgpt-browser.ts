@@ -138,11 +138,13 @@ export function buildChromeLaunchArgs(options: Required<ChatGptBrowserOptions>):
 }
 
 export function inferLoggedInLikely(text: string, visibleButtonLabels: string[] = []): boolean {
+  // Only sign-up prompts and explicit login/sign-up buttons count as logged-out signals. Bare
+  // "Log in"/"로그인" substrings appear in the menus and footers of a logged-in page, so matching
+  // them against the full page text falsely reported logged-in Pro users as logged out.
   const hasLoginPrompt =
     text.includes("Sign up for free") ||
-    text.includes("Log in") ||
-    text.includes("로그인") ||
-    text.includes("무료로 가입");
+    text.includes("무료로 가입") ||
+    visibleButtonLabels.some((label) => /^(log in|sign up|로그인|회원가입)$/i.test(label.trim()));
   const hasNewChat = text.includes("New chat") || text.includes("새 채팅");
   const hasProjectNav = text.includes("Projects") || text.includes("프로젝트");
   const hasProfileButton = visibleButtonLabels.some((label) => /profile|account|프로필|계정/i.test(label));
@@ -213,7 +215,10 @@ export function detectChatGptBlocker(
       next_step: "Log in manually in the visible browser, then retry."
     };
   }
-  if (/captcha|robot|로봇|사람인지|자동화|보안문자/i.test(haystack)) {
+  // Match real captcha / human-verification phrasing only. Bare words like "robot"/"로봇"/"자동화"
+  // appear in ordinary chat titles and sidebar history, so matching them on the full page text
+  // wrongly flagged logged-in users as captcha-blocked.
+  if (/captcha|보안문자|i'?m not a robot|verify you are (?:not a robot|human)|로봇이 아닙니다|사람인지 확인|자동화된 트래픽/i.test(haystack)) {
     return {
       code: "captcha_required",
       message: "ChatGPT is asking for captcha or human verification.",
@@ -575,12 +580,24 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
     throw new Error("Timed out waiting for ChatGPT to accept the prompt.");
   }
 
+  let stableAnswer: string | undefined;
+  let stableConfirmations = 0;
   while (Date.now() - started < timeoutMs) {
     await sleep(1000);
     finalState = await evaluateOnPage<ChatGptAnswerState>(page, answerExpression());
     const runtimeBlocker = chatGptBlockerFromAnswerState(finalState);
     if (runtimeBlocker) throw new ChatGptBrowserBlockerError(runtimeBlocker);
-    if (hasFreshChatGptAnswer(beforeSubmit.assistantMessageCount, finalState)) break;
+    if (!hasFreshChatGptAnswer(beforeSubmit.assistantMessageCount, finalState)) continue;
+    // A "fresh" answer must also be stable: ChatGPT can momentarily look done mid-stream, so accept
+    // it only once the text stops changing across polls. Otherwise trailing tokens (e.g. the final
+    // "_OK" of the smoke token) get dropped.
+    if (finalState.answer === stableAnswer) {
+      stableConfirmations += 1;
+      if (stableConfirmations >= 1) break;
+    } else {
+      stableAnswer = finalState.answer;
+      stableConfirmations = 0;
+    }
   }
   const completed = finalState;
   if (!completed || !hasFreshChatGptAnswer(beforeSubmit.assistantMessageCount, completed)) {
@@ -860,7 +877,7 @@ function composerExpressionHelpers(): string {
     const excludedTextSelector = ${excludedTextSelector};
     const activeComposerAttribute = ${activeComposerAttribute};
     const isVisible = (node) => !!(node.offsetWidth || node.offsetHeight || node.getClientRects().length);
-    const isEditableComposer = (node) => isVisible(node) && !node.closest(excludedTextSelector);
+    const isEditableComposer = (node) => isVisible(node) && !(node.parentElement && node.parentElement.closest(excludedTextSelector));
     const findChatGptComposerRoot = (node) =>
       node.closest('form') ||
       node.closest('[data-testid*="composer"],[data-testid*="prompt"],[class*="composer"]') ||
@@ -878,12 +895,22 @@ function composerExpressionHelpers(): string {
       root.setAttribute(activeComposerAttribute, "true");
     };
     const findMarkedChatGptComposerRoot = () => document.querySelector('[' + activeComposerAttribute + '="true"]');
+    const isChatGptComposerRootEl = (root) =>
+      root.tagName === 'FORM' || (root.matches && root.matches('[data-testid*="composer"],[data-testid*="prompt"],[class*="composer"]'));
     const findChatGptComposerCandidate = () => {
       const candidates = [...document.querySelectorAll('textarea[data-testid="prompt-textarea"], div[role="textbox"], textarea, [contenteditable="true"]')]
         .filter(isEditableComposer);
-      return candidates.find((node) => {
+      // Prefer a composer whose root still shows a submit button.
+      const withSubmit = candidates.find((node) => {
         const root = findChatGptComposerRoot(node);
         return root && findChatGptSubmitButton(root, false);
+      });
+      if (withSubmit) return withSubmit;
+      // ChatGPT hides the send button until text is entered, so also accept an editable inside a
+      // composer form/container even when no submit button is visible on an empty composer.
+      return candidates.find((node) => {
+        const root = findChatGptComposerRoot(node);
+        return root && isChatGptComposerRootEl(root);
       });
     };
   `;

@@ -163,6 +163,16 @@ describe("ChatGPT browser adapter", () => {
     expect(detectChatGptBlocker("You've reached the GPT-5 message limit. Try again later.", [])?.code).toBe("usage_limit");
     expect(detectChatGptBlocker("Model limit reached for GPT-5.", [])?.code).toBe("usage_limit");
     expect(detectChatGptBlocker("Additional verification required", ["Continue"])?.code).toBe("permission_required");
+    // Sidebar chat titles that merely mention robots/automation must not be mistaken for a captcha.
+    expect(detectChatGptBlocker("로봇 제어 연구\n자동화 워크플로 정리\nNew chat\nProjects", [])).toBeUndefined();
+    expect(detectChatGptBlocker("Robotics research notes\nNew chat\nProjects", [])).toBeUndefined();
+    // Real reCAPTCHA / human-verification phrasing is still detected.
+    expect(detectChatGptBlocker("로봇이 아닙니다", [])?.code).toBe("captcha_required");
+    expect(detectChatGptBlocker("Please complete the captcha to continue", [])?.code).toBe("captcha_required");
+    // A logged-in Pro page whose text merely contains "로그인" (a sidebar/menu word) must read as logged in.
+    expect(inferLoggedInLikely("채팅 기록\nChatGPT Pro\n새 채팅\n프로젝트\n로그인\n내 첫 프로젝트", ["프로필"])).toBe(true);
+    // An actual logged-out screen (sign-up prompt or a Log in button) still reads as logged out.
+    expect(inferLoggedInLikely("Welcome back\nLog in\nSign up for free", ["Log in"])).toBe(false);
   });
 
   it("does not treat old chat message text as a pre-send blocker", () => {
