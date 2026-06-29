@@ -26,3 +26,6 @@ docs/todo.md
 .idea/
 .vscode/
 *.log
+
+# Demo GIF frame sources (the rendered assets/demo.gif is tracked)
+assets/demo/

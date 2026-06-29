@@ -16,6 +16,10 @@
 
 </div>
 
+<div align="center">
+  <img src="assets/demo.gif" alt="gptprouse CLI demo — onboard, check a logged-in ChatGPT Pro session, ask, and keep a verified receipt" width="720" />
+</div>
+
 ---
 
 `gptprouse` is a local receipt bus plus MCP bridge for coordinating Codex execution with ChatGPT Pro/Projects and Claude.
