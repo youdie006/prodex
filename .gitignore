@@ -9,8 +9,11 @@ AGENTS.md
 memory/
 .playwright-mcp/
 
-# Internal development/planning notes (contain local paths); keep out of the public repo.
+# Internal development/planning notes; keep out of the public repo.
 docs/superpowers/
+docs/design.md
+docs/research.md
+docs/todo.md
 
 # Local bridge runtime state: tokens, HMAC key, sessions, results, artifacts.
 # Defense-in-depth even if .bridge/.gitignore is ever deleted; the tracked
