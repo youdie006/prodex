@@ -3,6 +3,23 @@
   "version": "0.2.0",
   "description": "Local receipt bus for coordinating Codex execution with ChatGPT Pro/Projects consultation.",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/youdie006/gptprouse.git"
+  },
+  "homepage": "https://github.com/youdie006/gptprouse#readme",
+  "bugs": {
+    "url": "https://github.com/youdie006/gptprouse/issues"
+  },
+  "keywords": [
+    "chatgpt",
+    "chatgpt-pro",
+    "codex",
+    "claude",
+    "mcp",
+    "cli",
+    "bridge"
+  ],
   "type": "module",
   "bin": {
     "gptprouse": "./dist/cli.js"
