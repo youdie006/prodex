@@ -186,14 +186,17 @@ describe("repo path policy", () => {
     expect(result.limit).toBe(100);
   });
 
-  it("reports a clear prerequisite error when ripgrep is missing", async () => {
+  it("resolves ripgrep via fallback dirs even when PATH is narrowed", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "prodex-repo-"));
     const emptyPath = await mkdtemp(path.join(tmpdir(), "prodex-empty-path-"));
     await writeFile(path.join(root, "README.md"), "needle\n", "utf8");
     const previousPath = process.env.PATH;
     process.env.PATH = emptyPath;
     try {
-      await expect(searchRepo(root, "needle")).rejects.toThrow(/ripgrep.*rg.*PATH/i);
+      // A narrowed PATH (e.g. an MCP server spawned with a minimal environment) no
+      // longer breaks repo_search: findRipgrep falls back to common install dirs.
+      const result = await searchRepo(root, "needle");
+      expect(result.some((match) => match.path === "README.md")).toBe(true);
     } finally {
       if (previousPath === undefined) delete process.env.PATH;
       else process.env.PATH = previousPath;

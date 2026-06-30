@@ -1,10 +1,41 @@
 import { lstat, realpath } from "node:fs/promises";
 import path from "node:path";
+import { existsSync } from "node:fs";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { readVerifiedUtf8File } from "./safe-file.js";
 
 const execFileAsync = promisify(execFile);
+
+// Resolve ripgrep by absolute path so repo_search works even when the MCP server is
+// spawned with a narrowed PATH (e.g. inside Claude/Codex) that drops the rg directory.
+export function findRipgrep(env: NodeJS.ProcessEnv = process.env, exists: (p: string) => boolean = existsSync): string {
+  const pathDirs = (env.PATH ?? "").split(path.delimiter).filter(Boolean);
+  const home = env.HOME ?? env.USERPROFILE ?? "";
+  const fallbackDirs = [
+    "/usr/bin",
+    "/usr/local/bin",
+    "/opt/homebrew/bin",
+    "/bin",
+    "/snap/bin",
+    "/home/linuxbrew/.linuxbrew/bin",
+    ...(home ? [path.join(home, ".cargo", "bin"), path.join(home, ".local", "bin")] : [])
+  ];
+  for (const dir of [...pathDirs, ...fallbackDirs]) {
+    const candidate = path.join(dir, "rg");
+    try {
+      if (exists(candidate)) return candidate;
+    } catch {
+      // ignore unreadable directories and keep looking
+    }
+  }
+  return "rg";
+}
+
+let cachedRipgrepPath: string | undefined;
+function resolveRipgrep(): string {
+  return (cachedRipgrepPath ??= findRipgrep());
+}
 const MAX_REPO_READ_BYTES = 1_000_000;
 const MAX_REPO_SEARCH_MATCHES = 100;
 const MAX_GLOB_BRACE_EXPANSIONS = 64;
@@ -138,7 +169,7 @@ export async function searchRepoWithMetadata(root: string, query: string, glob?:
   ];
   args.push(".");
   try {
-    const { stdout } = await execFileAsync("rg", args, {
+    const { stdout } = await execFileAsync(resolveRipgrep(), args, {
       cwd: root,
       timeout: 10_000,
       maxBuffer: 1024 * 1024
