@@ -20,7 +20,7 @@ describe("MCP tool handlers", () => {
   });
 
   it("creates tasks and fetches results through Claude-compatible handlers", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-"));
     const handlers = createMcpToolHandlers({ cwd });
 
     const created = await handlers.bridge_create_task({
@@ -37,7 +37,7 @@ describe("MCP tool handlers", () => {
   });
 
   it("rejects oversized MCP task prompts before writing bridge records", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-"));
     const handlers = createMcpToolHandlers({ cwd });
 
     await expect(
@@ -50,7 +50,7 @@ describe("MCP tool handlers", () => {
   });
 
   it("rejects oversized MCP result summaries before completion", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-"));
     const handlers = createMcpToolHandlers({ cwd });
     const created = await handlers.bridge_create_task({
       title: "Oversized result",
@@ -70,7 +70,7 @@ describe("MCP tool handlers", () => {
   });
 
   it("rejects unsafe file paths when creating tasks through MCP handlers", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-"));
     const handlers = createMcpToolHandlers({ cwd });
 
     for (const unsafePath of ["/etc/passwd", "../escape.txt", ".bridge/config.local.json"]) {
@@ -85,7 +85,7 @@ describe("MCP tool handlers", () => {
   });
 
   it("completes and blocks bridge tasks through MCP handlers", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-"));
     const handlers = createMcpToolHandlers({ cwd });
     const doneTask = await handlers.bridge_create_task({
       title: "Done through MCP",
@@ -105,9 +105,9 @@ describe("MCP tool handlers", () => {
       task_id: blockedTask.task.id,
       summary: "Needs local browser login",
       code: "browser_login_required",
-      next_step: "Run gptprouse pro browser login.",
+      next_step: "Run prodex pro browser login.",
       retryable: true,
-      commands: ["gptprouse pro browser check"]
+      commands: ["prodex pro browser check"]
     });
 
     const store = new BridgeStore(cwd);
@@ -131,19 +131,19 @@ describe("MCP tool handlers", () => {
         task_id: blockedTask.task.id,
         status: "blocked",
         summary: "Needs local browser login",
-        commands: ["gptprouse pro browser check"],
+        commands: ["prodex pro browser check"],
         blocker: {
           code: "browser_login_required",
           message: "Needs local browser login",
           retryable: true,
-          next_step: "Run gptprouse pro browser login."
+          next_step: "Run prodex pro browser login."
         }
       })
     );
   });
 
   it("does not fetch raw result records without a trusted completion receipt", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-"));
     const store = new BridgeStore(cwd);
     const handlers = createMcpToolHandlers({ cwd });
     const task = await store.createTask({
@@ -183,7 +183,7 @@ describe("MCP tool handlers", () => {
   });
 
   it("surfaces repo search truncation metadata through MCP handlers", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-"));
     await writeFile(
       path.join(cwd, "README.md"),
       `${Array.from({ length: 101 }, (_, index) => `needle ${index + 1}`).join("\n")}\n`,
@@ -199,7 +199,7 @@ describe("MCP tool handlers", () => {
   });
 
   it("rejects MCP completion when a result record already exists for the task", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-"));
     const handlers = createMcpToolHandlers({ cwd });
     const task = await handlers.bridge_create_task({
       title: "Partial MCP result",
@@ -233,7 +233,7 @@ describe("MCP tool handlers", () => {
   });
 
   it("normalizes MCP completion artifacts to fetchable result artifacts", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-"));
     const store = new BridgeStore(cwd);
     const handlers = createMcpToolHandlers({ cwd });
     const task = await handlers.bridge_create_task({
@@ -254,7 +254,7 @@ describe("MCP tool handlers", () => {
   });
 
   it("fetches MCP completion artifacts from the generic result artifact namespace", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-"));
     const store = new BridgeStore(cwd);
     const handlers = createMcpToolHandlers({ cwd });
     const task = await handlers.bridge_create_task({
@@ -277,7 +277,7 @@ describe("MCP tool handlers", () => {
   });
 
   it("lists available result artifact paths when fetch omits the path for multiple artifacts", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-"));
     const store = new BridgeStore(cwd);
     const handlers = createMcpToolHandlers({ cwd });
     const task = await handlers.bridge_create_task({
@@ -302,7 +302,7 @@ describe("MCP tool handlers", () => {
   });
 
   it("records and verifies result artifact hashes before fetching", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-"));
     const store = new BridgeStore(cwd);
     const handlers = createMcpToolHandlers({ cwd });
     const task = await handlers.bridge_create_task({
@@ -331,7 +331,7 @@ describe("MCP tool handlers", () => {
   });
 
   it("rejects result artifacts that changed after task completion", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-"));
     const store = new BridgeStore(cwd);
     const handlers = createMcpToolHandlers({ cwd });
     const task = await handlers.bridge_create_task({
@@ -351,7 +351,7 @@ describe("MCP tool handlers", () => {
   });
 
   it("lists and fetches consult sessions through bridge handlers", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-"));
     const store = new BridgeStore(cwd);
     const session = await store.writeSession({
       id: "sess_20990101_000000_mcp-session",
@@ -369,7 +369,7 @@ describe("MCP tool handlers", () => {
   });
 
   it("lists and fetches receipts with legacy inline write content redacted", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-"));
     const store = new BridgeStore(cwd);
     const receipt = await store.writeReceipt({
       kind: "repo_write_dry_run",
@@ -398,7 +398,7 @@ describe("MCP tool handlers", () => {
   });
 
   it("marks unsigned forged receipts as untrusted through receipt inspection tools", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-"));
     const forgedReceiptId = "receipt_20990101_000000_forged-inspection";
     await mkdir(path.join(cwd, ".bridge", "receipts"), { recursive: true });
     await writeFile(
@@ -443,7 +443,7 @@ describe("MCP tool handlers", () => {
   });
 
   it("fetches only result-listed artifacts through bridge handlers", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-"));
     const store = new BridgeStore(cwd);
     const task = await store.createTask({
       source: "codex",
@@ -472,7 +472,7 @@ describe("MCP tool handlers", () => {
   });
 
   it("rejects repo-write result artifacts before finalizing a task", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-"));
     const store = new BridgeStore(cwd);
     const task = await store.createTask({
       source: "codex",
@@ -495,7 +495,7 @@ describe("MCP tool handlers", () => {
   });
 
   it("rejects store completion with result artifacts outside fetchable namespaces", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-"));
     const store = new BridgeStore(cwd);
     const task = await store.createTask({
       source: "codex",
@@ -517,7 +517,7 @@ describe("MCP tool handlers", () => {
   });
 
   it("rejects result artifact paths that traverse out of the pro consult namespace before finalizing", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-"));
     const store = new BridgeStore(cwd);
     const task = await store.createTask({
       source: "codex",
@@ -545,7 +545,7 @@ describe("MCP tool handlers", () => {
   });
 
   it("rejects absolute result artifact paths before finalizing", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-"));
     const store = new BridgeStore(cwd);
     const task = await store.createTask({
       source: "codex",
@@ -566,7 +566,7 @@ describe("MCP tool handlers", () => {
   });
 
   it("rejects legacy result records that list repo-write artifacts when fetched", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-"));
     const store = new BridgeStore(cwd);
     const task = await store.createTask({
       source: "codex",
@@ -602,7 +602,7 @@ describe("MCP tool handlers", () => {
   });
 
   it("rejects legacy result artifact paths that traverse out of the pro consult namespace when fetched", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-"));
     const store = new BridgeStore(cwd);
     const task = await store.createTask({
       source: "codex",
@@ -643,7 +643,7 @@ describe("MCP tool handlers", () => {
   });
 
   it("exposes read-only repo file access", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-"));
     await writeFile(path.join(cwd, "README.md"), "alpha\nbeta\n", "utf8");
     const handlers = createMcpToolHandlers({ cwd });
 
@@ -653,7 +653,7 @@ describe("MCP tool handlers", () => {
   });
 
   it("creates a write dry-run receipt and applies it only with matching head and preimage", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-"));
     await writeFile(path.join(cwd, "notes.md"), "old\n", "utf8");
     const head = await initGitRepo(cwd);
     const handlers = createMcpToolHandlers({ cwd });
@@ -681,7 +681,7 @@ describe("MCP tool handlers", () => {
   });
 
   it("stores write dry-run replacement content as an artifact instead of receipt metadata", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-"));
     await writeFile(path.join(cwd, "notes.md"), "old\n", "utf8");
     const head = await initGitRepo(cwd);
     const handlers = createMcpToolHandlers({ cwd });
@@ -701,7 +701,7 @@ describe("MCP tool handlers", () => {
   });
 
   it("cleans up write dry-run replacement artifacts when receipt storage fails", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-"));
     await writeFile(path.join(cwd, "notes.md"), "old\n", "utf8");
     const head = await initGitRepo(cwd);
     const handlers = createMcpToolHandlers({ cwd });
@@ -722,7 +722,7 @@ describe("MCP tool handlers", () => {
   });
 
   it("rejects oversized result artifacts before finalizing tasks", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-"));
     const store = new BridgeStore(cwd);
     const task = await store.createTask({
       source: "codex",
@@ -744,7 +744,7 @@ describe("MCP tool handlers", () => {
   });
 
   it("rejects oversized repo write payload artifacts before applying them", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-"));
     await writeFile(path.join(cwd, "notes.md"), "old\n", "utf8");
     const head = await initGitRepo(cwd);
     const oversizedContent = "x".repeat(1_000_001);
@@ -775,7 +775,7 @@ describe("MCP tool handlers", () => {
   });
 
   it("rejects write apply when the stored payload artifact was changed", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-"));
     await writeFile(path.join(cwd, "notes.md"), "old\n", "utf8");
     const head = await initGitRepo(cwd);
     const handlers = createMcpToolHandlers({ cwd });
@@ -799,7 +799,7 @@ describe("MCP tool handlers", () => {
   });
 
   it("applies legacy dry-run receipts that stored replacement content inline", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-"));
     await writeFile(path.join(cwd, "notes.md"), "old\n", "utf8");
     const head = await initGitRepo(cwd);
     const store = new BridgeStore(cwd);
@@ -827,7 +827,7 @@ describe("MCP tool handlers", () => {
   });
 
   it("rejects oversized legacy inline write payloads before hashing them", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-"));
     await writeFile(path.join(cwd, "notes.md"), "old\n", "utf8");
     const head = await initGitRepo(cwd);
     const store = new BridgeStore(cwd);
@@ -856,7 +856,7 @@ describe("MCP tool handlers", () => {
   });
 
   it("rejects write apply when the file preimage changed after dry-run", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-"));
     await writeFile(path.join(cwd, "notes.md"), "old\n", "utf8");
     const head = await initGitRepo(cwd);
     const handlers = createMcpToolHandlers({ cwd });
@@ -877,7 +877,7 @@ describe("MCP tool handlers", () => {
   });
 
   it("rejects write apply for forged case-folded sensitive receipt paths", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-"));
     await writeFile(path.join(cwd, "notes.md"), "old\n", "utf8");
     await mkdir(path.join(cwd, ".Bridge"), { recursive: true });
     await writeFile(path.join(cwd, ".Bridge", "config.local.json"), "old\n", "utf8");
@@ -908,8 +908,8 @@ describe("MCP tool handlers", () => {
   });
 
   it("rejects write apply when the target is swapped to a symlink before write", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
-    const outside = await mkdtemp(path.join(tmpdir(), "gptprouse-outside-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-"));
+    const outside = await mkdtemp(path.join(tmpdir(), "prodex-outside-"));
     const outsideFile = path.join(outside, "secret.txt");
     const repoFile = path.join(cwd, "notes.md");
     await writeFile(outsideFile, "outside\n", "utf8");
@@ -943,7 +943,7 @@ describe("MCP tool handlers", () => {
   });
 
   it("rejects write apply when the target content changes after preimage validation", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-"));
     const repoFile = path.join(cwd, "notes.md");
     await writeFile(repoFile, "old\n", "utf8");
     const head = await initGitRepo(cwd);
@@ -974,7 +974,7 @@ describe("MCP tool handlers", () => {
   });
 
   it("rejects write apply when the target content changes immediately before replacement", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-"));
     const repoFile = path.join(cwd, "notes.md");
     await writeFile(repoFile, "old\n", "utf8");
     const head = await initGitRepo(cwd);
@@ -1005,7 +1005,7 @@ describe("MCP tool handlers", () => {
   });
 
   it("rejects write apply when git HEAD moves immediately before replacement", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-"));
     const repoFile = path.join(cwd, "notes.md");
     await writeFile(repoFile, "old\n", "utf8");
     const head = await initGitRepo(cwd);
@@ -1038,7 +1038,7 @@ describe("MCP tool handlers", () => {
   });
 
   it("rolls back write apply when git HEAD moves after replacement before receipt", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-"));
     const repoFile = path.join(cwd, "notes.md");
     await writeFile(repoFile, "old\n", "utf8");
     const head = await initGitRepo(cwd);
@@ -1069,7 +1069,7 @@ describe("MCP tool handlers", () => {
   });
 
   it("rolls back write apply when git HEAD moves during final replacement validation", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-"));
     const repoFile = path.join(cwd, "notes.md");
     await writeFile(repoFile, "old\n", "utf8");
     const head = await initGitRepo(cwd);
@@ -1104,7 +1104,7 @@ describe("MCP tool handlers", () => {
   });
 
   it("rolls back write apply when git HEAD moves while storing the applied receipt", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-"));
     const repoFile = path.join(cwd, "notes.md");
     await writeFile(repoFile, "old\n", "utf8");
     const head = await initGitRepo(cwd);
@@ -1139,7 +1139,7 @@ describe("MCP tool handlers", () => {
   });
 
   it("rejects write dry-runs when git HEAD does not match", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-"));
     await writeFile(path.join(cwd, "notes.md"), "old\n", "utf8");
     await initGitRepo(cwd);
     const handlers = createMcpToolHandlers({ cwd });
@@ -1154,7 +1154,7 @@ describe("MCP tool handlers", () => {
   });
 
   it("rejects write dry-runs outside git repos without leaking raw git command output", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-"));
     await writeFile(path.join(cwd, "notes.md"), "old\n", "utf8");
     const handlers = createMcpToolHandlers({ cwd });
 
@@ -1175,7 +1175,7 @@ describe("MCP tool handlers", () => {
   });
 
   it("rejects write dry-runs for sensitive local bridge paths", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-"));
     await writeFile(path.join(cwd, "notes.md"), "old\n", "utf8");
     const head = await initGitRepo(cwd);
     const handlers = createMcpToolHandlers({ cwd });
@@ -1190,7 +1190,7 @@ describe("MCP tool handlers", () => {
   });
 
   it("rejects write dry-runs through symlink aliases to sensitive directories", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-"));
     await writeFile(path.join(cwd, "notes.md"), "old\n", "utf8");
     await mkdir(path.join(cwd, ".bridge", "artifacts"), { recursive: true });
     await writeFile(path.join(cwd, ".bridge", "artifacts", "aliased.txt"), "old\n", "utf8");
@@ -1208,7 +1208,7 @@ describe("MCP tool handlers", () => {
   });
 
   it("rejects write dry-runs for env-like files", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-"));
     await writeFile(path.join(cwd, "notes.md"), "old\n", "utf8");
     await writeFile(path.join(cwd, ".envrc"), "old\n", "utf8");
     const head = await initGitRepo(cwd);
@@ -1224,7 +1224,7 @@ describe("MCP tool handlers", () => {
   });
 
   it("rejects write dry-runs for nested git metadata paths", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-"));
     await writeFile(path.join(cwd, "notes.md"), "old\n", "utf8");
     const head = await initGitRepo(cwd);
     await mkdir(path.join(cwd, "services", "api", ".git"), { recursive: true });
@@ -1241,7 +1241,7 @@ describe("MCP tool handlers", () => {
   });
 
   it("rejects write dry-runs for nested bridge paths", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-"));
     await writeFile(path.join(cwd, "notes.md"), "old\n", "utf8");
     const head = await initGitRepo(cwd);
     await mkdir(path.join(cwd, "services", "api", ".bridge"), { recursive: true });
@@ -1258,7 +1258,7 @@ describe("MCP tool handlers", () => {
   });
 
   it("rejects write dry-runs for case-folded sensitive paths", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-"));
     await writeFile(path.join(cwd, "notes.md"), "old\n", "utf8");
     await mkdir(path.join(cwd, ".Bridge"), { recursive: true });
     await mkdir(path.join(cwd, "Services", "API", ".GIT"), { recursive: true });
@@ -1281,7 +1281,7 @@ describe("MCP tool handlers", () => {
   });
 
   it("rejects forged write receipts reached through receipt id traversal", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-"));
     await writeFile(path.join(cwd, "notes.md"), "old\n", "utf8");
     const head = await initGitRepo(cwd);
     await mkdir(path.join(cwd, ".bridge"), { recursive: true });
@@ -1321,8 +1321,8 @@ describe("MCP tool handlers", () => {
   });
 
   it("rejects forged write receipts reached through symlinked receipt files", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
-    const outside = await mkdtemp(path.join(tmpdir(), "gptprouse-outside-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-"));
+    const outside = await mkdtemp(path.join(tmpdir(), "prodex-outside-"));
     await writeFile(path.join(cwd, "notes.md"), "old\n", "utf8");
     const head = await initGitRepo(cwd);
     await mkdir(path.join(cwd, ".bridge", "receipts"), { recursive: true });
@@ -1367,7 +1367,7 @@ describe("MCP tool handlers", () => {
   });
 
   it("rejects missing write receipts without leaking filesystem errors", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-"));
     await writeFile(path.join(cwd, "notes.md"), "old\n", "utf8");
     const head = await initGitRepo(cwd);
     const handlers = createMcpToolHandlers({ cwd });
@@ -1391,7 +1391,7 @@ describe("MCP tool handlers", () => {
   });
 
   it("rejects unsigned forged dry-run receipt content before applying a write", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-"));
     await writeFile(path.join(cwd, "notes.md"), "old\n", "utf8");
     const head = await initGitRepo(cwd);
     const forgedReceiptId = "receipt_20990101_000000_forged-dry-run";
@@ -1432,7 +1432,7 @@ describe("MCP tool handlers", () => {
   });
 
   it("rejects unsigned forged applied receipts before staging paths", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-"));
     await writeFile(path.join(cwd, "notes.md"), "old\n", "utf8");
     const head = await initGitRepo(cwd);
     await writeFile(path.join(cwd, "notes.md"), "forged\n", "utf8");
@@ -1472,7 +1472,7 @@ describe("MCP tool handlers", () => {
   });
 
   it("rejects missing applied receipts without leaking filesystem errors or staging files", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-"));
     await writeFile(path.join(cwd, "notes.md"), "old\n", "utf8");
     const head = await initGitRepo(cwd);
     const handlers = createMcpToolHandlers({ cwd });
@@ -1495,7 +1495,7 @@ describe("MCP tool handlers", () => {
   });
 
   it("stages only paths backed by matching applied write receipts", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-"));
     await writeFile(path.join(cwd, "notes.md"), "old\n", "utf8");
     const head = await initGitRepo(cwd);
     const handlers = createMcpToolHandlers({ cwd });
@@ -1522,7 +1522,7 @@ describe("MCP tool handlers", () => {
   });
 
   it("rejects staging forged applied receipts for case-folded sensitive paths", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-"));
     await writeFile(path.join(cwd, "notes.md"), "old\n", "utf8");
     await mkdir(path.join(cwd, ".Bridge"), { recursive: true });
     await writeFile(path.join(cwd, ".Bridge", "config.local.json"), "new\n", "utf8");
@@ -1551,7 +1551,7 @@ describe("MCP tool handlers", () => {
   });
 
   it("stages reviewed paths when git normalizes the worktree bytes", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-"));
     await writeFile(path.join(cwd, ".gitattributes"), "*.md text eol=lf\n", "utf8");
     await writeFile(path.join(cwd, "notes.md"), "old\r\n", "utf8");
     await execFileAsync("git", ["init"], { cwd });
@@ -1582,7 +1582,7 @@ describe("MCP tool handlers", () => {
   });
 
   it("rejects staging when applied receipt content changed again", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-"));
     await writeFile(path.join(cwd, "notes.md"), "old\n", "utf8");
     const head = await initGitRepo(cwd);
     const handlers = createMcpToolHandlers({ cwd });
@@ -1607,7 +1607,7 @@ describe("MCP tool handlers", () => {
   });
 
   it("rejects staging when content changes after validation but before git add", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-"));
     const repoFile = path.join(cwd, "notes.md");
     await writeFile(repoFile, "old\n", "utf8");
     const head = await initGitRepo(cwd);
@@ -1639,7 +1639,7 @@ describe("MCP tool handlers", () => {
   });
 
   it("rejects staging when git HEAD moves after validation but before git add", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-"));
     await writeFile(path.join(cwd, "notes.md"), "old\n", "utf8");
     const head = await initGitRepo(cwd);
     const handlers = createMcpToolHandlers({ cwd });
@@ -1672,7 +1672,7 @@ describe("MCP tool handlers", () => {
   });
 
   it("unstages reviewed paths when git HEAD moves after git add before receipt", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-"));
     await writeFile(path.join(cwd, "notes.md"), "old\n", "utf8");
     const head = await initGitRepo(cwd);
     const handlers = createMcpToolHandlers({ cwd });
@@ -1707,7 +1707,7 @@ describe("MCP tool handlers", () => {
   });
 
   it("unstages reviewed paths when git HEAD moves while storing the stage receipt", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-"));
     await writeFile(path.join(cwd, "notes.md"), "old\n", "utf8");
     const head = await initGitRepo(cwd);
     const handlers = createMcpToolHandlers({ cwd });
@@ -1746,7 +1746,7 @@ describe("MCP tool handlers", () => {
   });
 
   it("preserves pre-existing staged content when stage receipt storage fails", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-"));
     const repoFile = path.join(cwd, "notes.md");
     await writeFile(repoFile, "old\n", "utf8");
     const head = await initGitRepo(cwd);
@@ -1787,7 +1787,7 @@ describe("MCP tool handlers", () => {
   });
 
   it("reports rollback failure when reviewed path index restore cannot run", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-"));
     const repoFile = path.join(cwd, "notes.md");
     await writeFile(repoFile, "old\n", "utf8");
     const head = await initGitRepo(cwd);
@@ -1828,7 +1828,7 @@ describe("MCP tool handlers", () => {
   });
 
   it("rejects staging when git HEAD moved after apply", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-"));
     await writeFile(path.join(cwd, "notes.md"), "old\n", "utf8");
     const head = await initGitRepo(cwd);
     const handlers = createMcpToolHandlers({ cwd });

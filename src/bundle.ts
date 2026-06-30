@@ -19,7 +19,7 @@ export interface DryRunBundle {
 
 export async function buildDryRunBundle(root: string, input: DryRunBundleInput): Promise<DryRunBundle> {
   const sections: string[] = [
-    "# gptprouse consult dry run",
+    "# prodex consult dry run",
     "",
     "This preview was not sent anywhere.",
     "",

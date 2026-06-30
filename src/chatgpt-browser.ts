@@ -95,7 +95,7 @@ interface ChatGptPageStatus extends ChatGptPageTextState {
 export const CHATGPT_RUNTIME_BLOCKER_TEXT_EXCLUDED_ANCESTORS =
   '[data-message-author-role],script,style,noscript,[aria-hidden="true"],div[role="textbox"],textarea,[contenteditable="true"]';
 export const CHATGPT_COMPOSER_CANDIDATE_EXCLUDED_ANCESTORS = '[data-message-author-role],script,style,noscript,[aria-hidden="true"]';
-export const GPTPROUSE_ACTIVE_COMPOSER_ATTRIBUTE = "data-gptprouse-active-composer";
+export const PRODEX_ACTIVE_COMPOSER_ATTRIBUTE = "data-prodex-active-composer";
 
 export interface DevtoolsPage {
   type: string;
@@ -122,7 +122,7 @@ const PAGE_VISIBILITY_PROBE_TIMEOUT_MS = 1_000;
 const CHATGPT_GENERATING_CONTROL_PATTERN = /\bstop\s+(?:generating|responding|response)\b|응답\s*중지|생성\s*중지/i;
 
 export function defaultChatGptProfileDir(): string {
-  return path.join(os.homedir(), ".local", "share", "gptprouse", "chrome-chatgpt-pro");
+  return path.join(os.homedir(), ".local", "share", "prodex", "chrome-chatgpt-pro");
 }
 
 export function buildChromeLaunchArgs(options: Required<ChatGptBrowserOptions>): string[] {
@@ -396,7 +396,7 @@ function chatGptPageMissingBlocker(): NonNullable<ChatGptBrowserStatus["blocker"
     code: "chatgpt_page_missing",
     message: "Chrome debug port is reachable, but no chatgpt.com tab is open.",
     retryable: true,
-    next_step: "Open https://chatgpt.com/ in the dedicated Chrome profile, or run `gptprouse pro browser login` to reopen it."
+    next_step: "Open https://chatgpt.com/ in the dedicated Chrome profile, or run `prodex pro browser login` to reopen it."
   };
 }
 
@@ -632,7 +632,7 @@ async function findChatGptPage(
         code: "browser_unreachable",
         message: `No Chrome DevTools endpoint is reachable on 127.0.0.1:${port}.`,
         retryable: true,
-        next_step: "Run `gptprouse pro browser login`, log in, then retry.",
+        next_step: "Run `prodex pro browser login`, log in, then retry.",
         ...(error instanceof Error ? { detail: error.message } : {})
       } as ChatGptBrowserStatus["blocker"]
     };
@@ -872,7 +872,7 @@ export function submitExpression(): string {
 
 function composerExpressionHelpers(): string {
   const excludedTextSelector = JSON.stringify(CHATGPT_COMPOSER_CANDIDATE_EXCLUDED_ANCESTORS);
-  const activeComposerAttribute = JSON.stringify(GPTPROUSE_ACTIVE_COMPOSER_ATTRIBUTE);
+  const activeComposerAttribute = JSON.stringify(PRODEX_ACTIVE_COMPOSER_ATTRIBUTE);
   return `
     const excludedTextSelector = ${excludedTextSelector};
     const activeComposerAttribute = ${activeComposerAttribute};
@@ -976,15 +976,15 @@ function enterKeyEvent(type: "keyDown" | "keyUp"): Record<string, unknown> {
 }
 
 function resolveChromeCommand(): string {
-  const fromEnv = process.env.GPTPROUSE_CHROME;
+  const fromEnv = process.env.PRODEX_CHROME;
   if (fromEnv) {
-    assertChromeCommandAvailable(fromEnv, "GPTPROUSE_CHROME");
+    assertChromeCommandAvailable(fromEnv, "PRODEX_CHROME");
     return fromEnv;
   }
   for (const command of ["google-chrome", "chromium", "chromium-browser", "microsoft-edge", "brave-browser"]) {
     if (isCommandOnPath(command) && hasChromeLikeVersion(command)) return command;
   }
-  throw new Error("Could not find Chrome/Chromium. Set GPTPROUSE_CHROME to the browser executable.");
+  throw new Error("Could not find Chrome/Chromium. Set PRODEX_CHROME to the browser executable.");
 }
 
 function assertChromeCommandAvailable(command: string, label: string): void {

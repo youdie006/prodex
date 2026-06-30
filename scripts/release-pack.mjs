@@ -30,7 +30,7 @@ async function releasePack(args) {
   const packageJson = await readPackageJson(root);
   const binPaths = packageBinPaths(packageJson.bin);
   const files = await readPackedFiles(root);
-  const staging = await mkdtemp(path.join(tmpdir(), "gptprouse-release-pack-"));
+  const staging = await mkdtemp(path.join(tmpdir(), "prodex-release-pack-"));
   let packedTarball;
   try {
     await copyPackedFilesToStaging(root, staging, files, binPaths);
@@ -48,7 +48,7 @@ async function releasePack(args) {
 
   console.log(`release_pack=ok tarball=${packedTarball} file_modes=ok staging=${args.keepWorkdir ? staging : "removed"}`);
   if (rebuilt) console.log("release_pack_build: rebuilt dist from source before packing");
-  console.log("release_pack_next: run `npm run release:verify` and `gptprouse release status` before publishing this tarball.");
+  console.log("release_pack_next: run `npm run release:verify` and `prodex release status` before publishing this tarball.");
   const gitStatus = await readReleaseGitStatus(root);
   console.log(`release_pack_${gitStatus.line}`);
   if (gitStatus.next) console.log(`release_pack_git_next: ${gitStatus.next}`);
@@ -59,7 +59,7 @@ async function releasePack(args) {
     );
     console.log(`release_pack_publish: npm publish ${shellQuote(packedTarball)}`);
   } else {
-    console.log("release_pack_publish_blocked: fix git readiness before npm publish; run `gptprouse release status`, then rerun release pack after blockers are clear.");
+    console.log("release_pack_publish_blocked: fix git readiness before npm publish; run `prodex release status`, then rerun release pack after blockers are clear.");
   }
 }
 
@@ -291,7 +291,7 @@ Create a publish tarball from a temporary staging directory with normalized pack
 
 Options:
   --pack-destination <dir>  Directory where the .tgz tarball is written
-  --root <dir>              Package root to pack (default: current gptprouse checkout)
+  --root <dir>              Package root to pack (default: current prodex checkout)
   --keep-workdir            Keep the temporary staging directory for inspection
   --help, -h                Show this help text
 `;

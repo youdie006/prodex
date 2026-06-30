@@ -1,19 +1,19 @@
 # Claude Setup
 
-`gptprouse` exposes a stdio MCP server so Claude can create bridge tasks, inspect task/result/session/receipt records, read/search the current repo, and request receipt-gated text-file edits.
+`prodex` exposes a stdio MCP server so Claude can create bridge tasks, inspect task/result/session/receipt records, read/search the current repo, and request receipt-gated text-file edits.
 
 ## Build
 
 Requires Node.js 20 or newer, `git`, and `ripgrep` (`rg`) on PATH.
 
-If `gptprouse` is installed and on your PATH, you can use the `gptprouse mcp` command directly.
+If `prodex` is installed and on your PATH, you can use the `prodex mcp` command directly.
 
-The installed npm package is CLI-only. Use the `gptprouse` command and MCP server surfaces; JavaScript imports from `gptprouse` or `gptprouse/dist/*` are unsupported until a library API is designed and documented.
+The installed npm package is CLI-only. Use the `prodex` command and MCP server surfaces; JavaScript imports from `prodex` or `prodex/dist/*` are unsupported until a library API is designed and documented.
 
 For a source checkout:
 
 ```bash
-cd /absolute/path/to/gptprouse
+cd /absolute/path/to/prodex
 npm install
 npm run build
 ```
@@ -23,7 +23,7 @@ npm run build
 Generate a Claude Desktop MCP config:
 
 ```bash
-gptprouse claude config --cwd /absolute/path/to/your/repo
+prodex claude config --cwd /absolute/path/to/your/repo
 ```
 
 It prints this token-free JSON:
@@ -31,8 +31,8 @@ It prints this token-free JSON:
 ```json
 {
   "mcpServers": {
-    "gptprouse": {
-      "command": "gptprouse",
+    "prodex": {
+      "command": "prodex",
       "args": ["mcp", "--cwd", "/absolute/path/to/your/repo"]
     }
   }
@@ -42,7 +42,7 @@ It prints this token-free JSON:
 For a source checkout instead of an installed package, first build the project, then generate a `node dist/cli.js` config:
 
 ```bash
-node dist/cli.js claude config --cwd /absolute/path/to/your/repo --source-cli /absolute/path/to/gptprouse/dist/cli.js
+node dist/cli.js claude config --cwd /absolute/path/to/your/repo --source-cli /absolute/path/to/prodex/dist/cli.js
 ```
 
 It prints this shape:
@@ -50,9 +50,9 @@ It prints this shape:
 ```json
 {
   "mcpServers": {
-    "gptprouse": {
+    "prodex": {
       "command": "node",
-      "args": ["/absolute/path/to/gptprouse/dist/cli.js", "mcp", "--cwd", "/absolute/path/to/your/repo"]
+      "args": ["/absolute/path/to/prodex/dist/cli.js", "mcp", "--cwd", "/absolute/path/to/your/repo"]
     }
   }
 }
@@ -65,13 +65,13 @@ Restart Claude Desktop after editing the config.
 Use the same command shape in Claude Code's MCP configuration. If your Claude Code install supports adding servers from the CLI, the command is conceptually:
 
 ```bash
-claude mcp add gptprouse -- gptprouse mcp --cwd /absolute/path/to/your/repo
+claude mcp add prodex -- prodex mcp --cwd /absolute/path/to/your/repo
 ```
 
-For a source checkout without a global `gptprouse` binary, point Claude Code at the built CLI:
+For a source checkout without a global `prodex` binary, point Claude Code at the built CLI:
 
 ```bash
-claude mcp add gptprouse -- node /absolute/path/to/gptprouse/dist/cli.js mcp --cwd /absolute/path/to/your/repo
+claude mcp add prodex -- node /absolute/path/to/prodex/dist/cli.js mcp --cwd /absolute/path/to/your/repo
 ```
 
 If your install expects a JSON config, use the Claude Desktop JSON above.
@@ -110,21 +110,21 @@ No shell, browser, public tunnel, direct ungated write, or direct ungated stagin
 After adding the MCP server, generate a paste-ready verification prompt:
 
 ```bash
-gptprouse claude prompt --cwd /absolute/path/to/your/repo
+prodex claude prompt --cwd /absolute/path/to/your/repo
 ```
 
 For a source checkout, include the built CLI path so the generated local follow-up commands also use `node dist/cli.js`:
 
 ```bash
-node dist/cli.js claude prompt --cwd /absolute/path/to/your/repo --source-cli /absolute/path/to/gptprouse/dist/cli.js
+node dist/cli.js claude prompt --cwd /absolute/path/to/your/repo --source-cli /absolute/path/to/prodex/dist/cli.js
 ```
 
 Paste the generated prompt into Claude. It asks Claude to use `bridge_create_task`, `bridge_list_tasks`, and `bridge_get_task`, then wait while you complete the verification task locally with a result artifact:
 
 ```bash
-gptprouse tasks list --status new --cwd /absolute/path/to/your/repo
-gptprouse tasks show <task-id> --cwd /absolute/path/to/your/repo
-gptprouse tasks complete <task-id> --cwd /absolute/path/to/your/repo --summary "gptprouse Claude MCP verification result" --artifact .bridge/artifacts/results/claude-verification.md="gptprouse Claude MCP verification artifact"
+prodex tasks list --status new --cwd /absolute/path/to/your/repo
+prodex tasks show <task-id> --cwd /absolute/path/to/your/repo
+prodex tasks complete <task-id> --cwd /absolute/path/to/your/repo --summary "prodex Claude MCP verification result" --artifact .bridge/artifacts/results/claude-verification.md="prodex Claude MCP verification artifact"
 ```
 
 Then reply to Claude with `local completion done`. The generated prompt asks Claude to call `bridge_fetch_result` for the same task id, call `bridge_fetch_result_artifact` for every listed result artifact path, and report whether it can read both the verification result summary and artifact content. It also includes local `claude config --cwd ...` and `doctor --cwd ...` troubleshooting commands in case Claude cannot see or call the MCP tools. Source-checkout prompts keep `--source-cli` on those troubleshooting commands too.

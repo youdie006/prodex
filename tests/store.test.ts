@@ -14,7 +14,7 @@ describe("BridgeStore", () => {
   });
 
   it("creates, claims, completes, and fetches task results", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-store-"));
     const store = new BridgeStore(root);
     await store.ensure();
 
@@ -49,7 +49,7 @@ describe("BridgeStore", () => {
   });
 
   it("stores bridge directories and generated files with private permissions", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-store-"));
     const store = new BridgeStore(root);
     const task = await store.createTask({
       source: "codex",
@@ -83,7 +83,7 @@ describe("BridgeStore", () => {
   });
 
   it("treats unsafe record id path occupants as existing without dereferencing them", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-store-"));
     const store = new BridgeStore(root);
     await store.ensure();
     vi.useFakeTimers();
@@ -107,7 +107,7 @@ describe("BridgeStore", () => {
   });
 
   it("keeps every task when many are created concurrently at the same timestamp and title", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-store-"));
     const store = new BridgeStore(root);
     await store.ensure();
     vi.useFakeTimers();
@@ -135,7 +135,7 @@ describe("BridgeStore", () => {
   });
 
   it("rejects finalizing a task after it is already done or blocked", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-store-"));
     const store = new BridgeStore(root);
     const doneTask = await store.createTask({
       source: "codex",
@@ -168,7 +168,7 @@ describe("BridgeStore", () => {
   });
 
   it("reports terminal tasks with missing result records as repairable corruption", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-store-"));
     const store = new BridgeStore(root);
     const task = await store.createTask({
       source: "codex",
@@ -190,7 +190,7 @@ describe("BridgeStore", () => {
   });
 
   it("rejects finalizing a task when a mismatched result record already exists for a non-terminal task", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-store-"));
     const store = new BridgeStore(root);
     const task = await store.createTask({
       source: "codex",
@@ -227,7 +227,7 @@ describe("BridgeStore", () => {
   });
 
   it("rejects result records whose internal task_id does not match the filename", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-store-"));
     const store = new BridgeStore(root);
     const task = await store.createTask({
       source: "codex",
@@ -262,7 +262,7 @@ describe("BridgeStore", () => {
   });
 
   it("rejects task, session, and receipt records whose internal ids do not match the filename", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-store-"));
     const store = new BridgeStore(root);
     await store.ensure();
     const taskRecordId = "task_20990101_000000_task-record";
@@ -341,7 +341,7 @@ describe("BridgeStore", () => {
   });
 
   it("cleans up a created task record when the creation receipt cannot be stored", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-store-"));
     const store = new BridgeStore(root);
     setBridgeStoreTestHooks({
       beforeRecordRename: async (kind) => {
@@ -363,7 +363,7 @@ describe("BridgeStore", () => {
   });
 
   it("restores an unclaimed task when the claim receipt cannot be stored", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-store-"));
     const store = new BridgeStore(root);
     const task = await store.createTask({
       source: "codex",
@@ -389,7 +389,7 @@ describe("BridgeStore", () => {
   });
 
   it("restores a non-terminal task when the completion receipt cannot be stored", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-store-"));
     const store = new BridgeStore(root);
     const task = await store.createTask({
       source: "codex",
@@ -433,7 +433,7 @@ describe("BridgeStore", () => {
   });
 
   it("repairs a non-terminal task when retrying completion after the matching result was already written", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-store-"));
     const store = new BridgeStore(root);
     const task = await store.createTask({
       source: "codex",
@@ -480,7 +480,7 @@ describe("BridgeStore", () => {
   });
 
   it("repairs a non-terminal task with a legacy unhashed result artifact without rereading the artifact", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-store-"));
     const store = new BridgeStore(root);
     const task = await store.createTask({
       source: "codex",
@@ -524,7 +524,7 @@ describe("BridgeStore", () => {
   });
 
   it("rejects non-terminal task repair when a hashed result artifact is missing", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-store-"));
     const store = new BridgeStore(root);
     const task = await store.createTask({
       source: "codex",
@@ -576,7 +576,7 @@ describe("BridgeStore", () => {
   });
 
   it("repairs a terminal task when retrying completion after the matching result was written but the receipt is missing", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-store-"));
     const store = new BridgeStore(root);
     const task = await store.createTask({
       source: "codex",
@@ -608,7 +608,7 @@ describe("BridgeStore", () => {
   });
 
   it("rejects trusted result reads when the finalized result payload changed", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-store-"));
     const store = new BridgeStore(root);
     const task = await store.createTask({
       source: "codex",
@@ -632,7 +632,7 @@ describe("BridgeStore", () => {
   });
 
   it("repairs a terminal task when the existing completion receipt is untrusted", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-store-"));
     const store = new BridgeStore(root);
     const task = await store.createTask({
       source: "codex",
@@ -665,7 +665,7 @@ describe("BridgeStore", () => {
   });
 
   it("reseals a finalized result only from a locally signed legacy completion receipt", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-store-"));
     const store = new BridgeStore(root);
     const task = await store.createTask({
       source: "codex",
@@ -700,7 +700,7 @@ describe("BridgeStore", () => {
   });
 
   it("does not reseal a finalized result from unsigned or different-payload completion receipts", async () => {
-    const unsignedRoot = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
+    const unsignedRoot = await mkdtemp(path.join(tmpdir(), "prodex-store-"));
     const unsignedStore = new BridgeStore(unsignedRoot);
     const unsignedTask = await unsignedStore.createTask({
       source: "codex",
@@ -733,7 +733,7 @@ describe("BridgeStore", () => {
     );
     await expect(unsignedStore.resealResult(unsignedTask.id)).rejects.toThrow(/locally trusted legacy task_completed receipt/i);
 
-    const mismatchRoot = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
+    const mismatchRoot = await mkdtemp(path.join(tmpdir(), "prodex-store-"));
     const mismatchStore = new BridgeStore(mismatchRoot);
     const mismatchTask = await mismatchStore.createTask({
       source: "codex",
@@ -756,7 +756,7 @@ describe("BridgeStore", () => {
 
     await expect(mismatchStore.resealResult(mismatchTask.id)).rejects.toThrow(/locally trusted legacy task_completed receipt/i);
 
-    const multipleRoot = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
+    const multipleRoot = await mkdtemp(path.join(tmpdir(), "prodex-store-"));
     const multipleStore = new BridgeStore(multipleRoot);
     const multipleTask = await multipleStore.createTask({
       source: "codex",
@@ -785,7 +785,7 @@ describe("BridgeStore", () => {
   });
 
   it("rejects terminal task receipt repair when a finalized result artifact is missing", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-store-"));
     const store = new BridgeStore(root);
     const task = await store.createTask({
       source: "codex",
@@ -820,7 +820,7 @@ describe("BridgeStore", () => {
   });
 
   it("rejects terminal task receipt repair when a finalized result artifact changed", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-store-"));
     const store = new BridgeStore(root);
     const task = await store.createTask({
       source: "codex",
@@ -855,7 +855,7 @@ describe("BridgeStore", () => {
   });
 
   it("cleans up stale internal record temp hard links before reading a result", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-store-"));
     const store = new BridgeStore(root);
     const task = await store.createTask({
       source: "codex",
@@ -875,8 +875,8 @@ describe("BridgeStore", () => {
   });
 
   it("does not clean stale record temp hard links through a swapped storage symlink", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
-    const outside = await mkdtemp(path.join(tmpdir(), "gptprouse-outside-"));
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-store-"));
+    const outside = await mkdtemp(path.join(tmpdir(), "prodex-outside-"));
     const store = new BridgeStore(root);
     const task = await store.createTask({
       source: "codex",
@@ -906,7 +906,7 @@ describe("BridgeStore", () => {
   });
 
   it("stores artifacts only under the local artifacts directory", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-store-"));
     const store = new BridgeStore(root);
 
     const relativePath = await store.writeArtifactText(".bridge/artifacts/repo-writes/example.txt", "payload\n");
@@ -918,8 +918,8 @@ describe("BridgeStore", () => {
   });
 
   it("rejects artifact writes through symlink escapes", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
-    const outside = await mkdtemp(path.join(tmpdir(), "gptprouse-outside-"));
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-store-"));
+    const outside = await mkdtemp(path.join(tmpdir(), "prodex-outside-"));
     await mkdir(path.join(root, ".bridge", "artifacts", "repo-writes"), { recursive: true });
     await symlink(outside, path.join(root, ".bridge", "artifacts", "repo-writes", "outside"));
     const store = new BridgeStore(root);
@@ -930,8 +930,8 @@ describe("BridgeStore", () => {
   });
 
   it("rejects artifact writes when the target is swapped to a symlink before open", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
-    const outside = await mkdtemp(path.join(tmpdir(), "gptprouse-outside-"));
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-store-"));
+    const outside = await mkdtemp(path.join(tmpdir(), "prodex-outside-"));
     const outsideFile = path.join(outside, "secret.txt");
     const relativePath = ".bridge/artifacts/repo-writes/payload.txt";
     const artifactPath = path.join(root, relativePath);
@@ -953,8 +953,8 @@ describe("BridgeStore", () => {
   });
 
   it("rejects artifact writes through hard-linked files without touching the linked target", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
-    const outside = await mkdtemp(path.join(tmpdir(), "gptprouse-outside-"));
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-store-"));
+    const outside = await mkdtemp(path.join(tmpdir(), "prodex-outside-"));
     const outsideFile = path.join(outside, "secret.txt");
     const relativePath = ".bridge/artifacts/repo-writes/payload.txt";
     const artifactPath = path.join(root, relativePath);
@@ -968,8 +968,8 @@ describe("BridgeStore", () => {
   });
 
   it("rejects artifact writes without touching outside files when the parent directory is swapped before open", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
-    const outside = await mkdtemp(path.join(tmpdir(), "gptprouse-outside-"));
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-store-"));
+    const outside = await mkdtemp(path.join(tmpdir(), "prodex-outside-"));
     const swapDir = path.join(root, ".bridge", "artifacts", "subdir");
     const artifactPath = path.join(swapDir, "payload.txt");
     const outsideFile = path.join(outside, "payload.txt");
@@ -994,8 +994,8 @@ describe("BridgeStore", () => {
   });
 
   it("does not create directories through symlinked artifact ancestors before rejecting", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
-    const outside = await mkdtemp(path.join(tmpdir(), "gptprouse-outside-"));
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-store-"));
+    const outside = await mkdtemp(path.join(tmpdir(), "prodex-outside-"));
     await mkdir(path.join(root, ".bridge", "artifacts"), { recursive: true });
     await symlink(outside, path.join(root, ".bridge", "artifacts", "repo-writes"));
     const store = new BridgeStore(root);
@@ -1007,8 +1007,8 @@ describe("BridgeStore", () => {
   });
 
   it("rejects artifact writes when the artifacts directory itself is a symlink", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
-    const outside = await mkdtemp(path.join(tmpdir(), "gptprouse-outside-"));
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-store-"));
+    const outside = await mkdtemp(path.join(tmpdir(), "prodex-outside-"));
     await mkdir(path.join(root, ".bridge"), { recursive: true });
     await symlink(outside, path.join(root, ".bridge", "artifacts"));
     const store = new BridgeStore(root);
@@ -1019,8 +1019,8 @@ describe("BridgeStore", () => {
   });
 
   it("rejects bridge storage when the bridge directory itself is a symlink", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
-    const outside = await mkdtemp(path.join(tmpdir(), "gptprouse-outside-"));
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-store-"));
+    const outside = await mkdtemp(path.join(tmpdir(), "prodex-outside-"));
     await symlink(outside, path.join(root, ".bridge"));
     const store = new BridgeStore(root);
 
@@ -1030,8 +1030,8 @@ describe("BridgeStore", () => {
   });
 
   it("rejects artifact reads when the bridge directory itself is a symlink", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
-    const outside = await mkdtemp(path.join(tmpdir(), "gptprouse-outside-"));
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-store-"));
+    const outside = await mkdtemp(path.join(tmpdir(), "prodex-outside-"));
     await mkdir(path.join(outside, "artifacts", "repo-writes"), { recursive: true });
     await symlink(outside, path.join(root, ".bridge"));
     const store = new BridgeStore(root);
@@ -1042,7 +1042,7 @@ describe("BridgeStore", () => {
   });
 
   it("rejects artifact reads through symlinked ancestors even when they point inside artifacts", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-store-"));
     const store = new BridgeStore(root);
     await store.writeArtifactText(".bridge/artifacts/real-dir/payload.txt", "payload\n");
     await symlink(
@@ -1056,8 +1056,8 @@ describe("BridgeStore", () => {
   });
 
   it("rejects artifact reads when the target is swapped to a symlink before open", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
-    const outside = await mkdtemp(path.join(tmpdir(), "gptprouse-outside-"));
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-store-"));
+    const outside = await mkdtemp(path.join(tmpdir(), "prodex-outside-"));
     const outsideFile = path.join(outside, "secret.txt");
     await writeFile(outsideFile, "outside\n", "utf8");
     const store = new BridgeStore(root);
@@ -1079,12 +1079,12 @@ describe("BridgeStore", () => {
   });
 
   it("rejects unsafe artifact reads without leaking raw bridge filesystem paths", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-store-"));
     const store = new BridgeStore(root);
     const relativePath = ".bridge/artifacts/results/hard-linked-artifact.txt";
     await store.writeArtifactText(relativePath, "payload\n");
     const artifactPath = path.join(root, relativePath);
-    const outside = await mkdtemp(path.join(tmpdir(), "gptprouse-outside-"));
+    const outside = await mkdtemp(path.join(tmpdir(), "prodex-outside-"));
     await link(artifactPath, path.join(outside, "hard-linked-artifact.txt"));
 
     await expect(store.readArtifactText(relativePath)).rejects.toThrow(/linked|hard link/i);
@@ -1093,8 +1093,8 @@ describe("BridgeStore", () => {
   });
 
   it("rejects receipt storage when the receipts directory itself is a symlink", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
-    const outside = await mkdtemp(path.join(tmpdir(), "gptprouse-outside-"));
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-store-"));
+    const outside = await mkdtemp(path.join(tmpdir(), "prodex-outside-"));
     await mkdir(path.join(root, ".bridge"), { recursive: true });
     await symlink(outside, path.join(root, ".bridge", "receipts"));
     const store = new BridgeStore(root);
@@ -1106,8 +1106,8 @@ describe("BridgeStore", () => {
   });
 
   it("rejects record reads when the target is swapped to a symlink before open", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
-    const outside = await mkdtemp(path.join(tmpdir(), "gptprouse-outside-"));
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-store-"));
+    const outside = await mkdtemp(path.join(tmpdir(), "prodex-outside-"));
     const outsideFile = path.join(outside, "receipt.json");
     await writeFile(outsideFile, "{}\n", "utf8");
     const store = new BridgeStore(root);
@@ -1129,7 +1129,7 @@ describe("BridgeStore", () => {
   });
 
   it("uses session ids as a deterministic latest tie-breaker", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-store-"));
     const store = new BridgeStore(root);
     await store.ensure();
     const first = {
@@ -1153,7 +1153,7 @@ describe("BridgeStore", () => {
   });
 
   it("uses result task ids as a deterministic latest tie-breaker", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-store-"));
     const store = new BridgeStore(root);
     await store.ensure();
     const first = {
@@ -1178,7 +1178,7 @@ describe("BridgeStore", () => {
   });
 
   it("uses task ids as a deterministic task list tie-breaker", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-store-"));
     const store = new BridgeStore(root);
     await store.ensure();
     const first = {
@@ -1207,8 +1207,8 @@ describe("BridgeStore", () => {
   });
 
   it("rejects record writes when the storage directory is swapped to a symlink before open", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
-    const outside = await mkdtemp(path.join(tmpdir(), "gptprouse-outside-"));
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-store-"));
+    const outside = await mkdtemp(path.join(tmpdir(), "prodex-outside-"));
     const movedReceiptsDir = path.join(root, ".bridge", "receipts-real");
     const store = new BridgeStore(root);
     await store.ensure();
@@ -1230,8 +1230,8 @@ describe("BridgeStore", () => {
   });
 
   it("uses stable directory fd paths for new result writes even when process.platform is non-Linux", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
-    const outside = await mkdtemp(path.join(tmpdir(), "gptprouse-outside-"));
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-store-"));
+    const outside = await mkdtemp(path.join(tmpdir(), "prodex-outside-"));
     const movedResultsDir = path.join(root, ".bridge", "results-real");
     const store = new BridgeStore(root);
     const task = await store.createTask({
@@ -1268,8 +1268,8 @@ describe("BridgeStore", () => {
   });
 
   it("rejects non-Linux record writes when storage is swapped before rename", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
-    const outside = await mkdtemp(path.join(tmpdir(), "gptprouse-outside-"));
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-store-"));
+    const outside = await mkdtemp(path.join(tmpdir(), "prodex-outside-"));
     const movedReceiptsDir = path.join(root, ".bridge", "receipts-real");
     const store = new BridgeStore(root);
     await store.ensure();
@@ -1297,7 +1297,7 @@ describe("BridgeStore", () => {
   });
 
   it("fails closed when stable directory fd paths are unavailable", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-store-"));
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-store-"));
     const store = new BridgeStore(root);
     await store.ensure();
     const originalPlatform = process.platform;

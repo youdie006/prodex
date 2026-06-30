@@ -11,7 +11,7 @@ describe("safe file reads", () => {
   });
 
   it("rejects reads when a file grows beyond maxBytes after the pre-read stat", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-safe-file-"));
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-safe-file-"));
     const filePath = path.join(root, "note.txt");
     await writeFile(filePath, "a", "utf8");
     const probe = await open(filePath, "r");
@@ -38,7 +38,7 @@ describe("safe file reads", () => {
   });
 
   it("rejects reads when a file grows beyond maxBytes immediately before the handle read", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-safe-file-"));
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-safe-file-"));
     const filePath = path.join(root, "note.txt");
     await writeFile(filePath, "a", "utf8");
     const probe = await open(filePath, "r");
@@ -69,7 +69,7 @@ describe("safe file reads", () => {
   });
 
   it("does not mutate a hard link that appears after the file handle is open", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-safe-file-"));
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-safe-file-"));
     const filePath = path.join(root, "note.txt");
     const hardLinkPath = path.join(root, "outside-link.txt");
     await writeFile(filePath, "old\n", "utf8");
@@ -85,7 +85,7 @@ describe("safe file reads", () => {
   });
 
   it("does not mutate a hard link that appears before replacement", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-safe-file-"));
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-safe-file-"));
     const filePath = path.join(root, "note.txt");
     const hardLinkPath = path.join(root, "outside-link.txt");
     await writeFile(filePath, "old\n", "utf8");
@@ -105,7 +105,7 @@ describe("safe file reads", () => {
   });
 
   it("rejects writes when the temporary replacement file is hard linked before rename", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-safe-file-"));
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-safe-file-"));
     const filePath = path.join(root, "note.txt");
     const hardLinkPath = path.join(root, "temp-link.txt");
     await writeFile(filePath, "old\n", "utf8");

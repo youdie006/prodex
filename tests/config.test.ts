@@ -11,19 +11,19 @@ describe("local bridge config", () => {
   });
 
   it("stores ChatGPT Developer Mode HTTP settings in an ignored local file", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-config-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-config-"));
 
     const config = await writeLocalConfig(cwd, { port: 9797, token: "test-token" });
     const loaded = await loadLocalConfig(cwd);
     const bridgeIgnore = await readFile(path.join(cwd, ".bridge", ".gitignore"), "utf8");
 
-    expect(config.server_url).toBe("http://127.0.0.1:9797/mcp?gptprouse_token=test-token");
+    expect(config.server_url).toBe("http://127.0.0.1:9797/mcp?prodex_token=test-token");
     expect(loaded).toEqual(config);
     expect(bridgeIgnore).toContain("config.local.json");
   });
 
   it("stores an optional token expiry when a TTL is requested", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-config-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-config-"));
     const before = Date.now();
 
     const config = await writeLocalConfig(cwd, { port: 9797, token: "test-token", tokenTtlHours: 2 });
@@ -37,17 +37,17 @@ describe("local bridge config", () => {
   });
 
   it("loads local MCP configs that use the explicit HTTP default port", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-config-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-config-"));
 
     const config = await writeLocalConfig(cwd, { port: 80, token: "test-token" });
     const loaded = await loadLocalConfig(cwd);
 
-    expect(config.server_url).toBe("http://127.0.0.1:80/mcp?gptprouse_token=test-token");
+    expect(config.server_url).toBe("http://127.0.0.1:80/mcp?prodex_token=test-token");
     expect(loaded.port).toBe(80);
   });
 
   it("loads legacy local MCP config files without token expiry", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-config-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-config-"));
     await mkdir(path.join(cwd, ".bridge"), { recursive: true });
     await writeFile(
       localConfigPath(cwd),
@@ -57,7 +57,7 @@ describe("local bridge config", () => {
           host: "127.0.0.1",
           port: 9797,
           token: "test-token",
-          server_url: "http://127.0.0.1:9797/mcp?gptprouse_token=test-token",
+          server_url: "http://127.0.0.1:9797/mcp?prodex_token=test-token",
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString()
         },
@@ -74,14 +74,14 @@ describe("local bridge config", () => {
   });
 
   it("rejects non-loopback hosts when writing local MCP config", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-config-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-config-"));
 
     await expect(writeLocalConfig(cwd, { host: "0.0.0.0", port: 9797, token: "test-token" })).rejects.toThrow(/loopback|local/i);
     await expect(readFile(localConfigPath(cwd), "utf8")).rejects.toThrow();
   });
 
   it("rejects legacy local MCP config files with non-loopback hosts", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-config-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-config-"));
     await mkdir(path.join(cwd, ".bridge"), { recursive: true });
     await writeFile(
       localConfigPath(cwd),
@@ -91,7 +91,7 @@ describe("local bridge config", () => {
           host: "0.0.0.0",
           port: 9797,
           token: "test-token",
-          server_url: "http://0.0.0.0:9797/mcp?gptprouse_token=test-token",
+          server_url: "http://0.0.0.0:9797/mcp?prodex_token=test-token",
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString()
         },
@@ -105,7 +105,7 @@ describe("local bridge config", () => {
   });
 
   it("rejects local MCP config files whose server_url does not match the listener token", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-config-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-config-"));
     await mkdir(path.join(cwd, ".bridge"), { recursive: true });
     await writeFile(
       localConfigPath(cwd),
@@ -115,7 +115,7 @@ describe("local bridge config", () => {
           host: "127.0.0.1",
           port: 9797,
           token: "real-token",
-          server_url: "http://127.0.0.1:9797/mcp?gptprouse_token=stale-token",
+          server_url: "http://127.0.0.1:9797/mcp?prodex_token=stale-token",
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString()
         },
@@ -129,13 +129,13 @@ describe("local bridge config", () => {
   });
 
   it("rejects non-positive token TTL values", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-config-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-config-"));
 
     await expect(writeLocalConfig(cwd, { port: 9797, token: "test-token", tokenTtlHours: 0 })).rejects.toThrow(/token ttl/i);
   });
 
   it("writes local MCP config with owner-only permissions", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-config-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-config-"));
 
     await writeLocalConfig(cwd, { port: 9797, token: "test-token" });
 
@@ -146,7 +146,7 @@ describe("local bridge config", () => {
   });
 
   it("repairs existing local MCP config permissions on load", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-config-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-config-"));
     await writeLocalConfig(cwd, { port: 9797, token: "test-token" });
 
     if (process.platform !== "win32") {
@@ -159,8 +159,8 @@ describe("local bridge config", () => {
   });
 
   it("rejects symlinked bridge config storage", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-config-"));
-    const outside = await mkdtemp(path.join(tmpdir(), "gptprouse-config-outside-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-config-"));
+    const outside = await mkdtemp(path.join(tmpdir(), "prodex-config-outside-"));
     await mkdir(outside, { recursive: true });
     await symlink(outside, path.join(cwd, ".bridge"), "dir");
 
@@ -170,8 +170,8 @@ describe("local bridge config", () => {
   });
 
   it("rejects symlinked config files", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-config-"));
-    const outside = await mkdtemp(path.join(tmpdir(), "gptprouse-config-outside-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-config-"));
+    const outside = await mkdtemp(path.join(tmpdir(), "prodex-config-outside-"));
     await mkdir(path.join(cwd, ".bridge"), { recursive: true });
     await writeFile(path.join(outside, "config.local.json"), "{}\n", "utf8");
     await symlink(path.join(outside, "config.local.json"), localConfigPath(cwd));
@@ -181,8 +181,8 @@ describe("local bridge config", () => {
   });
 
   it("rejects symlinked bridge gitignore files", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-config-"));
-    const outside = await mkdtemp(path.join(tmpdir(), "gptprouse-config-outside-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-config-"));
+    const outside = await mkdtemp(path.join(tmpdir(), "prodex-config-outside-"));
     const outsideGitignore = path.join(outside, ".gitignore");
     await mkdir(path.join(cwd, ".bridge"), { recursive: true });
     await writeFile(outsideGitignore, "outside\n", "utf8");
@@ -193,8 +193,8 @@ describe("local bridge config", () => {
   });
 
   it("rejects config writes when the config path is swapped to a symlink before open", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-config-"));
-    const outside = await mkdtemp(path.join(tmpdir(), "gptprouse-config-outside-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-config-"));
+    const outside = await mkdtemp(path.join(tmpdir(), "prodex-config-outside-"));
     const outsideConfig = path.join(outside, "config.local.json");
     await writeFile(outsideConfig, "outside\n", "utf8");
     let swapped = false;
@@ -212,8 +212,8 @@ describe("local bridge config", () => {
   });
 
   it("rejects config reads when the config path is swapped to a symlink before open", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-config-"));
-    const outside = await mkdtemp(path.join(tmpdir(), "gptprouse-config-outside-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-config-"));
+    const outside = await mkdtemp(path.join(tmpdir(), "prodex-config-outside-"));
     const outsideConfig = path.join(outside, "config.local.json");
     await writeLocalConfig(cwd, { port: 9797, token: "inside-token" });
     await writeFile(
@@ -224,7 +224,7 @@ describe("local bridge config", () => {
           host: "127.0.0.1",
           port: 9797,
           token: "outside-token",
-          server_url: "http://127.0.0.1:9797/mcp?gptprouse_token=outside-token",
+          server_url: "http://127.0.0.1:9797/mcp?prodex_token=outside-token",
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString()
         },

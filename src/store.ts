@@ -1321,7 +1321,7 @@ function recordCorruptError(kind: BridgeRecordKind, id: string, filePath: string
 
 function untrustedResultError(root: string, taskId: string, reason: string): Error {
   const error = new Error(
-    `Result record is untrusted: ${formatRecordPath(root, path.join(root, ".bridge", "results", `${taskId}.json`))} ${reason}. If this is a locally signed legacy completion receipt, review .bridge/results/${taskId}.json, then run \`gptprouse results reseal ${taskId} --confirm-current-result\`. Retry the completion path or move the result record aside, then retry.`
+    `Result record is untrusted: ${formatRecordPath(root, path.join(root, ".bridge", "results", `${taskId}.json`))} ${reason}. If this is a locally signed legacy completion receipt, review .bridge/results/${taskId}.json, then run \`prodex results reseal ${taskId} --confirm-current-result\`. Retry the completion path or move the result record aside, then retry.`
   ) as Error & { code: "EUNTRUSTED_RESULT"; taskId: string };
   error.code = "EUNTRUSTED_RESULT";
   error.taskId = taskId;

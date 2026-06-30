@@ -18,11 +18,11 @@ describe("HTTP MCP server", () => {
   });
 
   it("serves the existing bridge tools over Streamable HTTP with a URL token", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-http-mcp-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-http-mcp-"));
     running = await startHttpMcpServer({ cwd, host: "127.0.0.1", port: 0, token: "test-token" });
-    const client = new Client({ name: "gptprouse-test", version: "0.1.0" });
+    const client = new Client({ name: "prodex-test", version: "0.1.0" });
 
-    await client.connect(new StreamableHTTPClientTransport(new URL(`${running.url}/mcp?gptprouse_token=test-token`)));
+    await client.connect(new StreamableHTTPClientTransport(new URL(`${running.url}/mcp?prodex_token=test-token`)));
     const tools = await client.listTools();
     await client.close();
 
@@ -41,7 +41,7 @@ describe("HTTP MCP server", () => {
   });
 
   it("refuses to bind the HTTP MCP server to non-loopback hosts", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-http-mcp-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-http-mcp-"));
 
     await expect(
       startHttpMcpServer({ cwd, host: "0.0.0.0", port: 0, token: "test-token" }).then((server) => {
@@ -52,11 +52,11 @@ describe("HTTP MCP server", () => {
   });
 
   it("completes and blocks tasks through real Streamable HTTP MCP tool calls", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-http-mcp-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-http-mcp-"));
     running = await startHttpMcpServer({ cwd, host: "127.0.0.1", port: 0, token: "test-token" });
-    const client = new Client({ name: "gptprouse-test", version: "0.1.0" });
+    const client = new Client({ name: "prodex-test", version: "0.1.0" });
 
-    await client.connect(new StreamableHTTPClientTransport(new URL(`${running.url}/mcp?gptprouse_token=test-token`)));
+    await client.connect(new StreamableHTTPClientTransport(new URL(`${running.url}/mcp?prodex_token=test-token`)));
     try {
       const createdDone = await callJsonTool<{ task: { id: string } }>(client, "bridge_create_task", {
         title: "HTTP done",
@@ -117,7 +117,7 @@ describe("HTTP MCP server", () => {
   });
 
   it("rejects requests that omit the configured URL token", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-http-mcp-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-http-mcp-"));
     running = await startHttpMcpServer({ cwd, host: "127.0.0.1", port: 0, token: "test-token" });
 
     const response = await fetch(`${running.url}/mcp`, { method: "POST", body: "{}" });
@@ -126,7 +126,7 @@ describe("HTTP MCP server", () => {
   });
 
   it("accepts bearer authorization tokens for MCP requests", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-http-mcp-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-http-mcp-"));
     running = await startHttpMcpServer({ cwd, host: "127.0.0.1", port: 0, token: "test-token" });
 
     const response = await fetch(`${running.url}/mcp`, {
@@ -141,7 +141,7 @@ describe("HTTP MCP server", () => {
   });
 
   it("rejects authorized MCP request bodies over the configured byte limit", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-http-mcp-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-http-mcp-"));
     running = await startHttpMcpServer({
       cwd,
       host: "127.0.0.1",
@@ -150,7 +150,7 @@ describe("HTTP MCP server", () => {
       requestBodyLimitBytes: 16
     });
 
-    const response = await fetch(`${running.url}/mcp?gptprouse_token=test-token`, {
+    const response = await fetch(`${running.url}/mcp?prodex_token=test-token`, {
       method: "POST",
       body: JSON.stringify({ jsonrpc: "2.0", method: "initialize", params: {} })
     });
@@ -161,7 +161,7 @@ describe("HTTP MCP server", () => {
   });
 
   it("rejects chunked authorized MCP request bodies over the configured byte limit", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-http-mcp-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-http-mcp-"));
     running = await startHttpMcpServer({
       cwd,
       host: "127.0.0.1",
@@ -170,7 +170,7 @@ describe("HTTP MCP server", () => {
       requestBodyLimitBytes: 8
     });
 
-    const response = await postChunked(`${running.url}/mcp?gptprouse_token=test-token`, [
+    const response = await postChunked(`${running.url}/mcp?prodex_token=test-token`, [
       '{"json',
       'rpc":"2.0"}'
     ]);
@@ -180,10 +180,10 @@ describe("HTTP MCP server", () => {
   });
 
   it("rejects malformed authorized JSON as a bad request", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-http-mcp-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-http-mcp-"));
     running = await startHttpMcpServer({ cwd, host: "127.0.0.1", port: 0, token: "test-token" });
 
-    const response = await fetch(`${running.url}/mcp?gptprouse_token=test-token`, {
+    const response = await fetch(`${running.url}/mcp?prodex_token=test-token`, {
       method: "POST",
       body: "{not json"
     });
@@ -194,12 +194,12 @@ describe("HTTP MCP server", () => {
   });
 
   it("does not leak internal exception messages in generic HTTP 500 responses", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-http-mcp-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-http-mcp-"));
     running = await startHttpMcpServer({ cwd, host: "127.0.0.1", port: 0, token: "test-token" });
 
     const raw = await rawHttpRequest(
       running.port,
-      "GET /mcp?gptprouse_token=test-token HTTP/1.1\r\nHost: :\r\nConnection: close\r\n\r\n"
+      "GET /mcp?prodex_token=test-token HTTP/1.1\r\nHost: :\r\nConnection: close\r\n\r\n"
     );
 
     expect(raw).toContain("HTTP/1.1 500");
@@ -209,10 +209,10 @@ describe("HTTP MCP server", () => {
   });
 
   it("keeps valid JSON without a valid MCP session as a protocol bad request", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-http-mcp-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-http-mcp-"));
     running = await startHttpMcpServer({ cwd, host: "127.0.0.1", port: 0, token: "test-token" });
 
-    const response = await fetch(`${running.url}/mcp?gptprouse_token=test-token`, { method: "POST", body: "{}" });
+    const response = await fetch(`${running.url}/mcp?prodex_token=test-token`, { method: "POST", body: "{}" });
     const body = await response.json();
 
     expect(response.status).toBe(400);
@@ -220,19 +220,19 @@ describe("HTTP MCP server", () => {
   });
 
   it("returns not found for stale MCP session ids so clients can reinitialize", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-http-mcp-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-http-mcp-"));
     running = await startHttpMcpServer({ cwd, host: "127.0.0.1", port: 0, token: "test-token" });
 
-    const post = await fetch(`${running.url}/mcp?gptprouse_token=test-token`, {
+    const post = await fetch(`${running.url}/mcp?prodex_token=test-token`, {
       method: "POST",
       headers: { "mcp-session-id": "stale-session" },
       body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} })
     });
-    const get = await fetch(`${running.url}/mcp?gptprouse_token=test-token`, {
+    const get = await fetch(`${running.url}/mcp?prodex_token=test-token`, {
       method: "GET",
       headers: { "mcp-session-id": "stale-session" }
     });
-    const del = await fetch(`${running.url}/mcp?gptprouse_token=test-token`, {
+    const del = await fetch(`${running.url}/mcp?prodex_token=test-token`, {
       method: "DELETE",
       headers: { "mcp-session-id": "stale-session" }
     });
@@ -243,7 +243,7 @@ describe("HTTP MCP server", () => {
   });
 
   it("rejects requests that use an expired configured URL token", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-http-mcp-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-http-mcp-"));
     running = await startHttpMcpServer({
       cwd,
       host: "127.0.0.1",
@@ -252,7 +252,7 @@ describe("HTTP MCP server", () => {
       tokenExpiresAt: new Date(Date.now() - 1000).toISOString()
     });
 
-    const response = await fetch(`${running.url}/mcp?gptprouse_token=test-token`, { method: "POST", body: "{}" });
+    const response = await fetch(`${running.url}/mcp?prodex_token=test-token`, { method: "POST", body: "{}" });
 
     expect(response.status).toBe(401);
   });

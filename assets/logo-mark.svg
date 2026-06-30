@@ -1,10 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32" role="img" aria-labelledby="title">
-  <title id="title">gptprouse mark</title>
-  <g fill="currentColor" shape-rendering="crispEdges">
-    <rect x="6" y="4" width="14" height="6"/>
-    <rect x="6" y="10" width="20" height="4"/>
-    <rect x="6" y="14" width="10" height="4"/>
-    <rect x="6" y="18" width="20" height="4"/>
-    <path d="M6 22H26V24L22 28L18 24L14 28L10 24L6 28Z"/>
-  </g>
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">PROdex P favicon candidate</title>
+  <desc id="desc">Outlined P favicon candidate from the Syne PROdex wordmark.</desc>
+  <style>:root { --prodex-pro: #BE1C1C; } .mark { fill: #BE1C1C; fill: var(--prodex-pro); }</style>
+  <path class="mark" d="M302 165V340H801Q831 340 851.5 349.5Q872 359 872 389.9836065573771Q872 422 851.5 431.0Q831 440 801 440H318V0H68V640H762Q837.3658536585366 640 902.6829268292684 629.5Q968 619 1017.0 592.0Q1066 565 1094.0 516.0Q1122 467 1122 390Q1122 313 1094.0 268.0Q1066 223 1017.0 201.0Q968 179 902.6829268292684 172.0Q837.3658536585366 165 762 165Z" transform="translate(18.903 383.514) scale(0.398 -0.398)"/>
 </svg>

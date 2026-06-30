@@ -6,7 +6,7 @@ import { buildDryRunBundle } from "../src/bundle.js";
 
 describe("buildDryRunBundle", () => {
   it("renders prompt and selected files without sending anything", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-bundle-"));
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-bundle-"));
     await writeFile(path.join(root, "a.ts"), "export const a = 1;\n", "utf8");
 
     const bundle = await buildDryRunBundle(root, {
@@ -21,14 +21,14 @@ describe("buildDryRunBundle", () => {
   });
 
   it("rejects env-like files as consult bundle context", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-bundle-"));
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-bundle-"));
     await writeFile(path.join(root, ".envrc"), "SECRET=leak\n", "utf8");
 
     await expect(buildDryRunBundle(root, { prompt: "Review this file.", files: [".envrc"] })).rejects.toThrow(/sensitive/);
   });
 
   it("uses unique session ids for repeated bundles created in the same second", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-bundle-"));
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-bundle-"));
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-06-23T17:30:00.000Z"));
     try {
@@ -44,7 +44,7 @@ describe("buildDryRunBundle", () => {
   });
 
   it("keeps session ids unique for long repeated prompts created in the same second", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-bundle-"));
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-bundle-"));
     const prompt = "Review this very long repeated prompt whose slug would otherwise truncate the random suffix";
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-06-23T17:31:00.000Z"));

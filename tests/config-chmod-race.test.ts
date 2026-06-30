@@ -29,8 +29,8 @@ describe("local bridge config chmod races", () => {
 
   it("does not chmod a symlink target swapped in after config write", async () => {
     if (process.platform === "win32") return;
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-config-chmod-"));
-    const outside = await mkdtemp(path.join(tmpdir(), "gptprouse-config-chmod-outside-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-config-chmod-"));
+    const outside = await mkdtemp(path.join(tmpdir(), "prodex-config-chmod-outside-"));
     const outsideConfig = path.join(outside, "config.local.json");
     await mkdir(path.join(cwd, ".bridge"), { recursive: true });
     await writeFile(outsideConfig, "outside\n", "utf8");
@@ -52,8 +52,8 @@ describe("local bridge config chmod races", () => {
 
   it("does not chmod a symlink target swapped in after config read", async () => {
     if (process.platform === "win32") return;
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-config-chmod-"));
-    const outside = await mkdtemp(path.join(tmpdir(), "gptprouse-config-chmod-outside-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-config-chmod-"));
+    const outside = await mkdtemp(path.join(tmpdir(), "prodex-config-chmod-outside-"));
     const outsideConfig = path.join(outside, "config.local.json");
     await writeLocalConfig(cwd, { port: 9797, token: "inside-token" });
     await writeFile(outsideConfig, "outside\n", "utf8");
@@ -76,8 +76,8 @@ describe("local bridge config chmod races", () => {
 
   it("does not chmod a symlink target swapped in before handle chmod during config read", async () => {
     if (process.platform === "win32") return;
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-config-chmod-"));
-    const outside = await mkdtemp(path.join(tmpdir(), "gptprouse-config-chmod-outside-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-config-chmod-"));
+    const outside = await mkdtemp(path.join(tmpdir(), "prodex-config-chmod-outside-"));
     const outsideConfig = path.join(outside, "config.local.json");
     await writeLocalConfig(cwd, { port: 9797, token: "inside-token" });
     await writeFile(outsideConfig, "outside\n", "utf8");
@@ -102,8 +102,8 @@ describe("local bridge config chmod races", () => {
 
   it("does not chmod a symlink target swapped in before handle chmod during config write", async () => {
     if (process.platform === "win32") return;
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-config-chmod-"));
-    const outside = await mkdtemp(path.join(tmpdir(), "gptprouse-config-chmod-outside-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-config-chmod-"));
+    const outside = await mkdtemp(path.join(tmpdir(), "prodex-config-chmod-outside-"));
     const outsideConfig = path.join(outside, "config.local.json");
     await mkdir(path.join(cwd, ".bridge"), { recursive: true });
     await writeFile(outsideConfig, "outside\n", "utf8");

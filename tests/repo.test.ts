@@ -11,7 +11,7 @@ describe("repo path policy", () => {
   });
 
   it("reads repo-relative files with line metadata", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-repo-"));
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-repo-"));
     await writeFile(path.join(root, "README.md"), "one\ntwo\nthree\n", "utf8");
 
     const result = await readRepoFile(root, "README.md", { startLine: 2, maxLines: 1 });
@@ -22,7 +22,7 @@ describe("repo path policy", () => {
   });
 
   it("rejects repo reads whose requested range starts past EOF", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-repo-"));
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-repo-"));
     await writeFile(path.join(root, "README.md"), "one\ntwo\n", "utf8");
 
     await expect(readRepoFile(root, "README.md", { startLine: 5, maxLines: 2 })).rejects.toThrow(
@@ -31,7 +31,7 @@ describe("repo path policy", () => {
   });
 
   it("reports stable line metadata for empty repo files", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-repo-"));
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-repo-"));
     await writeFile(path.join(root, "README.md"), "", "utf8");
 
     const result = await readRepoFile(root, "README.md");
@@ -43,15 +43,15 @@ describe("repo path policy", () => {
   });
 
   it("reports missing repo files without leaking raw filesystem paths", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-repo-"));
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-repo-"));
 
     await expect(readRepoFile(root, "missing.md")).rejects.toThrow("Path missing.md was not found in the repo");
     await expect(readRepoFile(root, "missing.md")).rejects.not.toThrow(/ENOENT|realpath|no such file/i);
   });
 
   it("rejects traversal, absolute paths, and symlink escapes", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-repo-"));
-    const outside = await mkdtemp(path.join(tmpdir(), "gptprouse-outside-"));
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-repo-"));
+    const outside = await mkdtemp(path.join(tmpdir(), "prodex-outside-"));
     await writeFile(path.join(outside, "file.txt"), "outside\n", "utf8");
     await mkdir(path.join(root, "links"));
     await symlink(outside, path.join(root, "links", "outside"));
@@ -62,8 +62,8 @@ describe("repo path policy", () => {
   });
 
   it("rejects reads when the target is swapped to a symlink before open", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-repo-"));
-    const outside = await mkdtemp(path.join(tmpdir(), "gptprouse-outside-"));
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-repo-"));
+    const outside = await mkdtemp(path.join(tmpdir(), "prodex-outside-"));
     const outsideFile = path.join(outside, "secret.txt");
     const repoFile = path.join(root, "README.md");
     await writeFile(outsideFile, "outside\n", "utf8");
@@ -84,8 +84,8 @@ describe("repo path policy", () => {
   });
 
   it("rejects repo reads through hard-linked files", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-repo-"));
-    const outside = await mkdtemp(path.join(tmpdir(), "gptprouse-outside-"));
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-repo-"));
+    const outside = await mkdtemp(path.join(tmpdir(), "prodex-outside-"));
     const outsideFile = path.join(outside, "secret.txt");
     await writeFile(outsideFile, "outside secret\n", "utf8");
     await mkdir(path.join(root, "links"));
@@ -95,8 +95,8 @@ describe("repo path policy", () => {
   });
 
   it("rejects unsafe repo reads without leaking raw filesystem paths", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-repo-"));
-    const outside = await mkdtemp(path.join(tmpdir(), "gptprouse-outside-"));
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-repo-"));
+    const outside = await mkdtemp(path.join(tmpdir(), "prodex-outside-"));
     const outsideFile = path.join(outside, "secret.txt");
     await writeFile(outsideFile, "outside secret\n", "utf8");
     await mkdir(path.join(root, "links"));
@@ -108,8 +108,8 @@ describe("repo path policy", () => {
   });
 
   it("does not return repo search matches from hard-linked files", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-repo-"));
-    const outside = await mkdtemp(path.join(tmpdir(), "gptprouse-outside-"));
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-repo-"));
+    const outside = await mkdtemp(path.join(tmpdir(), "prodex-outside-"));
     const outsideFile = path.join(outside, "secret.txt");
     await writeFile(outsideFile, "TOKEN=outside\n", "utf8");
     await link(outsideFile, path.join(root, "public.txt"));
@@ -120,7 +120,7 @@ describe("repo path policy", () => {
   });
 
   it("blocks local bridge, git, and env files from repo reads", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-repo-"));
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-repo-"));
     await mkdir(path.join(root, ".bridge"), { recursive: true });
     await mkdir(path.join(root, ".git"), { recursive: true });
     await writeFile(path.join(root, ".bridge", "config.local.json"), '{"token":"secret"}\n', "utf8");
@@ -133,7 +133,7 @@ describe("repo path policy", () => {
   });
 
   it("blocks repo reads through symlink aliases to sensitive directories", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-repo-"));
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-repo-"));
     await mkdir(path.join(root, ".bridge"), { recursive: true });
     await writeFile(path.join(root, ".bridge", "config.local.json"), '{"token":"secret"}\n', "utf8");
     await symlink(path.join(root, ".bridge"), path.join(root, "bridge-alias"));
@@ -142,7 +142,7 @@ describe("repo path policy", () => {
   });
 
   it("excludes sensitive local files from repo search results", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-repo-"));
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-repo-"));
     await mkdir(path.join(root, ".bridge"), { recursive: true });
     await writeFile(path.join(root, ".bridge", "config.local.json"), '{"token":"needle"}\n', "utf8");
     await writeFile(path.join(root, "README.md"), "needle\n", "utf8");
@@ -154,7 +154,7 @@ describe("repo path policy", () => {
   });
 
   it("treats search queries that start with dashes as literal text", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-repo-"));
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-repo-"));
     await writeFile(path.join(root, "README.md"), "before\n--not-a-real-rg-option literal flag text\nafter\n", "utf8");
 
     await expect(searchRepo(root, "--not-a-real-rg-option")).resolves.toEqual([
@@ -163,7 +163,7 @@ describe("repo path policy", () => {
   });
 
   it("parses search matches in files whose paths contain colons", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-repo-"));
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-repo-"));
     await writeFile(path.join(root, "notes:today.md"), "needle:with:colon\n", "utf8");
 
     await expect(searchRepo(root, "needle")).resolves.toEqual([
@@ -172,7 +172,7 @@ describe("repo path policy", () => {
   });
 
   it("reports search truncation metadata when more than the returned limit matches", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-repo-"));
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-repo-"));
     await writeFile(
       path.join(root, "README.md"),
       `${Array.from({ length: 101 }, (_, index) => `needle ${index + 1}`).join("\n")}\n`,
@@ -187,8 +187,8 @@ describe("repo path policy", () => {
   });
 
   it("reports a clear prerequisite error when ripgrep is missing", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-repo-"));
-    const emptyPath = await mkdtemp(path.join(tmpdir(), "gptprouse-empty-path-"));
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-repo-"));
+    const emptyPath = await mkdtemp(path.join(tmpdir(), "prodex-empty-path-"));
     await writeFile(path.join(root, "README.md"), "needle\n", "utf8");
     const previousPath = process.env.PATH;
     process.env.PATH = emptyPath;
@@ -201,7 +201,7 @@ describe("repo path policy", () => {
   });
 
   it("reports oversized repo search output without leaking raw Node maxBuffer details", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-repo-"));
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-repo-"));
     await writeFile(path.join(root, "huge.txt"), `${"needle ".repeat(200_000)}\n`, "utf8");
 
     await expect(searchRepo(root, "needle")).rejects.toThrow(/too many matches|narrow/i);
@@ -209,7 +209,7 @@ describe("repo path policy", () => {
   });
 
   it("blocks nested env files from repo reads and searches", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-repo-"));
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-repo-"));
     await mkdir(path.join(root, "services", "api"), { recursive: true });
     await writeFile(path.join(root, "services", "api", ".env"), "SECRET=needle\n", "utf8");
     await writeFile(path.join(root, "services", "api", ".env.local"), "SECRET=needle\n", "utf8");
@@ -227,7 +227,7 @@ describe("repo path policy", () => {
   });
 
   it("does not let wildcard search globs re-include env files", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-repo-"));
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-repo-"));
     await mkdir(path.join(root, "services", "api"), { recursive: true });
     await writeFile(path.join(root, ".env"), "SECRET=root-needle\n", "utf8");
     await writeFile(path.join(root, "services", "api", ".env.local"), "SECRET=nested-needle\n", "utf8");
@@ -248,7 +248,7 @@ describe("repo path policy", () => {
   });
 
   it("blocks nested git, dependency, and build output paths from repo reads and searches", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-repo-"));
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-repo-"));
     await mkdir(path.join(root, "services", "api", ".git"), { recursive: true });
     await mkdir(path.join(root, "packages", "a", "node_modules", "pkg"), { recursive: true });
     await mkdir(path.join(root, "packages", "a", "dist"), { recursive: true });
@@ -268,7 +268,7 @@ describe("repo path policy", () => {
   });
 
   it("blocks nested bridge paths from repo reads and searches", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-repo-"));
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-repo-"));
     await mkdir(path.join(root, "services", "api", ".bridge"), { recursive: true });
     await writeFile(path.join(root, "services", "api", ".bridge", "config.local.json"), "SECRET=needle\n", "utf8");
     await writeFile(path.join(root, "services", "api", "README.md"), "needle docs\n", "utf8");
@@ -279,7 +279,7 @@ describe("repo path policy", () => {
   });
 
   it("blocks case-folded sensitive paths from repo reads and searches", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-repo-"));
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-repo-"));
     await mkdir(path.join(root, ".Bridge"), { recursive: true });
     await mkdir(path.join(root, "Services", "API", ".GIT"), { recursive: true });
     await mkdir(path.join(root, "Services", "API"), { recursive: true });
@@ -306,9 +306,9 @@ describe("repo path policy", () => {
   });
 
   it("ignores user ripgrep config that would follow symlinks outside the repo", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-repo-"));
-    const outside = await mkdtemp(path.join(tmpdir(), "gptprouse-outside-"));
-    const rgConfig = path.join(await mkdtemp(path.join(tmpdir(), "gptprouse-rg-config-")), "ripgreprc");
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-repo-"));
+    const outside = await mkdtemp(path.join(tmpdir(), "prodex-outside-"));
+    const rgConfig = path.join(await mkdtemp(path.join(tmpdir(), "prodex-rg-config-")), "ripgreprc");
     await writeFile(path.join(outside, "secret.txt"), "SECRET=outside\n", "utf8");
     await symlink(outside, path.join(root, "outside-link"));
     await writeFile(rgConfig, "--follow\n", "utf8");
@@ -323,7 +323,7 @@ describe("repo path policy", () => {
   });
 
   it("rejects large files before reading them into the response", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-repo-"));
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-repo-"));
     await writeFile(path.join(root, "large.txt"), "x".repeat(1_100_000), "utf8");
 
     await expect(readRepoFile(root, "large.txt")).rejects.toThrow(/large/);

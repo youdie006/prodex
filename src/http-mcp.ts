@@ -44,7 +44,7 @@ export async function startHttpMcpServer(options: StartHttpMcpServerOptions): Pr
     try {
       const requestUrl = new URL(req.url ?? "/", `http://${req.headers.host ?? host}`);
       if (requestUrl.pathname === "/health") {
-        writeJson(res, 200, { ok: true, name: "gptprouse" });
+        writeJson(res, 200, { ok: true, name: "prodex" });
         return;
       }
       if (requestUrl.pathname !== "/mcp") {
@@ -90,7 +90,7 @@ export async function startHttpMcpServer(options: StartHttpMcpServerOptions): Pr
     host,
     port,
     url,
-    mcp_url: token ? `${url}/mcp?gptprouse_token=${encodeURIComponent(token)}` : `${url}/mcp`,
+    mcp_url: token ? `${url}/mcp?prodex_token=${encodeURIComponent(token)}` : `${url}/mcp`,
     close: async (closeOptions = {}) => {
       await Promise.all(
         Array.from(transports.values()).map((entry) =>
@@ -250,7 +250,7 @@ class HttpRequestError extends Error {
 function isAuthorized(req: IncomingMessage, url: URL, token?: string, tokenExpiresAt?: string): boolean {
   if (!token) return true;
   if (tokenExpiresAt && isExpired(tokenExpiresAt)) return false;
-  if (url.searchParams.get("gptprouse_token") === token) return true;
+  if (url.searchParams.get("prodex_token") === token) return true;
   const authorization = headerValue(req.headers.authorization);
   return authorization === `Bearer ${token}`;
 }

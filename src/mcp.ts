@@ -36,7 +36,7 @@ function asText(value: unknown) {
 }
 
 export function createServer(cwd = process.cwd(), options: CreateMcpServerOptions = {}): McpServer {
-  const server = new McpServer({ name: "gptprouse", version: "0.2.0" });
+  const server = new McpServer({ name: "prodex", version: "0.2.0" });
   const handlers = createMcpToolHandlers({ cwd, source: options.source, claimedBy: options.claimedBy });
 
   server.registerTool(

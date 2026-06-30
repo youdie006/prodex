@@ -26,7 +26,7 @@ export type TokenExpiryStatus =
   | { status: "valid"; token_expires_at: string; warning?: undefined }
   | { status: "expired"; token_expires_at: string; warning: string };
 
-const LOCAL_CONFIG_CORRUPT_MESSAGE = "local MCP config is corrupt. Run `gptprouse setup` to replace .bridge/config.local.json.";
+const LOCAL_CONFIG_CORRUPT_MESSAGE = "local MCP config is corrupt. Run `prodex setup` to replace .bridge/config.local.json.";
 
 class LocalConfigCorruptError extends Error {
   constructor(cause: unknown) {
@@ -47,7 +47,7 @@ export function localConfigPath(cwd: string): string {
 }
 
 export function makeServerUrl(host: string, port: number, token: string): string {
-  return `http://${host}:${port}/mcp?gptprouse_token=${encodeURIComponent(token)}`;
+  return `http://${host}:${port}/mcp?prodex_token=${encodeURIComponent(token)}`;
 }
 
 export function normalizeLoopbackHttpHost(host: string): string {
@@ -56,7 +56,7 @@ export function normalizeLoopbackHttpHost(host: string): string {
   const isIpv4Loopback = isIP(normalized) === 4 && normalized.startsWith("127.");
   if (isLocalhost || isIpv4Loopback) return normalized;
   throw new Error(
-    "HTTP MCP host must be loopback-only, such as 127.0.0.1 or localhost. Keep gptprouse local and put your own tunnel in front of it when needed."
+    "HTTP MCP host must be loopback-only, such as 127.0.0.1 or localhost. Keep prodex local and put your own tunnel in front of it when needed."
   );
 }
 
@@ -119,14 +119,14 @@ export function getTokenExpiryStatus(config: Pick<LocalConfig, "token_expires_at
   if (!config.token_expires_at) {
     return {
       status: "non_expiring",
-      warning: "Token has no expiry. Keep this local-only, or rerun `gptprouse setup --token-ttl-hours <hours>` before using a tunnel."
+      warning: "Token has no expiry. Keep this local-only, or rerun `prodex setup --token-ttl-hours <hours>` before using a tunnel."
     };
   }
   return isTokenExpired(config.token_expires_at, now)
     ? {
         status: "expired",
         token_expires_at: config.token_expires_at,
-        warning: `Token expired at ${config.token_expires_at}. Run \`gptprouse setup\` to create a new URL.`
+        warning: `Token expired at ${config.token_expires_at}. Run \`prodex setup\` to create a new URL.`
       }
     : { status: "valid", token_expires_at: config.token_expires_at };
 }
@@ -157,13 +157,13 @@ function isTokenExpired(tokenExpiresAt: string, now: Date): boolean {
 
 function assertServerUrlMatchesConfig(config: LocalConfig): void {
   const serverUrl = new URL(config.server_url);
-  const tokenParams = serverUrl.searchParams.getAll("gptprouse_token");
+  const tokenParams = serverUrl.searchParams.getAll("prodex_token");
   const hostMatches = normalizeLoopbackHttpHost(serverUrl.hostname) === normalizeLoopbackHttpHost(config.host);
   const portMatches = effectiveUrlPort(serverUrl) === config.port;
   const tokenMatches = tokenParams.length === 1 && tokenParams[0] === config.token;
   const shapeMatches = serverUrl.protocol === "http:" && serverUrl.pathname === "/mcp" && Array.from(serverUrl.searchParams.keys()).length === 1;
   if (!hostMatches || !portMatches || !tokenMatches || !shapeMatches) {
-    throw new Error(".bridge/config.local.json server_url must match host, port, and token. Run `gptprouse setup` to replace it.");
+    throw new Error(".bridge/config.local.json server_url must match host, port, and token. Run `prodex setup` to replace it.");
   }
 }
 

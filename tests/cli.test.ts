@@ -23,7 +23,7 @@ describe("runCli", () => {
   });
 
   it("prints the package version from version commands and help", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     const packageJson = JSON.parse(await readFile(path.resolve(import.meta.dirname, "..", "package.json"), "utf8")) as {
       version: string;
     };
@@ -37,27 +37,27 @@ describe("runCli", () => {
 
     expect(versionOut).toEqual([packageJson.version]);
     expect(aliasOut).toEqual([packageJson.version]);
-    expect(helpOut.join("\n")).toContain(`gptprouse v${packageJson.version}`);
+    expect(helpOut.join("\n")).toContain(`prodex v${packageJson.version}`);
   });
 
   it("guides unknown top-level commands to help with close-match suggestions", async () => {
     const cases = [
       {
         args: ["statuz"],
-        expected: "Unknown command: statuz. Did you mean `gptprouse status`? Run `gptprouse help`."
+        expected: "Unknown command: statuz. Did you mean `prodex status`? Run `prodex help`."
       },
       {
         args: ["relase"],
-        expected: "Unknown command: relase. Did you mean `gptprouse release`? Run `gptprouse help`."
+        expected: "Unknown command: relase. Did you mean `prodex release`? Run `prodex help`."
       },
       {
         args: ["wat"],
-        expected: "Unknown command: wat. Run `gptprouse help`."
+        expected: "Unknown command: wat. Run `prodex help`."
       }
     ];
 
     for (const item of cases) {
-      const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+      const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
       await expect(
         runCli(item.args, {
           cwd,
@@ -73,31 +73,31 @@ describe("runCli", () => {
       {
         args: ["tasks", "lst"],
         expected:
-          "Unknown tasks subcommand: lst. Did you mean `gptprouse tasks list`? Expected one of: create, list, show, claim, complete, block. Run `gptprouse tasks --help`."
+          "Unknown tasks subcommand: lst. Did you mean `prodex tasks list`? Expected one of: create, list, show, claim, complete, block. Run `prodex tasks --help`."
       },
       {
         args: ["release", "stats"],
         expected:
-          "Unknown release subcommand: stats. Did you mean `gptprouse release status`? Expected one of: status, pack. Run `gptprouse release --help`."
+          "Unknown release subcommand: stats. Did you mean `prodex release status`? Expected one of: status, pack. Run `prodex release --help`."
       },
       {
         args: ["pro", "brower"],
         expected:
-          "Unknown pro subcommand: brower. Did you mean `gptprouse pro browser`? Expected one of: ask, browser, list, latest, show. Run `gptprouse pro --help`."
+          "Unknown pro subcommand: brower. Did you mean `prodex pro browser`? Expected one of: ask, browser, list, latest, show. Run `prodex pro --help`."
       },
       {
         args: ["pro", "browser", "chek"],
         expected:
-          "Unknown pro browser subcommand: chek. Did you mean `gptprouse pro browser check`? Expected one of: login, ask, smoke, check. Run `gptprouse pro browser --help`."
+          "Unknown pro browser subcommand: chek. Did you mean `prodex pro browser check`? Expected one of: login, ask, smoke, check. Run `prodex pro browser --help`."
       },
       {
         args: ["tasks", "wat"],
-        expected: "Unknown tasks subcommand: wat. Expected one of: create, list, show, claim, complete, block. Run `gptprouse tasks --help`."
+        expected: "Unknown tasks subcommand: wat. Expected one of: create, list, show, claim, complete, block. Run `prodex tasks --help`."
       }
     ];
 
     for (const item of cases) {
-      const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+      const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
       await expect(
         runCli(item.args, {
           cwd,
@@ -137,7 +137,7 @@ describe("runCli", () => {
     ];
 
     for (const item of cases) {
-      const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+      const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
       await expect(
         runCli(item.args, {
           cwd,
@@ -152,16 +152,16 @@ describe("runCli", () => {
     const cases = [
       {
         args: ["chatgpt", "--help"],
-        expected: "The legacy `chatgpt` namespace is hidden. Use `gptprouse pro browser help` for visible-browser commands."
+        expected: "The legacy `chatgpt` namespace is hidden. Use `prodex pro browser help` for visible-browser commands."
       },
       {
         args: ["chatgpt", "verify"],
-        expected: "Unknown legacy chatgpt subcommand: verify. Use `gptprouse pro browser help` for visible-browser commands."
+        expected: "Unknown legacy chatgpt subcommand: verify. Use `prodex pro browser help` for visible-browser commands."
       }
     ];
 
     for (const item of cases) {
-      const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+      const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
       await expect(
         runCli(item.args, {
           cwd,
@@ -173,7 +173,7 @@ describe("runCli", () => {
   });
 
   it("creates and lists tasks", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     const out: string[] = [];
 
     await runCli(["init"], { cwd, stdout: (line) => out.push(line), stderr: () => {} });
@@ -188,7 +188,7 @@ describe("runCli", () => {
   });
 
   it("shows task details by id or latest", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     await writeFile(path.join(cwd, "plan.md"), "plan\n", "utf8");
     const createOut: string[] = [];
 
@@ -226,7 +226,7 @@ describe("runCli", () => {
   });
 
   it("uses task ids as the latest tie-breaker when showing latest task details", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     const store = new BridgeStore(cwd);
     await store.ensure();
     const lowerId = {
@@ -264,7 +264,7 @@ describe("runCli", () => {
   });
 
   it("blocks tasks with a durable blocker result", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     const createOut: string[] = [];
     const blockOut: string[] = [];
 
@@ -285,7 +285,7 @@ describe("runCli", () => {
         "--code",
         "browser_login_required",
         "--next-step",
-        "Run gptprouse pro browser login.",
+        "Run prodex pro browser login.",
         "--retryable"
       ],
       {
@@ -307,12 +307,12 @@ describe("runCli", () => {
       code: "browser_login_required",
       message: "Visible browser login is required.",
       retryable: true,
-      next_step: "Run gptprouse pro browser login."
+      next_step: "Run prodex pro browser login."
     });
   });
 
   it("rejects invalid task status filters", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
 
     await expect(
       runCli(["tasks", "list", "--status", "claimeed"], {
@@ -324,7 +324,7 @@ describe("runCli", () => {
   });
 
   it("rejects unknown task list options", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
 
     await expect(
       runCli(["tasks", "list", "--stauts", "blocked"], {
@@ -336,7 +336,7 @@ describe("runCli", () => {
   });
 
   it("rejects unknown options and extra arguments for task mutation commands", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     const createOut: string[] = [];
     await runCli(["tasks", "create", "--title", "Review", "--prompt", "Review the plan"], {
       cwd,
@@ -383,7 +383,7 @@ describe("runCli", () => {
   });
 
   it("completes tasks with fetchable result artifacts", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     const createOut: string[] = [];
     await runCli(["tasks", "create", "--title", "Artifact result", "--prompt", "Return an artifact"], {
       cwd,
@@ -401,7 +401,7 @@ describe("runCli", () => {
         "--summary",
         "See result artifact.",
         "--artifact",
-        ".bridge/artifacts/results/mcp-verification.md=gptprouse MCP verification artifact"
+        ".bridge/artifacts/results/mcp-verification.md=prodex MCP verification artifact"
       ],
       {
         cwd,
@@ -428,15 +428,15 @@ describe("runCli", () => {
       expect.objectContaining({
         path: ".bridge/artifacts/results/mcp-verification.md",
         role: "result",
-        sha256: "3fadb4358e6b3c6a325fa673a896ed906f08cee6fd0742e77b3c7f5ee95d36b2"
+        sha256: "719579455e8833ee0595949c410a2b652cb08f8b786919216533cfc571bfc35a"
       })
     ]);
-    expect(artifactOut.join("\n")).toBe("gptprouse MCP verification artifact");
+    expect(artifactOut.join("\n")).toBe("prodex MCP verification artifact");
   });
 
   it("completes tasks in an explicit cwd from a launcher directory", async () => {
-    const launcherCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-launcher-"));
-    const targetCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-target-"));
+    const launcherCwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-launcher-"));
+    const targetCwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-target-"));
     const createOut: string[] = [];
     await runCli(["tasks", "create", "--title", "Target task", "--prompt", "Complete in target"], {
       cwd: targetCwd,
@@ -470,8 +470,8 @@ describe("runCli", () => {
   });
 
   it("creates tasks in an explicit cwd from a launcher directory", async () => {
-    const launcherCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-launcher-"));
-    const targetCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-target-"));
+    const launcherCwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-launcher-"));
+    const targetCwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-target-"));
     const createOut: string[] = [];
 
     await runCli(["tasks", "create", "--cwd", targetCwd, "--title", "Target create", "--prompt", "Create in target"], {
@@ -493,8 +493,8 @@ describe("runCli", () => {
   });
 
   it("claims tasks in an explicit cwd from a launcher directory", async () => {
-    const launcherCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-launcher-"));
-    const targetCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-target-"));
+    const launcherCwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-launcher-"));
+    const targetCwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-target-"));
     const createOut: string[] = [];
     await runCli(["tasks", "create", "--title", "Target claim", "--prompt", "Claim in target"], {
       cwd: targetCwd,
@@ -521,8 +521,8 @@ describe("runCli", () => {
   });
 
   it("blocks tasks in an explicit cwd from a launcher directory", async () => {
-    const launcherCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-launcher-"));
-    const targetCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-target-"));
+    const launcherCwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-launcher-"));
+    const targetCwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-target-"));
     const createOut: string[] = [];
     await runCli(["tasks", "create", "--title", "Target block", "--prompt", "Block in target"], {
       cwd: targetCwd,
@@ -549,7 +549,7 @@ describe("runCli", () => {
   });
 
   it("lists available result artifact paths when CLI artifact fetch omits a path for multiple artifacts", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     const createOut: string[] = [];
     await runCli(["tasks", "create", "--title", "Multiple artifacts", "--prompt", "Return multiple artifacts"], {
       cwd,
@@ -589,7 +589,7 @@ describe("runCli", () => {
   });
 
   it("rejects unknown setup, start, status, and browser options", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
 
     await expect(
       runCli(["setup", "--token-ttl-hour", "24"], {
@@ -643,7 +643,7 @@ describe("runCli", () => {
   });
 
   it("reports missing --cwd targets with a friendly CLI error", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     const missing = path.join(cwd, "missing-repo");
 
     await expect(
@@ -663,7 +663,7 @@ describe("runCli", () => {
   });
 
   it("reports file-valued --cwd targets with a friendly CLI error", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     const fileCwd = path.join(cwd, "not-a-repo-dir.txt");
     await writeFile(fileCwd, "not a directory\n", "utf8");
 
@@ -684,7 +684,7 @@ describe("runCli", () => {
   });
 
   it("rejects extra arguments for show commands", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     const store = new BridgeStore(cwd);
     const task = await store.createTask({
       source: "codex",
@@ -720,7 +720,7 @@ describe("runCli", () => {
   });
 
   it("does not show raw result records without a trusted completion receipt", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     const store = new BridgeStore(cwd);
     const task = await store.createTask({
       source: "codex",
@@ -768,8 +768,8 @@ describe("runCli", () => {
   });
 
   it("keeps explicit cwd in untrusted result reseal guidance", async () => {
-    const launcherCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-launcher-"));
-    const targetCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-target-"));
+    const launcherCwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-launcher-"));
+    const targetCwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-target-"));
     const store = new BridgeStore(targetCwd);
     const task = await store.createTask({
       source: "codex",
@@ -804,11 +804,11 @@ describe("runCli", () => {
         stdout: () => {},
         stderr: () => {}
       })
-    ).rejects.toThrow(`gptprouse results reseal ${task.id} --confirm-current-result --cwd ${targetCwd}`);
+    ).rejects.toThrow(`prodex results reseal ${task.id} --confirm-current-result --cwd ${targetCwd}`);
   });
 
   it("lists untrusted Pro result metadata without showing raw answer text", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     const store = new BridgeStore(cwd);
     const trusted = await store.createTask({
       source: "codex",
@@ -826,7 +826,7 @@ describe("runCli", () => {
         code: "browser_login_required",
         message: "Visible browser login is required.",
         retryable: true,
-        next_step: "Run gptprouse pro browser login."
+        next_step: "Run prodex pro browser login."
       }
     });
     const untrusted = await store.createTask({
@@ -871,7 +871,7 @@ describe("runCli", () => {
   });
 
   it("reads the latest trusted Pro answer even when older Pro history is untrusted", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     const store = new BridgeStore(cwd);
     const untrusted = await store.createTask({
       source: "codex",
@@ -933,7 +933,7 @@ describe("runCli", () => {
   });
 
   it("points untrusted legacy Pro inspection errors at the explicit reseal command", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     const store = new BridgeStore(cwd);
     const task = await store.createTask({
       source: "codex",
@@ -963,11 +963,11 @@ describe("runCli", () => {
         stdout: () => {},
         stderr: () => {}
       })
-    ).rejects.toThrow(`gptprouse results reseal ${task.id} --confirm-current-result`);
+    ).rejects.toThrow(`prodex results reseal ${task.id} --confirm-current-result`);
   });
 
   it("prints source-checkout reseal commands for untrusted Pro inspection errors", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     const sourceCli = path.join(cwd, "dist", "cli.js");
     await mkdir(path.dirname(sourceCli), { recursive: true });
     await writeFile(sourceCli, "#!/usr/bin/env node\n", "utf8");
@@ -1002,7 +1002,7 @@ describe("runCli", () => {
     });
 
     expect(out.join("\n")).toContain(`node ${sourceCli} results reseal ${task.id} --confirm-current-result`);
-    expect(out.join("\n")).not.toContain(`gptprouse results reseal ${task.id}`);
+    expect(out.join("\n")).not.toContain(`prodex results reseal ${task.id}`);
     await expect(
       runCli(["pro", "latest", "--source-cli", sourceCli], {
         cwd,
@@ -1013,7 +1013,7 @@ describe("runCli", () => {
   });
 
   it("reseals a locally signed legacy result only after explicit confirmation", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     const store = new BridgeStore(cwd);
     const task = await store.createTask({
       source: "codex",
@@ -1071,11 +1071,11 @@ describe("runCli", () => {
   });
 
   it("runs stdio MCP against an explicit --cwd target instead of the process cwd", async () => {
-    const launcherCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-launcher-"));
-    const targetCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-mcp-target-"));
+    const launcherCwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-launcher-"));
+    const targetCwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-target-"));
     const cliPath = path.resolve(import.meta.dirname, "..", "src", "cli.ts");
     const tsxLoader = requireFromTest.resolve("tsx");
-    const client = new Client({ name: "gptprouse-cli-test", version: "0.2.0" });
+    const client = new Client({ name: "prodex-cli-test", version: "0.2.0" });
     const transport = new StdioClientTransport({
       command: process.execPath,
       args: ["--import", tsxLoader, cliPath, "mcp", "--cwd", targetCwd],
@@ -1098,7 +1098,7 @@ describe("runCli", () => {
   }, 20_000);
 
   it("rejects flags that are missing required values", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
 
     await expect(
       runCli(["tasks", "create", "--title", "--prompt", "Review the plan"], {
@@ -1110,7 +1110,7 @@ describe("runCli", () => {
   });
 
   it("rejects numeric flags that are not finite numbers", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
 
     await expect(
       runCli(["setup", "--port", "not-a-number"], {
@@ -1130,7 +1130,7 @@ describe("runCli", () => {
   });
 
   it("rejects out-of-range numeric flags before side effects", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     const out: string[] = [];
 
     await expect(
@@ -1191,7 +1191,7 @@ describe("runCli", () => {
   });
 
   it("adds missing build output ignores even when dependencies are already ignored", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     await writeFile(path.join(cwd, ".gitignore"), "node_modules/\n", "utf8");
 
     await runCli(["init"], { cwd, stdout: () => {}, stderr: () => {} });
@@ -1202,8 +1202,8 @@ describe("runCli", () => {
   });
 
   it("uses an explicit --cwd target for init", async () => {
-    const launcherCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-launcher-"));
-    const targetCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-target-"));
+    const launcherCwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-launcher-"));
+    const targetCwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-target-"));
     const out: string[] = [];
 
     await runCli(["init", "--cwd", targetCwd], {
@@ -1218,8 +1218,8 @@ describe("runCli", () => {
   });
 
   it("rejects init when the root gitignore is a symlink", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
-    const outside = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-outside-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
+    const outside = await mkdtemp(path.join(tmpdir(), "prodex-cli-outside-"));
     const outsideGitignore = path.join(outside, ".gitignore");
     await writeFile(outsideGitignore, "outside\n", "utf8");
     await symlink(outsideGitignore, path.join(cwd, ".gitignore"));
@@ -1235,7 +1235,7 @@ describe("runCli", () => {
   });
 
   it("prints ask-pro dry-run bundles", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     await writeFile(path.join(cwd, "notes.md"), "hello\n", "utf8");
     const out: string[] = [];
 
@@ -1249,7 +1249,7 @@ describe("runCli", () => {
   });
 
   it("rejects unknown ask-pro flags before they become prompt text", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
 
     await expect(
       runCli(["ask-pro", "--dry-run", "--fil", "notes.md", "Check this"], {
@@ -1261,7 +1261,7 @@ describe("runCli", () => {
   });
 
   it("rejects unknown short ask-pro flags before they become prompt text", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
 
     await expect(
       runCli(["ask-pro", "--dry-run", "-n", "Check this"], {
@@ -1273,7 +1273,7 @@ describe("runCli", () => {
   });
 
   it("allows prompt text that looks like flags after a double dash", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     const out: string[] = [];
 
     await runCli(["ask-pro", "--dry-run", "--", "Explain", "--strict", "mode"], {
@@ -1288,7 +1288,7 @@ describe("runCli", () => {
   });
 
   it("keeps pro ask dry-run mode when prompt text after double dash contains mode-like flags", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     const out: string[] = [];
 
     await runCli(["pro", "ask", "--", "--send", "hello"], {
@@ -1303,7 +1303,7 @@ describe("runCli", () => {
   });
 
   it("records ask-pro dry-run previews as consult sessions", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     const out: string[] = [];
 
     await runCli(["ask-pro", "--dry-run", "Check this"], {
@@ -1329,7 +1329,7 @@ describe("runCli", () => {
   });
 
   it("lists and shows consult sessions", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     const previewOut: string[] = [];
 
     await runCli(["ask-pro", "--dry-run", "Check this"], {
@@ -1380,7 +1380,7 @@ describe("runCli", () => {
   });
 
   it("lists and shows receipts with legacy inline write content redacted", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     const store = new BridgeStore(cwd);
     await store.writeReceipt({
       task_id: "task_20990101_000000_other",
@@ -1433,7 +1433,7 @@ describe("runCli", () => {
   });
 
   it("marks unsigned forged receipts as untrusted in inspection output", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     const forgedReceiptId = "receipt_20990101_000000_forged-inspection";
     await mkdir(path.join(cwd, ".bridge", "receipts"), { recursive: true });
     await writeFile(
@@ -1478,7 +1478,7 @@ describe("runCli", () => {
   });
 
   it("rejects invalid receipt kind filters", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
 
     await expect(
       runCli(["receipts", "list", "--kind", "not_a_receipt"], {
@@ -1490,7 +1490,7 @@ describe("runCli", () => {
   });
 
   it("rejects unknown receipt list options", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
 
     await expect(
       runCli(["receipts", "list", "--kinnd", "repo_write_dry_run"], {
@@ -1502,7 +1502,7 @@ describe("runCli", () => {
   });
 
   it("filters listed sessions by status", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     const previewOut: string[] = [];
     const blockedOut: string[] = [];
 
@@ -1540,7 +1540,7 @@ describe("runCli", () => {
   });
 
   it("rejects invalid session status filters", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
 
     await expect(
       runCli(["sessions", "list", "--status", "runnning"], {
@@ -1552,7 +1552,7 @@ describe("runCli", () => {
   });
 
   it("rejects unknown session list options", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
 
     await expect(
       runCli(["sessions", "list", "--stats", "blocked"], {
@@ -1564,7 +1564,7 @@ describe("runCli", () => {
   });
 
   it("ignores legacy invalid session filenames when listing sessions", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     const previewOut: string[] = [];
 
     await runCli(["ask-pro", "--dry-run", "Check this"], {
@@ -1587,7 +1587,7 @@ describe("runCli", () => {
   });
 
   it("prints ask-pro dry-run bundles when optional session recording fails", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     setSafeFileTestHooks({
       beforeOpen: (filePath, operation) => {
         if (operation === "write" && filePath.includes(`${path.sep}.sess_`)) {
@@ -1615,7 +1615,7 @@ describe("runCli", () => {
   });
 
   it("lists and shows GPT Pro answers with the short pro command", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     const out: string[] = [];
     const store = new BridgeStore(cwd);
     const task = await store.createTask({
@@ -1642,7 +1642,7 @@ describe("runCli", () => {
   });
 
   it("surfaces corrupt GPT Pro result records instead of hiding them as not found", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     const store = new BridgeStore(cwd);
     const task = await store.createTask({
       source: "codex",
@@ -1669,7 +1669,7 @@ describe("runCli", () => {
   });
 
   it("surfaces missing GPT Pro result files instead of hiding terminal consult tasks", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     const store = new BridgeStore(cwd);
     const task = await store.createTask({
       source: "codex",
@@ -1703,7 +1703,7 @@ describe("runCli", () => {
   });
 
   it("surfaces orphan GPT Pro result files instead of hiding newer consult answers", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     const store = new BridgeStore(cwd);
     const olderTask = await store.createTask({
       source: "codex",
@@ -1751,7 +1751,7 @@ describe("runCli", () => {
   });
 
   it("does not treat user-controlled task titles or commands as GPT Pro consult provenance", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     const store = new BridgeStore(cwd);
     const realConsult = await store.createTask({
       source: "codex",
@@ -1793,7 +1793,7 @@ describe("runCli", () => {
   });
 
   it("reports corrupt bridge records with repair hints", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     const fixtures = [
       {
         dir: "tasks",
@@ -1846,7 +1846,7 @@ describe("runCli", () => {
   });
 
   it("reports schema-invalid bridge records with repair hints", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     const taskId = "task_20990101_000000_invalid-schema";
     await mkdir(path.join(cwd, ".bridge", "tasks"), { recursive: true });
     await writeFile(
@@ -1889,7 +1889,7 @@ describe("runCli", () => {
   });
 
   it("prints result artifact content only from result records", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     const store = new BridgeStore(cwd);
     const task = await store.createTask({
       source: "codex",
@@ -1915,7 +1915,7 @@ describe("runCli", () => {
   });
 
   it("prints the latest result artifact content", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     const store = new BridgeStore(cwd);
     const task = await store.createTask({
       source: "codex",
@@ -1941,7 +1941,7 @@ describe("runCli", () => {
   });
 
   it("rejects result artifact content changed after finalization", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     const store = new BridgeStore(cwd);
     const task = await store.createTask({
       source: "codex",
@@ -1967,7 +1967,7 @@ describe("runCli", () => {
   });
 
   it("shows result details by id or latest", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     const firstCreateOut: string[] = [];
     const byIdOut: string[] = [];
     const latestShowOut: string[] = [];
@@ -2018,7 +2018,7 @@ describe("runCli", () => {
   });
 
   it("keeps pro ask as a dry-run preview", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     await writeFile(path.join(cwd, "notes.md"), "manual bridge first\n", "utf8");
     const out: string[] = [];
 
@@ -2035,8 +2035,8 @@ describe("runCli", () => {
   });
 
   it("runs pro ask previews against explicit --cwd without launcher bridge side effects", async () => {
-    const launcherCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-launcher-"));
-    const targetCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-target-"));
+    const launcherCwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-launcher-"));
+    const targetCwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-target-"));
     await writeFile(path.join(targetCwd, "notes.md"), "target project notes\n", "utf8");
     const out: string[] = [];
 
@@ -2055,7 +2055,7 @@ describe("runCli", () => {
   });
 
   it("rejects browser send mode on the pro ask preview alias without bridge side effects", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
 
     await expect(
       runCli(["pro", "ask", "--send", "--timeout-ms", "1", "Review this"], {
@@ -2069,7 +2069,7 @@ describe("runCli", () => {
   });
 
   it("rejects source checkout flags on the pro ask preview alias without bridge side effects", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     const sourceCli = path.join(cwd, "dist", "cli.js");
     await mkdir(path.dirname(sourceCli), { recursive: true });
     await writeFile(sourceCli, "console.log('cli')\n", "utf8");
@@ -2096,7 +2096,7 @@ describe("runCli", () => {
     ];
 
     for (const testCase of cases) {
-      const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+      const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
 
       await expect(
         runCli(testCase.command, {
@@ -2120,7 +2120,7 @@ describe("runCli", () => {
     ];
 
     for (const testCase of cases) {
-      const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+      const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
 
       await expect(
         runCli(testCase.command, {
@@ -2158,7 +2158,7 @@ describe("runCli", () => {
     ];
 
     for (const command of commands) {
-      const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+      const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
       await runCli(command, { cwd, stdout: () => {}, stderr: () => {} }).catch(() => undefined);
 
       expect(await readdir(cwd), command.join(" ")).not.toContain(".bridge");
@@ -2166,8 +2166,8 @@ describe("runCli", () => {
   });
 
   it("uses an explicit --cwd target for bridge inspection commands", async () => {
-    const launcherCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-launcher-"));
-    const targetCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-target-"));
+    const launcherCwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-launcher-"));
+    const targetCwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-target-"));
     const store = new BridgeStore(targetCwd);
     const task = await store.createTask({
       source: "codex",
@@ -2232,7 +2232,7 @@ describe("runCli", () => {
   });
 
   it("keeps existing bridge inspection commands read-only", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     await runCli(["init"], { cwd, stdout: () => {}, stderr: () => {} });
     const receipt = await new BridgeStore(cwd).writeReceipt({ kind: "consult_preview", summary: "Keep temp links" });
     const receiptPath = path.join(cwd, ".bridge", "receipts", `${receipt.id}.json`);
@@ -2246,7 +2246,7 @@ describe("runCli", () => {
   });
 
   it("does not hide task data when an unrelated bridge directory is missing", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     await runCli(["tasks", "create", "--title", "Visible task", "--prompt", "Read this"], {
       cwd,
       stdout: () => {},
@@ -2261,7 +2261,7 @@ describe("runCli", () => {
   });
 
   it("rejects the legacy consults alias in favor of pro commands without bridge side effects", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
 
     await expect(
       runCli(["consults", "list"], {
@@ -2269,13 +2269,13 @@ describe("runCli", () => {
         stdout: () => {},
         stderr: () => {}
       })
-    ).rejects.toThrow(/gptprouse pro list/);
+    ).rejects.toThrow(/prodex pro list/);
 
     expect(await readdir(cwd)).not.toContain(".bridge");
   });
 
   it("labels pro ask as a dry-run preview in help", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     const out: string[] = [];
 
     await runCli(["help"], {
@@ -2285,23 +2285,23 @@ describe("runCli", () => {
     });
 
     const text = out.join("\n");
-    expect(text).toContain('gptprouse pro ask [--dry-run] [--cwd /absolute/path/to/repo] [--file path] "prompt"  # dry-run preview');
+    expect(text).toContain('prodex pro ask [--dry-run] [--cwd /absolute/path/to/repo] [--file path] "prompt"  # dry-run preview');
     expect(text).toContain(
-      "gptprouse pro browser login [--cwd /absolute/path/to/repo] [--dry-run] [--source-cli /absolute/path/to/dist/cli.js] [--profile-dir path] [--port 9333] [--url https://chatgpt.com/...] [--launch-timeout-ms 5000]  # preview/open visible browser login"
+      "prodex pro browser login [--cwd /absolute/path/to/repo] [--dry-run] [--source-cli /absolute/path/to/dist/cli.js] [--profile-dir path] [--port 9333] [--url https://chatgpt.com/...] [--launch-timeout-ms 5000]  # preview/open visible browser login"
     );
     expect(text).toContain(
-      "gptprouse pro browser check [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 1500]"
+      "prodex pro browser check [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 1500]"
     );
     expect(text).toContain(
-      "gptprouse pro browser smoke [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 90000]"
+      "prodex pro browser smoke [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 90000]"
     );
     expect(text).toContain(
-      'gptprouse pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 90000] [--target-url url --confirm-target] [--file path] "prompt"  # explicit visible-browser send'
+      'prodex pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 90000] [--target-url url --confirm-target] [--file path] "prompt"  # explicit visible-browser send'
     );
-    expect(text).toContain("gptprouse pro latest [--source-cli /absolute/path/to/dist/cli.js]");
-    expect(text).toContain("gptprouse pro list [--source-cli /absolute/path/to/dist/cli.js]");
-    expect(text).toContain("gptprouse pro show <task-id|latest> [--source-cli /absolute/path/to/dist/cli.js]");
-    expect(text).not.toContain("gptprouse pro latest|list|show <task-id|latest>");
+    expect(text).toContain("prodex pro latest [--source-cli /absolute/path/to/dist/cli.js]");
+    expect(text).toContain("prodex pro list [--source-cli /absolute/path/to/dist/cli.js]");
+    expect(text).toContain("prodex pro show <task-id|latest> [--source-cli /absolute/path/to/dist/cli.js]");
+    expect(text).not.toContain("prodex pro latest|list|show <task-id|latest>");
   });
 
   it("prints pro-specific help from pro --help and bare pro", async () => {
@@ -2309,7 +2309,7 @@ describe("runCli", () => {
       ["pro", "--help"],
       ["pro"]
     ]) {
-      const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+      const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
       const out: string[] = [];
 
       const code = await runCli(args, {
@@ -2320,12 +2320,12 @@ describe("runCli", () => {
 
       const text = out.join("\n");
       expect(code).toBe(0);
-      expect(text).toContain("gptprouse pro");
-      expect(text).toContain('gptprouse pro ask [--dry-run] [--cwd /absolute/path/to/repo] [--file path] "prompt"');
-      expect(text).toContain("gptprouse pro browser help");
-      expect(text).toContain("gptprouse pro latest [--source-cli /absolute/path/to/dist/cli.js]");
-      expect(text).toContain("gptprouse pro list [--source-cli /absolute/path/to/dist/cli.js]");
-      expect(text).toContain("gptprouse pro show <task-id|latest> [--source-cli /absolute/path/to/dist/cli.js]");
+      expect(text).toContain("prodex pro");
+      expect(text).toContain('prodex pro ask [--dry-run] [--cwd /absolute/path/to/repo] [--file path] "prompt"');
+      expect(text).toContain("prodex pro browser help");
+      expect(text).toContain("prodex pro latest [--source-cli /absolute/path/to/dist/cli.js]");
+      expect(text).toContain("prodex pro list [--source-cli /absolute/path/to/dist/cli.js]");
+      expect(text).toContain("prodex pro show <task-id|latest> [--source-cli /absolute/path/to/dist/cli.js]");
     }
   });
 
@@ -2333,71 +2333,71 @@ describe("runCli", () => {
     const cases = [
       {
         args: ["project"],
-        header: "gptprouse project",
-        commands: ["gptprouse project prompt [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]"]
+        header: "prodex project",
+        commands: ["prodex project prompt [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]"]
       },
       {
         args: ["project", "--help"],
-        header: "gptprouse project",
-        commands: ["gptprouse project prompt [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]"]
+        header: "prodex project",
+        commands: ["prodex project prompt [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]"]
       },
       {
         args: ["claude"],
-        header: "gptprouse claude",
+        header: "prodex claude",
         commands: [
-          "gptprouse claude prompt [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]",
-          "gptprouse claude config [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]"
+          "prodex claude prompt [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]",
+          "prodex claude config [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]"
         ]
       },
       {
         args: ["claude", "--help"],
-        header: "gptprouse claude",
+        header: "prodex claude",
         commands: [
-          "gptprouse claude prompt [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]",
-          "gptprouse claude config [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]"
+          "prodex claude prompt [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]",
+          "prodex claude config [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]"
         ]
       },
       {
         args: ["tasks"],
-        header: "gptprouse tasks",
+        header: "prodex tasks",
         commands: [
-          'gptprouse tasks create [--cwd /absolute/path/to/repo] --title "Title"',
-          "gptprouse tasks list",
-          "gptprouse tasks show <task-id|latest>"
+          'prodex tasks create [--cwd /absolute/path/to/repo] --title "Title"',
+          "prodex tasks list",
+          "prodex tasks show <task-id|latest>"
         ]
       },
       {
         args: ["tasks", "--help"],
-        header: "gptprouse tasks",
+        header: "prodex tasks",
         commands: [
-          "gptprouse tasks claim <task-id> [--cwd /absolute/path/to/repo]",
-          "gptprouse tasks complete <task-id>",
-          "gptprouse tasks block <task-id> [--cwd /absolute/path/to/repo]"
+          "prodex tasks claim <task-id> [--cwd /absolute/path/to/repo]",
+          "prodex tasks complete <task-id>",
+          "prodex tasks block <task-id> [--cwd /absolute/path/to/repo]"
         ]
       },
       {
         args: ["results"],
-        header: "gptprouse results",
+        header: "prodex results",
         commands: [
-          "gptprouse results show <task-id|latest>",
-          "gptprouse results artifact <task-id|latest> [artifact-path]",
-          "gptprouse results reseal <task-id|latest> --confirm-current-result"
+          "prodex results show <task-id|latest>",
+          "prodex results artifact <task-id|latest> [artifact-path]",
+          "prodex results reseal <task-id|latest> --confirm-current-result"
         ]
       },
       {
         args: ["receipts", "--help"],
-        header: "gptprouse receipts",
-        commands: ["gptprouse receipts list [--kind kind] [--task-id task-id]", "gptprouse receipts show <receipt-id|latest>"]
+        header: "prodex receipts",
+        commands: ["prodex receipts list [--kind kind] [--task-id task-id]", "prodex receipts show <receipt-id|latest>"]
       },
       {
         args: ["sessions"],
-        header: "gptprouse sessions",
-        commands: ["gptprouse sessions list [--status preview|running|done|blocked]", "gptprouse sessions show <session-id|latest>"]
+        header: "prodex sessions",
+        commands: ["prodex sessions list [--status preview|running|done|blocked]", "prodex sessions show <session-id|latest>"]
       }
     ];
 
     for (const item of cases) {
-      const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+      const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
       const out: string[] = [];
 
       const code = await runCli(item.args, {
@@ -2419,55 +2419,55 @@ describe("runCli", () => {
     const cases = [
       {
         args: ["init", "--help"],
-        header: "gptprouse init",
-        commands: ["gptprouse init [--cwd /absolute/path/to/repo]"]
+        header: "prodex init",
+        commands: ["prodex init [--cwd /absolute/path/to/repo]"]
       },
       {
         args: ["setup", "--help"],
-        header: "gptprouse setup",
-        commands: ["gptprouse setup [--cwd /absolute/path/to/repo] [--host 127.0.0.1] [--port 8787] [--token-ttl-hours <hours>]"]
+        header: "prodex setup",
+        commands: ["prodex setup [--cwd /absolute/path/to/repo] [--host 127.0.0.1] [--port 8787] [--token-ttl-hours <hours>]"]
       },
       {
         args: ["start", "--help"],
-        header: "gptprouse start",
-        commands: ["gptprouse start [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]"]
+        header: "prodex start",
+        commands: ["prodex start [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]"]
       },
       {
         args: ["status", "--help"],
-        header: "gptprouse status",
+        header: "prodex status",
         commands: [
-          "gptprouse status [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js] [--show-token] [--url-only] [--unsafe-show-non-expiring-token]"
+          "prodex status [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js] [--show-token] [--url-only] [--unsafe-show-non-expiring-token]"
         ]
       },
       {
         args: ["tunnel", "--help"],
-        header: "gptprouse tunnel",
-        commands: ["gptprouse tunnel url [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js] --public-url https://... [--show-token] [--url-only]"]
+        header: "prodex tunnel",
+        commands: ["prodex tunnel url [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js] --public-url https://... [--show-token] [--url-only]"]
       },
       {
         args: ["tunnel", "url", "--help"],
-        header: "gptprouse tunnel url",
+        header: "prodex tunnel url",
         commands: ["This command does not create a tunnel."]
       },
       {
         args: ["doctor", "--help"],
-        header: "gptprouse doctor",
-        commands: ["gptprouse doctor [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]"]
+        header: "prodex doctor",
+        commands: ["prodex doctor [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]"]
       },
       {
         args: ["onboard", "--help"],
-        header: "gptprouse onboard",
-        commands: ["gptprouse onboard [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]"]
+        header: "prodex onboard",
+        commands: ["prodex onboard [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]"]
       },
       {
         args: ["mcp", "--help"],
-        header: "gptprouse mcp",
-        commands: ["gptprouse mcp [--cwd /absolute/path/to/repo]"]
+        header: "prodex mcp",
+        commands: ["prodex mcp [--cwd /absolute/path/to/repo]"]
       }
     ];
 
     for (const item of cases) {
-      const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+      const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
       const out: string[] = [];
 
       const code = await runCli(item.args, {
@@ -2487,57 +2487,57 @@ describe("runCli", () => {
 
   it("prints help for advertised subcommands", async () => {
     const cases = [
-      { args: ["release", "status", "--help"], expected: "gptprouse release status [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]" },
+      { args: ["release", "status", "--help"], expected: "prodex release status [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]" },
       {
         args: ["release", "pack", "--help"],
-        expected: "gptprouse release pack [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js] --pack-destination /absolute/path [--keep-workdir]"
+        expected: "prodex release pack [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js] --pack-destination /absolute/path [--keep-workdir]"
       },
-      { args: ["project", "prompt", "--help"], expected: "gptprouse project prompt [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]" },
-      { args: ["claude", "prompt", "--help"], expected: "gptprouse claude prompt [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]" },
-      { args: ["claude", "config", "--help"], expected: "gptprouse claude config [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]" },
-      { args: ["tasks", "create", "--help"], expected: 'gptprouse tasks create [--cwd /absolute/path/to/repo] --title "Title" --prompt "Prompt"' },
-      { args: ["tasks", "list", "--help"], expected: "gptprouse tasks list [--status new|claimed|done|blocked] [--cwd /absolute/path/to/repo]" },
-      { args: ["tasks", "show", "--help"], expected: "gptprouse tasks show <task-id|latest> [--cwd /absolute/path/to/repo]" },
-      { args: ["tasks", "claim", "--help"], expected: "gptprouse tasks claim <task-id> [--cwd /absolute/path/to/repo] [--by codex]" },
+      { args: ["project", "prompt", "--help"], expected: "prodex project prompt [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]" },
+      { args: ["claude", "prompt", "--help"], expected: "prodex claude prompt [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]" },
+      { args: ["claude", "config", "--help"], expected: "prodex claude config [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]" },
+      { args: ["tasks", "create", "--help"], expected: 'prodex tasks create [--cwd /absolute/path/to/repo] --title "Title" --prompt "Prompt"' },
+      { args: ["tasks", "list", "--help"], expected: "prodex tasks list [--status new|claimed|done|blocked] [--cwd /absolute/path/to/repo]" },
+      { args: ["tasks", "show", "--help"], expected: "prodex tasks show <task-id|latest> [--cwd /absolute/path/to/repo]" },
+      { args: ["tasks", "claim", "--help"], expected: "prodex tasks claim <task-id> [--cwd /absolute/path/to/repo] [--by codex]" },
       {
         args: ["tasks", "complete", "--help"],
-        expected: 'gptprouse tasks complete <task-id> [--cwd /absolute/path/to/repo] --summary "Summary" [--command "npm test"] [--artifact .bridge/artifacts/results/name.md=text]'
+        expected: 'prodex tasks complete <task-id> [--cwd /absolute/path/to/repo] --summary "Summary" [--command "npm test"] [--artifact .bridge/artifacts/results/name.md=text]'
       },
       {
         args: ["tasks", "block", "--help"],
-        expected: 'gptprouse tasks block <task-id> [--cwd /absolute/path/to/repo] --summary "Summary" [--code code] [--next-step "Next step"] [--retryable]'
+        expected: 'prodex tasks block <task-id> [--cwd /absolute/path/to/repo] --summary "Summary" [--code code] [--next-step "Next step"] [--retryable]'
       },
-      { args: ["results", "show", "--help"], expected: "gptprouse results show <task-id|latest> [--cwd /absolute/path/to/repo]" },
-      { args: ["results", "artifact", "--help"], expected: "gptprouse results artifact <task-id|latest> [artifact-path] [--cwd /absolute/path/to/repo]" },
-      { args: ["results", "reseal", "--help"], expected: "gptprouse results reseal <task-id|latest> --confirm-current-result [--cwd /absolute/path/to/repo]" },
-      { args: ["receipts", "list", "--help"], expected: "gptprouse receipts list [--kind kind] [--task-id task-id] [--cwd /absolute/path/to/repo]" },
-      { args: ["receipts", "show", "--help"], expected: "gptprouse receipts show <receipt-id|latest> [--cwd /absolute/path/to/repo]" },
-      { args: ["sessions", "list", "--help"], expected: "gptprouse sessions list [--status preview|running|done|blocked] [--cwd /absolute/path/to/repo]" },
-      { args: ["sessions", "show", "--help"], expected: "gptprouse sessions show <session-id|latest> [--cwd /absolute/path/to/repo]" },
-      { args: ["pro", "ask", "--help"], expected: 'gptprouse pro ask [--dry-run] [--cwd /absolute/path/to/repo] [--file path] "prompt"' },
+      { args: ["results", "show", "--help"], expected: "prodex results show <task-id|latest> [--cwd /absolute/path/to/repo]" },
+      { args: ["results", "artifact", "--help"], expected: "prodex results artifact <task-id|latest> [artifact-path] [--cwd /absolute/path/to/repo]" },
+      { args: ["results", "reseal", "--help"], expected: "prodex results reseal <task-id|latest> --confirm-current-result [--cwd /absolute/path/to/repo]" },
+      { args: ["receipts", "list", "--help"], expected: "prodex receipts list [--kind kind] [--task-id task-id] [--cwd /absolute/path/to/repo]" },
+      { args: ["receipts", "show", "--help"], expected: "prodex receipts show <receipt-id|latest> [--cwd /absolute/path/to/repo]" },
+      { args: ["sessions", "list", "--help"], expected: "prodex sessions list [--status preview|running|done|blocked] [--cwd /absolute/path/to/repo]" },
+      { args: ["sessions", "show", "--help"], expected: "prodex sessions show <session-id|latest> [--cwd /absolute/path/to/repo]" },
+      { args: ["pro", "ask", "--help"], expected: 'prodex pro ask [--dry-run] [--cwd /absolute/path/to/repo] [--file path] "prompt"' },
       {
         args: ["pro", "browser", "login", "--help"],
-        expected: "gptprouse pro browser login [--cwd /absolute/path/to/repo] [--dry-run] [--source-cli /absolute/path/to/dist/cli.js]"
+        expected: "prodex pro browser login [--cwd /absolute/path/to/repo] [--dry-run] [--source-cli /absolute/path/to/dist/cli.js]"
       },
       {
         args: ["pro", "browser", "check", "--help"],
-        expected: "gptprouse pro browser check [--source-cli /absolute/path/to/dist/cli.js]"
+        expected: "prodex pro browser check [--source-cli /absolute/path/to/dist/cli.js]"
       },
       {
         args: ["pro", "browser", "smoke", "--help"],
-        expected: "gptprouse pro browser smoke [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]"
+        expected: "prodex pro browser smoke [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]"
       },
       {
         args: ["pro", "browser", "ask", "--help"],
-        expected: "gptprouse pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]"
+        expected: "prodex pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]"
       },
-      { args: ["pro", "latest", "--help"], expected: "gptprouse pro latest [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]" },
-      { args: ["pro", "list", "--help"], expected: "gptprouse pro list [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]" },
-      { args: ["pro", "show", "--help"], expected: "gptprouse pro show <task-id|latest> [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]" }
+      { args: ["pro", "latest", "--help"], expected: "prodex pro latest [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]" },
+      { args: ["pro", "list", "--help"], expected: "prodex pro list [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]" },
+      { args: ["pro", "show", "--help"], expected: "prodex pro show <task-id|latest> [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]" }
     ];
 
     for (const item of cases) {
-      const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+      const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
       const out: string[] = [];
 
       const code = await runCli(item.args, {
@@ -2552,39 +2552,39 @@ describe("runCli", () => {
   });
 
   it("prints help after valid options before help flags", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     const sourceCli = path.resolve(import.meta.dirname, "..", "package.json");
-    const packDestination = await mkdtemp(path.join(tmpdir(), "gptprouse-pack-help-"));
+    const packDestination = await mkdtemp(path.join(tmpdir(), "prodex-pack-help-"));
     const cases = [
       {
         args: ["status", "--source-cli", sourceCli, "--help"],
         expected:
-          "gptprouse status [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js] [--show-token] [--url-only] [--unsafe-show-non-expiring-token]"
+          "prodex status [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js] [--show-token] [--url-only] [--unsafe-show-non-expiring-token]"
       },
       {
         args: ["release", "status", "--cwd", cwd, "--source-cli", sourceCli, "--help"],
-        expected: "gptprouse release status [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]"
+        expected: "prodex release status [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]"
       },
       {
         args: ["release", "pack", "--source-cli", sourceCli, "--pack-destination", packDestination, "--help"],
         expected:
-          "gptprouse release pack [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js] --pack-destination /absolute/path [--keep-workdir]"
+          "prodex release pack [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js] --pack-destination /absolute/path [--keep-workdir]"
       },
       {
-        args: ["tunnel", "url", "--public-url", "https://gptprouse.example", "--source-cli", sourceCli, "--help"],
+        args: ["tunnel", "url", "--public-url", "https://prodex.example", "--source-cli", sourceCli, "--help"],
         expected: "This command does not create a tunnel."
       },
       {
         args: ["project", "prompt", "--source-cli", sourceCli, "--help"],
-        expected: "gptprouse project prompt [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]"
+        expected: "prodex project prompt [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]"
       },
       {
         args: ["mcp", "--cwd", cwd, "--help"],
-        expected: "gptprouse mcp [--cwd /absolute/path/to/repo]"
+        expected: "prodex mcp [--cwd /absolute/path/to/repo]"
       },
       {
         args: ["tasks", "list", "--status", "new", "--help"],
-        expected: "gptprouse tasks list [--status new|claimed|done|blocked]"
+        expected: "prodex tasks list [--status new|claimed|done|blocked]"
       },
       {
         args: ["pro", "browser", "ask", "--source-cli", sourceCli, "--help"],
@@ -2592,7 +2592,7 @@ describe("runCli", () => {
       },
       {
         args: ["pro", "show", "latest", "--source-cli", sourceCli, "--help"],
-        expected: "gptprouse pro show <task-id|latest> [--source-cli /absolute/path/to/dist/cli.js]"
+        expected: "prodex pro show <task-id|latest> [--source-cli /absolute/path/to/dist/cli.js]"
       }
     ];
 
@@ -2611,7 +2611,7 @@ describe("runCli", () => {
   });
 
   it("keeps help-looking prompt text behind the prompt delimiter", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     const out: string[] = [];
 
     const code = await runCli(["pro", "ask", "--", "--help"], {
@@ -2622,13 +2622,13 @@ describe("runCli", () => {
 
     const text = out.join("\n");
     expect(code).toBe(0);
-    expect(text).toContain("# gptprouse consult dry run");
+    expect(text).toContain("# prodex consult dry run");
     expect(text).toContain("--help");
     expect(text).not.toContain("Commands:");
   });
 
   it("lists task blocking command in help", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     const out: string[] = [];
 
     await runCli(["help"], {
@@ -2638,12 +2638,12 @@ describe("runCli", () => {
     });
 
     expect(out.join("\n")).toContain(
-      'gptprouse tasks block <task-id> [--cwd /absolute/path/to/repo] --summary "Summary" [--code code] [--next-step "Next step"] [--retryable]'
+      'prodex tasks block <task-id> [--cwd /absolute/path/to/repo] --summary "Summary" [--code code] [--next-step "Next step"] [--retryable]'
     );
   });
 
   it("lists task inspection command in help", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     const out: string[] = [];
 
     await runCli(["help"], {
@@ -2652,11 +2652,11 @@ describe("runCli", () => {
       stderr: () => {}
     });
 
-    expect(out.join("\n")).toContain("gptprouse tasks show <task-id|latest>");
+    expect(out.join("\n")).toContain("prodex tasks show <task-id|latest>");
   });
 
   it("lists session inspection commands in help", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     const out: string[] = [];
 
     await runCli(["help"], {
@@ -2666,12 +2666,12 @@ describe("runCli", () => {
     });
 
     const text = out.join("\n");
-    expect(text).toContain("gptprouse sessions list [--status preview|running|done|blocked]");
-    expect(text).toContain("gptprouse sessions show <session-id|latest>");
+    expect(text).toContain("prodex sessions list [--status preview|running|done|blocked]");
+    expect(text).toContain("prodex sessions show <session-id|latest>");
   });
 
   it("lists result inspection commands in help", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     const out: string[] = [];
 
     await runCli(["help"], {
@@ -2681,12 +2681,12 @@ describe("runCli", () => {
     });
 
     const text = out.join("\n");
-    expect(text).toContain("gptprouse results show <task-id|latest>");
-    expect(text).toContain("gptprouse results artifact <task-id|latest> [artifact-path]");
+    expect(text).toContain("prodex results show <task-id|latest>");
+    expect(text).toContain("prodex results artifact <task-id|latest> [artifact-path]");
   });
 
   it("lists receipt inspection commands in help", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     const out: string[] = [];
 
     await runCli(["help"], {
@@ -2696,12 +2696,12 @@ describe("runCli", () => {
     });
 
     const text = out.join("\n");
-    expect(text).toContain("gptprouse receipts list [--kind kind] [--task-id task-id]");
-    expect(text).toContain("gptprouse receipts show <receipt-id|latest>");
+    expect(text).toContain("prodex receipts list [--kind kind] [--task-id task-id]");
+    expect(text).toContain("prodex receipts show <receipt-id|latest>");
   });
 
   it("documents explicit MCP cwd selection in help", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     const out: string[] = [];
 
     await runCli(["help"], {
@@ -2711,21 +2711,21 @@ describe("runCli", () => {
     });
 
     const text = out.join("\n");
-    expect(text).toContain("gptprouse setup [--cwd /absolute/path/to/repo]");
-    expect(text).toContain("gptprouse start [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]");
+    expect(text).toContain("prodex setup [--cwd /absolute/path/to/repo]");
+    expect(text).toContain("prodex start [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]");
     expect(text).toContain(
-      "gptprouse status [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]"
+      "prodex status [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]"
     );
     expect(text).toContain(
-      "gptprouse tunnel url [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]"
+      "prodex tunnel url [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]"
     );
-    expect(text).toContain("gptprouse doctor [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]");
-    expect(text).toContain("gptprouse onboard [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]");
-    expect(text).toContain("gptprouse mcp [--cwd /absolute/path/to/repo]");
+    expect(text).toContain("prodex doctor [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]");
+    expect(text).toContain("prodex onboard [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]");
+    expect(text).toContain("prodex mcp [--cwd /absolute/path/to/repo]");
   });
 
   it("lists the project prompt command in help", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     const out: string[] = [];
 
     await runCli(["help"], {
@@ -2734,16 +2734,16 @@ describe("runCli", () => {
       stderr: () => {}
     });
 
-    expect(out.join("\n")).toContain("gptprouse project prompt [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]");
-    expect(out.join("\n")).toContain("gptprouse claude prompt [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]");
+    expect(out.join("\n")).toContain("prodex project prompt [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]");
+    expect(out.join("\n")).toContain("prodex claude prompt [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]");
     expect(out.join("\n")).toContain(
-      "gptprouse claude config [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]"
+      "prodex claude config [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]"
     );
   });
 
   it("project prompt prints a paste-ready ChatGPT Project MCP verification prompt", async () => {
-    const launcherCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-launcher-"));
-    const targetCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-target-"));
+    const launcherCwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-launcher-"));
+    const targetCwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-target-"));
     const out: string[] = [];
 
     await runCli(["project", "prompt", "--cwd", targetCwd], {
@@ -2754,7 +2754,7 @@ describe("runCli", () => {
 
     const text = out.join("\n");
     expect(text).toContain("ChatGPT Project MCP verification prompt");
-    expect(text).toContain("Paste this into the ChatGPT Project after adding the gptprouse MCP server URL.");
+    expect(text).toContain("Paste this into the ChatGPT Project after adding the prodex MCP server URL.");
     expect(text).toContain("authorizes all enabled bridge tools");
     expect(text).toContain("repo_stage_reviewed_paths");
     expect(text).toContain("bridge_create_task");
@@ -2763,21 +2763,21 @@ describe("runCli", () => {
     expect(text).toContain("bridge_fetch_result");
     expect(text).toContain("bridge_fetch_result_artifact");
     expect(text).toContain(
-      `gptprouse tasks complete <task-id> --cwd ${targetCwd} --summary "gptprouse MCP verification result" --artifact .bridge/artifacts/results/mcp-verification.md="gptprouse MCP verification artifact"`
+      `prodex tasks complete <task-id> --cwd ${targetCwd} --summary "prodex MCP verification result" --artifact .bridge/artifacts/results/mcp-verification.md="prodex MCP verification artifact"`
     );
     expect(text).toContain("local completion done");
     expect(text).toContain(`cd ${targetCwd}`);
-    expect(text).toContain(`gptprouse tasks list --status new --cwd ${targetCwd}`);
-    expect(text).toContain(`gptprouse tasks show <task-id> --cwd ${targetCwd}`);
-    expect(text).toContain(`gptprouse status --cwd ${targetCwd}`);
-    expect(text).toContain(`gptprouse doctor --cwd ${targetCwd}`);
+    expect(text).toContain(`prodex tasks list --status new --cwd ${targetCwd}`);
+    expect(text).toContain(`prodex tasks show <task-id> --cwd ${targetCwd}`);
+    expect(text).toContain(`prodex status --cwd ${targetCwd}`);
+    expect(text).toContain(`prodex doctor --cwd ${targetCwd}`);
     expect(text).toContain(targetCwd);
-    expect(text).not.toContain("gptprouse_token=");
+    expect(text).not.toContain("prodex_token=");
   });
 
   it("project prompt can print source-checkout local follow-up commands", async () => {
-    const launcherCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-launcher-"));
-    const targetCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-target-"));
+    const launcherCwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-launcher-"));
+    const targetCwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-target-"));
     const sourceCli = path.join(launcherCwd, "dist", "cli.js");
     await mkdir(path.dirname(sourceCli), { recursive: true });
     await writeFile(sourceCli, "#!/usr/bin/env node\n", "utf8");
@@ -2793,17 +2793,17 @@ describe("runCli", () => {
     expect(text).toContain(`node ${sourceCli} tasks list --status new --cwd ${targetCwd}`);
     expect(text).toContain(`node ${sourceCli} tasks show <task-id> --cwd ${targetCwd}`);
     expect(text).toContain(
-      `node ${sourceCli} tasks complete <task-id> --cwd ${targetCwd} --summary "gptprouse MCP verification result" --artifact .bridge/artifacts/results/mcp-verification.md="gptprouse MCP verification artifact"`
+      `node ${sourceCli} tasks complete <task-id> --cwd ${targetCwd} --summary "prodex MCP verification result" --artifact .bridge/artifacts/results/mcp-verification.md="prodex MCP verification artifact"`
     );
     expect(text).toContain("bridge_fetch_result_artifact");
     expect(text).toContain(`node ${sourceCli} status --cwd ${targetCwd}`);
     expect(text).toContain(`node ${sourceCli} doctor --cwd ${targetCwd}`);
-    expect(text).not.toContain("gptprouse tasks list --status new");
-    expect(text).not.toContain("gptprouse_token=");
+    expect(text).not.toContain("prodex tasks list --status new");
+    expect(text).not.toContain("prodex_token=");
   });
 
   it("project prompt rejects unknown ChatGPT Project helper subcommands", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
 
     await expect(
       runCli(["project", "verify"], {
@@ -2811,12 +2811,12 @@ describe("runCli", () => {
         stdout: () => {},
         stderr: () => {}
       })
-    ).rejects.toThrow("Unknown project subcommand: verify. Expected one of: prompt. Run `gptprouse project --help`.");
+    ).rejects.toThrow("Unknown project subcommand: verify. Expected one of: prompt. Run `prodex project --help`.");
   });
 
   it("claude prompt prints a paste-ready Claude MCP verification prompt", async () => {
-    const launcherCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-launcher-"));
-    const targetCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-target-"));
+    const launcherCwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-launcher-"));
+    const targetCwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-target-"));
     const out: string[] = [];
 
     await runCli(["claude", "prompt", "--cwd", targetCwd], {
@@ -2827,28 +2827,28 @@ describe("runCli", () => {
 
     const text = out.join("\n");
     expect(text).toContain("Claude MCP verification prompt");
-    expect(text).toContain("Paste this into Claude after adding the gptprouse stdio MCP server.");
+    expect(text).toContain("Paste this into Claude after adding the prodex stdio MCP server.");
     expect(text).toContain("bridge_create_task");
     expect(text).toContain("bridge_list_tasks");
     expect(text).toContain("bridge_get_task");
     expect(text).toContain("bridge_fetch_result");
     expect(text).toContain("bridge_fetch_result_artifact");
     expect(text).toContain(`cd ${targetCwd}`);
-    expect(text).toContain(`gptprouse tasks list --status new --cwd ${targetCwd}`);
-    expect(text).toContain(`gptprouse tasks show <task-id> --cwd ${targetCwd}`);
+    expect(text).toContain(`prodex tasks list --status new --cwd ${targetCwd}`);
+    expect(text).toContain(`prodex tasks show <task-id> --cwd ${targetCwd}`);
     expect(text).toContain(
-      `gptprouse tasks complete <task-id> --cwd ${targetCwd} --summary "gptprouse Claude MCP verification result" --artifact .bridge/artifacts/results/claude-verification.md="gptprouse Claude MCP verification artifact"`
+      `prodex tasks complete <task-id> --cwd ${targetCwd} --summary "prodex Claude MCP verification result" --artifact .bridge/artifacts/results/claude-verification.md="prodex Claude MCP verification artifact"`
     );
     expect(text).toContain("local completion done");
-    expect(text).toContain(`gptprouse doctor --cwd ${targetCwd}`);
-    expect(text).toContain(`gptprouse claude config --cwd ${targetCwd}`);
+    expect(text).toContain(`prodex doctor --cwd ${targetCwd}`);
+    expect(text).toContain(`prodex claude config --cwd ${targetCwd}`);
     expect(text).toContain(targetCwd);
-    expect(text).not.toContain("gptprouse_token=");
+    expect(text).not.toContain("prodex_token=");
   });
 
   it("claude prompt can print source-checkout local follow-up commands", async () => {
-    const launcherCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-launcher-"));
-    const targetCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-target-"));
+    const launcherCwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-launcher-"));
+    const targetCwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-target-"));
     const sourceCli = path.join(launcherCwd, "dist", "cli.js");
     await mkdir(path.dirname(sourceCli), { recursive: true });
     await writeFile(sourceCli, "#!/usr/bin/env node\n", "utf8");
@@ -2864,17 +2864,17 @@ describe("runCli", () => {
     expect(text).toContain(`node ${sourceCli} tasks list --status new --cwd ${targetCwd}`);
     expect(text).toContain(`node ${sourceCli} tasks show <task-id> --cwd ${targetCwd}`);
     expect(text).toContain(
-      `node ${sourceCli} tasks complete <task-id> --cwd ${targetCwd} --summary "gptprouse Claude MCP verification result" --artifact .bridge/artifacts/results/claude-verification.md="gptprouse Claude MCP verification artifact"`
+      `node ${sourceCli} tasks complete <task-id> --cwd ${targetCwd} --summary "prodex Claude MCP verification result" --artifact .bridge/artifacts/results/claude-verification.md="prodex Claude MCP verification artifact"`
     );
     expect(text).toContain("bridge_fetch_result_artifact");
     expect(text).toContain(`node ${sourceCli} doctor --cwd ${targetCwd}`);
     expect(text).toContain(`node ${sourceCli} claude config --cwd ${targetCwd} --source-cli ${sourceCli}`);
-    expect(text).not.toContain("gptprouse tasks list --status new");
-    expect(text).not.toContain("gptprouse_token=");
+    expect(text).not.toContain("prodex tasks list --status new");
+    expect(text).not.toContain("prodex_token=");
   });
 
   it("quotes source-checkout paths with spaces in prompt and onboard commands", async () => {
-    const launcherCwd = await mkdtemp(path.join(tmpdir(), "gptprouse cli launcher "));
+    const launcherCwd = await mkdtemp(path.join(tmpdir(), "prodex cli launcher "));
     const targetCwd = path.join(launcherCwd, "target repo");
     const sourceCli = path.join(launcherCwd, "dist dir", "cli.js");
     await mkdir(targetCwd, { recursive: true });
@@ -2909,14 +2909,14 @@ describe("runCli", () => {
     expect(projectText).toContain(`node ${quotedSource} tasks list --status new --cwd ${quotedTarget}`);
     expect(projectText).toContain(`node ${quotedSource} tasks show <task-id> --cwd ${quotedTarget}`);
     expect(projectText).toContain(
-      `node ${quotedSource} tasks complete <task-id> --cwd ${quotedTarget} --summary "gptprouse MCP verification result" --artifact .bridge/artifacts/results/mcp-verification.md="gptprouse MCP verification artifact"`
+      `node ${quotedSource} tasks complete <task-id> --cwd ${quotedTarget} --summary "prodex MCP verification result" --artifact .bridge/artifacts/results/mcp-verification.md="prodex MCP verification artifact"`
     );
 
     const claudeText = claudeOut.join("\n");
     expect(claudeText).toContain(`node ${quotedSource} tasks list --status new --cwd ${quotedTarget}`);
     expect(claudeText).toContain(`node ${quotedSource} tasks show <task-id> --cwd ${quotedTarget}`);
     expect(claudeText).toContain(
-      `node ${quotedSource} tasks complete <task-id> --cwd ${quotedTarget} --summary "gptprouse Claude MCP verification result" --artifact .bridge/artifacts/results/claude-verification.md="gptprouse Claude MCP verification artifact"`
+      `node ${quotedSource} tasks complete <task-id> --cwd ${quotedTarget} --summary "prodex Claude MCP verification result" --artifact .bridge/artifacts/results/claude-verification.md="prodex Claude MCP verification artifact"`
     );
 
     const onboardText = onboardOut.join("\n");
@@ -2930,11 +2930,11 @@ describe("runCli", () => {
     expect(onboardText).toContain(`node ${quotedSource} results show latest --cwd ${quotedTarget}`);
     expect(onboardText).toContain(`node ${quotedSource} results artifact latest --cwd ${quotedTarget}`);
     expect(onboardText).toContain(`node ${quotedSource} results reseal <task-id> --confirm-current-result --cwd ${quotedTarget}`);
-    expect(onboardText).not.toContain("gptprouse_token=");
+    expect(onboardText).not.toContain("prodex_token=");
   });
 
   it("claude prompt rejects unknown Claude helper subcommands", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
 
     await expect(
       runCli(["claude", "verify"], {
@@ -2942,12 +2942,12 @@ describe("runCli", () => {
         stdout: () => {},
         stderr: () => {}
       })
-    ).rejects.toThrow("Unknown claude subcommand: verify. Expected one of: prompt, config. Run `gptprouse claude --help`.");
+    ).rejects.toThrow("Unknown claude subcommand: verify. Expected one of: prompt, config. Run `prodex claude --help`.");
   });
 
   it("claude config prints installed-package Claude MCP JSON", async () => {
-    const launcherCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-launcher-"));
-    const targetCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-target-"));
+    const launcherCwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-launcher-"));
+    const targetCwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-target-"));
     const out: string[] = [];
 
     await runCli(["claude", "config", "--cwd", targetCwd], {
@@ -2957,16 +2957,16 @@ describe("runCli", () => {
     });
 
     const parsed = JSON.parse(out.join("\n")) as {
-      mcpServers?: { gptprouse?: { command?: string; args?: string[] } };
+      mcpServers?: { prodex?: { command?: string; args?: string[] } };
     };
-    expect(parsed.mcpServers?.gptprouse?.command).toBe("gptprouse");
-    expect(parsed.mcpServers?.gptprouse?.args).toEqual(["mcp", "--cwd", targetCwd]);
-    expect(out.join("\n")).not.toContain("gptprouse_token=");
+    expect(parsed.mcpServers?.prodex?.command).toBe("prodex");
+    expect(parsed.mcpServers?.prodex?.args).toEqual(["mcp", "--cwd", targetCwd]);
+    expect(out.join("\n")).not.toContain("prodex_token=");
   });
 
   it("claude config can print source-checkout Claude MCP JSON", async () => {
-    const launcherCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-launcher-"));
-    const targetCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-target-"));
+    const launcherCwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-launcher-"));
+    const targetCwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-target-"));
     const sourceCli = path.join(launcherCwd, "dist", "cli.js");
     await mkdir(path.dirname(sourceCli), { recursive: true });
     await writeFile(sourceCli, "#!/usr/bin/env node\n", "utf8");
@@ -2979,16 +2979,16 @@ describe("runCli", () => {
     });
 
     const parsed = JSON.parse(out.join("\n")) as {
-      mcpServers?: { gptprouse?: { command?: string; args?: string[] } };
+      mcpServers?: { prodex?: { command?: string; args?: string[] } };
     };
-    expect(parsed.mcpServers?.gptprouse?.command).toBe("node");
-    expect(parsed.mcpServers?.gptprouse?.args).toEqual([sourceCli, "mcp", "--cwd", targetCwd]);
-    expect(out.join("\n")).not.toContain("gptprouse_token=");
+    expect(parsed.mcpServers?.prodex?.command).toBe("node");
+    expect(parsed.mcpServers?.prodex?.args).toEqual([sourceCli, "mcp", "--cwd", targetCwd]);
+    expect(out.join("\n")).not.toContain("prodex_token=");
   });
 
   it("claude config rejects source-cli directories before printing unusable JSON", async () => {
-    const launcherCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-launcher-"));
-    const targetCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-target-"));
+    const launcherCwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-launcher-"));
+    const targetCwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-target-"));
     const sourceCliDir = path.join(launcherCwd, "dist");
     await mkdir(sourceCliDir, { recursive: true });
 
@@ -3002,8 +3002,8 @@ describe("runCli", () => {
   });
 
   it("onboard prints first-run commands without exposing tokens or changing state", async () => {
-    const launcherCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-launcher-"));
-    const targetCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-target-"));
+    const launcherCwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-launcher-"));
+    const targetCwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-target-"));
     const out: string[] = [];
 
     await runCli(["onboard", "--cwd", targetCwd], {
@@ -3013,51 +3013,51 @@ describe("runCli", () => {
     });
 
     const text = out.join("\n");
-    expect(text).toContain("gptprouse onboarding");
+    expect(text).toContain("prodex onboarding");
     expect(text).toContain(`repo: ${targetCwd}`);
-    expect(text).toContain(`gptprouse init --cwd ${targetCwd}`);
-    expect(text).toContain(`gptprouse doctor --cwd ${targetCwd}`);
-    expect(text).toContain(`gptprouse claude config --cwd ${targetCwd}`);
-    expect(text).toContain(`gptprouse claude prompt --cwd ${targetCwd}`);
+    expect(text).toContain(`prodex init --cwd ${targetCwd}`);
+    expect(text).toContain(`prodex doctor --cwd ${targetCwd}`);
+    expect(text).toContain(`prodex claude config --cwd ${targetCwd}`);
+    expect(text).toContain(`prodex claude prompt --cwd ${targetCwd}`);
     expect(text).not.toContain("\t");
     expect(text).toContain("\n3. ChatGPT Project HTTP MCP:");
-    expect(text).toContain(`gptprouse setup --cwd ${targetCwd} --token-ttl-hours 24`);
-    expect(text).toContain(`gptprouse start --cwd ${targetCwd}`);
+    expect(text).toContain(`prodex setup --cwd ${targetCwd} --token-ttl-hours 24`);
+    expect(text).toContain(`prodex start --cwd ${targetCwd}`);
     expect(text).toContain("Keep this terminal open while ChatGPT uses the bridge; run the next commands in a second terminal.");
-    expect(text).toContain(`gptprouse status --cwd ${targetCwd} --show-token --url-only`);
-    expect(text).toContain(`gptprouse project prompt --cwd ${targetCwd}`);
+    expect(text).toContain(`prodex status --cwd ${targetCwd} --show-token --url-only`);
+    expect(text).toContain(`prodex project prompt --cwd ${targetCwd}`);
     expect(text.indexOf("HTTP MCP uses a short-lived token")).toBeLessThan(
-      text.indexOf(`gptprouse status --cwd ${targetCwd} --show-token --url-only`)
+      text.indexOf(`prodex status --cwd ${targetCwd} --show-token --url-only`)
     );
     expect(text).toContain("authorizes all enabled bridge tools");
     expect(text).toContain("repo_write_file_apply");
     expect(text).toContain(`cd ${targetCwd}`);
-    expect(text).toContain(`gptprouse pro ask --cwd ${targetCwd} "Review this repo"  # dry-run/manual preview`);
+    expect(text).toContain(`prodex pro ask --cwd ${targetCwd} "Review this repo"  # dry-run/manual preview`);
     expect(text).not.toContain("--file README.md");
-    expect(text).toContain("gptprouse pro browser login --dry-run  # preview, no browser opens");
-    expect(text).toContain("gptprouse pro browser login  # opens visible browser");
-    expect(text).toContain("gptprouse pro browser help");
-    expect(text).toContain(`gptprouse pro browser check --cwd ${targetCwd}`);
-    expect(text).toContain(`gptprouse pro browser smoke --cwd ${targetCwd}`);
-    expect(text).toContain(`gptprouse pro browser ask --cwd ${targetCwd} "Review this repo"  # visible-browser send`);
-    expect(text).toContain(`gptprouse pro list --cwd ${targetCwd}`);
-    expect(text).toContain(`gptprouse pro latest --cwd ${targetCwd}`);
-    expect(text).toContain(`gptprouse results show latest --cwd ${targetCwd}`);
-    expect(text).toContain(`gptprouse results artifact latest --cwd ${targetCwd}`);
-    expect(text).toContain(`gptprouse results reseal <task-id> --confirm-current-result --cwd ${targetCwd}`);
-    expect(text.indexOf(`gptprouse results reseal <task-id> --confirm-current-result --cwd ${targetCwd}`)).toBeGreaterThan(
-      text.indexOf("gptprouse pro browser ask")
+    expect(text).toContain("prodex pro browser login --dry-run  # preview, no browser opens");
+    expect(text).toContain("prodex pro browser login  # opens visible browser");
+    expect(text).toContain("prodex pro browser help");
+    expect(text).toContain(`prodex pro browser check --cwd ${targetCwd}`);
+    expect(text).toContain(`prodex pro browser smoke --cwd ${targetCwd}`);
+    expect(text).toContain(`prodex pro browser ask --cwd ${targetCwd} "Review this repo"  # visible-browser send`);
+    expect(text).toContain(`prodex pro list --cwd ${targetCwd}`);
+    expect(text).toContain(`prodex pro latest --cwd ${targetCwd}`);
+    expect(text).toContain(`prodex results show latest --cwd ${targetCwd}`);
+    expect(text).toContain(`prodex results artifact latest --cwd ${targetCwd}`);
+    expect(text).toContain(`prodex results reseal <task-id> --confirm-current-result --cwd ${targetCwd}`);
+    expect(text.indexOf(`prodex results reseal <task-id> --confirm-current-result --cwd ${targetCwd}`)).toBeGreaterThan(
+      text.indexOf("prodex pro browser ask")
     );
     expect(text).toContain("manual, visible browser");
     expect(text).toContain("Cloudflare");
     expect(text).toContain("usage-limit");
-    expect(text).not.toContain("gptprouse_token=");
+    expect(text).not.toContain("prodex_token=");
     await expect(readFile(path.join(targetCwd, ".bridge", "config.local.json"), "utf8")).rejects.toThrow();
   });
 
   it("onboard can print source-checkout commands for a built local CLI", async () => {
-    const launcherCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-launcher-"));
-    const targetCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-target-"));
+    const launcherCwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-launcher-"));
+    const targetCwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-target-"));
     const sourceCli = path.join(launcherCwd, "dist", "cli.js");
     await mkdir(path.dirname(sourceCli), { recursive: true });
     await writeFile(sourceCli, "#!/usr/bin/env node\n", "utf8");
@@ -3092,12 +3092,12 @@ describe("runCli", () => {
     expect(text).toContain(`${sourcePrefix} results artifact latest --cwd ${targetCwd}`);
     expect(text).toContain(`${sourcePrefix} results reseal <task-id> --confirm-current-result --cwd ${targetCwd}`);
     expect(text).toContain(`${sourcePrefix} pro browser ask --source-cli ${sourceCli} --cwd ${targetCwd} "Review this repo"  # visible-browser send`);
-    expect(text).not.toContain("gptprouse init --cwd");
-    expect(text).not.toContain("gptprouse_token=");
+    expect(text).not.toContain("prodex init --cwd");
+    expect(text).not.toContain("prodex_token=");
   });
 
   it("onboard includes README file examples only when README.md exists", async () => {
-    const targetCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-target-"));
+    const targetCwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-target-"));
     await writeFile(path.join(targetCwd, "README.md"), "project\n", "utf8");
     const out: string[] = [];
 
@@ -3108,12 +3108,12 @@ describe("runCli", () => {
     });
 
     const text = out.join("\n");
-    expect(text).toContain(`gptprouse pro ask --cwd ${targetCwd} --file README.md "Review this repo"  # dry-run/manual preview`);
-    expect(text).toContain(`gptprouse pro browser ask --cwd ${targetCwd} --file README.md "Review this repo"  # visible-browser send`);
+    expect(text).toContain(`prodex pro ask --cwd ${targetCwd} --file README.md "Review this repo"  # dry-run/manual preview`);
+    expect(text).toContain(`prodex pro browser ask --cwd ${targetCwd} --file README.md "Review this repo"  # visible-browser send`);
   });
 
   it("describes token TTL as an explicit help placeholder", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     const out: string[] = [];
 
     await runCli(["help"], {
@@ -3123,12 +3123,12 @@ describe("runCli", () => {
     });
 
     const text = out.join("\n");
-    expect(text).toContain("gptprouse setup [--cwd /absolute/path/to/repo] [--host 127.0.0.1] [--port 8787] [--token-ttl-hours <hours>]");
+    expect(text).toContain("prodex setup [--cwd /absolute/path/to/repo] [--host 127.0.0.1] [--port 8787] [--token-ttl-hours <hours>]");
     expect(text).not.toContain("[--token-ttl-hours 24]");
   });
 
   it("keeps low-level browser aliases out of primary help", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     const out: string[] = [];
 
     await runCli(["help"], {
@@ -3138,19 +3138,19 @@ describe("runCli", () => {
     });
 
     const text = out.join("\n");
-    expect(text).toContain("gptprouse pro ask [--dry-run] [--cwd /absolute/path/to/repo] [--file path]");
-    expect(text).toContain("gptprouse pro browser login [--cwd /absolute/path/to/repo] [--dry-run]");
-    expect(text).toContain("gptprouse pro browser help");
-    expect(text).toContain("gptprouse pro browser check [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]");
-    expect(text).toContain("gptprouse pro browser smoke [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]");
-    expect(text).toContain("gptprouse pro browser ask");
-    expect(text).not.toContain("gptprouse ask-pro");
-    expect(text).not.toContain("gptprouse pro browser open|status");
-    expect(text).not.toContain("gptprouse chatgpt open|status|smoke");
+    expect(text).toContain("prodex pro ask [--dry-run] [--cwd /absolute/path/to/repo] [--file path]");
+    expect(text).toContain("prodex pro browser login [--cwd /absolute/path/to/repo] [--dry-run]");
+    expect(text).toContain("prodex pro browser help");
+    expect(text).toContain("prodex pro browser check [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]");
+    expect(text).toContain("prodex pro browser smoke [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]");
+    expect(text).toContain("prodex pro browser ask");
+    expect(text).not.toContain("prodex ask-pro");
+    expect(text).not.toContain("prodex pro browser open|status");
+    expect(text).not.toContain("prodex chatgpt open|status|smoke");
   });
 
   it("rejects unadvertised pro browser aliases", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
 
     for (const [alias, replacement] of [
       ["open", "login"],
@@ -3163,12 +3163,12 @@ describe("runCli", () => {
           stdout: () => {},
           stderr: () => {}
         })
-      ).rejects.toThrow(`Use \`gptprouse pro browser ${replacement}\``);
+      ).rejects.toThrow(`Use \`prodex pro browser ${replacement}\``);
     }
   });
 
   it("lists the release status command in help", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     const out: string[] = [];
 
     await runCli(["help"], {
@@ -3178,9 +3178,9 @@ describe("runCli", () => {
     });
 
     const text = out.join("\n");
-    expect(text).toContain("gptprouse release status [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]");
+    expect(text).toContain("prodex release status [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]");
     expect(text).toContain(
-      "gptprouse release pack [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js] --pack-destination /absolute/path [--keep-workdir]"
+      "prodex release pack [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js] --pack-destination /absolute/path [--keep-workdir]"
     );
   });
 
@@ -3189,7 +3189,7 @@ describe("runCli", () => {
       ["release", "--help"],
       ["release"]
     ]) {
-      const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+      const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
       const out: string[] = [];
 
       const code = await runCli(args, {
@@ -3200,10 +3200,10 @@ describe("runCli", () => {
 
       const text = out.join("\n");
       expect(code).toBe(0);
-      expect(text).toContain("gptprouse release");
-      expect(text).toContain("gptprouse release status [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]");
+      expect(text).toContain("prodex release");
+      expect(text).toContain("prodex release status [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]");
       expect(text).toContain(
-        "gptprouse release pack [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js] --pack-destination /absolute/path [--keep-workdir]"
+        "prodex release pack [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js] --pack-destination /absolute/path [--keep-workdir]"
       );
       expect(text).toContain("Release commands are local checks and package preparation helpers; they do not publish or push.");
     }
@@ -3211,7 +3211,7 @@ describe("runCli", () => {
 
   it("release pack creates a normalized publish tarball through the CLI", async () => {
     const cwd = await createReleasePackCliFixture();
-    const destination = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-release-pack-dest-"));
+    const destination = await mkdtemp(path.join(tmpdir(), "prodex-cli-release-pack-dest-"));
     const out: string[] = [];
 
     const code = await runCli(["release", "pack", "--cwd", cwd, "--pack-destination", destination], {
@@ -3229,12 +3229,12 @@ describe("runCli", () => {
     expect(text).toContain("release_pack_verify: npm publish --dry-run");
     expect(text).toContain("release_pack_publish_blocked: fix git readiness before npm publish");
     expect(text).not.toContain("release_pack_publish: npm publish");
-    expect(text).not.toContain("gptprouse_token=");
+    expect(text).not.toContain("prodex_token=");
   });
 
   it("release pack can print source-checkout follow-up commands", async () => {
     const cwd = await createReleasePackCliFixture();
-    const destination = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-release-pack-dest-"));
+    const destination = await mkdtemp(path.join(tmpdir(), "prodex-cli-release-pack-dest-"));
     const sourceCli = path.join(cwd, "dist", "cli.js");
     await mkdir(path.dirname(sourceCli), { recursive: true });
     await writeFile(sourceCli, "#!/usr/bin/env node\n", "utf8");
@@ -3251,11 +3251,11 @@ describe("runCli", () => {
     expect(text).toContain(
       `release_pack_publish_blocked: fix git readiness before npm publish; run \`node ${sourceCli} release status --source-cli ${sourceCli} --cwd ${cwd}\``
     );
-    expect(text).not.toContain("`gptprouse release status`");
+    expect(text).not.toContain("`prodex release status`");
   });
 
   it("release pack reports script failures without raw exec output", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-release-pack-missing-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-release-pack-missing-"));
     const destination = path.join(cwd, "packed");
 
     await expect(
@@ -3275,7 +3275,7 @@ describe("runCli", () => {
   });
 
   it("release status reports the missing public license blocker", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-release-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-release-"));
     await writeFile(
       path.join(cwd, "package.json"),
       `${JSON.stringify({ name: "demo", version: "1.0.0", private: false }, null, 2)}\n`,
@@ -3290,7 +3290,7 @@ describe("runCli", () => {
     });
 
     const text = out.join("\n");
-    expect(text).toContain("gptprouse release status");
+    expect(text).toContain("prodex release status");
     expect(text).toContain("package: demo@1.0.0");
     expect(text).toContain("metadata: blocked");
     expect(text).toContain("package.json must include an explicit license");
@@ -3300,7 +3300,7 @@ describe("runCli", () => {
   });
 
   it("release status previews pack blockers even before the license is chosen", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-release-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-release-"));
     await writeFile(
       path.join(cwd, "package.json"),
       `${JSON.stringify({ name: "demo", version: "1.0.0", files: ["README.md"] }, null, 2)}\n`,
@@ -3321,13 +3321,13 @@ describe("runCli", () => {
     expect(text).toContain("pack: blocked packed files have unexpected executable modes");
     expect(text).toContain("README.md");
     expect(text).toContain("pack_next: fix file modes or publish from a filesystem that preserves executable bits");
-    expect(text).toContain(`gptprouse release pack --cwd ${cwd} --pack-destination <dir>`);
+    expect(text).toContain(`prodex release pack --cwd ${cwd} --pack-destination <dir>`);
     expect(text).toContain("next: choose a license, add LICENSE, then run `npm run release:check`");
     expect(text).not.toContain("metadata: ok");
   });
 
   it("release status does not ask for a LICENSE file when only package license metadata is missing", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-release-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-release-"));
     await writeFile(path.join(cwd, "package.json"), `${JSON.stringify({ name: "demo", version: "1.0.0" }, null, 2)}\n`, "utf8");
     await writeFile(path.join(cwd, "LICENSE"), "MIT License\n", "utf8");
     const out: string[] = [];
@@ -3345,7 +3345,7 @@ describe("runCli", () => {
   });
 
   it("release status previews pack blockers for private packages", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-release-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-release-"));
     await writeFile(
       path.join(cwd, "package.json"),
       `${JSON.stringify({ name: "demo", version: "1.0.0", license: "MIT", private: true, files: ["README.md"] }, null, 2)}\n`,
@@ -3371,14 +3371,14 @@ describe("runCli", () => {
   });
 
   it("release status blocks malformed npm pack dry-run file entries", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-release-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-release-"));
     await writeFile(
       path.join(cwd, "package.json"),
       `${JSON.stringify({ name: "demo", version: "1.0.0", license: "MIT" }, null, 2)}\n`,
       "utf8"
     );
     await writeFile(path.join(cwd, "LICENSE"), "MIT License\n", "utf8");
-    const fakeBin = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-release-fake-bin-"));
+    const fakeBin = await mkdtemp(path.join(tmpdir(), "prodex-cli-release-fake-bin-"));
     await writeFile(
       path.join(fakeBin, npmCommand),
       `#!/bin/sh
@@ -3410,14 +3410,14 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
   });
 
   it("release status reports silent npm pack dry-run failures without raw command output", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-release-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-release-"));
     await writeFile(
       path.join(cwd, "package.json"),
       `${JSON.stringify({ name: "demo", version: "1.0.0", license: "MIT" }, null, 2)}\n`,
       "utf8"
     );
     await writeFile(path.join(cwd, "LICENSE"), "MIT License\n", "utf8");
-    const fakeBin = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-release-fake-bin-"));
+    const fakeBin = await mkdtemp(path.join(tmpdir(), "prodex-cli-release-fake-bin-"));
     await writeFile(path.join(fakeBin, npmCommand), "#!/bin/sh\nexit 42\n", "utf8");
     await chmod(path.join(fakeBin, npmCommand), 0o755);
     const previousPath = process.env.PATH;
@@ -3443,7 +3443,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
   });
 
   it("release status reports a missing package.json as a release blocker", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-release-missing-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-release-missing-"));
     const out: string[] = [];
 
     await runCli(["release", "status", "--cwd", cwd], {
@@ -3453,7 +3453,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     });
 
     const text = out.join("\n");
-    expect(text).toContain("gptprouse release status");
+    expect(text).toContain("prodex release status");
     expect(text).toContain("metadata: blocked");
     expect(text).toContain("package.json not found");
     expect(text).toContain("git: blocked");
@@ -3461,7 +3461,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
   });
 
   it("release status reports malformed package.json as a release blocker", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-release-malformed-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-release-malformed-"));
     await writeFile(path.join(cwd, "package.json"), "{ broken json\n", "utf8");
     const out: string[] = [];
 
@@ -3472,7 +3472,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     });
 
     const text = out.join("\n");
-    expect(text).toContain("gptprouse release status");
+    expect(text).toContain("prodex release status");
     expect(text).toContain("package: <invalid package.json>");
     expect(text).toContain("metadata: blocked package.json is not valid JSON");
     expect(text).toContain("next: fix package.json syntax, then run `npm run release:check`");
@@ -3481,7 +3481,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
   });
 
   it("release status reports missing package name or version as a release blocker", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-release-identity-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-release-identity-"));
     await writeFile(path.join(cwd, "package.json"), `${JSON.stringify({ license: "MIT" }, null, 2)}\n`, "utf8");
     await writeFile(path.join(cwd, "LICENSE"), "MIT License\n", "utf8");
     const out: string[] = [];
@@ -3493,7 +3493,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     });
 
     const text = out.join("\n");
-    expect(text).toContain("gptprouse release status");
+    expect(text).toContain("prodex release status");
     expect(text).toContain("package: <unnamed>@<unversioned>");
     expect(text).toContain("metadata: blocked package.json must include non-empty string name and version");
     expect(text).toContain("next: set package.json name and version, then run `npm run release:check`");
@@ -3502,7 +3502,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
   });
 
   it("release status reports invalid package name or version as a release blocker", async () => {
-    const invalidNameCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-release-identity-"));
+    const invalidNameCwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-release-identity-"));
     await writeFile(
       path.join(invalidNameCwd, "package.json"),
       `${JSON.stringify({ name: "Bad Name", version: "1.0.0", license: "MIT" }, null, 2)}\n`,
@@ -3524,7 +3524,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     expect(invalidNameText).not.toContain("metadata: ok");
     expect(invalidNameText).not.toContain("pack: ok");
 
-    const reservedNameCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-release-identity-"));
+    const reservedNameCwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-release-identity-"));
     await writeFile(
       path.join(reservedNameCwd, "package.json"),
       `${JSON.stringify({ name: "favicon.ico", version: "1.0.0", license: "MIT" }, null, 2)}\n`,
@@ -3546,7 +3546,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     expect(reservedNameText).not.toContain("metadata: ok");
     expect(reservedNameText).not.toContain("pack: ok");
 
-    const invalidVersionCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-release-identity-"));
+    const invalidVersionCwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-release-identity-"));
     await writeFile(
       path.join(invalidVersionCwd, "package.json"),
       `${JSON.stringify({ name: "demo", version: "1.0", license: "MIT" }, null, 2)}\n`,
@@ -3570,7 +3570,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
   });
 
   it("release status reports publish metadata readiness when license files are explicit", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-release-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-release-"));
     await writeFile(
       path.join(cwd, "package.json"),
       `${JSON.stringify({ name: "demo", version: "1.0.0", license: "MIT" }, null, 2)}\n`,
@@ -3592,7 +3592,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
   });
 
   it("release status reports non-MIT package licenses as release blockers", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-release-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-release-"));
     await writeFile(
       path.join(cwd, "package.json"),
       `${JSON.stringify({ name: "demo", version: "1.0.0", license: "Apache-2.0" }, null, 2)}\n`,
@@ -3614,7 +3614,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
   });
 
   it("release status reports non-MIT LICENSE content as a release blocker", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-release-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-release-"));
     await writeFile(
       path.join(cwd, "package.json"),
       `${JSON.stringify({ name: "demo", version: "1.0.0", license: "MIT" }, null, 2)}\n`,
@@ -3636,7 +3636,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
   });
 
   it("release status reports executable packed non-bin files as a release blocker", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-release-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-release-"));
     await writeFile(
       path.join(cwd, "package.json"),
       `${JSON.stringify({ name: "demo", version: "1.0.0", license: "MIT", files: ["README.md"] }, null, 2)}\n`,
@@ -3658,14 +3658,14 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     expect(text).toContain("metadata: ok license=MIT license_file=present");
     expect(text).toContain("pack: blocked packed files have unexpected executable modes");
     expect(text).toContain("README.md");
-    expect(text).toContain(`gptprouse release pack --cwd ${cwd} --pack-destination <dir>`);
+    expect(text).toContain(`prodex release pack --cwd ${cwd} --pack-destination <dir>`);
     expect(text).toContain("release pack prints `npm publish --dry-run <tarball>`");
     expect(text).toContain("warns that tarball publish bypasses prepublishOnly before printing `npm publish <tarball>`");
     expect(text).not.toContain("pack: ok");
   });
 
   it("release status can print source-checkout release pack remediation", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-release-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-release-"));
     const sourceCli = path.join(cwd, "dist", "cli.js");
     await writeFile(
       path.join(cwd, "package.json"),
@@ -3687,12 +3687,12 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
 
     const text = out.join("\n");
     expect(text).toContain(`node ${sourceCli} release pack --source-cli ${sourceCli} --cwd ${cwd} --pack-destination <dir>`);
-    expect(text).not.toContain("gptprouse release pack --pack-destination <dir>");
+    expect(text).not.toContain("prodex release pack --pack-destination <dir>");
   });
 
   it("release status keeps source-checkout and explicit --cwd remediation commands", async () => {
-    const launcherCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-launcher-"));
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-release-"));
+    const launcherCwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-launcher-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-release-"));
     const sourceCli = path.join(launcherCwd, "dist", "cli.js");
     await writeFile(
       path.join(cwd, "package.json"),
@@ -3718,7 +3718,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
   });
 
   it("release status reports non-regular license paths as release blockers", async () => {
-    const directoryCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-release-"));
+    const directoryCwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-release-"));
     await writeFile(
       path.join(directoryCwd, "package.json"),
       `${JSON.stringify({ name: "demo", version: "1.0.0", license: "MIT" }, null, 2)}\n`,
@@ -3738,7 +3738,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     expect(directoryText).toContain("LICENSE must be a regular file");
     expect(directoryText).not.toContain("metadata: ok");
 
-    const symlinkCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-release-"));
+    const symlinkCwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-release-"));
     await writeFile(
       path.join(symlinkCwd, "package.json"),
       `${JSON.stringify({ name: "demo", version: "1.0.0", license: "MIT" }, null, 2)}\n`,
@@ -3761,7 +3761,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
   });
 
   it("release status reports hard-linked package files as release blockers", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-release-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-release-"));
     await writeFile(
       path.join(cwd, "package.json"),
       `${JSON.stringify({ name: "demo", version: "1.0.0", license: "MIT", files: ["LICENSE"] }, null, 2)}\n`,
@@ -3786,7 +3786,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
   });
 
   it("release status reports hard-linked packed non-license files as release blockers", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-release-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-release-"));
     await writeFile(
       path.join(cwd, "package.json"),
       `${JSON.stringify({ name: "demo", version: "1.0.0", license: "MIT", files: ["README.md"] }, null, 2)}\n`,
@@ -3812,7 +3812,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
   });
 
   it("release status reports symlinked packed non-license files as release blockers", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-release-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-release-"));
     await writeFile(
       path.join(cwd, "package.json"),
       `${JSON.stringify({ name: "demo", version: "1.0.0", license: "MIT", files: ["README.md"] }, null, 2)}\n`,
@@ -3822,7 +3822,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     const outside = path.join(path.dirname(cwd), "outside-readme.md");
     await writeFile(outside, "# Outside README\n", "utf8");
     await symlink(outside, path.join(cwd, "README.md"));
-    const fakeBin = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-release-fake-bin-"));
+    const fakeBin = await mkdtemp(path.join(tmpdir(), "prodex-cli-release-fake-bin-"));
     await writeFile(
       path.join(fakeBin, npmCommand),
       `#!/bin/sh
@@ -3854,7 +3854,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
   });
 
   it("release status reports private packages as not publishable", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-release-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-release-"));
     await writeFile(
       path.join(cwd, "package.json"),
       `${JSON.stringify({ name: "demo", version: "1.0.0", license: "MIT", private: true }, null, 2)}\n`,
@@ -3877,7 +3877,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
   });
 
   it("release status reports unlicensed packages as not publishable", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-release-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-release-"));
     await writeFile(
       path.join(cwd, "package.json"),
       `${JSON.stringify({ name: "demo", version: "1.0.0", license: "UNLICENSED" }, null, 2)}\n`,
@@ -3899,7 +3899,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
   });
 
   it("release status reports a clean git worktree without a remote as blocked", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-release-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-release-"));
     await writeFile(
       path.join(cwd, "package.json"),
       `${JSON.stringify({ name: "demo", version: "1.0.0", license: "MIT" }, null, 2)}\n`,
@@ -3930,7 +3930,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
   });
 
   it("release status reports dirty git worktrees before release", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-release-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-release-"));
     await writeFile(
       path.join(cwd, "package.json"),
       `${JSON.stringify({ name: "demo", version: "1.0.0", license: "MIT" }, null, 2)}\n`,
@@ -3964,7 +3964,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
   });
 
   it("release status reports git readiness when worktree and remote are ready", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-release-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-release-"));
     await writeFile(
       path.join(cwd, "package.json"),
       `${JSON.stringify({ name: "demo", version: "1.0.0", license: "MIT" }, null, 2)}\n`,
@@ -3976,7 +3976,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     await execFileAsync("git", ["config", "user.name", "Release Test"], { cwd });
     await execFileAsync("git", ["add", "package.json", "LICENSE"], { cwd });
     await execFileAsync("git", ["commit", "-m", "initial"], { cwd });
-    const remote = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-release-remote-"));
+    const remote = await mkdtemp(path.join(tmpdir(), "prodex-cli-release-remote-"));
     await execFileAsync("git", ["init", "--bare"], { cwd: remote });
     await execFileAsync("git", ["remote", "add", "origin", remote], { cwd });
     const branch = (await execFileAsync("git", ["rev-parse", "--abbrev-ref", "HEAD"], { cwd })).stdout.trim();
@@ -3993,11 +3993,11 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     const text = out.join("\n");
     expect(text).toContain(`git: ok branch=${branch} commit=${commit} remote=origin upstream=origin/${branch}`);
     expect(text).toContain("pack: ok");
-    expect(text).toContain(`next: run \`gptprouse release pack --cwd ${cwd} --pack-destination <dir>\`, then run the printed release_pack_verify dry-run before npm publish`);
+    expect(text).toContain(`next: run \`prodex release pack --cwd ${cwd} --pack-destination <dir>\`, then run the printed release_pack_verify dry-run before npm publish`);
   });
 
   it("release status blocks branches without upstream tracking", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-release-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-release-"));
     await writeFile(
       path.join(cwd, "package.json"),
       `${JSON.stringify({ name: "demo", version: "1.0.0", license: "MIT" }, null, 2)}\n`,
@@ -4028,7 +4028,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
   });
 
   it("release status reports deleted upstream branches as gone instead of missing upstream", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-release-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-release-"));
     await writeFile(
       path.join(cwd, "package.json"),
       `${JSON.stringify({ name: "demo", version: "1.0.0", license: "MIT" }, null, 2)}\n`,
@@ -4040,7 +4040,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     await execFileAsync("git", ["config", "user.name", "Release Test"], { cwd });
     await execFileAsync("git", ["add", "package.json", "LICENSE"], { cwd });
     await execFileAsync("git", ["commit", "-m", "initial"], { cwd });
-    const remote = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-release-remote-"));
+    const remote = await mkdtemp(path.join(tmpdir(), "prodex-cli-release-remote-"));
     await execFileAsync("git", ["init", "--bare"], { cwd: remote });
     await execFileAsync("git", ["remote", "add", "origin", remote], { cwd });
     const branch = (await execFileAsync("git", ["rev-parse", "--abbrev-ref", "HEAD"], { cwd })).stdout.trim();
@@ -4065,7 +4065,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
   });
 
   it("release status blocks clean branches with unpushed commits", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-release-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-release-"));
     await writeFile(
       path.join(cwd, "package.json"),
       `${JSON.stringify({ name: "demo", version: "1.0.0", license: "MIT" }, null, 2)}\n`,
@@ -4077,7 +4077,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     await execFileAsync("git", ["config", "user.name", "Release Test"], { cwd });
     await execFileAsync("git", ["add", "package.json", "LICENSE"], { cwd });
     await execFileAsync("git", ["commit", "-m", "initial"], { cwd });
-    const remote = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-release-remote-"));
+    const remote = await mkdtemp(path.join(tmpdir(), "prodex-cli-release-remote-"));
     await execFileAsync("git", ["init", "--bare"], { cwd: remote });
     await execFileAsync("git", ["remote", "add", "origin", remote], { cwd });
     const branch = (await execFileAsync("git", ["rev-parse", "--abbrev-ref", "HEAD"], { cwd })).stdout.trim();
@@ -4102,7 +4102,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
   });
 
   it("release status blocks detached HEAD checkouts", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-release-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-release-"));
     await writeFile(
       path.join(cwd, "package.json"),
       `${JSON.stringify({ name: "demo", version: "1.0.0", license: "MIT" }, null, 2)}\n`,
@@ -4133,7 +4133,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
   });
 
   it("release status rejects unknown release helper subcommands", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
 
     await expect(
       runCli(["release", "publish"], {
@@ -4141,11 +4141,11 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
         stdout: () => {},
         stderr: () => {}
       })
-    ).rejects.toThrow("Unknown release subcommand: publish. Expected one of: status, pack. Run `gptprouse release --help`.");
+    ).rejects.toThrow("Unknown release subcommand: publish. Expected one of: status, pack. Run `prodex release --help`.");
   });
 
   it("pro browser rejects unknown helper subcommands with guidance", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
 
     await expect(
       runCli(["pro", "browser", "verify"], {
@@ -4154,7 +4154,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
         stderr: () => {}
       })
     ).rejects.toThrow(
-      "Unknown pro browser subcommand: verify. Expected one of: login, ask, smoke, check. Run `gptprouse pro browser --help`."
+      "Unknown pro browser subcommand: verify. Expected one of: login, ask, smoke, check. Run `prodex pro browser --help`."
     );
   });
 
@@ -4162,32 +4162,32 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     const cases = [
       {
         args: ["tunnel", "create"],
-        expected: "Unknown tunnel subcommand: create. Expected one of: url. Run `gptprouse tunnel --help`."
+        expected: "Unknown tunnel subcommand: create. Expected one of: url. Run `prodex tunnel --help`."
       },
       {
         args: ["tasks", "remove"],
-        expected: "Unknown tasks subcommand: remove. Expected one of: create, list, show, claim, complete, block. Run `gptprouse tasks --help`."
+        expected: "Unknown tasks subcommand: remove. Expected one of: create, list, show, claim, complete, block. Run `prodex tasks --help`."
       },
       {
         args: ["results", "list"],
-        expected: "Unknown results subcommand: list. Expected one of: show, artifact, reseal. Run `gptprouse results --help`."
+        expected: "Unknown results subcommand: list. Expected one of: show, artifact, reseal. Run `prodex results --help`."
       },
       {
         args: ["receipts", "delete"],
-        expected: "Unknown receipts subcommand: delete. Expected one of: list, show. Run `gptprouse receipts --help`."
+        expected: "Unknown receipts subcommand: delete. Expected one of: list, show. Run `prodex receipts --help`."
       },
       {
         args: ["sessions", "delete"],
-        expected: "Unknown sessions subcommand: delete. Expected one of: list, show. Run `gptprouse sessions --help`."
+        expected: "Unknown sessions subcommand: delete. Expected one of: list, show. Run `prodex sessions --help`."
       },
       {
         args: ["pro", "verify"],
-        expected: "Unknown pro subcommand: verify. Expected one of: ask, browser, list, latest, show. Run `gptprouse pro --help`."
+        expected: "Unknown pro subcommand: verify. Expected one of: ask, browser, list, latest, show. Run `prodex pro --help`."
       }
     ];
 
     for (const item of cases) {
-      const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+      const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
       await expect(
         runCli(item.args, {
           cwd,
@@ -4199,7 +4199,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
   });
 
   it("requires explicit browser namespace for browser product checks", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     const out: string[] = [];
 
     await runCli(["pro", "browser", "check", "--port", "65534", "--timeout-ms", "10"], {
@@ -4212,7 +4212,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
   });
 
   it("prints a friendly browser login guide without implying an opened Chrome window in dry-run mode", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     const out: string[] = [];
 
     await runCli(["pro", "browser", "login", "--dry-run"], {
@@ -4228,19 +4228,19 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     expect(text).toContain("usage limit");
     expect(text).toContain("For usage limit, message limit, model limit, or rate limit, wait for the reset or choose an available model in the browser.");
     expect(text).toContain("Open a normal ChatGPT chat or the intended Project/thread so the prompt composer is visible.");
-    expect(text).toContain("gptprouse pro browser check");
-    expect(text).toContain("gptprouse pro browser smoke");
+    expect(text).toContain("prodex pro browser check");
+    expect(text).toContain("prodex pro browser smoke");
     expect(text).not.toContain("node dist/cli.js");
     expect(text).toContain("Dry run: no browser was opened.");
-    expect(text).toContain("1. Run `gptprouse pro browser login` without `--dry-run` to open the dedicated Chrome window.");
+    expect(text).toContain("1. Run `prodex pro browser login` without `--dry-run` to open the dedicated Chrome window.");
     expect(text).toContain("2. Log in manually at https://chatgpt.com/ in that Chrome window.");
     expect(text).not.toContain("usage limit handling, complete it in the browser");
-    expect(text.indexOf("Run `gptprouse pro browser login` without `--dry-run`")).toBeLessThan(text.indexOf("Log in manually"));
+    expect(text.indexOf("Run `prodex pro browser login` without `--dry-run`")).toBeLessThan(text.indexOf("Log in manually"));
     expect(text).not.toContain("You can close this Chrome window after login");
   });
 
   it("prints source-checkout browser login commands when source-cli is supplied", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     const sourceCli = path.join(cwd, "dist", "cli.js");
     await mkdir(path.dirname(sourceCli), { recursive: true });
     await writeFile(sourceCli, "#!/usr/bin/env node\n", "utf8");
@@ -4260,13 +4260,13 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     expect(text).toContain("Open a normal ChatGPT chat or the intended Project/thread so the prompt composer is visible.");
     expect(text).toContain(`Run \`${sourcePrefix} pro browser check --source-cli ${sourceCli}\` to confirm the session is reachable.`);
     expect(text).toContain(`Run \`${sourcePrefix} pro browser smoke --source-cli ${sourceCli}\` to verify a real Pro response path.`);
-    expect(text).not.toContain("Run `gptprouse pro browser login`");
-    expect(text).not.toContain("gptprouse pro browser check");
+    expect(text).not.toContain("Run `prodex pro browser login`");
+    expect(text).not.toContain("prodex pro browser check");
   });
 
   it("keeps explicit --cwd in browser login follow-up commands", async () => {
-    const launcherCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-launcher-"));
-    const targetCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-target-"));
+    const launcherCwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-launcher-"));
+    const targetCwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-target-"));
     const sourceCli = path.join(launcherCwd, "dist", "cli.js");
     await mkdir(path.dirname(sourceCli), { recursive: true });
     await writeFile(sourceCli, "#!/usr/bin/env node\n", "utf8");
@@ -4289,7 +4289,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
   });
 
   it("keeps custom browser launch flags in dry-run follow-up commands", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     const sourceCli = path.join(cwd, "dist", "cli.js");
     const profileDir = path.join(cwd, "profile with spaces");
     await mkdir(path.dirname(sourceCli), { recursive: true });
@@ -4334,7 +4334,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
   });
 
   it("prints browser-specific help from pro browser help", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     const out: string[] = [];
 
     await runCli(["pro", "browser", "help"], {
@@ -4344,19 +4344,19 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     });
 
     const text = out.join("\n");
-    expect(text).toContain("gptprouse pro browser");
-    expect(text).toContain("gptprouse pro browser login [--cwd /absolute/path/to/repo] [--dry-run] [--source-cli /absolute/path/to/dist/cli.js]");
-    expect(text).toContain("gptprouse pro browser check [--source-cli /absolute/path/to/dist/cli.js]");
-    expect(text).toContain("gptprouse pro browser smoke [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]");
+    expect(text).toContain("prodex pro browser");
+    expect(text).toContain("prodex pro browser login [--cwd /absolute/path/to/repo] [--dry-run] [--source-cli /absolute/path/to/dist/cli.js]");
+    expect(text).toContain("prodex pro browser check [--source-cli /absolute/path/to/dist/cli.js]");
+    expect(text).toContain("prodex pro browser smoke [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]");
     expect(text).toContain(
-      'gptprouse pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 90000] [--target-url url --confirm-target] [--file path] "prompt"'
+      'prodex pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 90000] [--target-url url --confirm-target] [--file path] "prompt"'
     );
-    expect(text).toContain("Use `gptprouse pro ask` for dry-run/manual previews.");
-    expect(text).toContain("`gptprouse pro browser ask` always attempts an explicit visible-browser send.");
+    expect(text).toContain("Use `prodex pro ask` for dry-run/manual previews.");
+    expect(text).toContain("`prodex pro browser ask` always attempts an explicit visible-browser send.");
   });
 
   it("prints source-checkout browser-specific help when source-cli is supplied", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     const sourceCli = path.join(cwd, "dist", "cli.js");
     await mkdir(path.dirname(sourceCli), { recursive: true });
     await writeFile(sourceCli, "#!/usr/bin/env node\n", "utf8");
@@ -4378,11 +4378,11 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     );
     expect(text).toContain(`Use \`${sourcePrefix} pro ask\` for dry-run/manual previews.`);
     expect(text).toContain(`\`${sourcePrefix} pro browser ask --source-cli ${sourceCli}\` always attempts an explicit visible-browser send.`);
-    expect(text).not.toContain("Use `gptprouse pro ask`");
+    expect(text).not.toContain("Use `prodex pro ask`");
   });
 
   it("prints source-checkout browser-specific help from browser subcommand help", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     const sourceCli = path.join(cwd, "dist", "cli.js");
     await mkdir(path.dirname(sourceCli), { recursive: true });
     await writeFile(sourceCli, "#!/usr/bin/env node\n", "utf8");
@@ -4409,12 +4409,12 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
       expect(text).toContain(`${sourcePrefix} pro browser smoke --source-cli ${sourceCli} [--cwd /absolute/path/to/repo]`);
       expect(text).toContain(`${sourcePrefix} pro browser ask --source-cli ${sourceCli}`);
       expect(text).toContain(`Use \`${sourcePrefix} pro ask\` for dry-run/manual previews.`);
-      expect(text).not.toContain("Use `gptprouse pro ask`");
+      expect(text).not.toContain("Use `prodex pro ask`");
     }
   });
 
   it("rejects non-ChatGPT browser login URLs before opening Chrome", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     const out: string[] = [];
 
     await expect(
@@ -4429,10 +4429,10 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
   });
 
   it("fails browser login cleanly before printing the guide when Chrome cannot be launched", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     const out: string[] = [];
-    const previousChrome = process.env.GPTPROUSE_CHROME;
-    process.env.GPTPROUSE_CHROME = "/definitely/not/present";
+    const previousChrome = process.env.PRODEX_CHROME;
+    process.env.PRODEX_CHROME = "/definitely/not/present";
     try {
       await expect(
         runCli(["pro", "browser", "login"], {
@@ -4440,20 +4440,20 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
           stdout: (line) => out.push(line),
           stderr: () => {}
         })
-      ).rejects.toThrow(/GPTPROUSE_CHROME|Chrome|Chromium/i);
+      ).rejects.toThrow(/PRODEX_CHROME|Chrome|Chromium/i);
     } finally {
-      if (previousChrome === undefined) delete process.env.GPTPROUSE_CHROME;
-      else process.env.GPTPROUSE_CHROME = previousChrome;
+      if (previousChrome === undefined) delete process.env.PRODEX_CHROME;
+      else process.env.PRODEX_CHROME = previousChrome;
     }
 
     expect(out.join("\n")).not.toContain("ChatGPT Pro browser login");
   });
 
   it("rejects a browser command path that points to a directory", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     const out: string[] = [];
-    const previousChrome = process.env.GPTPROUSE_CHROME;
-    process.env.GPTPROUSE_CHROME = tmpdir();
+    const previousChrome = process.env.PRODEX_CHROME;
+    process.env.PRODEX_CHROME = tmpdir();
     try {
       await expect(
         runCli(["pro", "browser", "login"], {
@@ -4463,18 +4463,18 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
         })
       ).rejects.toThrow(/executable browser/i);
     } finally {
-      if (previousChrome === undefined) delete process.env.GPTPROUSE_CHROME;
-      else process.env.GPTPROUSE_CHROME = previousChrome;
+      if (previousChrome === undefined) delete process.env.PRODEX_CHROME;
+      else process.env.PRODEX_CHROME = previousChrome;
     }
 
     expect(out.join("\n")).not.toContain("ChatGPT Pro browser login");
   });
 
   it("rejects an executable browser command that is not Chrome-compatible", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     const out: string[] = [];
-    const previousChrome = process.env.GPTPROUSE_CHROME;
-    process.env.GPTPROUSE_CHROME = "/bin/true";
+    const previousChrome = process.env.PRODEX_CHROME;
+    process.env.PRODEX_CHROME = "/bin/true";
     try {
       await expect(
         runCli(["pro", "browser", "login"], {
@@ -4484,18 +4484,18 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
         })
       ).rejects.toThrow(/Chrome|Chromium/i);
     } finally {
-      if (previousChrome === undefined) delete process.env.GPTPROUSE_CHROME;
-      else process.env.GPTPROUSE_CHROME = previousChrome;
+      if (previousChrome === undefined) delete process.env.PRODEX_CHROME;
+      else process.env.PRODEX_CHROME = previousChrome;
     }
 
     expect(out.join("\n")).not.toContain("ChatGPT Pro browser login");
   });
 
   it("fails browser login before printing the guide when Chrome exits immediately", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     const fakeChrome = path.join(cwd, "fake-chrome");
     const out: string[] = [];
-    const previousChrome = process.env.GPTPROUSE_CHROME;
+    const previousChrome = process.env.PRODEX_CHROME;
     await writeFile(
       fakeChrome,
       [
@@ -4510,7 +4510,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
       "utf8"
     );
     await chmod(fakeChrome, 0o755);
-    process.env.GPTPROUSE_CHROME = fakeChrome;
+    process.env.PRODEX_CHROME = fakeChrome;
     try {
       await expect(
         runCli(["pro", "browser", "login", "--profile-dir", path.join(cwd, "profile"), "--port", "65529"], {
@@ -4520,8 +4520,8 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
         })
       ).rejects.toThrow(/exited immediately|Chrome|browser/i);
     } finally {
-      if (previousChrome === undefined) delete process.env.GPTPROUSE_CHROME;
-      else process.env.GPTPROUSE_CHROME = previousChrome;
+      if (previousChrome === undefined) delete process.env.PRODEX_CHROME;
+      else process.env.PRODEX_CHROME = previousChrome;
     }
 
     expect(out.join("\n")).not.toContain("ChatGPT Pro browser login");
@@ -4529,10 +4529,10 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
   });
 
   it("fails browser login before printing the guide when Chrome exits after the initial grace window", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     const fakeChrome = path.join(cwd, "fake-chrome");
     const out: string[] = [];
-    const previousChrome = process.env.GPTPROUSE_CHROME;
+    const previousChrome = process.env.PRODEX_CHROME;
     await writeFile(
       fakeChrome,
       [
@@ -4548,7 +4548,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
       "utf8"
     );
     await chmod(fakeChrome, 0o755);
-    process.env.GPTPROUSE_CHROME = fakeChrome;
+    process.env.PRODEX_CHROME = fakeChrome;
     try {
       await expect(
         runCli(["pro", "browser", "login", "--profile-dir", path.join(cwd, "profile"), "--port", "65527"], {
@@ -4558,8 +4558,8 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
         })
       ).rejects.toThrow(/exited|DevTools|Chrome|browser/i);
     } finally {
-      if (previousChrome === undefined) delete process.env.GPTPROUSE_CHROME;
-      else process.env.GPTPROUSE_CHROME = previousChrome;
+      if (previousChrome === undefined) delete process.env.PRODEX_CHROME;
+      else process.env.PRODEX_CHROME = previousChrome;
     }
 
     expect(out.join("\n")).not.toContain("ChatGPT Pro browser login");
@@ -4567,10 +4567,10 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
   });
 
   it("allows browser login handoff when DevTools is already reachable", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     const fakeChrome = path.join(cwd, "fake-chrome");
     const out: string[] = [];
-    const previousChrome = process.env.GPTPROUSE_CHROME;
+    const previousChrome = process.env.PRODEX_CHROME;
     const server = createServer((request, response) => {
       response.setHeader("content-type", "application/json");
       response.end(request.url === "/json/list" ? "[]" : "{}");
@@ -4591,7 +4591,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
       "utf8"
     );
     await chmod(fakeChrome, 0o755);
-    process.env.GPTPROUSE_CHROME = fakeChrome;
+    process.env.PRODEX_CHROME = fakeChrome;
     try {
       await expect(
         runCli(
@@ -4615,8 +4615,8 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
       ).resolves.toBe(0);
     } finally {
       await new Promise<void>((resolve) => server.close(() => resolve()));
-      if (previousChrome === undefined) delete process.env.GPTPROUSE_CHROME;
-      else process.env.GPTPROUSE_CHROME = previousChrome;
+      if (previousChrome === undefined) delete process.env.PRODEX_CHROME;
+      else process.env.PRODEX_CHROME = previousChrome;
     }
 
     expect(out.join("\n")).toContain("ChatGPT Pro browser login");
@@ -4628,10 +4628,10 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
   });
 
   it("allows browser login handoff when DevTools becomes reachable shortly after Chrome exits", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     const fakeChrome = path.join(cwd, "fake-chrome");
     const out: string[] = [];
-    const previousChrome = process.env.GPTPROUSE_CHROME;
+    const previousChrome = process.env.PRODEX_CHROME;
     let devtoolsRequests = 0;
     const server = createServer((request, response) => {
       response.setHeader("content-type", "application/json");
@@ -4658,7 +4658,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     await chmod(fakeChrome, 0o755);
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     const port = (server.address() as AddressInfo).port;
-    process.env.GPTPROUSE_CHROME = fakeChrome;
+    process.env.PRODEX_CHROME = fakeChrome;
     try {
       await expect(
         runCli(["pro", "browser", "login", "--profile-dir", path.join(cwd, "profile"), "--port", String(port)], {
@@ -4669,8 +4669,8 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
       ).resolves.toBe(0);
     } finally {
       await new Promise<void>((resolve) => server.close(() => resolve()));
-      if (previousChrome === undefined) delete process.env.GPTPROUSE_CHROME;
-      else process.env.GPTPROUSE_CHROME = previousChrome;
+      if (previousChrome === undefined) delete process.env.PRODEX_CHROME;
+      else process.env.PRODEX_CHROME = previousChrome;
     }
 
     expect(out.join("\n")).toContain("ChatGPT Pro browser login");
@@ -4680,10 +4680,10 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
   });
 
   it("fails legacy browser open before printing success when Chrome exits immediately", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     const fakeChrome = path.join(cwd, "fake-chrome");
     const out: string[] = [];
-    const previousChrome = process.env.GPTPROUSE_CHROME;
+    const previousChrome = process.env.PRODEX_CHROME;
     await writeFile(
       fakeChrome,
       [
@@ -4698,7 +4698,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
       "utf8"
     );
     await chmod(fakeChrome, 0o755);
-    process.env.GPTPROUSE_CHROME = fakeChrome;
+    process.env.PRODEX_CHROME = fakeChrome;
     try {
       await expect(
         runCli(["chatgpt", "open", "--profile-dir", path.join(cwd, "profile"), "--port", "65528"], {
@@ -4708,18 +4708,18 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
         })
       ).rejects.toThrow(/exited immediately|Chrome|browser/i);
     } finally {
-      if (previousChrome === undefined) delete process.env.GPTPROUSE_CHROME;
-      else process.env.GPTPROUSE_CHROME = previousChrome;
+      if (previousChrome === undefined) delete process.env.PRODEX_CHROME;
+      else process.env.PRODEX_CHROME = previousChrome;
     }
 
     expect(out.join("\n")).not.toContain("Opened ChatGPT browser");
   });
 
   it("rejects non-ChatGPT legacy browser open URLs before launching Chrome", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     const out: string[] = [];
-    const previousChrome = process.env.GPTPROUSE_CHROME;
-    process.env.GPTPROUSE_CHROME = "/definitely/not/present";
+    const previousChrome = process.env.PRODEX_CHROME;
+    process.env.PRODEX_CHROME = "/definitely/not/present";
     try {
       await expect(
         runCli(["chatgpt", "open", "--url", "https://example.com/"], {
@@ -4729,26 +4729,26 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
         })
       ).rejects.toThrow(/ChatGPT web URL/);
     } finally {
-      if (previousChrome === undefined) delete process.env.GPTPROUSE_CHROME;
-      else process.env.GPTPROUSE_CHROME = previousChrome;
+      if (previousChrome === undefined) delete process.env.PRODEX_CHROME;
+      else process.env.PRODEX_CHROME = previousChrome;
     }
 
     expect(out.join("\n")).not.toContain("Opened ChatGPT browser");
   });
 
   it("rejects fake Chrome-compatible commands found on PATH", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
-    const binDir = await mkdtemp(path.join(tmpdir(), "gptprouse-fake-browser-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
+    const binDir = await mkdtemp(path.join(tmpdir(), "prodex-fake-browser-"));
     const out: string[] = [];
     const previousPath = process.env.PATH;
-    const previousChrome = process.env.GPTPROUSE_CHROME;
+    const previousChrome = process.env.PRODEX_CHROME;
     for (const command of ["google-chrome", "chromium", "chromium-browser", "microsoft-edge", "brave-browser"]) {
       const fake = path.join(binDir, command);
       await writeFile(fake, "#!/bin/sh\nexit 0\n", "utf8");
       await chmod(fake, 0o755);
     }
     process.env.PATH = `${binDir}${path.delimiter}${previousPath ?? ""}`;
-    delete process.env.GPTPROUSE_CHROME;
+    delete process.env.PRODEX_CHROME;
     try {
       await expect(
         runCli(["pro", "browser", "login"], {
@@ -4760,15 +4760,15 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     } finally {
       if (previousPath === undefined) delete process.env.PATH;
       else process.env.PATH = previousPath;
-      if (previousChrome === undefined) delete process.env.GPTPROUSE_CHROME;
-      else process.env.GPTPROUSE_CHROME = previousChrome;
+      if (previousChrome === undefined) delete process.env.PRODEX_CHROME;
+      else process.env.PRODEX_CHROME = previousChrome;
     }
 
     expect(out.join("\n")).not.toContain("ChatGPT Pro browser login");
   });
 
   it("points unreachable browser checks at the login flow", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     const out: string[] = [];
 
     await runCli(["pro", "browser", "check", "--port", "65534", "--timeout-ms", "10"], {
@@ -4782,8 +4782,8 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
   });
 
   it("uses an explicit --cwd target for browser product checks", async () => {
-    const launcherCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-launcher-"));
-    const targetCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-target-"));
+    const launcherCwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-launcher-"));
+    const targetCwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-target-"));
     const out: string[] = [];
 
     await runCli(["init", "--cwd", targetCwd], { cwd: launcherCwd, stdout: () => {}, stderr: () => {} });
@@ -4801,14 +4801,14 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     const text = out.join("\n");
     expect(code).toBe(1);
     expect(text).toContain("bridge: ok (.bridge)");
-    expect(text).toContain("config: ok http://127.0.0.1:8789/mcp?gptprouse_token=*** token_status=valid");
+    expect(text).toContain("config: ok http://127.0.0.1:8789/mcp?prodex_token=*** token_status=valid");
     expect(text).not.toContain("super-secret-token");
     expect(text).toContain("chatgpt: browser_unreachable");
     expect(await readdir(launcherCwd)).not.toContain(".bridge");
   });
 
   it("keeps source-checkout commands in browser check remediation", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     const sourceCli = path.join(cwd, "dist", "cli.js");
     await mkdir(path.dirname(sourceCli), { recursive: true });
     await writeFile(sourceCli, "#!/usr/bin/env node\n", "utf8");
@@ -4824,12 +4824,12 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     expect(text).toContain(`bridge: missing (.bridge) - run \`node ${sourceCli} init\``);
     expect(text).toContain(`config: missing - run \`node ${sourceCli} setup\``);
     expect(text).toContain(`next: Run \`node ${sourceCli} pro browser login --source-cli ${sourceCli} --port 65534\`, log in, then retry.`);
-    expect(text).not.toContain("gptprouse pro browser login");
+    expect(text).not.toContain("prodex pro browser login");
     expect(await readdir(cwd)).not.toContain(".bridge");
   });
 
   it("does not keep old pro browser aliases at the top level", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
 
     await expect(
       runCli(["pro", "status", "--port", "65534", "--timeout-ms", "10"], {
@@ -4841,7 +4841,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
   });
 
   it("requires explicit confirmation before using a ChatGPT target URL", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
 
     await expect(
       runCli(["pro", "browser", "ask", "--target-url", "https://chatgpt.com/c/abc", "Review this"], {
@@ -4853,7 +4853,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
   });
 
   it("rejects target confirmation without a target URL", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
 
     await expect(
       runCli(["pro", "browser", "ask", "--confirm-target", "--timeout-ms", "1", "Review this"], {
@@ -4867,7 +4867,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
   });
 
   it("prints a product check instead of failing when setup pieces are missing", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     const out: string[] = [];
 
     await runCli(["pro", "browser", "check", "--port", "65534", "--timeout-ms", "10"], {
@@ -4884,8 +4884,8 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
   });
 
   it("keeps explicit --cwd init hints in product checks", async () => {
-    const launcherCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-launcher-"));
-    const targetCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-target-"));
+    const launcherCwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-launcher-"));
+    const targetCwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-target-"));
     const out: string[] = [];
 
     await runCli(["pro", "browser", "check", "--cwd", targetCwd, "--port", "65534", "--timeout-ms", "10"], {
@@ -4894,11 +4894,11 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
       stderr: () => {}
     });
 
-    expect(out.join("\n")).toContain(`bridge: missing (.bridge) - run \`gptprouse init --cwd ${targetCwd}\``);
+    expect(out.join("\n")).toContain(`bridge: missing (.bridge) - run \`prodex init --cwd ${targetCwd}\``);
   });
 
   it("reports corrupt local MCP config in product checks", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     await mkdir(path.join(cwd, ".bridge"), { recursive: true });
     await writeFile(path.join(cwd, ".bridge", "config.local.json"), "{not json", "utf8");
     const out: string[] = [];
@@ -4910,13 +4910,13 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     });
 
     const text = out.join("\n");
-    expect(text).toContain("config: failed local MCP config is corrupt. Run `gptprouse setup` to replace .bridge/config.local.json.");
+    expect(text).toContain("config: failed local MCP config is corrupt. Run `prodex setup` to replace .bridge/config.local.json.");
     expect(text).not.toContain("config: missing");
     expect(text).not.toContain("Expected property name or '}' in JSON");
   });
 
   it("keeps source-checkout commands in corrupt config product checks", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     const sourceCli = path.join(cwd, "dist", "cli.js");
     await mkdir(path.dirname(sourceCli), { recursive: true });
     await writeFile(sourceCli, "#!/usr/bin/env node\n", "utf8");
@@ -4932,12 +4932,12 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
 
     const text = out.join("\n");
     expect(text).toContain(`config: failed local MCP config is corrupt. Run \`node ${sourceCli} setup\` to replace .bridge/config.local.json.`);
-    expect(text).not.toContain("Run `gptprouse setup`");
+    expect(text).not.toContain("Run `prodex setup`");
     expect(text).not.toContain("Expected property name or '}' in JSON");
   });
 
   it("recovers stale bridge temp hard links during browser checks without bootstrapping fresh storage", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     const store = new BridgeStore(cwd);
     const task = await store.createTask({
       source: "codex",
@@ -4974,7 +4974,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
   });
 
   it("reports untrusted legacy Pro results in product checks without aborting the check", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     const sourceCli = path.join(cwd, "dist", "cli.js");
     await mkdir(path.dirname(sourceCli), { recursive: true });
     await writeFile(sourceCli, "#!/usr/bin/env node\n", "utf8");
@@ -5019,13 +5019,13 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     expect(text).not.toContain("write dry-run");
     expect(text).toContain("Retry the completion path or move the result record aside");
     expect(text).toContain(`node ${sourceCli} results reseal ${task.id} --confirm-current-result`);
-    expect(text).not.toContain(`gptprouse results reseal ${task.id}`);
+    expect(text).not.toContain(`prodex results reseal ${task.id}`);
     expect(text).not.toContain("bridge.. Retry");
     expect(text).toContain("chatgpt:");
   });
 
   it("redacts the local MCP token in product checks", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     await runCli(["setup", "--port", "8789", "--token", "super-secret-token"], {
       cwd,
       stdout: () => {},
@@ -5040,13 +5040,13 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     });
 
     const text = out.join("\n");
-    expect(text).toContain("gptprouse_token=***");
+    expect(text).toContain("prodex_token=***");
     expect(text).not.toContain("super-secret-token");
   });
 
   it("keeps explicit --cwd setup hints in product check config warnings", async () => {
-    const launcherCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-launcher-"));
-    const targetCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-target-"));
+    const launcherCwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-launcher-"));
+    const targetCwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-target-"));
     await runCli(["setup", "--cwd", targetCwd, "--port", "8789", "--token", "super-secret-token"], {
       cwd: launcherCwd,
       stdout: () => {},
@@ -5061,13 +5061,13 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     });
 
     const text = out.join("\n");
-    expect(text).toContain(`rerun \`gptprouse setup --cwd ${targetCwd} --token-ttl-hours <hours>\``);
+    expect(text).toContain(`rerun \`prodex setup --cwd ${targetCwd} --token-ttl-hours <hours>\``);
     expect(text).not.toContain("super-secret-token");
   });
 
   it("keeps explicit --cwd setup hints in product check missing-config remediation", async () => {
-    const launcherCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-launcher-"));
-    const targetCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-target-"));
+    const launcherCwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-launcher-"));
+    const targetCwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-target-"));
     const out: string[] = [];
 
     await runCli(["pro", "browser", "check", "--cwd", targetCwd, "--port", "65534", "--timeout-ms", "10"], {
@@ -5076,11 +5076,11 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
       stderr: () => {}
     });
 
-    expect(out.join("\n")).toContain(`config: missing - run \`gptprouse setup --cwd ${targetCwd}\``);
+    expect(out.join("\n")).toContain(`config: missing - run \`prodex setup --cwd ${targetCwd}\``);
   });
 
   it("redacts local MCP tokens from setup, start, and status output by default", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     const setupOut: string[] = [];
 
     await runCli(["setup", "--port", "8789", "--token", "super-secret-token"], {
@@ -5096,12 +5096,12 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     });
 
     const text = [...setupOut, ...statusOut].join("\n");
-    expect(text).toContain("gptprouse_token=***");
+    expect(text).toContain("prodex_token=***");
     expect(text).not.toContain("super-secret-token");
   });
 
   it("refuses non-loopback HTTP MCP hosts in setup", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
 
     await expect(
       runCli(["setup", "--host", "0.0.0.0", "--port", "8789", "--token", "super-secret-token"], {
@@ -5114,7 +5114,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
   });
 
   it("refuses runtime HTTP MCP overrides in start so status URLs stay config-backed", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     const out: string[] = [];
 
     await runCli(["setup", "--port", "8789", "--token", "super-secret-token", "--token-ttl-hours", "1"], {
@@ -5136,8 +5136,8 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
   });
 
   it("uses an explicit --cwd target for local HTTP MCP setup, status, and tunnel URLs", async () => {
-    const launcherCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-launcher-"));
-    const targetCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-target-"));
+    const launcherCwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-launcher-"));
+    const targetCwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-target-"));
 
     await runCli(["setup", "--cwd", targetCwd, "--port", "8789", "--token", "super-secret-token", "--token-ttl-hours", "1"], {
       cwd: launcherCwd,
@@ -5155,7 +5155,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
       stderr: () => {}
     });
 
-    expect(statusOut).toEqual(["http://127.0.0.1:8789/mcp?gptprouse_token=super-secret-token"]);
+    expect(statusOut).toEqual(["http://127.0.0.1:8789/mcp?prodex_token=super-secret-token"]);
 
     const tunnelOut: string[] = [];
     await runCli(["tunnel", "url", "--cwd", targetCwd, "--public-url", "https://example.trycloudflare.com", "--show-token", "--url-only"], {
@@ -5164,12 +5164,12 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
       stderr: () => {}
     });
 
-    expect(tunnelOut).toEqual(["https://example.trycloudflare.com/mcp?gptprouse_token=super-secret-token"]);
+    expect(tunnelOut).toEqual(["https://example.trycloudflare.com/mcp?prodex_token=super-secret-token"]);
   });
 
   it("uses an explicit --cwd target for local HTTP MCP start", async () => {
-    const launcherCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-launcher-"));
-    const targetCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-target-"));
+    const launcherCwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-launcher-"));
+    const targetCwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-target-"));
     const port = await getFreeHttpPort();
     await runCli(["setup", "--cwd", targetCwd, "--port", String(port), "--token", "super-secret-token", "--token-ttl-hours", "1"], {
       cwd: launcherCwd,
@@ -5187,14 +5187,14 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
 
     await expect(start).resolves.toBe(0);
     clearTimeout(stop);
-    expect(out.join("\n")).toContain(`http://127.0.0.1:${port}/mcp?gptprouse_token=***`);
-    expect(out.join("\n")).toContain("gptprouse_token=***");
+    expect(out.join("\n")).toContain(`http://127.0.0.1:${port}/mcp?prodex_token=***`);
+    expect(out.join("\n")).toContain("prodex_token=***");
     expect(out.join("\n")).not.toContain("super-secret-token");
   });
 
   it("uses an explicit --cwd target for doctor checks", async () => {
-    const launcherCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-launcher-"));
-    const targetCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-target-"));
+    const launcherCwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-launcher-"));
+    const targetCwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-target-"));
     await runCli(["setup", "--cwd", targetCwd, "--port", "8789", "--token", "super-secret-token"], {
       cwd: launcherCwd,
       stdout: () => {},
@@ -5217,7 +5217,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
   });
 
   it("labels non-expiring local MCP tokens clearly in status and doctor output", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     await runCli(["setup", "--port", "8789", "--token", "super-secret-token"], {
       cwd,
       stdout: () => {},
@@ -5248,7 +5248,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
   });
 
   it("refuses to reveal a non-expiring local MCP token by default", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     await runCli(["setup", "--port", "8789", "--token", "super-secret-token"], {
       cwd,
       stdout: () => {},
@@ -5268,7 +5268,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
   });
 
   it("refuses url-only token reveal for non-expiring local MCP tokens by default", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     await runCli(["setup", "--port", "8789", "--token", "super-secret-token"], {
       cwd,
       stdout: () => {},
@@ -5288,7 +5288,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
   });
 
   it("reveals a non-expiring token only with the unsafe local-debug override", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     await runCli(["setup", "--port", "8789", "--token", "super-secret-token"], {
       cwd,
       stdout: () => {},
@@ -5303,12 +5303,12 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
       stderr: (line) => err.push(line)
     });
 
-    expect(out).toEqual(["http://127.0.0.1:8789/mcp?gptprouse_token=super-secret-token"]);
+    expect(out).toEqual(["http://127.0.0.1:8789/mcp?prodex_token=super-secret-token"]);
     expect(err.join("\n")).toContain("Showing a non-expiring token. Keep this local-only");
   });
 
   it("prints a paste-ready local MCP URL when url-only is requested", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     await runCli(["setup", "--port", "8789", "--token", "super-secret-token", "--token-ttl-hours", "1"], {
       cwd,
       stdout: () => {},
@@ -5323,13 +5323,13 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
       stderr: (line) => err.push(line)
     });
 
-    expect(out).toEqual(["http://127.0.0.1:8789/mcp?gptprouse_token=super-secret-token"]);
+    expect(out).toEqual(["http://127.0.0.1:8789/mcp?prodex_token=super-secret-token"]);
     expect(err.join("\n")).toContain("authorizes all enabled bridge tools");
     expect(err.join("\n")).toContain("repo_write_file_apply");
   });
 
   it("includes the enabled-tool authority warning in token-bearing status JSON", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     await runCli(["setup", "--port", "8789", "--token", "super-secret-token", "--token-ttl-hours", "1"], {
       cwd,
       stdout: () => {},
@@ -5349,7 +5349,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
   });
 
   it("refuses to reveal expired local MCP tokens", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     await mkdir(path.join(cwd, ".bridge"), { recursive: true });
     await writeFile(
       path.join(cwd, ".bridge", "config.local.json"),
@@ -5359,7 +5359,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
           host: "127.0.0.1",
           port: 8789,
           token: "expired-secret-token",
-          server_url: "http://127.0.0.1:8789/mcp?gptprouse_token=expired-secret-token",
+          server_url: "http://127.0.0.1:8789/mcp?prodex_token=expired-secret-token",
           token_expires_at: new Date(Date.now() - 1000).toISOString(),
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString()
@@ -5383,7 +5383,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
   });
 
   it("refuses stale local MCP server URLs before printing paste-ready tokens", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     await mkdir(path.join(cwd, ".bridge"), { recursive: true });
     await writeFile(
       path.join(cwd, ".bridge", "config.local.json"),
@@ -5393,7 +5393,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
           host: "127.0.0.1",
           port: 8789,
           token: "real-secret-token",
-          server_url: "http://127.0.0.1:8789/mcp?gptprouse_token=stale-secret-token",
+          server_url: "http://127.0.0.1:8789/mcp?prodex_token=stale-secret-token",
           token_expires_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString()
@@ -5418,7 +5418,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
   });
 
   it("prints token expiry status when setup uses a TTL", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     await runCli(["setup", "--port", "8789", "--token", "super-secret-token", "--token-ttl-hours", "1"], {
       cwd,
       stdout: () => {},
@@ -5435,12 +5435,12 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     const status = JSON.parse(out.join("\n")) as { token_status?: string; token_expires_at?: string; server_url?: string };
     expect(status.token_status).toBe("valid");
     expect(Date.parse(status.token_expires_at ?? "")).toBeGreaterThan(Date.now());
-    expect(status.server_url).toContain("gptprouse_token=***");
+    expect(status.server_url).toContain("prodex_token=***");
     expect(out.join("\n")).not.toContain("super-secret-token");
   });
 
   it("strips URL userinfo from status output while preserving token redaction controls", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     await mkdir(path.join(cwd, ".bridge"), { recursive: true });
     await writeFile(
       path.join(cwd, ".bridge", "config.local.json"),
@@ -5450,7 +5450,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
           host: "127.0.0.1",
           port: 8787,
           token: "secret-token",
-          server_url: "http://user:pass@127.0.0.1:8787/mcp?gptprouse_token=secret-token",
+          server_url: "http://user:pass@127.0.0.1:8787/mcp?prodex_token=secret-token",
           token_expires_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString()
@@ -5475,13 +5475,13 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     });
 
     expect(redactedOut.join("\n")).not.toContain("user:pass");
-    expect(redactedOut.join("\n")).toContain("gptprouse_token=***");
+    expect(redactedOut.join("\n")).toContain("prodex_token=***");
     expect(redactedOut.join("\n")).not.toContain("secret-token");
-    expect(tokenOut).toEqual(["http://127.0.0.1:8787/mcp?gptprouse_token=secret-token"]);
+    expect(tokenOut).toEqual(["http://127.0.0.1:8787/mcp?prodex_token=secret-token"]);
   });
 
   it("keeps status url-only output limited to the MCP URL when token expiry exists", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     await runCli(["setup", "--port", "8789", "--token", "super-secret-token", "--token-ttl-hours", "1"], {
       cwd,
       stdout: () => {},
@@ -5495,11 +5495,11 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
       stderr: () => {}
     });
 
-    expect(out).toEqual(["http://127.0.0.1:8789/mcp?gptprouse_token=super-secret-token"]);
+    expect(out).toEqual(["http://127.0.0.1:8789/mcp?prodex_token=super-secret-token"]);
   });
 
   it("prints a setup hint instead of a raw missing-file error before HTTP MCP commands", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
 
     await expect(
       runCli(["status"], {
@@ -5507,26 +5507,26 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
         stdout: () => {},
         stderr: () => {}
       })
-    ).rejects.toThrow("status requires local MCP setup. Run `gptprouse setup` first.");
+    ).rejects.toThrow("status requires local MCP setup. Run `prodex setup` first.");
     await expect(
       runCli(["start"], {
         cwd,
         stdout: () => {},
         stderr: () => {}
       })
-    ).rejects.toThrow("start requires local MCP setup. Run `gptprouse setup` first.");
+    ).rejects.toThrow("start requires local MCP setup. Run `prodex setup` first.");
     await expect(
       runCli(["tunnel", "url", "--public-url", "https://example.com", "--show-token", "--url-only"], {
         cwd,
         stdout: () => {},
         stderr: () => {}
       })
-    ).rejects.toThrow("tunnel url requires local MCP setup. Run `gptprouse setup` first.");
+    ).rejects.toThrow("tunnel url requires local MCP setup. Run `prodex setup` first.");
   });
 
   it("prints source-checkout setup hints before local MCP commands", async () => {
-    const launcherCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-launcher-"));
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-target-"));
+    const launcherCwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-launcher-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-target-"));
     const sourceCli = path.join(launcherCwd, "dist", "cli.js");
     await mkdir(path.dirname(sourceCli), { recursive: true });
     await writeFile(sourceCli, "#!/usr/bin/env node\n", "utf8");
@@ -5556,9 +5556,9 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
   });
 
   it("keeps explicit --cwd setup hints before local MCP commands", async () => {
-    const launcherCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-launcher-"));
-    const targetCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-target-"));
-    const setupCommand = `gptprouse setup --cwd ${targetCwd}`;
+    const launcherCwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-launcher-"));
+    const targetCwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-target-"));
+    const setupCommand = `prodex setup --cwd ${targetCwd}`;
 
     await expect(
       runCli(["status", "--cwd", targetCwd], {
@@ -5584,8 +5584,8 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
   });
 
   it("keeps source-checkout and explicit --cwd setup hints before local MCP commands", async () => {
-    const launcherCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-launcher-"));
-    const targetCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-target-"));
+    const launcherCwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-launcher-"));
+    const targetCwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-target-"));
     const sourceCli = path.join(launcherCwd, "dist", "cli.js");
     await mkdir(path.dirname(sourceCli), { recursive: true });
     await writeFile(sourceCli, "#!/usr/bin/env node\n", "utf8");
@@ -5601,8 +5601,8 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
   });
 
   it("prints source-checkout token rotation hints before revealing local MCP URLs", async () => {
-    const launcherCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-launcher-"));
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-target-"));
+    const launcherCwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-launcher-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-target-"));
     const sourceCli = path.join(launcherCwd, "dist", "cli.js");
     await mkdir(path.dirname(sourceCli), { recursive: true });
     await writeFile(sourceCli, "#!/usr/bin/env node\n", "utf8");
@@ -5629,7 +5629,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
   });
 
   it("refuses to start with an expired configured token", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     await writeExpiredLocalConfig(cwd);
 
     const start = runCli(["start"], {
@@ -5644,7 +5644,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
   });
 
   it("requires setup before start creates a persisted local MCP config", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
 
     const start = runCli(["start"], {
       cwd,
@@ -5659,7 +5659,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
   });
 
   it("does not replace corrupt local MCP config when starting", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     await mkdir(path.join(cwd, ".bridge"), { recursive: true });
     await writeFile(path.join(cwd, ".bridge", "config.local.json"), "{not json", "utf8");
 
@@ -5675,7 +5675,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
   });
 
   it("reports corrupt local MCP config consistently before HTTP MCP commands", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     await mkdir(path.join(cwd, ".bridge"), { recursive: true });
     await writeFile(path.join(cwd, ".bridge", "config.local.json"), "{not json", "utf8");
 
@@ -5685,7 +5685,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
         stdout: () => {},
         stderr: () => {}
       })
-    ).rejects.toThrow("local MCP config is corrupt. Run `gptprouse setup` to replace .bridge/config.local.json.");
+    ).rejects.toThrow("local MCP config is corrupt. Run `prodex setup` to replace .bridge/config.local.json.");
 
     const start = runCli(["start"], {
       cwd,
@@ -5693,7 +5693,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
       stderr: () => {}
     });
     const stop = setTimeout(() => process.emit("SIGTERM"), 50);
-    await expect(start).rejects.toThrow("local MCP config is corrupt. Run `gptprouse setup` to replace .bridge/config.local.json.");
+    await expect(start).rejects.toThrow("local MCP config is corrupt. Run `prodex setup` to replace .bridge/config.local.json.");
     clearTimeout(stop);
 
     await expect(
@@ -5702,11 +5702,11 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
         stdout: () => {},
         stderr: () => {}
       })
-    ).rejects.toThrow("local MCP config is corrupt. Run `gptprouse setup` to replace .bridge/config.local.json.");
+    ).rejects.toThrow("local MCP config is corrupt. Run `prodex setup` to replace .bridge/config.local.json.");
   });
 
   it("runs a local doctor smoke for bridge storage and MCP writes", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     const out: string[] = [];
 
     const code = await runCli(["doctor"], {
@@ -5717,7 +5717,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
 
     const text = out.join("\n");
     expect(code).toBe(0);
-    expect(text).toContain("gptprouse doctor");
+    expect(text).toContain("prodex doctor");
     expect(text).toContain("bridge: missing/incomplete");
     expect(text).toContain("config: missing");
     expect(text).toContain("mcp_write_smoke: ok");
@@ -5744,8 +5744,8 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
   });
 
   it("doctor can print source-checkout remediation commands", async () => {
-    const launcherCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-launcher-"));
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-target-"));
+    const launcherCwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-launcher-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-target-"));
     const sourceCli = path.join(launcherCwd, "dist", "cli.js");
     await mkdir(path.dirname(sourceCli), { recursive: true });
     await writeFile(sourceCli, "#!/usr/bin/env node\n", "utf8");
@@ -5760,13 +5760,13 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     const text = out.join("\n");
     expect(text).toContain(`bridge: missing/incomplete (.bridge) - run \`node ${sourceCli} init\``);
     expect(text).toContain(`config: missing - run \`node ${sourceCli} setup\``);
-    expect(text).not.toContain("run `gptprouse init`");
-    expect(text).not.toContain("run `gptprouse setup`");
+    expect(text).not.toContain("run `prodex init`");
+    expect(text).not.toContain("run `prodex setup`");
   });
 
   it("doctor keeps source-checkout and explicit --cwd init remediation commands", async () => {
-    const launcherCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-launcher-"));
-    const targetCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-target-"));
+    const launcherCwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-launcher-"));
+    const targetCwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-target-"));
     const sourceCli = path.join(launcherCwd, "dist", "cli.js");
     await mkdir(path.dirname(sourceCli), { recursive: true });
     await writeFile(sourceCli, "#!/usr/bin/env node\n", "utf8");
@@ -5784,7 +5784,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
   });
 
   it("does not bootstrap bridge storage when doctor runs in a fresh directory", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
 
     await runCli(["doctor"], {
       cwd,
@@ -5796,7 +5796,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
   });
 
   it("redacts local MCP tokens from doctor output", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     await runCli(["setup", "--port", "8789", "--token", "super-secret-token"], {
       cwd,
       stdout: () => {},
@@ -5811,13 +5811,13 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     });
 
     const text = out.join("\n");
-    expect(text).toContain("gptprouse_token=***");
+    expect(text).toContain("prodex_token=***");
     expect(text).toContain("config_warning: Token has no expiry. Keep this local-only");
     expect(text).not.toContain("super-secret-token");
   });
 
   it("reports corrupt local MCP config as a doctor failure", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     await mkdir(path.join(cwd, ".bridge"), { recursive: true });
     await writeFile(path.join(cwd, ".bridge", "config.local.json"), "{not json", "utf8");
     const out: string[] = [];
@@ -5830,15 +5830,15 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
 
     const text = out.join("\n");
     expect(code).toBe(1);
-    expect(text).toContain("config: failed local MCP config is corrupt. Run `gptprouse setup` to replace .bridge/config.local.json.");
+    expect(text).toContain("config: failed local MCP config is corrupt. Run `prodex setup` to replace .bridge/config.local.json.");
     expect(text).not.toContain("config: missing");
     expect(text).not.toContain("Expected property name or '}' in JSON");
     expect(text).toContain("mcp_write_smoke: ok");
   });
 
   it("doctor rewrites corrupt config remediation for source-checkout users", async () => {
-    const launcherCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-launcher-"));
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-target-"));
+    const launcherCwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-launcher-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-target-"));
     const sourceCli = path.join(launcherCwd, "dist", "cli.js");
     await mkdir(path.dirname(sourceCli), { recursive: true });
     await writeFile(sourceCli, "#!/usr/bin/env node\n", "utf8");
@@ -5855,11 +5855,11 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     const text = out.join("\n");
     expect(code).toBe(1);
     expect(text).toContain(`config: failed local MCP config is corrupt. Run \`node ${sourceCli} setup\` to replace .bridge/config.local.json.`);
-    expect(text).not.toContain("Run `gptprouse setup`");
+    expect(text).not.toContain("Run `prodex setup`");
   });
 
   it("reports expired local MCP config as a doctor failure", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     await writeExpiredLocalConfig(cwd);
     const out: string[] = [];
 
@@ -5877,7 +5877,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
   });
 
   it("prints a paste-ready public tunnel MCP URL only with an explicit token reveal", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     await runCli(["setup", "--port", "8789", "--token", "super-secret-token", "--token-ttl-hours", "1"], {
       cwd,
       stdout: () => {},
@@ -5892,13 +5892,13 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
       stderr: (line) => err.push(line)
     });
 
-    expect(out).toEqual(["https://example.trycloudflare.com/mcp?gptprouse_token=super-secret-token"]);
+    expect(out).toEqual(["https://example.trycloudflare.com/mcp?prodex_token=super-secret-token"]);
     expect(err.join("\n")).toContain("authorizes all enabled bridge tools");
     expect(err.join("\n")).toContain("repo_stage_reviewed_paths");
   });
 
   it("redacts public tunnel MCP URL tokens by default", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     await runCli(["setup", "--port", "8789", "--token", "super-secret-token", "--token-ttl-hours", "1"], {
       cwd,
       stdout: () => {},
@@ -5914,14 +5914,14 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
 
     const text = out.join("\n");
     const payload = JSON.parse(text) as { mcp_url?: string; token_status?: string; warnings?: string[] };
-    expect(payload.mcp_url).toBe("https://example.trycloudflare.com/mcp?gptprouse_token=***");
+    expect(payload.mcp_url).toBe("https://example.trycloudflare.com/mcp?prodex_token=***");
     expect(payload.token_status).toBe("valid");
     expect(payload.warnings?.join("\n")).toContain("does not create a tunnel");
     expect(text).not.toContain("super-secret-token");
   });
 
   it("redacts public tunnel MCP URL tokens in url-only output unless explicitly revealed", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     await runCli(["setup", "--port", "8789", "--token", "super-secret-token", "--token-ttl-hours", "1"], {
       cwd,
       stdout: () => {},
@@ -5935,11 +5935,11 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
       stderr: () => {}
     });
 
-    expect(out).toEqual(["https://example.trycloudflare.com/mcp?gptprouse_token=***"]);
+    expect(out).toEqual(["https://example.trycloudflare.com/mcp?prodex_token=***"]);
   });
 
   it("requires a short-lived token before printing a public tunnel MCP URL", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     await runCli(["setup", "--port", "8789", "--token", "super-secret-token"], {
       cwd,
       stdout: () => {},
@@ -5956,7 +5956,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
   });
 
   it("validates public tunnel URL syntax before token state", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     await runCli(["setup", "--port", "8789", "--token", "super-secret-token"], {
       cwd,
       stdout: () => {},
@@ -5987,7 +5987,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
   });
 
   it("rejects public tunnel MCP URLs for expired tokens", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     await writeExpiredLocalConfig(cwd);
 
     await expect(
@@ -6000,7 +6000,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
   });
 
   it("rejects non-HTTPS public tunnel URLs", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     await runCli(["setup", "--port", "8789", "--token", "super-secret-token", "--token-ttl-hours", "1"], {
       cwd,
       stdout: () => {},
@@ -6017,7 +6017,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
   });
 
   it("strips userinfo from public tunnel URLs", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     await runCli(["setup", "--port", "8789", "--token", "super-secret-token", "--token-ttl-hours", "1"], {
       cwd,
       stdout: () => {},
@@ -6031,11 +6031,11 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
       stderr: () => {}
     });
 
-    expect(out).toEqual(["https://example.trycloudflare.com/mcp?gptprouse_token=super-secret-token"]);
+    expect(out).toEqual(["https://example.trycloudflare.com/mcp?prodex_token=super-secret-token"]);
   });
 
   it("allows non-HTTPS loopback tunnel URL formatting for local diagnostics", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     await runCli(["setup", "--port", "8789", "--token", "super-secret-token", "--token-ttl-hours", "1"], {
       cwd,
       stdout: () => {},
@@ -6049,11 +6049,11 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
       stderr: () => {}
     });
 
-    expect(out).toEqual(["http://localhost:7777/mcp?gptprouse_token=super-secret-token"]);
+    expect(out).toEqual(["http://localhost:7777/mcp?prodex_token=super-secret-token"]);
   });
 
   it("rejects non-HTTP loopback tunnel URL schemes", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     await runCli(["setup", "--port", "8789", "--token", "super-secret-token", "--token-ttl-hours", "1"], {
       cwd,
       stdout: () => {},
@@ -6071,7 +6071,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
 });
 
 async function createReleasePackCliFixture(): Promise<string> {
-  const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-release-pack-"));
+  const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-release-pack-"));
   const repoRoot = path.resolve(import.meta.dirname, "..");
   await mkdir(path.join(cwd, "scripts"), { recursive: true });
   await writeFile(
@@ -6104,7 +6104,7 @@ async function writeExpiredLocalConfig(cwd: string): Promise<void> {
         host: "127.0.0.1",
         port: 8789,
         token: "expired-secret-token",
-        server_url: "http://127.0.0.1:8789/mcp?gptprouse_token=expired-secret-token",
+        server_url: "http://127.0.0.1:8789/mcp?prodex_token=expired-secret-token",
         token_expires_at: new Date(Date.now() - 1000).toISOString(),
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()

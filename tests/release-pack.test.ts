@@ -46,7 +46,7 @@ describe("release-pack", () => {
   });
 
   it("fails with a friendly message when package.json is missing", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-release-pack-missing-"));
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-release-pack-missing-"));
     const destination = path.join(root, "packed");
 
     const result = await runReleasePack(["--root", root, "--pack-destination", destination]);
@@ -61,8 +61,8 @@ describe("release-pack", () => {
   });
 
   it("fails with a friendly message when package.json is malformed", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-release-pack-malformed-"));
-    const destination = await mkdtemp(path.join(tmpdir(), "gptprouse-release-pack-dest-"));
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-release-pack-malformed-"));
+    const destination = await mkdtemp(path.join(tmpdir(), "prodex-release-pack-dest-"));
     await writeFile(path.join(root, "package.json"), "{ broken json\n", "utf8");
 
     const result = await runReleasePack(["--root", root, "--pack-destination", destination]);
@@ -78,8 +78,8 @@ describe("release-pack", () => {
 
   it("fails with a friendly message when npm pack dry-run returns malformed JSON", async () => {
     const root = await createReleasePackFixture();
-    const destination = await mkdtemp(path.join(tmpdir(), "gptprouse-release-pack-dest-"));
-    const fakeBin = await mkdtemp(path.join(tmpdir(), "gptprouse-release-pack-fake-bin-"));
+    const destination = await mkdtemp(path.join(tmpdir(), "prodex-release-pack-dest-"));
+    const fakeBin = await mkdtemp(path.join(tmpdir(), "prodex-release-pack-fake-bin-"));
     await writeFile(
       path.join(fakeBin, npmCommand),
       "#!/bin/sh\nprintf 'not json\\n'\n",
@@ -103,8 +103,8 @@ describe("release-pack", () => {
 
   it("fails with a friendly message when npm pack dry-run exits nonzero", async () => {
     const root = await createReleasePackFixture();
-    const destination = await mkdtemp(path.join(tmpdir(), "gptprouse-release-pack-dest-"));
-    const fakeBin = await mkdtemp(path.join(tmpdir(), "gptprouse-release-pack-fake-bin-"));
+    const destination = await mkdtemp(path.join(tmpdir(), "prodex-release-pack-dest-"));
+    const fakeBin = await mkdtemp(path.join(tmpdir(), "prodex-release-pack-fake-bin-"));
     await writeFile(
       path.join(fakeBin, npmCommand),
       "#!/bin/sh\nprintf 'npm dry-run exploded\\n' >&2\nexit 23\n",
@@ -127,8 +127,8 @@ describe("release-pack", () => {
 
   it("fails with a friendly message when npm pack dry-run exits silently", async () => {
     const root = await createReleasePackFixture();
-    const destination = await mkdtemp(path.join(tmpdir(), "gptprouse-release-pack-dest-"));
-    const fakeBin = await mkdtemp(path.join(tmpdir(), "gptprouse-release-pack-fake-bin-"));
+    const destination = await mkdtemp(path.join(tmpdir(), "prodex-release-pack-dest-"));
+    const fakeBin = await mkdtemp(path.join(tmpdir(), "prodex-release-pack-fake-bin-"));
     await writeFile(
       path.join(fakeBin, npmCommand),
       "#!/bin/sh\nexit 23\n",
@@ -151,8 +151,8 @@ describe("release-pack", () => {
 
   it("fails with a friendly message when npm pack dry-run includes a file entry without a path", async () => {
     const root = await createReleasePackFixture();
-    const destination = await mkdtemp(path.join(tmpdir(), "gptprouse-release-pack-dest-"));
-    const fakeBin = await mkdtemp(path.join(tmpdir(), "gptprouse-release-pack-fake-bin-"));
+    const destination = await mkdtemp(path.join(tmpdir(), "prodex-release-pack-dest-"));
+    const fakeBin = await mkdtemp(path.join(tmpdir(), "prodex-release-pack-fake-bin-"));
     await writeFile(
       path.join(fakeBin, npmCommand),
       `#!/bin/sh
@@ -186,8 +186,8 @@ esac
 
   it("fails with a friendly message when npm pack lists a missing package file", async () => {
     const root = await createReleasePackFixture();
-    const destination = await mkdtemp(path.join(tmpdir(), "gptprouse-release-pack-dest-"));
-    const fakeBin = await mkdtemp(path.join(tmpdir(), "gptprouse-release-pack-fake-bin-"));
+    const destination = await mkdtemp(path.join(tmpdir(), "prodex-release-pack-dest-"));
+    const fakeBin = await mkdtemp(path.join(tmpdir(), "prodex-release-pack-fake-bin-"));
     await writeFile(
       path.join(fakeBin, npmCommand),
       `#!/bin/sh
@@ -212,8 +212,8 @@ printf '[{"files":[{"path":"package.json"},{"path":"README.md"},{"path":"LICENSE
 
   it("fails with a friendly message when final npm pack returns malformed JSON", async () => {
     const root = await createReleasePackFixture();
-    const destination = await mkdtemp(path.join(tmpdir(), "gptprouse-release-pack-dest-"));
-    const fakeBin = await mkdtemp(path.join(tmpdir(), "gptprouse-release-pack-fake-bin-"));
+    const destination = await mkdtemp(path.join(tmpdir(), "prodex-release-pack-dest-"));
+    const fakeBin = await mkdtemp(path.join(tmpdir(), "prodex-release-pack-fake-bin-"));
     await writeFile(
       path.join(fakeBin, npmCommand),
       `#!/bin/sh
@@ -242,8 +242,8 @@ esac
 
   it("fails with a friendly message when final npm pack exits nonzero", async () => {
     const root = await createReleasePackFixture();
-    const destination = await mkdtemp(path.join(tmpdir(), "gptprouse-release-pack-dest-"));
-    const fakeBin = await mkdtemp(path.join(tmpdir(), "gptprouse-release-pack-fake-bin-"));
+    const destination = await mkdtemp(path.join(tmpdir(), "prodex-release-pack-dest-"));
+    const fakeBin = await mkdtemp(path.join(tmpdir(), "prodex-release-pack-fake-bin-"));
     await writeFile(
       path.join(fakeBin, npmCommand),
       `#!/bin/sh
@@ -271,8 +271,8 @@ esac
 
   it("fails with a friendly message when final npm pack reports a missing tarball", async () => {
     const root = await createReleasePackFixture();
-    const destination = await mkdtemp(path.join(tmpdir(), "gptprouse-release-pack-dest-"));
-    const fakeBin = await mkdtemp(path.join(tmpdir(), "gptprouse-release-pack-fake-bin-"));
+    const destination = await mkdtemp(path.join(tmpdir(), "prodex-release-pack-dest-"));
+    const fakeBin = await mkdtemp(path.join(tmpdir(), "prodex-release-pack-fake-bin-"));
     await writeFile(
       path.join(fakeBin, npmCommand),
       `#!/bin/sh
@@ -301,11 +301,11 @@ esac
 
   it("fails with a friendly message when final npm pack reports a tarball outside the destination", async () => {
     const root = await createReleasePackFixture();
-    const destination = await mkdtemp(path.join(tmpdir(), "gptprouse-release-pack-dest-"));
-    const outside = await mkdtemp(path.join(tmpdir(), "gptprouse-release-pack-outside-"));
+    const destination = await mkdtemp(path.join(tmpdir(), "prodex-release-pack-dest-"));
+    const outside = await mkdtemp(path.join(tmpdir(), "prodex-release-pack-outside-"));
     const outsideTarball = path.join(outside, "demo-release-pack-1.0.0.tgz");
     await writeFile(outsideTarball, "not a real package\n", "utf8");
-    const fakeBin = await mkdtemp(path.join(tmpdir(), "gptprouse-release-pack-fake-bin-"));
+    const fakeBin = await mkdtemp(path.join(tmpdir(), "prodex-release-pack-fake-bin-"));
     await writeFile(
       path.join(fakeBin, npmCommand),
       `#!/bin/sh
@@ -336,7 +336,7 @@ esac
     const packageJson = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
     packageJson.files = ["README.md", "LICENSE", "dist/cli.js"];
     await writeFile(path.join(root, "package.json"), `${JSON.stringify(packageJson, null, 2)}\n`, "utf8");
-    const destination = await mkdtemp(path.join(tmpdir(), "gptprouse-release-pack-dest-"));
+    const destination = await mkdtemp(path.join(tmpdir(), "prodex-release-pack-dest-"));
 
     const result = await runReleasePack(["--root", root, "--pack-destination", destination]);
 
@@ -354,7 +354,7 @@ esac
     const packageJson = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
     delete packageJson.license;
     await writeFile(path.join(root, "package.json"), `${JSON.stringify(packageJson, null, 2)}\n`, "utf8");
-    const destination = await mkdtemp(path.join(tmpdir(), "gptprouse-release-pack-dest-"));
+    const destination = await mkdtemp(path.join(tmpdir(), "prodex-release-pack-dest-"));
 
     const result = await runReleasePack(["--root", root, "--pack-destination", destination]);
 
@@ -371,7 +371,7 @@ esac
     const root = await createReleasePackFixture();
     await chmod(path.join(root, "README.md"), 0o755);
     await chmod(path.join(root, "scripts", "release-check.mjs"), 0o755);
-    const destination = await mkdtemp(path.join(tmpdir(), "gptprouse-release-pack-dest-"));
+    const destination = await mkdtemp(path.join(tmpdir(), "prodex-release-pack-dest-"));
 
     const result = await runReleasePack(["--root", root, "--pack-destination", destination]);
 
@@ -385,7 +385,7 @@ esac
     expect(result.stdout).toContain("release_pack_publish_blocked: fix git readiness before npm publish");
     expect(result.stdout).not.toContain("release_pack_publish: npm publish");
 
-    const consumer = await mkdtemp(path.join(tmpdir(), "gptprouse-release-pack-consumer-"));
+    const consumer = await mkdtemp(path.join(tmpdir(), "prodex-release-pack-consumer-"));
     await writeFile(path.join(consumer, "package.json"), `${JSON.stringify({ private: true }, null, 2)}\n`, "utf8");
     await execFileAsync(npmCommand, ["install", "--ignore-scripts", "--no-audit", "--no-fund", "--package-lock=false", tarballPath], {
       cwd: consumer,
@@ -408,7 +408,7 @@ esac
     await execFileAsync("git", ["commit", "-m", "initial"], { cwd: root });
     const branch = (await execFileAsync("git", ["rev-parse", "--abbrev-ref", "HEAD"], { cwd: root })).stdout.trim();
     const commit = (await execFileAsync("git", ["rev-parse", "--short", "HEAD"], { cwd: root })).stdout.trim();
-    const destination = await mkdtemp(path.join(tmpdir(), "gptprouse-release-pack-dest-"));
+    const destination = await mkdtemp(path.join(tmpdir(), "prodex-release-pack-dest-"));
 
     const result = await runReleasePack(["--root", root, "--pack-destination", destination]);
 
@@ -432,7 +432,7 @@ esac
       cwd: root
     });
     await execFileAsync("git", ["commit", "-m", "initial"], { cwd: root });
-    const remote = await mkdtemp(path.join(tmpdir(), "gptprouse-release-pack-remote-"));
+    const remote = await mkdtemp(path.join(tmpdir(), "prodex-release-pack-remote-"));
     await execFileAsync("git", ["init", "--bare"], { cwd: remote });
     await execFileAsync("git", ["remote", "add", "origin", remote], { cwd: root });
     const branch = (await execFileAsync("git", ["rev-parse", "--abbrev-ref", "HEAD"], { cwd: root })).stdout.trim();
@@ -441,7 +441,7 @@ esac
     await execFileAsync("git", ["push", "origin", "--delete", branch], { cwd: root });
     await execFileAsync("git", ["fetch", "--prune", "origin"], { cwd: root });
     const commit = (await execFileAsync("git", ["rev-parse", "--short", "HEAD"], { cwd: root })).stdout.trim();
-    const destination = await mkdtemp(path.join(tmpdir(), "gptprouse-release-pack-dest-"));
+    const destination = await mkdtemp(path.join(tmpdir(), "prodex-release-pack-dest-"));
 
     const result = await runReleasePack(["--root", root, "--pack-destination", destination]);
 
@@ -462,13 +462,13 @@ esac
       cwd: root
     });
     await execFileAsync("git", ["commit", "-m", "initial"], { cwd: root });
-    const remote = await mkdtemp(path.join(tmpdir(), "gptprouse-release-pack-remote-"));
+    const remote = await mkdtemp(path.join(tmpdir(), "prodex-release-pack-remote-"));
     await execFileAsync("git", ["init", "--bare"], { cwd: remote });
     await execFileAsync("git", ["remote", "add", "origin", remote], { cwd: root });
     const branch = (await execFileAsync("git", ["rev-parse", "--abbrev-ref", "HEAD"], { cwd: root })).stdout.trim();
     await execFileAsync("git", ["push", "-u", "origin", branch], { cwd: root });
     const commit = (await execFileAsync("git", ["rev-parse", "--short", "HEAD"], { cwd: root })).stdout.trim();
-    const destination = await mkdtemp(path.join(tmpdir(), "gptprouse-release-pack-dest-"));
+    const destination = await mkdtemp(path.join(tmpdir(), "prodex-release-pack-dest-"));
 
     const result = await runReleasePack(["--root", root, "--pack-destination", destination]);
 
@@ -493,7 +493,7 @@ esac
     await writeFile(outside, "# Outside README\n", "utf8");
     await rm(path.join(root, "README.md"));
     await link(outside, path.join(root, "README.md"));
-    const destination = await mkdtemp(path.join(tmpdir(), "gptprouse-release-pack-dest-"));
+    const destination = await mkdtemp(path.join(tmpdir(), "prodex-release-pack-dest-"));
 
     const result = await runReleasePack(["--root", root, "--pack-destination", destination]);
 
@@ -507,7 +507,7 @@ esac
 });
 
 async function createReleasePackFixture(): Promise<string> {
-  const root = await mkdtemp(path.join(tmpdir(), "gptprouse-release-pack-"));
+  const root = await mkdtemp(path.join(tmpdir(), "prodex-release-pack-"));
   await mkdir(path.join(root, "dist"), { recursive: true });
   await mkdir(path.join(root, "scripts"), { recursive: true });
   await writeFile(

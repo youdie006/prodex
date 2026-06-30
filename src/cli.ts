@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { renderBanner, shouldColorize } from "./banner.js";
 import { buildDryRunBundle } from "./bundle.js";
 import {
   chatGptVisibilityBlocker,
@@ -33,7 +34,7 @@ const packageJson = requirePackageJson("../package.json") as { version?: string 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const CLI_VERSION = packageJson.version ?? "0.0.0";
 const RESERVED_PACKAGE_NAMES = new Set(["node_modules", "favicon.ico"]);
-const PRO_BROWSER_SMOKE_TOKEN = "GPTPROUSE_PRO_SMOKE_OK";
+const PRO_BROWSER_SMOKE_TOKEN = "PRODEX_PRO_SMOKE_OK";
 const TOKEN_BEARING_MCP_URL_AUTHORITY_WARNING =
   "Token-bearing MCP URL authorizes all enabled bridge tools, including repo_read_file, repo_search, repo_write_file_dry_run, repo_write_file_apply, and repo_stage_reviewed_paths. Paste it only into your own trusted private MCP client.";
 const TOP_LEVEL_COMMANDS = [
@@ -95,6 +96,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
   }
 
   if (!command || command === "help" || command === "--help" || command === "-h") {
+    if (shouldColorize()) io.stdout(renderBanner({ color: true }));
     printHelp(io.stdout);
     return 0;
   }
@@ -142,7 +144,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       token: config.token,
       tokenExpiresAt: config.token_expires_at
     });
-    io.stdout(`gptprouse HTTP MCP listening on ${redactServerUrl(running.mcp_url)}`);
+    io.stdout(`prodex HTTP MCP listening on ${redactServerUrl(running.mcp_url)}`);
     io.stdout(formatTokenExpiryLine(config));
     await waitForShutdown(async () => running.close());
     return 0;
@@ -168,7 +170,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
     if (showToken && tokenStatus.status === "non_expiring" && !allowNonExpiringTokenReveal) {
       throw new Error(
         sourceAwareSetupMessage(
-          "status --show-token requires a token with expiry. Run `gptprouse setup --token-ttl-hours <hours>` first, or pass --unsafe-show-non-expiring-token for local-only debugging.",
+          "status --show-token requires a token with expiry. Run `prodex setup --token-ttl-hours <hours>` first, or pass --unsafe-show-non-expiring-token for local-only debugging.",
           sourceCli,
           { cwd: setupHintCwd }
         )
@@ -176,7 +178,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
     }
     if (showToken && tokenStatus.status === "expired") {
       throw new Error(
-        sourceAwareSetupMessage(`token expired at ${tokenStatus.token_expires_at}. Run \`gptprouse setup --token-ttl-hours <hours>\`.`, sourceCli, {
+        sourceAwareSetupMessage(`token expired at ${tokenStatus.token_expires_at}. Run \`prodex setup --token-ttl-hours <hours>\`.`, sourceCli, {
           cwd: setupHintCwd
         })
       );
@@ -184,7 +186,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
     const nonExpiringRevealWarning =
       showToken && allowNonExpiringTokenReveal && tokenStatus.status === "non_expiring"
         ? sourceAwareSetupMessage(
-            "Showing a non-expiring token. Keep this local-only and rotate it with `gptprouse setup --token-ttl-hours <hours>` before any tunnel or ChatGPT Project use.",
+            "Showing a non-expiring token. Keep this local-only and rotate it with `prodex setup --token-ttl-hours <hours>` before any tunnel or ChatGPT Project use.",
             sourceCli,
             { cwd: setupHintCwd }
           )
@@ -242,14 +244,14 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
     const tokenStatus = getTokenExpiryStatus(config);
     if (tokenStatus.status === "non_expiring") {
       throw new Error(
-        sourceAwareSetupMessage("tunnel url requires a short-lived token. Run `gptprouse setup --token-ttl-hours <hours>` first.", sourceCli, {
+        sourceAwareSetupMessage("tunnel url requires a short-lived token. Run `prodex setup --token-ttl-hours <hours>` first.", sourceCli, {
           cwd: setupHintCwd
         })
       );
     }
     if (tokenStatus.status === "expired") {
       throw new Error(
-        sourceAwareSetupMessage(`token expired at ${tokenStatus.token_expires_at}. Run \`gptprouse setup --token-ttl-hours <hours>\`.`, sourceCli, {
+        sourceAwareSetupMessage(`token expired at ${tokenStatus.token_expires_at}. Run \`prodex setup --token-ttl-hours <hours>\`.`, sourceCli, {
           cwd: setupHintCwd
         })
       );
@@ -263,7 +265,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       return 0;
     }
     const warnings = [
-      "This command does not create a tunnel. Keep `gptprouse start` running behind your own tunnel.",
+      "This command does not create a tunnel. Keep `prodex start` running behind your own tunnel.",
       "Only paste the token-bearing URL into a trusted private MCP client."
     ];
     if (showToken) warnings.push(TOKEN_BEARING_MCP_URL_AUTHORITY_WARNING);
@@ -338,6 +340,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
     if (printHelpIfRequested(rest, "onboard", io.stdout, printOnboardHelp, { valueFlags: ["--cwd", "--source-cli"] })) return 0;
     assertOnlyOptions(rest, "onboard", ["--cwd", "--source-cli"]);
     const targetCwd = resolveCwdFlag(io.cwd, rest);
+    if (shouldColorize()) io.stdout(renderBanner({ color: true }));
     io.stdout(formatOnboardingGuide(targetCwd, await hasOnboardingReadme(targetCwd), resolveOptionalFileFlag(io.cwd, rest, "--source-cli")));
     return 0;
   }
@@ -413,7 +416,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
         ...(readFlag(chatgptArgs, "--cwd") ? { cwd: targetCwd } : {}),
         ...(readFlag(chatgptArgs, "--port") ? { port } : {})
       };
-      const smokePrompt = `This is a one-time gptprouse smoke test. Reply exactly: ${PRO_BROWSER_SMOKE_TOKEN}`;
+      const smokePrompt = `This is a one-time prodex smoke test. Reply exactly: ${PRO_BROWSER_SMOKE_TOKEN}`;
       const recordBlockedSmoke = async (
         summary: string,
         blocker: { code: string; message: string; retryable: boolean; next_step?: string },
@@ -750,7 +753,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       }
       parseAskProArgs(proArgs, ASK_PRO_PREVIEW_VALUE_FLAGS);
       if (hasAskProSendMode(proArgs)) {
-        throw new Error("gptprouse pro ask is a dry-run preview. Use `gptprouse pro browser ask` for visible-browser sends.");
+        throw new Error("prodex pro ask is a dry-run preview. Use `prodex pro browser ask` for visible-browser sends.");
       }
       const hasDryRun = hasAskProDryRunMode(proArgs);
       return runCli(["ask-pro", ...(hasDryRun ? [] : ["--dry-run"]), ...proArgs], io);
@@ -826,14 +829,14 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
           throw new Error("ask-pro cannot combine --dry-run and --send");
         }
         if (hasAskProDryRunMode(browserArgs)) {
-          throw new Error("gptprouse pro browser ask is an explicit visible-browser send. Use `gptprouse pro ask` for dry-run previews.");
+          throw new Error("prodex pro browser ask is an explicit visible-browser send. Use `prodex pro ask` for dry-run previews.");
         }
         const hasMode = hasAskProMode(browserArgs);
         return runCli(["ask-pro", ...(hasMode ? [] : ["--send"]), ...browserArgs], { ...io, allowAskProBrowserSend: true });
       }
       if (browserSubcommand === "open" || browserSubcommand === "status" || browserSubcommand === "doctor") {
         const replacement = browserSubcommand === "open" ? "login" : "check";
-        throw new Error(`Use \`gptprouse pro browser ${replacement}\` for explicit browser automation.`);
+        throw new Error(`Use \`prodex pro browser ${replacement}\` for explicit browser automation.`);
       }
       if (browserSubcommand === "smoke") {
         if (printProBrowserHelpIfRequested(browserArgs, "pro browser smoke", io, { valueFlags: ["--cwd", "--port", "--timeout-ms", "--source-cli"] })) return 0;
@@ -851,7 +854,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       throw unknownSubcommandError("pro browser", browserSubcommand, ["login", "ask", "smoke", "check"]);
     }
     if (subcommand === "open" || subcommand === "status" || subcommand === "smoke" || subcommand === "check" || subcommand === "doctor") {
-      throw new Error(`Use \`gptprouse pro browser ${subcommand === "doctor" ? "check" : subcommand}\` for explicit browser automation.`);
+      throw new Error(`Use \`prodex pro browser ${subcommand === "doctor" ? "check" : subcommand}\` for explicit browser automation.`);
     }
     if (subcommand === "list") {
       if (printHelpIfRequested(proArgs, "pro list", io.stdout, printProHelp, { valueFlags: ["--cwd", "--source-cli"] })) return 0;
@@ -909,7 +912,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
   }
 
   if (command === "consults") {
-    throw new Error("The legacy `consults` alias is retired. Use `gptprouse pro list`, `gptprouse pro latest`, or `gptprouse pro show <task-id|latest>`.");
+    throw new Error("The legacy `consults` alias is retired. Use `prodex pro list`, `prodex pro latest`, or `prodex pro show <task-id|latest>`.");
   }
 
   if (command === "ask-pro") {
@@ -923,7 +926,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       throw new Error("ask-pro cannot combine --dry-run and --send");
     }
     if (hasSendMode && !io.allowAskProBrowserSend) {
-      throw new Error("Direct ask-pro --send is disabled. Use `gptprouse pro browser ask` for explicit visible-browser sends.");
+      throw new Error("Direct ask-pro --send is disabled. Use `prodex pro browser ask` for explicit visible-browser sends.");
     }
     const targetCwd = resolveCwdFlag(io.cwd, parsedAskPro.optionArgs);
     const targetStore = new BridgeStore(targetCwd);
@@ -1141,210 +1144,210 @@ function defaultIo(): CliIO {
 }
 
 function printHelp(stdout: (line: string) => void): void {
-  stdout(`gptprouse v${CLI_VERSION}
+  stdout(`prodex v${CLI_VERSION}
 
 Commands:
-  gptprouse --version
-  gptprouse init [--cwd /absolute/path/to/repo]
-  gptprouse doctor [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]
-  gptprouse setup [--cwd /absolute/path/to/repo] [--host 127.0.0.1] [--port 8787] [--token-ttl-hours <hours>]
-  gptprouse start [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]
-  gptprouse status [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js] [--show-token] [--url-only] [--unsafe-show-non-expiring-token]
-  gptprouse tunnel url [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js] --public-url https://... [--show-token] [--url-only]
-  gptprouse release status [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]
-  gptprouse release pack [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js] --pack-destination /absolute/path [--keep-workdir]
-  gptprouse onboard [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]
-  gptprouse project prompt [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]
-  gptprouse claude prompt [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]
-  gptprouse claude config [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]
-  gptprouse pro ask [--dry-run] [--cwd /absolute/path/to/repo] [--file path] "prompt"  # dry-run preview
-  gptprouse pro browser login [--cwd /absolute/path/to/repo] [--dry-run] [--source-cli /absolute/path/to/dist/cli.js] [--profile-dir path] [--port 9333] [--url https://chatgpt.com/...] [--launch-timeout-ms 5000]  # preview/open visible browser login
-  gptprouse pro browser help [--source-cli /absolute/path/to/dist/cli.js]
-  gptprouse pro browser check [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 1500]
-  gptprouse pro browser smoke [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 90000]
-  gptprouse pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 90000] [--target-url url --confirm-target] [--file path] "prompt"  # explicit visible-browser send
-  gptprouse pro latest [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]
-  gptprouse pro list [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]
-  gptprouse pro show <task-id|latest> [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]
-  gptprouse tasks create [--cwd /absolute/path/to/repo] --title "Title" --prompt "Prompt"
-  gptprouse tasks list [--status new|claimed|done|blocked] [--cwd /absolute/path/to/repo]
-  gptprouse tasks show <task-id|latest> [--cwd /absolute/path/to/repo]
-  gptprouse tasks claim <task-id> [--cwd /absolute/path/to/repo] [--by codex]
-  gptprouse tasks complete <task-id> [--cwd /absolute/path/to/repo] --summary "Summary" [--command "npm test"] [--artifact .bridge/artifacts/results/name.md=text]
-  gptprouse tasks block <task-id> [--cwd /absolute/path/to/repo] --summary "Summary" [--code code] [--next-step "Next step"] [--retryable]
-  gptprouse results show <task-id|latest> [--cwd /absolute/path/to/repo]
-  gptprouse results artifact <task-id|latest> [artifact-path] [--cwd /absolute/path/to/repo]
-  gptprouse results reseal <task-id|latest> --confirm-current-result [--cwd /absolute/path/to/repo]
-  gptprouse receipts list [--kind kind] [--task-id task-id] [--cwd /absolute/path/to/repo]
-  gptprouse receipts show <receipt-id|latest> [--cwd /absolute/path/to/repo]
-  gptprouse sessions list [--status preview|running|done|blocked] [--cwd /absolute/path/to/repo]
-  gptprouse sessions show <session-id|latest> [--cwd /absolute/path/to/repo]
-  gptprouse mcp [--cwd /absolute/path/to/repo]`);
+  prodex --version
+  prodex init [--cwd /absolute/path/to/repo]
+  prodex doctor [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]
+  prodex setup [--cwd /absolute/path/to/repo] [--host 127.0.0.1] [--port 8787] [--token-ttl-hours <hours>]
+  prodex start [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]
+  prodex status [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js] [--show-token] [--url-only] [--unsafe-show-non-expiring-token]
+  prodex tunnel url [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js] --public-url https://... [--show-token] [--url-only]
+  prodex release status [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]
+  prodex release pack [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js] --pack-destination /absolute/path [--keep-workdir]
+  prodex onboard [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]
+  prodex project prompt [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]
+  prodex claude prompt [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]
+  prodex claude config [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]
+  prodex pro ask [--dry-run] [--cwd /absolute/path/to/repo] [--file path] "prompt"  # dry-run preview
+  prodex pro browser login [--cwd /absolute/path/to/repo] [--dry-run] [--source-cli /absolute/path/to/dist/cli.js] [--profile-dir path] [--port 9333] [--url https://chatgpt.com/...] [--launch-timeout-ms 5000]  # preview/open visible browser login
+  prodex pro browser help [--source-cli /absolute/path/to/dist/cli.js]
+  prodex pro browser check [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 1500]
+  prodex pro browser smoke [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 90000]
+  prodex pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 90000] [--target-url url --confirm-target] [--file path] "prompt"  # explicit visible-browser send
+  prodex pro latest [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]
+  prodex pro list [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]
+  prodex pro show <task-id|latest> [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]
+  prodex tasks create [--cwd /absolute/path/to/repo] --title "Title" --prompt "Prompt"
+  prodex tasks list [--status new|claimed|done|blocked] [--cwd /absolute/path/to/repo]
+  prodex tasks show <task-id|latest> [--cwd /absolute/path/to/repo]
+  prodex tasks claim <task-id> [--cwd /absolute/path/to/repo] [--by codex]
+  prodex tasks complete <task-id> [--cwd /absolute/path/to/repo] --summary "Summary" [--command "npm test"] [--artifact .bridge/artifacts/results/name.md=text]
+  prodex tasks block <task-id> [--cwd /absolute/path/to/repo] --summary "Summary" [--code code] [--next-step "Next step"] [--retryable]
+  prodex results show <task-id|latest> [--cwd /absolute/path/to/repo]
+  prodex results artifact <task-id|latest> [artifact-path] [--cwd /absolute/path/to/repo]
+  prodex results reseal <task-id|latest> --confirm-current-result [--cwd /absolute/path/to/repo]
+  prodex receipts list [--kind kind] [--task-id task-id] [--cwd /absolute/path/to/repo]
+  prodex receipts show <receipt-id|latest> [--cwd /absolute/path/to/repo]
+  prodex sessions list [--status preview|running|done|blocked] [--cwd /absolute/path/to/repo]
+  prodex sessions show <session-id|latest> [--cwd /absolute/path/to/repo]
+  prodex mcp [--cwd /absolute/path/to/repo]`);
 }
 
 function printInitHelp(stdout: (line: string) => void): void {
-  stdout(`gptprouse init
+  stdout(`prodex init
 
 Commands:
-  gptprouse init [--cwd /absolute/path/to/repo]
+  prodex init [--cwd /absolute/path/to/repo]
 
 Initialize the local .bridge receipt ledger and bridge .gitignore entries.`);
 }
 
 function printSetupHelp(stdout: (line: string) => void): void {
-  stdout(`gptprouse setup
+  stdout(`prodex setup
 
 Commands:
-  gptprouse setup [--cwd /absolute/path/to/repo] [--host 127.0.0.1] [--port 8787] [--token-ttl-hours <hours>]
+  prodex setup [--cwd /absolute/path/to/repo] [--host 127.0.0.1] [--port 8787] [--token-ttl-hours <hours>]
 
 Save a loopback-only HTTP MCP profile in .bridge/config.local.json. Use --token-ttl-hours before tunnels or ChatGPT Project use.`);
 }
 
 function printStartHelp(stdout: (line: string) => void): void {
-  stdout(`gptprouse start
+  stdout(`prodex start
 
 Commands:
-  gptprouse start [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]
+  prodex start [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]
 
 Start the local loopback HTTP MCP server from the saved setup profile.`);
 }
 
 function printStatusHelp(stdout: (line: string) => void): void {
-  stdout(`gptprouse status
+  stdout(`prodex status
 
 Commands:
-  gptprouse status [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js] [--show-token] [--url-only] [--unsafe-show-non-expiring-token]
+  prodex status [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js] [--show-token] [--url-only] [--unsafe-show-non-expiring-token]
 
 Show the saved local MCP URL with tokens redacted by default.`);
 }
 
 function printTunnelHelp(stdout: (line: string) => void): void {
-  stdout(`gptprouse tunnel
+  stdout(`prodex tunnel
 
 Commands:
-  gptprouse tunnel url [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js] --public-url https://... [--show-token] [--url-only]
+  prodex tunnel url [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js] --public-url https://... [--show-token] [--url-only]
 
 Format a public tunnel MCP URL from an existing local setup. This command does not create a tunnel.`);
 }
 
 function printTunnelUrlHelp(stdout: (line: string) => void): void {
-  stdout(`gptprouse tunnel url
+  stdout(`prodex tunnel url
 
 Commands:
-  gptprouse tunnel url [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js] --public-url https://... [--show-token] [--url-only]
+  prodex tunnel url [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js] --public-url https://... [--show-token] [--url-only]
 
 This command does not create a tunnel. It only formats your supplied public URL with the saved short-lived MCP token.`);
 }
 
 function printDoctorHelp(stdout: (line: string) => void): void {
-  stdout(`gptprouse doctor
+  stdout(`prodex doctor
 
 Commands:
-  gptprouse doctor [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]
+  prodex doctor [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]
 
 Run local bridge, MCP, write/apply/stage, and HTTP MCP smoke checks without opening ChatGPT.`);
 }
 
 function printOnboardHelp(stdout: (line: string) => void): void {
-  stdout(`gptprouse onboard
+  stdout(`prodex onboard
 
 Commands:
-  gptprouse onboard [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]
+  prodex onboard [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]
 
 Print a local-first setup guide for Codex, ChatGPT Projects, Claude, and visible-browser Pro consults.`);
 }
 
 function printMcpHelp(stdout: (line: string) => void): void {
-  stdout(`gptprouse mcp
+  stdout(`prodex mcp
 
 Commands:
-  gptprouse mcp [--cwd /absolute/path/to/repo]
+  prodex mcp [--cwd /absolute/path/to/repo]
 
 Run the stdio MCP server for local clients such as Claude. This does not reveal HTTP MCP URL tokens.`);
 }
 
 function printReleaseHelp(stdout: (line: string) => void): void {
-  stdout(`gptprouse release
+  stdout(`prodex release
 
 Commands:
-  gptprouse release status [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]
-  gptprouse release pack [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js] --pack-destination /absolute/path [--keep-workdir]
+  prodex release status [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]
+  prodex release pack [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js] --pack-destination /absolute/path [--keep-workdir]
 
 Release commands are local checks and package preparation helpers; they do not publish or push.`);
 }
 
 function printProHelp(stdout: (line: string) => void): void {
-  stdout(`gptprouse pro
+  stdout(`prodex pro
 
 Commands:
-  gptprouse pro ask [--dry-run] [--cwd /absolute/path/to/repo] [--file path] "prompt"
-  gptprouse pro browser help [--source-cli /absolute/path/to/dist/cli.js]
-  gptprouse pro browser login [--cwd /absolute/path/to/repo] [--dry-run] [--source-cli /absolute/path/to/dist/cli.js] [--launch-timeout-ms 5000]
-  gptprouse pro browser check [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]
-  gptprouse pro browser smoke [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]
-  gptprouse pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--target-url url --confirm-target] [--file path] "prompt"
-  gptprouse pro latest [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]
-  gptprouse pro list [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]
-  gptprouse pro show <task-id|latest> [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]
+  prodex pro ask [--dry-run] [--cwd /absolute/path/to/repo] [--file path] "prompt"
+  prodex pro browser help [--source-cli /absolute/path/to/dist/cli.js]
+  prodex pro browser login [--cwd /absolute/path/to/repo] [--dry-run] [--source-cli /absolute/path/to/dist/cli.js] [--launch-timeout-ms 5000]
+  prodex pro browser check [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]
+  prodex pro browser smoke [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]
+  prodex pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--target-url url --confirm-target] [--file path] "prompt"
+  prodex pro latest [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]
+  prodex pro list [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]
+  prodex pro show <task-id|latest> [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]
 
-Use \`gptprouse pro ask\` for dry-run/manual previews.
-Use \`gptprouse pro browser ask\` only when you want an explicit visible-browser send.`);
+Use \`prodex pro ask\` for dry-run/manual previews.
+Use \`prodex pro browser ask\` only when you want an explicit visible-browser send.`);
 }
 
 function printProjectHelp(stdout: (line: string) => void): void {
-  stdout(`gptprouse project
+  stdout(`prodex project
 
 Commands:
-  gptprouse project prompt [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]
+  prodex project prompt [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]
 
 Print a ChatGPT Project MCP verification prompt. The prompt asks for read/task handoff verification only.`);
 }
 
 function printClaudeHelp(stdout: (line: string) => void): void {
-  stdout(`gptprouse claude
+  stdout(`prodex claude
 
 Commands:
-  gptprouse claude prompt [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]
-  gptprouse claude config [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]
+  prodex claude prompt [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]
+  prodex claude config [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]
 
 Print Claude MCP setup and verification helpers. These commands do not start MCP or reveal HTTP tokens.`);
 }
 
 function printTasksHelp(stdout: (line: string) => void): void {
-  stdout(`gptprouse tasks
+  stdout(`prodex tasks
 
 Commands:
-  gptprouse tasks create [--cwd /absolute/path/to/repo] --title "Title" --prompt "Prompt"
-  gptprouse tasks list [--status new|claimed|done|blocked] [--cwd /absolute/path/to/repo]
-  gptprouse tasks show <task-id|latest> [--cwd /absolute/path/to/repo]
-  gptprouse tasks claim <task-id> [--cwd /absolute/path/to/repo] [--by codex]
-  gptprouse tasks complete <task-id> [--cwd /absolute/path/to/repo] --summary "Summary" [--command "npm test"] [--artifact .bridge/artifacts/results/name.md=text]
-  gptprouse tasks block <task-id> [--cwd /absolute/path/to/repo] --summary "Summary" [--code code] [--next-step "Next step"] [--retryable]`);
+  prodex tasks create [--cwd /absolute/path/to/repo] --title "Title" --prompt "Prompt"
+  prodex tasks list [--status new|claimed|done|blocked] [--cwd /absolute/path/to/repo]
+  prodex tasks show <task-id|latest> [--cwd /absolute/path/to/repo]
+  prodex tasks claim <task-id> [--cwd /absolute/path/to/repo] [--by codex]
+  prodex tasks complete <task-id> [--cwd /absolute/path/to/repo] --summary "Summary" [--command "npm test"] [--artifact .bridge/artifacts/results/name.md=text]
+  prodex tasks block <task-id> [--cwd /absolute/path/to/repo] --summary "Summary" [--code code] [--next-step "Next step"] [--retryable]`);
 }
 
 function printResultsHelp(stdout: (line: string) => void): void {
-  stdout(`gptprouse results
+  stdout(`prodex results
 
 Commands:
-  gptprouse results show <task-id|latest> [--cwd /absolute/path/to/repo]
-  gptprouse results artifact <task-id|latest> [artifact-path] [--cwd /absolute/path/to/repo]
-  gptprouse results reseal <task-id|latest> --confirm-current-result [--cwd /absolute/path/to/repo]`);
+  prodex results show <task-id|latest> [--cwd /absolute/path/to/repo]
+  prodex results artifact <task-id|latest> [artifact-path] [--cwd /absolute/path/to/repo]
+  prodex results reseal <task-id|latest> --confirm-current-result [--cwd /absolute/path/to/repo]`);
 }
 
 function printReceiptsHelp(stdout: (line: string) => void): void {
-  stdout(`gptprouse receipts
+  stdout(`prodex receipts
 
 Commands:
-  gptprouse receipts list [--kind kind] [--task-id task-id] [--cwd /absolute/path/to/repo]
-  gptprouse receipts show <receipt-id|latest> [--cwd /absolute/path/to/repo]`);
+  prodex receipts list [--kind kind] [--task-id task-id] [--cwd /absolute/path/to/repo]
+  prodex receipts show <receipt-id|latest> [--cwd /absolute/path/to/repo]`);
 }
 
 function printSessionsHelp(stdout: (line: string) => void): void {
-  stdout(`gptprouse sessions
+  stdout(`prodex sessions
 
 Commands:
-  gptprouse sessions list [--status preview|running|done|blocked] [--cwd /absolute/path/to/repo]
-  gptprouse sessions show <session-id|latest> [--cwd /absolute/path/to/repo]`);
+  prodex sessions list [--status preview|running|done|blocked] [--cwd /absolute/path/to/repo]
+  prodex sessions show <session-id|latest> [--cwd /absolute/path/to/repo]`);
 }
 
 function isHelpSubcommand(value: string): boolean {
@@ -1421,14 +1424,14 @@ function assertHelpRequestArgs(args: string[], command: string, options: HelpReq
 
 function unknownSubcommandError(command: string, subcommand: string, expected: readonly string[]): Error {
   const suggestion = closestSuggestion(subcommand, expected);
-  const suggestionText = suggestion ? ` Did you mean \`gptprouse ${command} ${suggestion}\`?` : "";
-  return new Error(`Unknown ${command} subcommand: ${subcommand}.${suggestionText} Expected one of: ${expected.join(", ")}. Run \`gptprouse ${command} --help\`.`);
+  const suggestionText = suggestion ? ` Did you mean \`prodex ${command} ${suggestion}\`?` : "";
+  return new Error(`Unknown ${command} subcommand: ${subcommand}.${suggestionText} Expected one of: ${expected.join(", ")}. Run \`prodex ${command} --help\`.`);
 }
 
 function unknownTopLevelCommandError(command: string): Error {
   const suggestion = closestSuggestion(command, TOP_LEVEL_COMMANDS);
-  const suggestionText = suggestion ? ` Did you mean \`gptprouse ${suggestion}\`?` : "";
-  return new Error(`Unknown command: ${command}.${suggestionText} Run \`gptprouse help\`.`);
+  const suggestionText = suggestion ? ` Did you mean \`prodex ${suggestion}\`?` : "";
+  return new Error(`Unknown command: ${command}.${suggestionText} Run \`prodex help\`.`);
 }
 
 function unknownOptionError(option: string, command: string | undefined, candidates: readonly string[]): Error {
@@ -1474,7 +1477,7 @@ function editDistance(left: string, right: string): number {
 
 function legacyChatGptNamespaceError(subcommand?: string): Error {
   const prefix = subcommand ? `Unknown legacy chatgpt subcommand: ${subcommand}.` : "The legacy `chatgpt` namespace is hidden.";
-  return new Error(`${prefix} Use \`gptprouse pro browser help\` for visible-browser commands.`);
+  return new Error(`${prefix} Use \`prodex pro browser help\` for visible-browser commands.`);
 }
 
 function formatProjectVerificationPrompt(cwd: string, sourceCli?: string): string {
@@ -1483,16 +1486,16 @@ function formatProjectVerificationPrompt(cwd: string, sourceCli?: string): strin
   const sourceCliOption = formatSourceCliOption(sourceCli);
   return `ChatGPT Project MCP verification prompt
 
-Paste this into the ChatGPT Project after adding the gptprouse MCP server URL.
+Paste this into the ChatGPT Project after adding the prodex MCP server URL.
 ${TOKEN_BEARING_MCP_URL_AUTHORITY_WARNING}
 
-Please verify the gptprouse MCP bridge for this private project:
+Please verify the prodex MCP bridge for this private project:
 
 1. Call the MCP tool \`bridge_create_task\` with:
 
    {
-     "title": "gptprouse MCP verification",
-     "prompt": "Verify that this ChatGPT Project can create tasks through the local gptprouse MCP bridge.",
+     "title": "prodex MCP verification",
+     "prompt": "Verify that this ChatGPT Project can create tasks through the local prodex MCP bridge.",
      "repo_id": "default"
    }
 
@@ -1519,7 +1522,7 @@ Local follow-up after ChatGPT replies:
 cd ${quotedCwd}
 ${cli} tasks list --status new --cwd ${quotedCwd}
 ${cli} tasks show <task-id> --cwd ${quotedCwd}
-${cli} tasks complete <task-id> --cwd ${quotedCwd} --summary "gptprouse MCP verification result" --artifact .bridge/artifacts/results/mcp-verification.md="gptprouse MCP verification artifact"
+${cli} tasks complete <task-id> --cwd ${quotedCwd} --summary "prodex MCP verification result" --artifact .bridge/artifacts/results/mcp-verification.md="prodex MCP verification artifact"
 
 Then reply to ChatGPT with:
 
@@ -1533,13 +1536,13 @@ ${cli} doctor --cwd ${quotedCwd}${sourceCliOption}`;
 
 function formatOnboardingGuide(cwd: string, hasReadme: boolean, sourceCli?: string): string {
   const quotedCwd = shellQuote(cwd);
-  const cli = sourceCli ? `node ${shellQuote(sourceCli)}` : "gptprouse";
+  const cli = sourceCli ? `node ${shellQuote(sourceCli)}` : "prodex";
   const sourceCliOption = sourceCli ? ` --source-cli ${shellQuote(sourceCli)}` : "";
   const proAskCommand = hasReadme ? `${cli} pro ask --cwd ${quotedCwd} --file README.md "Review this repo"` : `${cli} pro ask --cwd ${quotedCwd} "Review this repo"`;
   const proBrowserAskCommand = hasReadme
     ? `${cli} pro browser ask${sourceCliOption} --cwd ${quotedCwd} --file README.md "Review this repo"`
     : `${cli} pro browser ask${sourceCliOption} --cwd ${quotedCwd} "Review this repo"`;
-  return `gptprouse onboarding
+  return `prodex onboarding
 
 repo: ${cwd}
 
@@ -1596,15 +1599,15 @@ function formatClaudeVerificationPrompt(cwd: string, sourceCli?: string): string
   const sourceCliOption = sourceCli ? ` --source-cli ${shellQuote(sourceCli)}` : "";
   return `Claude MCP verification prompt
 
-Paste this into Claude after adding the gptprouse stdio MCP server.
+Paste this into Claude after adding the prodex stdio MCP server.
 
-Please verify the gptprouse MCP bridge for this private repo:
+Please verify the prodex MCP bridge for this private repo:
 
 1. Call the MCP tool \`bridge_create_task\` with:
 
    {
-     "title": "gptprouse Claude MCP verification",
-     "prompt": "Verify that Claude can create tasks through the local gptprouse MCP bridge.",
+     "title": "prodex Claude MCP verification",
+     "prompt": "Verify that Claude can create tasks through the local prodex MCP bridge.",
      "repo_id": "default"
    }
 
@@ -1631,7 +1634,7 @@ Local follow-up after Claude replies:
 cd ${quotedCwd}
 ${cli} tasks list --status new --cwd ${quotedCwd}
 ${cli} tasks show <task-id> --cwd ${quotedCwd}
-${cli} tasks complete <task-id> --cwd ${quotedCwd} --summary "gptprouse Claude MCP verification result" --artifact .bridge/artifacts/results/claude-verification.md="gptprouse Claude MCP verification artifact"
+${cli} tasks complete <task-id> --cwd ${quotedCwd} --summary "prodex Claude MCP verification result" --artifact .bridge/artifacts/results/claude-verification.md="prodex Claude MCP verification artifact"
 
 Then reply to Claude with:
 
@@ -1647,9 +1650,9 @@ function formatClaudeConfig(cwd: string, sourceCli: string | undefined): string 
   return JSON.stringify(
     {
       mcpServers: {
-        gptprouse: sourceCli
+        prodex: sourceCli
           ? { command: "node", args: [sourceCli, "mcp", "--cwd", cwd] }
-          : { command: "gptprouse", args: ["mcp", "--cwd", cwd] }
+          : { command: "prodex", args: ["mcp", "--cwd", cwd] }
       }
     },
     null,
@@ -1662,7 +1665,7 @@ function shellQuote(value: string): string {
 }
 
 function formatCliCommand(sourceCli?: string): string {
-  return sourceCli ? `node ${shellQuote(sourceCli)}` : "gptprouse";
+  return sourceCli ? `node ${shellQuote(sourceCli)}` : "prodex";
 }
 
 function formatInitCommand(sourceCli?: string, options: { cwd?: string } = {}): string {
@@ -1766,7 +1769,7 @@ function formatResultResealCommand(taskId: string, sourceCli?: string, options: 
 function sourceAwareResultMessage(message: string, sourceCli?: string, options: { cwd?: string } = {}): string {
   if (!sourceCli && !options.cwd) return message;
   return message.replace(
-    /`gptprouse results reseal ([^`\s]+) --confirm-current-result`/g,
+    /`prodex results reseal ([^`\s]+) --confirm-current-result`/g,
     (_match, taskId: string) => `\`${formatResultResealCommand(taskId, sourceCli, options)}\``
   );
 }
@@ -1812,22 +1815,22 @@ function sourceAwareBrowserNextStep(nextStep: string | undefined, sourceCli?: st
   }
   if (!sourceCli && !options.port && !options.cwd) return nextStep;
   return nextStep
-    .replace(/`cd (.+?) && gptprouse pro browser login([^`]*)?`/g, (_match, cwdPrefix: string, storedArgs: string | undefined) => {
+    .replace(/`cd (.+?) && prodex pro browser login([^`]*)?`/g, (_match, cwdPrefix: string, storedArgs: string | undefined) => {
       return `\`cd ${cwdPrefix} && ${formatBrowserLoginCommandBody(sourceCli, browserOptionsWithStoredPort(options, storedArgs))}\``;
     })
-    .replace(/`cd (.+?) && gptprouse pro browser smoke([^`]*)?`/g, (_match, cwdPrefix: string, storedArgs: string | undefined) => {
+    .replace(/`cd (.+?) && prodex pro browser smoke([^`]*)?`/g, (_match, cwdPrefix: string, storedArgs: string | undefined) => {
       return `\`cd ${cwdPrefix} && ${formatBrowserSmokeCommandBody(sourceCli, browserOptionsWithStoredPort(options, storedArgs))}\``;
     })
-    .replace(/`cd (.+?) && gptprouse pro browser ask([^`]*)?`/g, (_match, cwdPrefix: string, storedArgs: string | undefined) => {
+    .replace(/`cd (.+?) && prodex pro browser ask([^`]*)?`/g, (_match, cwdPrefix: string, storedArgs: string | undefined) => {
       return `\`cd ${cwdPrefix} && ${formatBrowserAskCommandBody(sourceCli)}${storedArgs ?? ""}\``;
     })
-    .replace(/`gptprouse pro browser login([^`]*)?`/g, (_match, storedArgs: string | undefined) => {
+    .replace(/`prodex pro browser login([^`]*)?`/g, (_match, storedArgs: string | undefined) => {
       return `\`${formatBrowserLoginCommand(sourceCli, browserOptionsWithStoredPort(options, storedArgs))}\``;
     })
-    .replace(/`gptprouse pro browser smoke([^`]*)?`/g, (_match, storedArgs: string | undefined) => {
+    .replace(/`prodex pro browser smoke([^`]*)?`/g, (_match, storedArgs: string | undefined) => {
       return `\`${formatBrowserSmokeCommand(sourceCli, browserOptionsWithStoredPort(options, storedArgs))}\``;
     })
-    .replace(/`gptprouse pro browser ask([^`]*)?`/g, (_match, storedArgs: string | undefined) => {
+    .replace(/`prodex pro browser ask([^`]*)?`/g, (_match, storedArgs: string | undefined) => {
       return `\`${formatBrowserAskCommandBody(sourceCli)}${storedArgs ?? ""}\``;
     })
     .replaceAll("pass --target-url with --confirm-target", `run \`${formatBrowserTargetAskCommand(sourceCli, options)}\``);
@@ -1861,15 +1864,15 @@ function sourceAwareSetupMessage(message: string, sourceCli?: string, options: {
   if (!sourceCli && !options.cwd) return message;
   const setupCommand = formatSetupCommand(sourceCli, options);
   return message
-    .replaceAll("`gptprouse setup --token-ttl-hours <hours>`", `\`${setupCommand} --token-ttl-hours <hours>\``)
-    .replaceAll("`gptprouse setup`", `\`${setupCommand}\``);
+    .replaceAll("`prodex setup --token-ttl-hours <hours>`", `\`${setupCommand} --token-ttl-hours <hours>\``)
+    .replaceAll("`prodex setup`", `\`${setupCommand}\``);
 }
 
 function sourceAwareReleaseMessage(message: string, sourceCli?: string, options: { cwd?: string } = {}): string {
   if (!sourceCli && !options.cwd) return message;
   return message
-    .replaceAll("`gptprouse release pack --pack-destination <dir>`", `\`${formatReleasePackCommand(sourceCli, options)}\``)
-    .replaceAll("`gptprouse release status`", `\`${formatReleaseStatusCommand(sourceCli, options)}\``);
+    .replaceAll("`prodex release pack --pack-destination <dir>`", `\`${formatReleasePackCommand(sourceCli, options)}\``)
+    .replaceAll("`prodex release status`", `\`${formatReleaseStatusCommand(sourceCli, options)}\``);
 }
 
 async function formatReleaseStatus(cwd: string, sourceCli?: string, releaseHintCwd?: string): Promise<string> {
@@ -1964,7 +1967,7 @@ async function formatReleaseStatus(cwd: string, sourceCli?: string, releaseHintC
   lines.push(gitStatus.line);
   if (gitStatus.next) lines.push(`git_next: ${gitStatus.next}`);
   if (metadataReady && packReady && !gitStatus.next) {
-    metadataNext = "run `gptprouse release pack --pack-destination <dir>`, then run the printed release_pack_verify dry-run before npm publish";
+    metadataNext = "run `prodex release pack --pack-destination <dir>`, then run the printed release_pack_verify dry-run before npm publish";
   }
   lines.push(`next: ${sourceAwareReleaseMessage(metadataNext, sourceCli, { cwd: releaseHintCwd })}`);
   lines.push("verification: run `npm run release:verify` anytime without weakening the publish guard");
@@ -2063,7 +2066,7 @@ async function readReleasePackStatus(cwd: string, packageJson: { bin?: unknown }
       return {
         line: `pack: blocked packed files have unexpected executable modes outside package bin entries: ${formatPathList(invalid)}`,
         next: sourceAwareReleaseMessage(
-          "fix file modes or publish from a filesystem that preserves executable bits, then run `npm run release:check`; on WSL/Windows mounts, create a sanitized tarball with `gptprouse release pack --pack-destination <dir>` after `npm run release:verify`; release pack prints `npm publish --dry-run <tarball>` and warns that tarball publish bypasses prepublishOnly before printing `npm publish <tarball>`",
+          "fix file modes or publish from a filesystem that preserves executable bits, then run `npm run release:check`; on WSL/Windows mounts, create a sanitized tarball with `prodex release pack --pack-destination <dir>` after `npm run release:verify`; release pack prints `npm publish --dry-run <tarball>` and warns that tarball publish bypasses prepublishOnly before printing `npm publish <tarball>`",
           sourceCli,
           { cwd: releaseHintCwd }
         )
@@ -2376,7 +2379,7 @@ function isMitLicenseText(raw: string): boolean {
 
 async function runDoctor(store: BridgeStore, io: CliIO, sourceCli?: string, setupHintCwd?: string): Promise<number> {
   let ok = true;
-  io.stdout("gptprouse doctor");
+  io.stdout("prodex doctor");
 
   try {
     const bridgeReady = await store.hasReadyBridgeStorageReadOnly();
@@ -2432,7 +2435,7 @@ async function runDoctor(store: BridgeStore, io: CliIO, sourceCli?: string, setu
 }
 
 async function runHttpMcpCatalogSmoke(): Promise<{ tools: string[]; taskFlow: "ok"; finalizers: "ok"; search: "ok" }> {
-  const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-http-doctor-"));
+  const cwd = await mkdtemp(path.join(tmpdir(), "prodex-http-doctor-"));
   let running: Awaited<ReturnType<typeof startHttpMcpServer>> | undefined;
   let client: Client | undefined;
   let smokeFailed = false;
@@ -2444,7 +2447,7 @@ async function runHttpMcpCatalogSmoke(): Promise<{ tools: string[]; taskFlow: "o
       port: 0,
       token: "doctor-token"
     });
-    client = new Client({ name: "gptprouse-doctor", version: "0.2.0" });
+    client = new Client({ name: "prodex-doctor", version: "0.2.0" });
     await withTimeout(
       client.connect(new StreamableHTTPClientTransport(new URL(running.mcp_url))),
       20_000,
@@ -2769,13 +2772,13 @@ function isDoctorMcpResult(result: unknown): result is DoctorMcpResult {
 }
 
 async function runMcpWriteSmoke(): Promise<{ path: string; receipt_payload: "artifact"; staged: string }> {
-  const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-doctor-"));
+  const cwd = await mkdtemp(path.join(tmpdir(), "prodex-doctor-"));
   let smokeFailed = false;
   try {
     await writeFile(path.join(cwd, "notes.md"), "old\n", "utf8");
     await execFileAsync("git", ["init"], { cwd });
     await execFileAsync("git", ["config", "user.email", "doctor@example.com"], { cwd });
-    await execFileAsync("git", ["config", "user.name", "GPTProUse Doctor"], { cwd });
+    await execFileAsync("git", ["config", "user.name", "PROdex Doctor"], { cwd });
     await execFileAsync("git", ["add", "notes.md"], { cwd });
     await execFileAsync("git", ["commit", "-m", "initial"], { cwd });
     const { stdout: headOut } = await execFileAsync("git", ["rev-parse", "HEAD"], { cwd });
@@ -2872,16 +2875,16 @@ function printProBrowserHelp(stdout: (line: string) => void, sourceCli?: string)
   const sourceCliOption = formatSourceCliOption(sourceCli);
   const loginUsage = sourceCli
     ? `${cli} pro browser login${sourceCliOption} [--cwd /absolute/path/to/repo] [--dry-run] [--profile-dir path] [--port 9333] [--url https://chatgpt.com/...] [--launch-timeout-ms 5000]`
-    : "gptprouse pro browser login [--cwd /absolute/path/to/repo] [--dry-run] [--source-cli /absolute/path/to/dist/cli.js] [--profile-dir path] [--port 9333] [--url https://chatgpt.com/...] [--launch-timeout-ms 5000]";
+    : "prodex pro browser login [--cwd /absolute/path/to/repo] [--dry-run] [--source-cli /absolute/path/to/dist/cli.js] [--profile-dir path] [--port 9333] [--url https://chatgpt.com/...] [--launch-timeout-ms 5000]";
   const checkUsage = sourceCli
     ? `${cli} pro browser check${sourceCliOption} [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 1500]`
-    : "gptprouse pro browser check [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 1500]";
+    : "prodex pro browser check [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 1500]";
   const smokeUsage = sourceCli
     ? `${cli} pro browser smoke${sourceCliOption} [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 90000]`
-    : "gptprouse pro browser smoke [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 90000]";
+    : "prodex pro browser smoke [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 90000]";
   const askUsage = sourceCli
     ? `${cli} pro browser ask${sourceCliOption} [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 90000] [--target-url url --confirm-target] [--file path] "prompt"`
-    : 'gptprouse pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 90000] [--target-url url --confirm-target] [--file path] "prompt"';
+    : 'prodex pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 90000] [--target-url url --confirm-target] [--file path] "prompt"';
   stdout(`${cli} pro browser
 
 Commands:
@@ -2901,11 +2904,11 @@ async function assertBrowserLaunchStayedAlive(opened: ChatGptBrowserLaunch, time
   if (outcome.earlyExit) {
     const detail = formatBrowserEarlyExit(outcome.earlyExit);
     throw new Error(
-      `Chrome/Chromium exited before DevTools became reachable (${detail}). Check the visible browser environment, profile lock, display access, or GPTPROUSE_CHROME, then retry.`
+      `Chrome/Chromium exited before DevTools became reachable (${detail}). Check the visible browser environment, profile lock, display access, or PRODEX_CHROME, then retry.`
     );
   }
   throw new Error(
-    `Chrome/Chromium did not expose a reachable DevTools endpoint after launch. Check the visible browser environment, profile lock, display access, or GPTPROUSE_CHROME, then retry.`
+    `Chrome/Chromium did not expose a reachable DevTools endpoint after launch. Check the visible browser environment, profile lock, display access, or PRODEX_CHROME, then retry.`
   );
 }
 
@@ -2959,7 +2962,7 @@ function browserReadinessNextStep(input: { loggedInLikely: boolean; hasComposer:
 async function printProductCheck(store: BridgeStore, io: CliIO, args: string[], configCwd = io.cwd): Promise<boolean> {
   const sourceCli = resolveOptionalFileFlag(io.cwd, args, "--source-cli");
   const setupHintCwd = readFlag(args, "--cwd") ? configCwd : undefined;
-  io.stdout("gptprouse product check");
+  io.stdout("prodex product check");
   let bridgeReady = false;
   try {
     bridgeReady = await store.hasReadyBridgeStorageReadOnly();
@@ -3453,7 +3456,7 @@ async function loadLocalConfigForCommand(cwd: string, command: "start" | "status
     if (isMissingFileError(error)) {
       throw new Error(
         sourceAwareSetupMessage(
-          `${command} requires local MCP setup. Run \`gptprouse setup\` first. Add \`--token-ttl-hours <hours>\` before revealing token URLs, using tunnels, or connecting ChatGPT Projects.`,
+          `${command} requires local MCP setup. Run \`prodex setup\` first. Add \`--token-ttl-hours <hours>\` before revealing token URLs, using tunnels, or connecting ChatGPT Projects.`,
           sourceCli,
           { cwd: setupHintCwd }
         )
@@ -3472,11 +3475,11 @@ function formatServerUrlForOutput(value: string, options: { showToken: boolean }
     const url = new URL(value);
     url.username = "";
     url.password = "";
-    if (!options.showToken && url.searchParams.has("gptprouse_token")) url.searchParams.set("gptprouse_token", "***");
+    if (!options.showToken && url.searchParams.has("prodex_token")) url.searchParams.set("prodex_token", "***");
     return url.toString();
   } catch {
     const withoutUserinfo = value.replace(/\/\/[^/@\s]+@/g, "//");
-    return options.showToken ? withoutUserinfo : withoutUserinfo.replace(/([?&]gptprouse_token=)[^&]+/g, "$1***");
+    return options.showToken ? withoutUserinfo : withoutUserinfo.replace(/([?&]prodex_token=)[^&]+/g, "$1***");
   }
 }
 
@@ -3487,7 +3490,7 @@ function makeTunnelMcpUrl(publicUrl: string, token: string): string {
   url.pathname = "/mcp";
   url.search = "";
   url.hash = "";
-  url.searchParams.set("gptprouse_token", token);
+  url.searchParams.set("prodex_token", token);
   return url.toString();
 }
 

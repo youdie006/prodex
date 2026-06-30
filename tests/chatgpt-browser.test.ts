@@ -12,7 +12,7 @@ import {
   chatGptBlockerFromAnswerState,
   CHATGPT_RUNTIME_BLOCKER_TEXT_EXCLUDED_ANCESTORS,
   CHATGPT_COMPOSER_CANDIDATE_EXCLUDED_ANCESTORS,
-  GPTPROUSE_ACTIVE_COMPOSER_ATTRIBUTE,
+  PRODEX_ACTIVE_COMPOSER_ATTRIBUTE,
   chatGptPageSelectionBlocker,
   chatGptVisibilityBlocker,
   chatGptBusyBlocker,
@@ -56,13 +56,13 @@ describe("ChatGPT browser adapter", () => {
   it("builds a visible Chrome launch command without exposing cookies or tokens", () => {
     const args = buildChromeLaunchArgs({
       port: 9333,
-      profileDir: "/tmp/gptprouse-profile",
+      profileDir: "/tmp/prodex-profile",
       url: "https://chatgpt.com/"
     });
 
     expect(args).toContain("--remote-debugging-address=127.0.0.1");
     expect(args).toContain("--remote-debugging-port=9333");
-    expect(args).toContain("--user-data-dir=/tmp/gptprouse-profile");
+    expect(args).toContain("--user-data-dir=/tmp/prodex-profile");
     expect(args.join(" ")).not.toMatch(/cookie|token|password/i);
   });
 
@@ -89,7 +89,7 @@ describe("ChatGPT browser adapter", () => {
     expect(
       hasFreshChatGptAnswer(1, {
         assistantMessageCount: 2,
-        answer: "GPTPROUSE_PRO_SMOKE_OK",
+        answer: "PRODEX_PRO_SMOKE_OK",
         generating: false
       })
     ).toBe(true);
@@ -380,7 +380,7 @@ describe("ChatGPT browser adapter", () => {
       expect.objectContaining({
         code: "chatgpt_page_missing",
         retryable: true,
-        next_step: "Open https://chatgpt.com/ in the dedicated Chrome profile, or run `gptprouse pro browser login` to reopen it."
+        next_step: "Open https://chatgpt.com/ in the dedicated Chrome profile, or run `prodex pro browser login` to reopen it."
       })
     );
     expect((thrown as ChatGptBrowserBlockerError).blocker.next_step).toContain("pro browser login");
@@ -528,7 +528,7 @@ describe("ChatGPT browser adapter", () => {
     expect(CHATGPT_COMPOSER_CANDIDATE_EXCLUDED_ANCESTORS).not.toContain('div[role="textbox"]');
     expect(insertExpression).toContain("findChatGptComposerCandidate");
     expect(insertExpression).toContain("findChatGptComposerRoot");
-    expect(insertExpression).toContain(GPTPROUSE_ACTIVE_COMPOSER_ATTRIBUTE);
+    expect(insertExpression).toContain(PRODEX_ACTIVE_COMPOSER_ATTRIBUTE);
     expect(insertExpression).toContain("markChatGptComposerRoot(root)");
     expect(insertExpression).not.toContain(".find((node) => !!(node.offsetWidth");
     expect(submit).toContain("findChatGptComposerCandidate");
@@ -562,7 +562,7 @@ describe("ChatGPT browser adapter", () => {
     expect(inserted.ok).toBe(true);
     expect(submitted.ok).toBe(true);
     expect(chatEditor.value).toBe("hello");
-    expect(chatRoot.getAttribute(GPTPROUSE_ACTIVE_COMPOSER_ATTRIBUTE)).toBe("true");
+    expect(chatRoot.getAttribute(PRODEX_ACTIVE_COMPOSER_ATTRIBUTE)).toBe("true");
     expect(chatButton.clicked).toBe(true);
     expect(wrongButton.clicked).toBe(false);
   });
@@ -738,8 +738,8 @@ class FakeDocument {
     if (selector === "button,a,[role=\"button\"]") return this.roots.flatMap((root) => root.buttons);
     if (selector === "[data-message-author-role]") return [];
     if (selector.includes("textarea") || selector.includes("[contenteditable")) return this.editors;
-    if (selector.includes(GPTPROUSE_ACTIVE_COMPOSER_ATTRIBUTE)) {
-      return this.roots.filter((root) => root.getAttribute(GPTPROUSE_ACTIVE_COMPOSER_ATTRIBUTE) === "true");
+    if (selector.includes(PRODEX_ACTIVE_COMPOSER_ATTRIBUTE)) {
+      return this.roots.filter((root) => root.getAttribute(PRODEX_ACTIVE_COMPOSER_ATTRIBUTE) === "true");
     }
     return [];
   }

@@ -33,7 +33,7 @@ vi.mock("../src/chatgpt-browser.js", async (importOriginal) => {
 const { runCli } = await import("../src/cli.js");
 
 async function runBrowserCheckResult(): Promise<{ code: number; text: string }> {
-  const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-product-check-"));
+  const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-product-check-"));
   const out: string[] = [];
 
   const code = await runCli(["pro", "browser", "check"], {
@@ -46,7 +46,7 @@ async function runBrowserCheckResult(): Promise<{ code: number; text: string }> 
 }
 
 async function runBrowserCheckResultWithArgs(args: string[]): Promise<{ code: number; text: string }> {
-  const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-product-check-"));
+  const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-product-check-"));
   const out: string[] = [];
 
   const code = await runCli(["pro", "browser", "check", ...args], {
@@ -72,7 +72,7 @@ describe("browser product check", () => {
   });
 
   it("prints a source-checkout smoke retry command for manual ChatGPT blockers", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-product-check-source-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-product-check-source-"));
     const sourceCli = path.join(cwd, "dist", "cli.js");
     await mkdir(path.dirname(sourceCli), { recursive: true });
     await writeFile(sourceCli, "#!/usr/bin/env node\n", "utf8");
@@ -85,8 +85,8 @@ describe("browser product check", () => {
   });
 
   it("preserves explicit cwd and port in source-checkout smoke recovery commands", async () => {
-    const targetCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-product-check-target-"));
-    const sourceRoot = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-product-check-source-"));
+    const targetCwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-product-check-target-"));
+    const sourceRoot = await mkdtemp(path.join(tmpdir(), "prodex-cli-product-check-source-"));
     const sourceCli = path.join(sourceRoot, "dist", "cli.js");
     await mkdir(path.dirname(sourceCli), { recursive: true });
     await writeFile(sourceCli, "#!/usr/bin/env node\n", "utf8");
@@ -101,7 +101,7 @@ describe("browser product check", () => {
   });
 
   it("prints a source-checkout target-url ask command for ambiguous ChatGPT tabs", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-product-check-source-"));
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-product-check-source-"));
     const sourceCli = path.join(cwd, "dist", "cli.js");
     await mkdir(path.dirname(sourceCli), { recursive: true });
     await writeFile(sourceCli, "#!/usr/bin/env node\n", "utf8");
@@ -131,8 +131,8 @@ describe("browser product check", () => {
   });
 
   it("preserves explicit cwd and port in source-checkout target-url recovery commands", async () => {
-    const targetCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-product-check-target-"));
-    const sourceRoot = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-product-check-source-"));
+    const targetCwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-product-check-target-"));
+    const sourceRoot = await mkdtemp(path.join(tmpdir(), "prodex-cli-product-check-source-"));
     const sourceCli = path.join(sourceRoot, "dist", "cli.js");
     await mkdir(path.dirname(sourceCli), { recursive: true });
     await writeFile(sourceCli, "#!/usr/bin/env node\n", "utf8");
@@ -169,14 +169,14 @@ describe("browser product check", () => {
       visibilityState: "visible",
       url: "https://chatgpt.com/",
       title: "ChatGPT",
-      modelHints: ["GPT-5 Pro", "gptprouse v0.2 review", "Thinking", "GPTPROUSE smoke test", "Extra High"]
+      modelHints: ["GPT-5 Pro", "prodex v0.2 review", "Thinking", "PRODEX smoke test", "Extra High"]
     };
 
     const text = await runBrowserCheck();
 
     expect(text).toContain("chatgpt: ok logged_in=true composer=true url=https://chatgpt.com/");
     expect(text).toContain("model_hints: GPT-5 Pro | Thinking | Extra High");
-    expect(text).not.toContain("GPTPROUSE smoke test");
+    expect(text).not.toContain("PRODEX smoke test");
   });
 
   it("does not report ok when the selected ChatGPT tab is hidden", async () => {
@@ -241,7 +241,7 @@ describe("browser product check", () => {
   });
 
   it("prints a source-checkout retry command when ChatGPT is reachable but not ready", async () => {
-    const targetCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-product-check-target-"));
+    const targetCwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-product-check-target-"));
     const sourceCli = path.join(targetCwd, "dist", "cli.js");
     await mkdir(path.dirname(sourceCli), { recursive: true });
     await writeFile(sourceCli, "#!/usr/bin/env node\n", "utf8");
@@ -264,7 +264,7 @@ describe("browser product check", () => {
   });
 
   it("reports unrecoverable latest Pro inspection errors without aborting browser health checks", async () => {
-    const targetCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-product-check-target-"));
+    const targetCwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-product-check-target-"));
     const store = new BridgeStore(targetCwd);
     const task = await store.createTask({
       source: "codex",
@@ -300,7 +300,7 @@ describe("browser product check", () => {
     const out: string[] = [];
 
     const code = await runCli(["pro", "browser", "check", "--cwd", targetCwd], {
-      cwd: await mkdtemp(path.join(tmpdir(), "gptprouse-cli-product-check-launcher-")),
+      cwd: await mkdtemp(path.join(tmpdir(), "prodex-cli-product-check-launcher-")),
       stdout: (line) => out.push(line),
       stderr: () => {}
     });
@@ -312,7 +312,7 @@ describe("browser product check", () => {
   });
 
   it("reports the latest trusted Pro answer even when older Pro history is untrusted", async () => {
-    const targetCwd = await mkdtemp(path.join(tmpdir(), "gptprouse-cli-product-check-target-"));
+    const targetCwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-product-check-target-"));
     const store = new BridgeStore(targetCwd);
     const untrusted = await store.createTask({
       source: "codex",
@@ -370,7 +370,7 @@ describe("browser product check", () => {
     const out: string[] = [];
 
     const code = await runCli(["pro", "browser", "check", "--cwd", targetCwd], {
-      cwd: await mkdtemp(path.join(tmpdir(), "gptprouse-cli-product-check-launcher-")),
+      cwd: await mkdtemp(path.join(tmpdir(), "prodex-cli-product-check-launcher-")),
       stdout: (line) => out.push(line),
       stderr: () => {}
     });

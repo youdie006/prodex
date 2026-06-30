@@ -6,7 +6,7 @@ This is not the ChatGPT Pro browser adapter. It does not open ChatGPT, read cook
 
 ## What It Is
 
-`gptprouse start` runs a local Streamable HTTP MCP server.
+`prodex start` runs a local Streamable HTTP MCP server.
 
 Typical use:
 
@@ -25,22 +25,22 @@ Requires Node.js 20 or newer, `git`, and `ripgrep` (`rg`) on PATH.
 For an installed package:
 
 ```bash
-gptprouse setup --token-ttl-hours 24
+prodex setup --token-ttl-hours 24
 ```
 
-The installed npm package is CLI-only. Use the `gptprouse` command and MCP server surfaces; JavaScript imports from `gptprouse` or `gptprouse/dist/*` are unsupported until a library API is designed and documented.
+The installed npm package is CLI-only. Use the `prodex` command and MCP server surfaces; JavaScript imports from `prodex` or `prodex/dist/*` are unsupported until a library API is designed and documented.
 Run the local bridge commands from the repo root, or pass `--cwd /absolute/path/to/your/repo` to `setup`, `start`, `status`, `doctor`, and `tunnel url`.
 
 For a source checkout:
 
 ```bash
-cd /absolute/path/to/gptprouse
+cd /absolute/path/to/prodex
 npm install
 npm run build
 node dist/cli.js setup --cwd /absolute/path/to/your/repo --token-ttl-hours 24
 ```
 
-The examples below use the installed `gptprouse` binary. In a source checkout, replace `gptprouse` with `node dist/cli.js` after building, keep `--cwd /absolute/path/to/your/repo` when you are not already in the target repo, and pass `--source-cli /absolute/path/to/gptprouse/dist/cli.js` to local MCP troubleshooting commands so their recovery hints stay in source-checkout form.
+The examples below use the installed `prodex` binary. In a source checkout, replace `prodex` with `node dist/cli.js` after building, keep `--cwd /absolute/path/to/your/repo` when you are not already in the target repo, and pass `--source-cli /absolute/path/to/prodex/dist/cli.js` to local MCP troubleshooting commands so their recovery hints stay in source-checkout form.
 
 `setup` writes a local server profile to `.bridge/config.local.json`. The file is ignored by git.
 It also ensures `.bridge/.gitignore` covers local task, result, session, receipt, artifact, and config files.
@@ -48,61 +48,61 @@ It also ensures `.bridge/.gitignore` covers local task, result, session, receipt
 By default, command output redacts the URL token:
 
 ```text
-gptprouse_token=***
+prodex_token=***
 ```
 
 `--token-ttl-hours` is optional for strictly local use. If you omit it, `status` reports `token_status: "non_expiring"` and the token does not expire. `status --show-token` refuses to reveal non-expiring tokens by default; pass `--unsafe-show-non-expiring-token` only for local-only debugging. Before pasting the URL into ChatGPT or exposing this server through any tunnel, rerun setup with a short TTL:
 
 ```bash
-gptprouse setup --token-ttl-hours 24
+prodex setup --token-ttl-hours 24
 ```
 
 Equivalent from outside the repo:
 
 ```bash
-gptprouse setup --cwd /absolute/path/to/your/repo --token-ttl-hours 24
+prodex setup --cwd /absolute/path/to/your/repo --token-ttl-hours 24
 ```
 
-Expired tokens are rejected by `gptprouse start` and by the HTTP MCP server. Rerun `setup` to rotate the URL.
+Expired tokens are rejected by `prodex start` and by the HTTP MCP server. Rerun `setup` to rotate the URL.
 
 ## Start The Local Server
 
 Run this in a terminal and keep it running while ChatGPT is using the bridge:
 
 ```bash
-gptprouse start
+prodex start
 ```
 
-The HTTP MCP listener is loopback-only. `setup --host` accepts local loopback hosts such as `127.0.0.1` or `localhost`; it rejects public interfaces like `0.0.0.0`. `start` reads the saved setup profile when the server process starts. If you rerun `setup` to change the listener or rotate the token, restart `gptprouse start` so the running server uses the new profile. `status --show-token --url-only` prints the saved local MCP URL, while `tunnel url` formats your supplied public tunnel URL with the saved token; it does not create or inspect the tunnel. If you need ChatGPT to reach it from outside the machine, keep `gptprouse start` local and put your own explicit tunnel in front of it.
+The HTTP MCP listener is loopback-only. `setup --host` accepts local loopback hosts such as `127.0.0.1` or `localhost`; it rejects public interfaces like `0.0.0.0`. `start` reads the saved setup profile when the server process starts. If you rerun `setup` to change the listener or rotate the token, restart `prodex start` so the running server uses the new profile. `status --show-token --url-only` prints the saved local MCP URL, while `tunnel url` formats your supplied public tunnel URL with the saved token; it does not create or inspect the tunnel. If you need ChatGPT to reach it from outside the machine, keep `prodex start` local and put your own explicit tunnel in front of it.
 
 From outside the repo:
 
 ```bash
-gptprouse start --cwd /absolute/path/to/your/repo
+prodex start --cwd /absolute/path/to/your/repo
 ```
 
 Token-bearing MCP URLs are secrets. They authorize all enabled bridge tools, including repo read, search, write dry-run/apply, and stage-reviewed-paths tools. Use the next command only when you are ready to paste the URL into your own trusted private MCP client configuration:
 
 ```bash
-gptprouse status --show-token --url-only
+prodex status --show-token --url-only
 ```
 
 From outside the repo:
 
 ```bash
-gptprouse status --cwd /absolute/path/to/your/repo --show-token --url-only
+prodex status --cwd /absolute/path/to/your/repo --show-token --url-only
 ```
 
 `--show-token` requires a token created with `setup --token-ttl-hours <hours>` unless you explicitly pass the local-debug `--unsafe-show-non-expiring-token` override.
 
 ## Add It To ChatGPT
 
-In your ChatGPT Project MCP or Developer Mode setup, add the token-bearing URL generated in the previous step. Use it as a remote Streamable HTTP MCP server URL. Keep `gptprouse start` running and rotate the URL with `setup` when you no longer need it.
+In your ChatGPT Project MCP or Developer Mode setup, add the token-bearing URL generated in the previous step. Use it as a remote Streamable HTTP MCP server URL. Keep `prodex start` running and rotate the URL with `setup` when you no longer need it.
 
-If your ChatGPT MCP client cannot reach localhost, keep `gptprouse start` loopback-only and put your own explicit tunnel in front of it. Public tunnel MCP URLs are also secrets and authorize all enabled bridge tools, including repo read, search, write dry-run/apply, and stage-reviewed-paths tools; use the next command only when you are ready to paste the URL into your own trusted private MCP client configuration:
+If your ChatGPT MCP client cannot reach localhost, keep `prodex start` loopback-only and put your own explicit tunnel in front of it. Public tunnel MCP URLs are also secrets and authorize all enabled bridge tools, including repo read, search, write dry-run/apply, and stage-reviewed-paths tools; use the next command only when you are ready to paste the URL into your own trusted private MCP client configuration:
 
 ```bash
-gptprouse tunnel url --public-url "https://your-tunnel.example" --show-token --url-only
+prodex tunnel url --public-url "https://your-tunnel.example" --show-token --url-only
 ```
 
 ## Verify In ChatGPT
@@ -110,19 +110,19 @@ gptprouse tunnel url --public-url "https://your-tunnel.example" --show-token --u
 After adding the MCP URL, generate a prompt that tells ChatGPT exactly which read/task tools to call:
 
 ```bash
-gptprouse project prompt
+prodex project prompt
 ```
 
 From outside the repo:
 
 ```bash
-gptprouse project prompt --cwd /absolute/path/to/your/repo
+prodex project prompt --cwd /absolute/path/to/your/repo
 ```
 
 For a source checkout, include the built CLI path so the generated local follow-up commands also use `node dist/cli.js`:
 
 ```bash
-node dist/cli.js project prompt --cwd /absolute/path/to/your/repo --source-cli /absolute/path/to/gptprouse/dist/cli.js
+node dist/cli.js project prompt --cwd /absolute/path/to/your/repo --source-cli /absolute/path/to/prodex/dist/cli.js
 ```
 
 Paste the generated prompt into the ChatGPT Project. It asks ChatGPT to call `bridge_create_task`, `bridge_list_tasks`, and `bridge_get_task`, then wait while you complete the verification task locally. It deliberately does not ask for any repo write or staging tools. It also includes local `status --cwd ...` and `doctor --cwd ...` troubleshooting commands in case the Project cannot see or call the MCP tools. Source-checkout prompts keep `--source-cli` on those troubleshooting commands too.
@@ -130,9 +130,9 @@ Paste the generated prompt into the ChatGPT Project. It asks ChatGPT to call `br
 After ChatGPT replies with the created task id, confirm and complete the task locally:
 
 ```bash
-gptprouse tasks list --status new --cwd /absolute/path/to/your/repo
-gptprouse tasks show <task-id> --cwd /absolute/path/to/your/repo
-gptprouse tasks complete <task-id> --cwd /absolute/path/to/your/repo --summary "gptprouse MCP verification result" --artifact .bridge/artifacts/results/mcp-verification.md="gptprouse MCP verification artifact"
+prodex tasks list --status new --cwd /absolute/path/to/your/repo
+prodex tasks show <task-id> --cwd /absolute/path/to/your/repo
+prodex tasks complete <task-id> --cwd /absolute/path/to/your/repo --summary "prodex MCP verification result" --artifact .bridge/artifacts/results/mcp-verification.md="prodex MCP verification artifact"
 ```
 
 Then reply to ChatGPT with `local completion done`. The generated prompt asks ChatGPT to call `bridge_fetch_result` for the same task id, call `bridge_fetch_result_artifact` for every listed result artifact path, and report whether it can read both the verification result summary and artifact content.
@@ -140,21 +140,21 @@ Then reply to ChatGPT with `local completion done`. The generated prompt asks Ch
 If the ChatGPT app runtime cannot reach `127.0.0.1`, this project intentionally does not create a tunnel automatically. Put your own explicit tunnel in front of the local server only after you understand the token exposure risk, and create a short-lived replacement URL first:
 
 ```bash
-gptprouse setup --token-ttl-hours 24
+prodex setup --token-ttl-hours 24
 ```
 
-After you create your own tunnel, ask `gptprouse` to format the public MCP URL. This command only rewrites the URL; it does not start or manage any tunnel process.
+After you create your own tunnel, ask `prodex` to format the public MCP URL. This command only rewrites the URL; it does not start or manage any tunnel process.
 
 Public tunnel MCP URLs are also secrets. They authorize all enabled bridge tools, including repo read, search, write dry-run/apply, and stage-reviewed-paths tools. Use the next command only when you are ready to paste the public URL into your own trusted private MCP client configuration:
 
 ```bash
-gptprouse tunnel url --public-url "https://your-tunnel.example" --show-token --url-only
+prodex tunnel url --public-url "https://your-tunnel.example" --show-token --url-only
 ```
 
 From outside the repo, include the same target:
 
 ```bash
-gptprouse tunnel url --cwd /absolute/path/to/your/repo --public-url "https://your-tunnel.example" --show-token --url-only
+prodex tunnel url --cwd /absolute/path/to/your/repo --public-url "https://your-tunnel.example" --show-token --url-only
 ```
 
 `tunnel url` refuses non-expiring or expired tokens. By default it redacts the token.
@@ -209,15 +209,15 @@ There is no direct ungated write tool and no shell execution tool.
 Run the local health check:
 
 ```bash
-gptprouse doctor
+prodex doctor
 ```
 
 `doctor` stays local. It verifies `.bridge`, redacted config loading, receipt-gated write/apply/stage behavior in a temporary git repo, and the real HTTP MCP tool catalog plus task create/list/get/claim/complete/block/fetch/list-results calls.
 
 If ChatGPT cannot connect:
 
-- Confirm `gptprouse start` is still running.
+- Confirm `prodex start` is still running.
 - Confirm you pasted the full `status --show-token --url-only` URL.
 - Confirm the client can reach the host in that URL.
-- If `status --show-token` says a token with expiry is required, run `gptprouse setup --token-ttl-hours 24` and update the URL.
-- Run `gptprouse status`; if the token is expired, run `gptprouse setup --token-ttl-hours 24` again and update the URL.
+- If `status --show-token` says a token with expiry is required, run `prodex setup --token-ttl-hours 24` and update the URL.
+- Run `prodex status`; if the token is expired, run `prodex setup --token-ttl-hours 24` again and update the URL.

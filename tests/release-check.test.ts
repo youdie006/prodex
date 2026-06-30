@@ -18,7 +18,7 @@ describe("release-check", () => {
   });
 
   it("fails release metadata with a friendly message when package.json is missing", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-release-check-missing-"));
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-release-check-missing-"));
 
     const result = await runReleaseCheck(root);
 
@@ -78,7 +78,7 @@ describe("release-check", () => {
   });
 
   it("fails release metadata when package name or version is missing", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-release-check-identity-"));
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-release-check-identity-"));
     await writeFile(path.join(root, "package.json"), `${JSON.stringify({ license: "MIT" }, null, 2)}\n`, "utf8");
     await writeFile(path.join(root, "LICENSE"), "MIT License\n", "utf8");
 
@@ -93,7 +93,7 @@ describe("release-check", () => {
   });
 
   it("fails release metadata when package name or version is not publishable by npm", async () => {
-    const invalidNameRoot = await mkdtemp(path.join(tmpdir(), "gptprouse-release-check-identity-"));
+    const invalidNameRoot = await mkdtemp(path.join(tmpdir(), "prodex-release-check-identity-"));
     await writeFile(path.join(invalidNameRoot, "package.json"), `${JSON.stringify({ name: "Bad Name", version: "1.0.0", license: "MIT" }, null, 2)}\n`, "utf8");
     await writeFile(path.join(invalidNameRoot, "LICENSE"), "MIT License\n", "utf8");
 
@@ -106,7 +106,7 @@ describe("release-check", () => {
     expect(invalidNameOutput).not.toContain("npm pack dry-run failed");
     expect(invalidNameResult.stdout).not.toContain("release_metadata=ok");
 
-    const reservedNameRoot = await mkdtemp(path.join(tmpdir(), "gptprouse-release-check-identity-"));
+    const reservedNameRoot = await mkdtemp(path.join(tmpdir(), "prodex-release-check-identity-"));
     await writeFile(
       path.join(reservedNameRoot, "package.json"),
       `${JSON.stringify({ name: "node_modules", version: "1.0.0", license: "MIT" }, null, 2)}\n`,
@@ -123,7 +123,7 @@ describe("release-check", () => {
     expect(reservedNameOutput).not.toContain("npm pack dry-run failed");
     expect(reservedNameResult.stdout).not.toContain("release_metadata=ok");
 
-    const invalidVersionRoot = await mkdtemp(path.join(tmpdir(), "gptprouse-release-check-identity-"));
+    const invalidVersionRoot = await mkdtemp(path.join(tmpdir(), "prodex-release-check-identity-"));
     await writeFile(path.join(invalidVersionRoot, "package.json"), `${JSON.stringify({ name: "demo", version: "1.0", license: "MIT" }, null, 2)}\n`, "utf8");
     await writeFile(path.join(invalidVersionRoot, "LICENSE"), "MIT License\n", "utf8");
 
@@ -138,7 +138,7 @@ describe("release-check", () => {
   });
 
   it("fails release metadata with a friendly message when package.json is malformed", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "gptprouse-release-check-malformed-"));
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-release-check-malformed-"));
     await writeFile(path.join(root, "package.json"), "{ broken json\n", "utf8");
 
     const result = await runReleaseCheck(root);
@@ -546,7 +546,7 @@ describe("release-check", () => {
 });
 
 async function copyPackageJsonToTemp(): Promise<string> {
-  const root = await mkdtemp(path.join(tmpdir(), "gptprouse-release-check-"));
+  const root = await mkdtemp(path.join(tmpdir(), "prodex-release-check-"));
   await mkdir(root, { recursive: true });
   const rawPackageJson = await readFile(path.join(repoRoot, "package.json"), "utf8");
   await writeFile(path.join(root, "package.json"), rawPackageJson, "utf8");
@@ -565,7 +565,7 @@ async function createPackModeFixture(options: {
   executableReadme?: boolean;
   executableBin?: boolean;
 }): Promise<string> {
-  const root = await mkdtemp(path.join(tmpdir(), "gptprouse-release-check-pack-mode-"));
+  const root = await mkdtemp(path.join(tmpdir(), "prodex-release-check-pack-mode-"));
   await writeFile(path.join(root, "package.json"), `${JSON.stringify(options.packageJson, null, 2)}\n`, "utf8");
   await writeFile(path.join(root, "LICENSE"), "MIT License\n", "utf8");
   await writeFile(path.join(root, "README.md"), "# Demo\n", "utf8");
@@ -649,7 +649,7 @@ async function runReleaseCheck(
   const env = {
     ...process.env,
     ...(options.pathPrefix ? { PATH: `${options.pathPrefix}${path.delimiter}${process.env.PATH ?? ""}` } : {}),
-    ...(options.logPath ? { GPTPROUSE_RELEASE_CHECK_LOG: options.logPath } : {})
+    ...(options.logPath ? { PRODEX_RELEASE_CHECK_LOG: options.logPath } : {})
   };
   try {
     const result = await execFileAsync(process.execPath, args, {

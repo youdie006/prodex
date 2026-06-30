@@ -1,15 +1,15 @@
 {
-  "name": "gptprouse",
+  "name": "prodex",
   "version": "0.2.0",
   "description": "Local receipt bus for coordinating Codex execution with ChatGPT Pro/Projects consultation.",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/youdie006/gptprouse.git"
+    "url": "git+https://github.com/youdie006/prodex.git"
   },
-  "homepage": "https://github.com/youdie006/gptprouse#readme",
+  "homepage": "https://github.com/youdie006/prodex#readme",
   "bugs": {
-    "url": "https://github.com/youdie006/gptprouse/issues"
+    "url": "https://github.com/youdie006/prodex/issues"
   },
   "keywords": [
     "chatgpt",
@@ -22,7 +22,7 @@
   ],
   "type": "module",
   "bin": {
-    "gptprouse": "./dist/cli.js"
+    "prodex": "./dist/cli.js"
   },
   "exports": {},
   "files": [
