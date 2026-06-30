@@ -1,8 +1,11 @@
 {
-  "name": "prodex",
+  "name": "@youdie006/prodex",
   "version": "0.2.0",
   "description": "Local receipt bus for coordinating Codex execution with ChatGPT Pro/Projects consultation.",
   "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/youdie006/prodex.git"
@@ -30,6 +33,7 @@
     "LICENSE",
     "README.md",
     "docs/claude.md",
+    "docs/clients.md",
     "docs/http-mcp.md",
     "scripts/release-check.mjs",
     "scripts/release-pack.mjs"

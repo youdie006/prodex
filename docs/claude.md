@@ -6,7 +6,7 @@
 
 Requires Node.js 20 or newer, `git`, and `ripgrep` (`rg`) on PATH.
 
-If `prodex` is installed and on your PATH, you can use the `prodex mcp` command directly.
+Install with `npm install -g @youdie006/prodex` (note the scope — the unscoped `prodex` on npm is an unrelated package; do not install it). Once installed, `prodex` is on your PATH and you can use `prodex mcp` directly.
 
 The installed npm package is CLI-only. Use the `prodex` command and MCP server surfaces; JavaScript imports from `prodex` or `prodex/dist/*` are unsupported until a library API is designed and documented.
 

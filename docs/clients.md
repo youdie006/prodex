@@ -15,6 +15,8 @@ args:    ["mcp"]
 
 For a source checkout, use `command: node`, `args: ["/absolute/path/to/prodex/dist/cli.js", "mcp"]`.
 
+Install the `prodex` binary with `npm install -g @youdie006/prodex` (note the scope — the unscoped `prodex` on npm is a different, unrelated package; do not install it), or build from source (see the README).
+
 The same operating rules apply to every client: manual-first, explicit `pro browser ...`
 sends only, stop on blockers, no bypass, low volume, local only (see the README).
 

@@ -88,7 +88,13 @@ Not implemented:
 
 Requires Node.js 20 or newer, `git`, and `ripgrep` (`rg`) on PATH. The optional visible-browser adapter also needs a Chromium-family browser (`google-chrome`, `chromium`, `chromium-browser`, `microsoft-edge`, `brave-browser`) or `PRODEX_CHROME=/path/to/browser`.
 
-For an installed package:
+Install from npm — **note the scope**. The unscoped `prodex` on npm is an unrelated third-party package; do **not** install it. Use the scoped name:
+
+```bash
+npm install -g @youdie006/prodex
+```
+
+The `prodex` command is then on your PATH:
 
 ```bash
 prodex onboard
