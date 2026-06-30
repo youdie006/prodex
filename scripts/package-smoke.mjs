@@ -402,7 +402,7 @@ try {
   const freshDoctor = await run(binPath, ["doctor"], { cwd: freshDoctorDir });
   assertIncludes(freshDoctor.stdout, "bridge: missing/incomplete", "installed fresh doctor output");
   assertNotIncludes((await readdir(freshDoctorDir)).join("\n"), ".bridge", "installed fresh doctor cwd entries");
-  const installedPackageDir = path.join(consumerDir, "node_modules", "prodex");
+  const installedPackageDir = path.join(consumerDir, "node_modules", "@youdie006", "prodex");
   const releaseStatus = await run(binPath, ["release", "status", "--cwd", installedPackageDir], { cwd: consumerDir });
   assertIncludes(releaseStatus.stdout, "prodex release status", "installed release status output");
   assertIncludes(releaseStatus.stdout, "metadata: ok license=MIT license_file=present", "installed release status output");
@@ -1511,7 +1511,7 @@ async function assertInstalledReleasePackTarballModes(tarballPath, packedFiles, 
     timeout: 120_000,
     maxBuffer: 20 * 1024 * 1024
   });
-  const installedRoot = path.join(consumer, "node_modules", "prodex");
+  const installedRoot = path.join(consumer, "node_modules", "@youdie006", "prodex");
   const installedPackageJson = JSON.parse(await readFile(path.join(installedRoot, "package.json"), "utf8"));
   const binPaths = packageBinPaths(installedPackageJson);
   for (const file of packedFiles) {
@@ -1561,7 +1561,7 @@ async function assertFileMode(filePath, expectedMode, label) {
 }
 
 async function assertInstalledDocsArePortable(consumerDir) {
-  const packageDir = path.join(consumerDir, "node_modules", "prodex");
+  const packageDir = path.join(consumerDir, "node_modules", "@youdie006", "prodex");
   const readme = await readFile(path.join(packageDir, "README.md"), "utf8");
   const httpMcpDoc = await readFile(path.join(packageDir, "docs", "http-mcp.md"), "utf8");
   const claudeDoc = await readFile(path.join(packageDir, "docs", "claude.md"), "utf8");
