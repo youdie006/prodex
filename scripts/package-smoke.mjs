@@ -51,12 +51,13 @@ try {
     timeout: 120_000
   });
 
+  const installedPackageDir = path.join(consumerDir, "node_modules", "@youdie006", "prodex");
   const binPath = path.join(consumerDir, "node_modules", ".bin", process.platform === "win32" ? "prodex.cmd" : "prodex");
-  const installedPackageJson = JSON.parse(await readFile(path.join(consumerDir, "node_modules", "prodex", "package.json"), "utf8"));
+  const installedPackageJson = JSON.parse(await readFile(path.join(installedPackageDir, "package.json"), "utf8"));
   if (installedPackageJson.scripts?.prepublishOnly !== "node scripts/release-check.mjs") {
     throw new Error("installed package.json must keep prepublishOnly wired to release-check");
   }
-  const installedSourceCli = path.join(consumerDir, "node_modules", "prodex", "dist", "cli.js");
+  const installedSourceCli = path.join(installedPackageDir, "dist", "cli.js");
   const sourcePrefix = `node ${installedSourceCli}`;
   const version = await run(binPath, ["--version"], { cwd: consumerDir });
   if (version.stdout.trim() !== installedPackageJson.version) {
