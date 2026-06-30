@@ -1485,6 +1485,7 @@ function assertPackageFileScope(files) {
     "LICENSE",
     "README.md",
     "docs/claude.md",
+    "docs/clients.md",
     "docs/http-mcp.md",
     "package.json",
     "scripts/release-check.mjs",
