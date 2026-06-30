@@ -402,7 +402,6 @@ try {
   const freshDoctor = await run(binPath, ["doctor"], { cwd: freshDoctorDir });
   assertIncludes(freshDoctor.stdout, "bridge: missing/incomplete", "installed fresh doctor output");
   assertNotIncludes((await readdir(freshDoctorDir)).join("\n"), ".bridge", "installed fresh doctor cwd entries");
-  const installedPackageDir = path.join(consumerDir, "node_modules", "@youdie006", "prodex");
   const releaseStatus = await run(binPath, ["release", "status", "--cwd", installedPackageDir], { cwd: consumerDir });
   assertIncludes(releaseStatus.stdout, "prodex release status", "installed release status output");
   assertIncludes(releaseStatus.stdout, "metadata: ok license=MIT license_file=present", "installed release status output");
@@ -1575,7 +1574,7 @@ async function assertInstalledDocsArePortable(consumerDir) {
       assertNotIncludes(text, leakedPath, label);
     }
   }
-  assertIncludes(readme, "For an installed package", "installed README");
+  assertIncludes(readme, "note the scope", "installed README");
   assertIncludes(readme, "prodex onboard", "installed README");
   assertIncludes(readme, "onboard --source-cli", "installed README");
   assertIncludes(readme, "cd /absolute/path/to/prodex", "installed README");
@@ -1848,15 +1847,15 @@ async function assertInstalledDocsArePortable(consumerDir) {
 
 async function assertInstalledPackageImportBoundary(consumerDir, packedFiles) {
   const unsupportedSpecifiers = [
-    "prodex",
+    "@youdie006/prodex",
     ...packedFiles
       .map((file) => file.path)
       .filter((filePath) => filePath.startsWith("dist/") && filePath.endsWith(".js"))
       .sort()
-      .map((filePath) => `prodex/${filePath}`)
+      .map((filePath) => `@youdie006/prodex/${filePath}`)
   ];
-  assertArrayIncludes(unsupportedSpecifiers, "prodex/dist/cli.js", "installed package boundary specifiers");
-  assertArrayIncludes(unsupportedSpecifiers, "prodex/dist/index.js", "installed package boundary specifiers");
+  assertArrayIncludes(unsupportedSpecifiers, "@youdie006/prodex/dist/cli.js", "installed package boundary specifiers");
+  assertArrayIncludes(unsupportedSpecifiers, "@youdie006/prodex/dist/index.js", "installed package boundary specifiers");
   for (const specifier of unsupportedSpecifiers) {
     await assertPackageImportBlocked(consumerDir, specifier);
     await assertPackageRequireBlocked(consumerDir, specifier);

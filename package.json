@@ -2,6 +2,7 @@
   "name": "@youdie006/prodex",
   "version": "0.2.0",
   "description": "Local receipt bus for coordinating Codex execution with ChatGPT Pro/Projects consultation.",
+  "author": "youdie006",
   "license": "MIT",
   "publishConfig": {
     "access": "public"
