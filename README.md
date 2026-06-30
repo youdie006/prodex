@@ -1,9 +1,6 @@
 <div align="center">
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="assets/logo-wordmark-dark.png" />
-  <img src="assets/logo-wordmark.svg" alt="PROdex" width="300" />
-</picture>
+<img src="assets/cli-banner.png" alt="PROdex — local bridge so Codex, Claude and other agents share ChatGPT Pro" width="820" />
 
 **Local bridge so Codex, Claude, and other coding agents can share your logged-in ChatGPT Pro — with durable receipts.**
 
@@ -12,10 +9,6 @@
 [![tests](https://img.shields.io/badge/tests-532%20passing-111111.svg)](tests)
 [![status](https://img.shields.io/badge/status-pre--release-111111.svg)](#)
 
-</div>
-
-<div align="center">
-  <img src="assets/cli-banner.png" alt="prodex CLI — local bridge so Codex, Claude and other agents share ChatGPT Pro" width="760" />
 </div>
 
 ---
