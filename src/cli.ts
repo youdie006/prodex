@@ -2447,7 +2447,7 @@ async function runHttpMcpCatalogSmoke(): Promise<{ tools: string[]; taskFlow: "o
       port: 0,
       token: "doctor-token"
     });
-    client = new Client({ name: "prodex-doctor", version: "0.2.0" });
+    client = new Client({ name: "prodex-doctor", version: CLI_VERSION });
     await withTimeout(
       client.connect(new StreamableHTTPClientTransport(new URL(running.mcp_url))),
       20_000,

@@ -29,3 +29,6 @@ docs/todo.md
 
 # Demo GIF frame sources (the rendered assets/demo.gif is tracked)
 assets/demo/
+
+# Local agent/session config (never publish)
+.claude/

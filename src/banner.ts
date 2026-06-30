@@ -48,6 +48,7 @@ export function renderBanner(options: BannerOptions = {}): string {
 // Decide whether to colorize based on the environment (honors NO_COLOR, FORCE_COLOR, TTY).
 export function shouldColorize(env: NodeJS.ProcessEnv = process.env, isTty = process.stdout.isTTY): boolean {
   if (env.NO_COLOR !== undefined && env.NO_COLOR !== "") return false;
-  if (env.FORCE_COLOR !== undefined && env.FORCE_COLOR !== "" && env.FORCE_COLOR !== "0") return true;
+  // FORCE_COLOR set to "0" disables color even on a TTY (conventional contract); any other non-empty value forces it on.
+  if (env.FORCE_COLOR !== undefined && env.FORCE_COLOR !== "") return env.FORCE_COLOR !== "0";
   return Boolean(isTty);
 }

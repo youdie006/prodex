@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { randomUUID, timingSafeEqual } from "node:crypto";
 import http, { type IncomingMessage, type ServerResponse } from "node:http";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
@@ -247,12 +247,20 @@ class HttpRequestError extends Error {
   }
 }
 
+function safeEqual(a: string, b: string): boolean {
+  const ab = Buffer.from(a);
+  const bb = Buffer.from(b);
+  if (ab.length !== bb.length) return false;
+  return timingSafeEqual(ab, bb);
+}
+
 function isAuthorized(req: IncomingMessage, url: URL, token?: string, tokenExpiresAt?: string): boolean {
-  if (!token) return true;
+  if (!token) return false;
   if (tokenExpiresAt && isExpired(tokenExpiresAt)) return false;
-  if (url.searchParams.get("prodex_token") === token) return true;
+  const provided = url.searchParams.get("prodex_token");
+  if (provided !== null && safeEqual(provided, token)) return true;
   const authorization = headerValue(req.headers.authorization);
-  return authorization === `Bearer ${token}`;
+  return authorization !== undefined && safeEqual(authorization, `Bearer ${token}`);
 }
 
 function isExpired(tokenExpiresAt: string): boolean {

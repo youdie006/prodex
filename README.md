@@ -6,7 +6,7 @@
 
 [![license](https://img.shields.io/badge/license-MIT-111111.svg)](LICENSE)
 [![node](https://img.shields.io/badge/node-%E2%89%A5%2020-111111.svg)](package.json)
-[![tests](https://img.shields.io/badge/tests-532%20passing-111111.svg)](tests)
+[![CI](https://github.com/youdie006/prodex/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/youdie006/prodex/actions/workflows/ci.yml)
 [![status](https://img.shields.io/badge/status-pre--release-111111.svg)](#)
 
 </div>
@@ -44,6 +44,7 @@ ChatGPT Pro              ChatGPT Projects / Claude
 - No bypass: no hidden API, cookie extraction, stealth automation, proxies, or captcha solving.
 - Low volume: no batch prompting or recurring loops that make ChatGPT Pro behave like an API server.
 - Local only: do not expose account access, browser sessions, or bridge endpoints to other users.
+- Local debug port: the visible-browser adapter uses Chrome's `--remote-debugging-port`, which is unauthenticated but bound to `127.0.0.1` only and live only while that browser is open.
 
 ## Components
 

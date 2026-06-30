@@ -1,4 +1,5 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { createRequire } from "node:module";
 import process from "node:process";
 import type { Readable, Writable } from "node:stream";
 import { serializeMessage } from "@modelcontextprotocol/sdk/shared/stdio.js";
@@ -35,8 +36,10 @@ function asText(value: unknown) {
   };
 }
 
+const mcpPackageJson = createRequire(import.meta.url)("../package.json") as { version?: string };
+
 export function createServer(cwd = process.cwd(), options: CreateMcpServerOptions = {}): McpServer {
-  const server = new McpServer({ name: "prodex", version: "0.2.0" });
+  const server = new McpServer({ name: "prodex", version: mcpPackageJson.version ?? "0.0.0" });
   const handlers = createMcpToolHandlers({ cwd, source: options.source, claimedBy: options.claimedBy });
 
   server.registerTool(
