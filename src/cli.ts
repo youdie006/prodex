@@ -18,9 +18,19 @@ import {
   normalizeChatGptTargetUrl,
   type ChatGptBrowserLaunch,
   openChatGptBrowser,
+  parseProMode,
+  parseReasoningEffort,
   sendChatGptPrompt
 } from "./chatgpt-browser.js";
-import { getTokenExpiryStatus, loadLocalConfig, writeLocalConfig, type LocalConfig } from "./config.js";
+import {
+  type BrowserDefaults,
+  getTokenExpiryStatus,
+  loadBrowserDefaults,
+  loadLocalConfig,
+  writeLocalConfig,
+  type LocalConfig,
+  type WriteLocalConfigInput
+} from "./config.js";
 import { startHttpMcpServer } from "./http-mcp.js";
 import { createMcpToolHandlers } from "./mcp-tools.js";
 import { runMcpServer } from "./mcp.js";
@@ -113,19 +123,25 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
   }
 
   if (command === "setup") {
-    if (printHelpIfRequested(rest, "setup", io.stdout, printSetupHelp, { valueFlags: ["--cwd", "--host", "--port", "--token", "--token-ttl-hours"] })) return 0;
-    assertOnlyOptions(rest, "setup", ["--cwd", "--host", "--port", "--token", "--token-ttl-hours"]);
+    const setupValueFlags = ["--cwd", "--host", "--port", "--token", "--token-ttl-hours", ...ASK_PRO_SELECTION_DEFAULT_FLAGS];
+    if (printHelpIfRequested(rest, "setup", io.stdout, printSetupHelp, { valueFlags: setupValueFlags })) return 0;
+    assertOnlyOptions(rest, "setup", setupValueFlags);
     const targetCwd = resolveCwdFlag(io.cwd, rest);
+    const browserDefaults = parseBrowserDefaultFlags(rest);
     const config = await writeLocalConfig(targetCwd, {
       host: readFlag(rest, "--host") ?? "127.0.0.1",
       port: readPortFlag(rest, "--port") ?? 8787,
       token: readFlag(rest, "--token"),
-      tokenTtlHours: readPositiveNumberFlag(rest, "--token-ttl-hours")
+      tokenTtlHours: readPositiveNumberFlag(rest, "--token-ttl-hours"),
+      browserDefaults
     });
     io.stdout("Saved local ChatGPT Developer Mode MCP profile.");
     io.stdout(`Server URL: ${redactServerUrl(config.server_url)}`);
     io.stdout(formatTokenExpiryLine(config));
     io.stdout("Full URL is stored in .bridge/config.local.json.");
+    if (config.browser_defaults) {
+      io.stdout(`Browser send defaults: ${formatBrowserDefaults(config.browser_defaults)}`);
+    }
     return 0;
   }
 
@@ -941,6 +957,38 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
     }
     const prompt = parsedAskPro.promptParts.join(" ").trim();
     if (!prompt) throw new Error("ask-pro requires a prompt");
+    const browserDefaults = await loadBrowserDefaults(targetCwd);
+    const explicitProject = readFlag(parsedAskPro.optionArgs, "--project");
+    const explicitProjectNew = readFlag(parsedAskPro.optionArgs, "--project-new");
+    if (explicitProject !== undefined && explicitProjectNew !== undefined) {
+      throw new Error("ask-pro cannot combine --project and --project-new; pick an existing project or create one.");
+    }
+    if (explicitProjectNew !== undefined) {
+      // Creating a project mutates the real ChatGPT account and the modal
+      // automation is unverified, so this stays gated until it is confirmed live.
+      throw new Error('--project-new is not supported yet; create the project in ChatGPT, then use --project "name".');
+    }
+    const explicitModel = readFlag(parsedAskPro.optionArgs, "--model");
+    const explicitProModeRaw = readFlag(parsedAskPro.optionArgs, "--pro-mode");
+    const explicitEffortRaw = readFlag(parsedAskPro.optionArgs, "--effort");
+    if (explicitProModeRaw !== undefined && explicitEffortRaw !== undefined) {
+      throw new Error("ask-pro cannot combine --pro-mode and --effort; Pro sub-modes and reasoning effort are different model axes.");
+    }
+    const explicitProMode = explicitProModeRaw === undefined ? undefined : parseProMode(explicitProModeRaw);
+    const explicitEffort = explicitEffortRaw === undefined ? undefined : parseReasoningEffort(explicitEffortRaw);
+    // Explicit per-ask flags override persisted defaults. Choosing either
+    // reasoning axis explicitly suppresses the default for the other axis.
+    const selectionModel = explicitModel ?? browserDefaults?.model;
+    const selectionProject = explicitProject ?? browserDefaults?.project;
+    const reasoningAxisChosen = explicitProMode !== undefined || explicitEffort !== undefined;
+    const selectionProMode = explicitProMode ?? (reasoningAxisChosen ? undefined : browserDefaults?.pro_mode);
+    const selectionEffort = explicitEffort ?? (reasoningAxisChosen ? undefined : browserDefaults?.effort);
+    const selectionMetadata: Record<string, string> = {
+      ...(selectionProject ? { project: selectionProject } : {}),
+      ...(selectionModel ? { model: selectionModel } : {}),
+      ...(selectionProMode ? { pro_mode: selectionProMode } : {}),
+      ...(selectionEffort ? { effort: selectionEffort } : {})
+    };
     const browserPort = hasSendMode ? (readPortFlag(parsedAskPro.optionArgs, "--port") ?? 9333) : undefined;
     const browserTimeoutMs = hasSendMode ? (readPositiveNumberFlag(parsedAskPro.optionArgs, "--timeout-ms") ?? 90000) : undefined;
     const sourceCli = resolveOptionalFileFlag(io.cwd, parsedAskPro.optionArgs, "--source-cli");
@@ -1002,7 +1050,11 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
           port: browserPort,
           prompt: bundle.text,
           targetUrl: normalizedTargetUrl,
-          timeoutMs: browserTimeoutMs
+          timeoutMs: browserTimeoutMs,
+          project: selectionProject,
+          model: selectionModel,
+          proMode: selectionProMode,
+          effort: selectionEffort
         });
       } catch (error) {
         const blocker = sourceAwareBrowserBlocker(browserSendBlockerFromError(error), sourceCli, browserCommandOptions);
@@ -1059,6 +1111,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
           metadata: {
             ...(answerArtifactPath ? { artifact_path: answerArtifactPath } : {}),
             thread: consult.url,
+            ...(Object.keys(selectionMetadata).length > 0 ? { selection: selectionMetadata } : {}),
             warnings: persistenceWarnings
           }
         });
@@ -1150,7 +1203,7 @@ Commands:
   prodex --version
   prodex init [--cwd /absolute/path/to/repo]
   prodex doctor [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]
-  prodex setup [--cwd /absolute/path/to/repo] [--host 127.0.0.1] [--port 8787] [--token-ttl-hours <hours>]
+  prodex setup [--cwd /absolute/path/to/repo] [--host 127.0.0.1] [--port 8787] [--token-ttl-hours <hours>] [--model Pro] [--pro-mode 기본|확장] [--effort 즉시|중간|높음|"매우 높음"] [--project "name"]
   prodex start [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]
   prodex status [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js] [--show-token] [--url-only] [--unsafe-show-non-expiring-token]
   prodex tunnel url [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js] --public-url https://... [--show-token] [--url-only]
@@ -1165,7 +1218,7 @@ Commands:
   prodex pro browser help [--source-cli /absolute/path/to/dist/cli.js]
   prodex pro browser check [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 1500]
   prodex pro browser smoke [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 90000]
-  prodex pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 90000] [--target-url url --confirm-target] [--file path] "prompt"  # explicit visible-browser send
+  prodex pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 90000] [--target-url url --confirm-target] [--file path] [--model Pro] [--pro-mode 기본|확장] [--effort 즉시|중간|높음|"매우 높음"] [--project "name"] "prompt"  # explicit visible-browser send
   prodex pro latest [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]
   prodex pro list [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]
   prodex pro show <task-id|latest> [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]
@@ -1198,9 +1251,16 @@ function printSetupHelp(stdout: (line: string) => void): void {
   stdout(`prodex setup
 
 Commands:
-  prodex setup [--cwd /absolute/path/to/repo] [--host 127.0.0.1] [--port 8787] [--token-ttl-hours <hours>]
+  prodex setup [--cwd /absolute/path/to/repo] [--host 127.0.0.1] [--port 8787] [--token-ttl-hours <hours>] [--model Pro] [--pro-mode 기본|확장] [--effort 즉시|중간|높음|"매우 높음"] [--project "name"]
 
-Save a loopback-only HTTP MCP profile in .bridge/config.local.json. Use --token-ttl-hours before tunnels or ChatGPT Project use.`);
+Save a loopback-only HTTP MCP profile in .bridge/config.local.json. Use --token-ttl-hours before tunnels or ChatGPT Project use.
+
+Optional visible-browser send defaults (applied by \`pro browser ask\` when the matching per-ask flag is omitted):
+  --model      Composer model to pick, e.g. Pro or GPT-5.5
+  --pro-mode   Pro sub-mode: 기본 (standard) or 확장 (extended)
+  --effort     Reasoning effort for non-Pro models: 즉시 / 중간 / 높음 / 매우 높음 (English aliases: instant/medium/high/max)
+  --project    Sidebar project to enter before sending
+--pro-mode and --effort are different model axes and cannot be combined.`);
 }
 
 function printStartHelp(stdout: (line: string) => void): void {
@@ -1285,13 +1345,20 @@ Commands:
   prodex pro browser login [--cwd /absolute/path/to/repo] [--dry-run] [--source-cli /absolute/path/to/dist/cli.js] [--launch-timeout-ms 5000]
   prodex pro browser check [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]
   prodex pro browser smoke [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]
-  prodex pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--target-url url --confirm-target] [--file path] "prompt"
+  prodex pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--target-url url --confirm-target] [--file path] [--model Pro] [--pro-mode 기본|확장] [--effort 즉시|중간|높음|"매우 높음"] [--project "name"] "prompt"
   prodex pro latest [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]
   prodex pro list [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]
   prodex pro show <task-id|latest> [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]
 
 Use \`prodex pro ask\` for dry-run/manual previews.
-Use \`prodex pro browser ask\` only when you want an explicit visible-browser send.`);
+Use \`prodex pro browser ask\` only when you want an explicit visible-browser send.
+Model/project selection (visible-browser send):
+  --model Pro | GPT-5.5 ...     Pick the composer model before sending
+  --pro-mode 기본 | 확장          Pro sub-mode (only when the model is Pro)
+  --effort 즉시|중간|높음|매우 높음   Reasoning effort for non-Pro models (aliases: instant/medium/high/max)
+  --project "name"             Enter an existing sidebar project first
+Persist defaults for these with \`prodex setup --model/--pro-mode/--effort/--project\`; per-ask flags override them.
+(Creating a new project from the CLI is planned; for now create it in ChatGPT and pass --project.)`);
 }
 
 function printProjectHelp(stdout: (line: string) => void): void {
@@ -2882,9 +2949,10 @@ function printProBrowserHelp(stdout: (line: string) => void, sourceCli?: string)
   const smokeUsage = sourceCli
     ? `${cli} pro browser smoke${sourceCliOption} [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 90000]`
     : "prodex pro browser smoke [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 90000]";
+  const selectionUsage = '[--model Pro] [--pro-mode 기본|확장] [--effort 즉시|중간|높음|"매우 높음"] [--project "name"]';
   const askUsage = sourceCli
-    ? `${cli} pro browser ask${sourceCliOption} [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 90000] [--target-url url --confirm-target] [--file path] "prompt"`
-    : 'prodex pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 90000] [--target-url url --confirm-target] [--file path] "prompt"';
+    ? `${cli} pro browser ask${sourceCliOption} [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 90000] [--target-url url --confirm-target] [--file path] ${selectionUsage} "prompt"`
+    : `prodex pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 90000] [--target-url url --confirm-target] [--file path] ${selectionUsage} "prompt"`;
   stdout(`${cli} pro browser
 
 Commands:
@@ -2894,6 +2962,12 @@ Commands:
   ${askUsage}
 
 Visible-browser sends require a manual browser session and stop on login, captcha, Cloudflare, permission, rate-limit, or usage-limit blockers.
+Model/project selection (ask):
+  --model      Composer model to pick, e.g. Pro or GPT-5.5
+  --pro-mode   Pro sub-mode: 기본 (standard) or 확장 (extended), used when the model is Pro
+  --effort     Reasoning effort for non-Pro models: 즉시 / 중간 / 높음 / 매우 높음 (aliases: instant/medium/high/max)
+  --project    Enter an existing sidebar project before sending
+--pro-mode and --effort cannot be combined. Persist defaults with \`${cli} setup${sourceCliOption}\`; per-ask flags override them.
 Use \`${cli} pro ask\` for dry-run/manual previews.
 \`${cli} pro browser ask${sourceCliOption}\` always attempts an explicit visible-browser send.`);
 }
@@ -3663,8 +3737,57 @@ function readRequiredLeadingArgument(args: string[], command: string, placeholde
 }
 
 const ASK_PRO_BOOLEAN_FLAGS = new Set(["--dry-run", "--send", "--confirm-target"]);
-const ASK_PRO_VALUE_FLAGS = new Set(["--cwd", "--file", "--port", "--timeout-ms", "--target-url", "--source-cli"]);
-const ASK_PRO_PREVIEW_VALUE_FLAGS = new Set(["--cwd", "--file", "--port", "--timeout-ms", "--target-url"]);
+const ASK_PRO_SELECTION_VALUE_FLAGS = ["--project", "--project-new", "--model", "--pro-mode", "--effort"] as const;
+const ASK_PRO_VALUE_FLAGS = new Set([
+  "--cwd",
+  "--file",
+  "--port",
+  "--timeout-ms",
+  "--target-url",
+  "--source-cli",
+  ...ASK_PRO_SELECTION_VALUE_FLAGS
+]);
+const ASK_PRO_PREVIEW_VALUE_FLAGS = new Set([
+  "--cwd",
+  "--file",
+  "--port",
+  "--timeout-ms",
+  "--target-url",
+  ...ASK_PRO_SELECTION_VALUE_FLAGS
+]);
+
+// Setup persists defaults for a subset of the per-ask selection flags. A new
+// project is created per-ask, never as a standing default, so --project-new is
+// intentionally excluded here.
+const ASK_PRO_SELECTION_DEFAULT_FLAGS = ["--model", "--pro-mode", "--effort", "--project"] as const;
+
+function parseBrowserDefaultFlags(args: string[]): WriteLocalConfigInput["browserDefaults"] | undefined {
+  const model = readFlag(args, "--model");
+  const proModeRaw = readFlag(args, "--pro-mode");
+  const effortRaw = readFlag(args, "--effort");
+  const project = readFlag(args, "--project");
+  if (proModeRaw !== undefined && effortRaw !== undefined) {
+    throw new Error("setup cannot combine --pro-mode and --effort; Pro sub-modes and reasoning effort are different model axes.");
+  }
+  if (model === undefined && proModeRaw === undefined && effortRaw === undefined && project === undefined) {
+    return undefined;
+  }
+  return {
+    ...(model !== undefined ? { model } : {}),
+    ...(proModeRaw !== undefined ? { proMode: parseProMode(proModeRaw) } : {}),
+    ...(effortRaw !== undefined ? { effort: parseReasoningEffort(effortRaw) } : {}),
+    ...(project !== undefined ? { project } : {})
+  };
+}
+
+function formatBrowserDefaults(defaults: BrowserDefaults): string {
+  const parts: string[] = [];
+  if (defaults.model) parts.push(`model=${defaults.model}`);
+  if (defaults.pro_mode) parts.push(`pro-mode=${defaults.pro_mode}`);
+  if (defaults.effort) parts.push(`effort=${defaults.effort}`);
+  if (defaults.project) parts.push(`project=${defaults.project}`);
+  return parts.length > 0 ? parts.join(", ") : "(none)";
+}
 
 function parseAskProArgs(args: string[], valueFlags = ASK_PRO_VALUE_FLAGS): { optionArgs: string[]; promptParts: string[] } {
   const delimiterIndex = args.indexOf("--");

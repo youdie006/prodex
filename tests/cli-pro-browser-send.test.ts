@@ -14,6 +14,7 @@ vi.mock("../src/chatgpt-browser.js", async () => {
 });
 
 import { runCli } from "../src/cli.js";
+import { loadLocalConfig, writeLocalConfig } from "../src/config.js";
 import { setSafeFileTestHooks } from "../src/safe-file.js";
 
 describe("pro browser ask persistence", () => {
@@ -1082,6 +1083,200 @@ describe("pro browser ask persistence", () => {
     );
     expect(err.join("\n")).toContain("session_record_warning");
     expect(err.join("\n")).toContain("forced final session write failure");
+  });
+});
+
+describe("pro browser ask model/project selection", () => {
+  beforeEach(() => {
+    sendChatGptPromptMock.mockReset();
+    setSafeFileTestHooks({});
+  });
+
+  afterEach(() => {
+    setSafeFileTestHooks({});
+  });
+
+  it("forwards model, Pro sub-mode, and project selection to the visible-browser send", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-select-"));
+    sendChatGptPromptMock.mockResolvedValueOnce({
+      url: "https://chatgpt.com/c/abc",
+      title: "ChatGPT",
+      answer: "ok",
+      modelHints: [],
+      warnings: []
+    });
+
+    await runCli(
+      ["pro", "browser", "ask", "--model", "Pro", "--pro-mode", "확장", "--project", "sandbox-demo", "Review this"],
+      { cwd, stdout: () => {}, stderr: () => {} }
+    );
+
+    expect(sendChatGptPromptMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prompt: expect.stringContaining("Review this"),
+        model: "Pro",
+        proMode: "확장",
+        project: "sandbox-demo"
+      })
+    );
+  });
+
+  it("normalizes --effort onto the exact menu label before sending", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-select-"));
+    sendChatGptPromptMock.mockResolvedValueOnce({
+      url: "https://chatgpt.com/c/abc",
+      title: "ChatGPT",
+      answer: "ok",
+      modelHints: [],
+      warnings: []
+    });
+
+    await runCli(["pro", "browser", "ask", "--effort", "매우높음", "Review this"], {
+      cwd,
+      stdout: () => {},
+      stderr: () => {}
+    });
+
+    expect(sendChatGptPromptMock).toHaveBeenCalledWith(expect.objectContaining({ effort: "매우 높음" }));
+  });
+
+  it("records the selection in the consult receipt metadata", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-select-"));
+    sendChatGptPromptMock.mockResolvedValueOnce({
+      url: "https://chatgpt.com/c/abc",
+      title: "ChatGPT",
+      answer: "ok",
+      modelHints: [],
+      warnings: []
+    });
+
+    await runCli(["pro", "browser", "ask", "--model", "Pro", "--pro-mode", "기본", "Review this"], {
+      cwd,
+      stdout: () => {},
+      stderr: () => {}
+    });
+
+    const receiptsDir = path.join(cwd, ".bridge", "receipts");
+    const files = await readdir(receiptsDir);
+    const receipts = await Promise.all(
+      files
+        .filter((name) => name.endsWith(".json"))
+        .map(async (name) =>
+          JSON.parse(await readFile(path.join(receiptsDir, name), "utf8")) as {
+            kind?: string;
+            metadata?: { selection?: Record<string, string> };
+          }
+        )
+    );
+    const consult = receipts.find((entry) => entry.kind === "consult_answer_saved");
+    expect(consult?.metadata?.selection).toEqual({ model: "Pro", pro_mode: "기본" });
+  });
+
+  it("rejects an unknown --effort before touching the browser", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-select-"));
+
+    await expect(
+      runCli(["pro", "browser", "ask", "--effort", "turbo", "Review this"], {
+        cwd,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.toThrow(/--effort must be one of/);
+
+    expect(sendChatGptPromptMock).not.toHaveBeenCalled();
+    await expect(readdir(path.join(cwd, ".bridge"))).rejects.toThrow();
+  });
+
+  it("rejects combining --project and --project-new before touching the browser", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-select-"));
+
+    await expect(
+      runCli(["pro", "browser", "ask", "--project", "sandbox-a", "--project-new", "sandbox-b", "Review this"], {
+        cwd,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.toThrow(/--project.*--project-new|--project-new/);
+
+    expect(sendChatGptPromptMock).not.toHaveBeenCalled();
+    await expect(readdir(path.join(cwd, ".bridge"))).rejects.toThrow();
+  });
+
+  it("rejects --project-new as not yet supported before touching the browser", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-select-"));
+
+    await expect(
+      runCli(["pro", "browser", "ask", "--project-new", "sandbox-new", "Review this"], {
+        cwd,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.toThrow(/--project-new is not supported yet/);
+
+    expect(sendChatGptPromptMock).not.toHaveBeenCalled();
+    await expect(readdir(path.join(cwd, ".bridge"))).rejects.toThrow();
+  });
+
+  it("rejects combining --pro-mode and --effort before touching the browser", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-select-"));
+
+    await expect(
+      runCli(["pro", "browser", "ask", "--pro-mode", "확장", "--effort", "높음", "Review this"], {
+        cwd,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.toThrow(/--pro-mode.*--effort|--effort.*--pro-mode/);
+
+    expect(sendChatGptPromptMock).not.toHaveBeenCalled();
+    await expect(readdir(path.join(cwd, ".bridge"))).rejects.toThrow();
+  });
+
+  it("persists browser defaults from the setup command", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-select-"));
+
+    await runCli(["setup", "--token", "test-token", "--model", "Pro", "--pro-mode", "확장", "--project", "sandbox-demo"], {
+      cwd,
+      stdout: () => {},
+      stderr: () => {}
+    });
+
+    const config = await loadLocalConfig(cwd);
+    expect(config.browser_defaults).toEqual({ model: "Pro", pro_mode: "확장", project: "sandbox-demo" });
+  });
+
+  it("applies persisted browser defaults when no per-ask flag is given", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-select-"));
+    await writeLocalConfig(cwd, { token: "test-token", browserDefaults: { model: "Pro", proMode: "기본", project: "sandbox-demo" } });
+    sendChatGptPromptMock.mockResolvedValueOnce({
+      url: "https://chatgpt.com/c/abc",
+      title: "ChatGPT",
+      answer: "ok",
+      modelHints: [],
+      warnings: []
+    });
+
+    await runCli(["pro", "browser", "ask", "Review this"], { cwd, stdout: () => {}, stderr: () => {} });
+
+    expect(sendChatGptPromptMock).toHaveBeenCalledWith(
+      expect.objectContaining({ model: "Pro", proMode: "기본", project: "sandbox-demo" })
+    );
+  });
+
+  it("lets an explicit per-ask flag override the persisted default", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-select-"));
+    await writeLocalConfig(cwd, { token: "test-token", browserDefaults: { model: "Pro", proMode: "기본" } });
+    sendChatGptPromptMock.mockResolvedValueOnce({
+      url: "https://chatgpt.com/c/abc",
+      title: "ChatGPT",
+      answer: "ok",
+      modelHints: [],
+      warnings: []
+    });
+
+    await runCli(["pro", "browser", "ask", "--pro-mode", "확장", "Review this"], { cwd, stdout: () => {}, stderr: () => {} });
+
+    expect(sendChatGptPromptMock).toHaveBeenCalledWith(expect.objectContaining({ model: "Pro", proMode: "확장" }));
   });
 });
 

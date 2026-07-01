@@ -2,7 +2,7 @@ import { chmod, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "n
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { loadLocalConfig, localConfigPath, writeLocalConfig } from "../src/config.js";
+import { loadBrowserDefaults, loadLocalConfig, localConfigPath, writeLocalConfig } from "../src/config.js";
 import { setSafeFileTestHooks } from "../src/safe-file.js";
 
 describe("local bridge config", () => {
@@ -245,5 +245,45 @@ describe("local bridge config", () => {
     });
 
     await expect(loadLocalConfig(cwd)).rejects.toThrow(/symlink|changed/i);
+  });
+});
+
+describe("browser selection defaults", () => {
+  afterEach(() => {
+    setSafeFileTestHooks({});
+  });
+
+  it("persists browser defaults and reloads them", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-config-"));
+
+    const config = await writeLocalConfig(cwd, {
+      token: "test-token",
+      browserDefaults: { model: "Pro", proMode: "확장", project: "sandbox-demo" }
+    });
+    const loaded = await loadLocalConfig(cwd);
+
+    expect(config.browser_defaults).toEqual({ model: "Pro", pro_mode: "확장", project: "sandbox-demo" });
+    expect(loaded.browser_defaults).toEqual({ model: "Pro", pro_mode: "확장", project: "sandbox-demo" });
+  });
+
+  it("merges new browser defaults with existing ones", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-config-"));
+
+    await writeLocalConfig(cwd, { token: "test-token", browserDefaults: { model: "Pro", proMode: "기본" } });
+    const updated = await writeLocalConfig(cwd, { token: "test-token", browserDefaults: { effort: "높음", proMode: undefined } });
+
+    // effort added, model preserved, proMode explicitly cleared
+    expect(updated.browser_defaults).toEqual({ model: "Pro", effort: "높음" });
+  });
+
+  it("returns undefined defaults when no config exists", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-config-"));
+    expect(await loadBrowserDefaults(cwd)).toBeUndefined();
+  });
+
+  it("reads persisted defaults best-effort", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-config-"));
+    await writeLocalConfig(cwd, { token: "test-token", browserDefaults: { effort: "매우 높음" } });
+    expect(await loadBrowserDefaults(cwd)).toEqual({ effort: "매우 높음" });
   });
 });

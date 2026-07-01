@@ -14,6 +14,7 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 const execFileAsync = promisify(execFile);
 const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const rootPackageVersion = JSON.parse(await readFile(path.join(repoRoot, "package.json"), "utf8")).version;
 const REQUIRED_MCP_TOOLS = [
   "bridge_create_task",
   "bridge_list_tasks",
@@ -108,7 +109,7 @@ try {
   );
   assertIncludes(
     help.stdout,
-    'prodex pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 90000] [--target-url url --confirm-target] [--file path] "prompt"',
+    'prodex pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 90000] [--target-url url --confirm-target] [--file path] [--model Pro] [--pro-mode 기본|확장] [--effort 즉시|중간|높음|"매우 높음"] [--project "name"] "prompt"',
     "installed help output"
   );
   assertIncludes(help.stdout, "prodex pro browser help [--source-cli /absolute/path/to/dist/cli.js]", "installed help output");
@@ -441,7 +442,7 @@ try {
   const releasePackTarballPath = path.join(releasePackDestination, releasePackTarballs[0]);
   assertIncludes(releasePackSuccess.stdout, `release_pack_verify: npm publish --dry-run ${releasePackTarballPath}`, "installed release-pack success output");
   await assertInstalledReleasePackTarballModes(releasePackTarballPath, packed.files, "installed release-pack tarball");
-  await assertNpmPublishDryRun(releasePackTarballPath, consumerDir, "installed release-pack tarball");
+  await assertNpmPublishDryRun(releasePackTarballPath, consumerDir, "installed release-pack tarball", installedPackageJson.version);
   const releasePackCliDestination = path.join(tmp, "installed-release-pack-cli");
   const releasePackCliSuccess = await run(
     binPath,
@@ -1037,7 +1038,7 @@ try {
   );
   assertIncludes(
     browserHelp.stdout,
-    'prodex pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 90000] [--target-url url --confirm-target] [--file path] "prompt"',
+    'prodex pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 90000] [--target-url url --confirm-target] [--file path] [--model Pro] [--pro-mode 기본|확장] [--effort 즉시|중간|높음|"매우 높음"] [--project "name"] "prompt"',
     "installed browser help"
   );
   assertIncludes(
@@ -1068,7 +1069,7 @@ try {
   );
   assertIncludes(
     sourceBrowserHelp.stdout,
-    `${sourcePrefix} pro browser ask --source-cli ${installedSourceCli} [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 90000] [--target-url url --confirm-target] [--file path] "prompt"`,
+    `${sourcePrefix} pro browser ask --source-cli ${installedSourceCli} [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 90000] [--target-url url --confirm-target] [--file path] [--model Pro] [--pro-mode 기본|확장] [--effort 즉시|중간|높음|"매우 높음"] [--project "name"] "prompt"`,
     "installed source browser help"
   );
   assertIncludes(
@@ -1540,14 +1541,14 @@ function normalizePackagePath(value) {
   return value.replaceAll("\\", "/").replace(/^\.\/+/, "");
 }
 
-async function assertNpmPublishDryRun(tarballPath, cwd, label) {
+async function assertNpmPublishDryRun(tarballPath, cwd, label, version = rootPackageVersion) {
   const result = await run(npmCommand, ["publish", "--dry-run", tarballPath], {
     cwd,
     timeout: 120_000,
     maxBuffer: 20 * 1024 * 1024
   });
   const output = `${result.stdout}\n${result.stderr}`;
-  assertIncludes(output, "prodex@0.2.0", `${label} npm publish dry-run output`);
+  assertIncludes(output, `prodex@${version}`, `${label} npm publish dry-run output`);
   assertIncludes(output, "Publishing to", `${label} npm publish dry-run output`);
   assertIncludes(output, "(dry-run)", `${label} npm publish dry-run output`);
 }

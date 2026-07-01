@@ -49,11 +49,62 @@ export class ChatGptBrowserBlockerError extends Error {
   }
 }
 
+export type ChatGptReasoningEffort = "즉시" | "중간" | "높음" | "매우 높음";
+export type ChatGptProMode = "기본" | "확장";
+
+const REASONING_EFFORTS: readonly ChatGptReasoningEffort[] = ["즉시", "중간", "높음", "매우 높음"];
+const PRO_MODES: readonly ChatGptProMode[] = ["기본", "확장"];
+
+// Aliases map friendly CLI input onto the exact Korean menu labels the picker
+// clicks by text. Keys are lowercased and space-stripped before lookup.
+const REASONING_EFFORT_ALIASES: Record<string, ChatGptReasoningEffort> = {
+  "매우높음": "매우 높음",
+  instant: "즉시",
+  medium: "중간",
+  high: "높음",
+  max: "매우 높음"
+};
+
+const PRO_MODE_ALIASES: Record<string, ChatGptProMode> = {
+  standard: "기본",
+  extended: "확장"
+};
+
+/** Normalize a CLI reasoning-effort value onto the exact ChatGPT menu label. */
+export function parseReasoningEffort(raw: string): ChatGptReasoningEffort {
+  const trimmed = raw.trim();
+  const match = REASONING_EFFORTS.find((effort) => effort === trimmed);
+  if (match) return match;
+  const alias = REASONING_EFFORT_ALIASES[trimmed.toLowerCase().replace(/\s+/g, "")];
+  if (alias) return alias;
+  throw new Error(`--effort must be one of ${REASONING_EFFORTS.join(", ")}`);
+}
+
+/** Normalize a CLI Pro sub-mode value onto the exact ChatGPT menu label. */
+export function parseProMode(raw: string): ChatGptProMode {
+  const trimmed = raw.trim();
+  const match = PRO_MODES.find((mode) => mode === trimmed);
+  if (match) return match;
+  const alias = PRO_MODE_ALIASES[trimmed.toLowerCase().replace(/\s+/g, "")];
+  if (alias) return alias;
+  throw new Error(`--pro-mode must be one of ${PRO_MODES.join(", ")}`);
+}
+
 export interface SendChatGptPromptOptions {
   port?: number;
   prompt: string;
   targetUrl?: string;
   timeoutMs?: number;
+  /** Switch into this sidebar project (by visible name) before sending. */
+  project?: string;
+  /** Create a new project with this name before sending. */
+  projectNew?: string;
+  /** Model to select in the composer picker, e.g. "Pro" or "GPT-5.5". */
+  model?: string;
+  /** Pro sub-mode, used when model is Pro. */
+  proMode?: ChatGptProMode;
+  /** Reasoning effort, used for non-Pro models. */
+  effort?: ChatGptReasoningEffort;
 }
 
 export interface SendChatGptPromptResult {
@@ -516,6 +567,172 @@ export async function getChatGptBrowserStatus(options: { port?: number; timeoutM
   };
 }
 
+type CdpConnection = Awaited<ReturnType<typeof connectCdp>>;
+
+interface RectHit {
+  ok: boolean;
+  x?: number;
+  y?: number;
+  reason?: string;
+  available?: string[];
+}
+
+async function dispatchMouseClickAt(cdp: CdpConnection, x: number, y: number): Promise<void> {
+  await cdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", x, y });
+  await cdp.send("Input.dispatchMouseEvent", { type: "mousePressed", x, y, button: "left", clickCount: 1 });
+  await cdp.send("Input.dispatchMouseEvent", { type: "mouseReleased", x, y, button: "left", clickCount: 1 });
+}
+
+async function dispatchEscapeKey(cdp: CdpConnection): Promise<void> {
+  await cdp.send("Input.dispatchKeyEvent", { type: "keyDown", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
+  await cdp.send("Input.dispatchKeyEvent", { type: "keyUp", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
+}
+
+export function modelButtonRectExpression(): string {
+  return `(() => {
+    const c = document.querySelector('#prompt-textarea,[contenteditable="true"],textarea');
+    const scope = c ? (c.closest('form') || document) : document;
+    const b = [...scope.querySelectorAll('[aria-haspopup="menu"]')].find((el) => {
+      const t = (el.textContent || "").trim();
+      const aria = el.getAttribute("aria-label") || "";
+      return /\\S/.test(t) && !/파일|첨부|받아쓰기|음성|dictation|attach/i.test(t + aria);
+    });
+    if (!b) return { ok: false, reason: "model selector button not found" };
+    const r = b.getBoundingClientRect();
+    return { ok: true, x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) };
+  })()`;
+}
+
+export function menuItemRectExpression(label: string): string {
+  return `(() => {
+    const m = document.querySelector('[data-testid="composer-intelligence-picker-content"]');
+    if (!m) return { ok: false, reason: "reasoning/model menu did not open" };
+    const items = [...m.querySelectorAll('[role="menuitemradio"],[role="menuitem"]')];
+    const it = items.find((r) => (r.textContent || "").trim() === ${JSON.stringify(label)});
+    if (!it) return { ok: false, reason: "menu item not found", available: items.map((r) => (r.textContent || "").trim()).slice(0, 12) };
+    const r = it.getBoundingClientRect();
+    return { ok: true, x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) };
+  })()`;
+}
+
+export function submenuItemRectExpression(label: string): string {
+  return `(() => {
+    const items = [...document.querySelectorAll('[role="menuitemradio"],[role="menuitem"]')];
+    const it = items.find((r) => (r.textContent || "").trim() === ${JSON.stringify(label)});
+    if (!it) return { ok: false, reason: "submenu item not found" };
+    const r = it.getBoundingClientRect();
+    return { ok: true, x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) };
+  })()`;
+}
+
+// "Pro" itself is a plain radio; its sub-modes (Pro 기본 / Pro 확장) live behind an
+// unlabeled aria-haspopup="menu" chevron sitting next to the Pro radio. Clicking
+// that chevron (hovering does not work) opens the sub-mode submenu.
+export function proSubmenuExpanderRectExpression(): string {
+  return `(() => {
+    const m = document.querySelector('[data-testid="composer-intelligence-picker-content"],[role="menu"]');
+    if (!m) return { ok: false, reason: "model menu is not open" };
+    const proRadio = [...m.querySelectorAll('[role="menuitemradio"]')].find((r) => (r.textContent || "").trim() === "Pro");
+    if (!proRadio) return { ok: false, reason: "Pro option not found in the model menu" };
+    const proTop = proRadio.getBoundingClientRect().top;
+    const expanders = [...m.querySelectorAll('[role="menuitem"][aria-haspopup="menu"]')].filter((e) => {
+      const t = (e.textContent || "").trim();
+      return !/gpt|claude|gemini|o\\d|mini|thinking/i.test(t);
+    });
+    let best = null;
+    let bestDy = Infinity;
+    for (const e of expanders) {
+      const dy = Math.abs(e.getBoundingClientRect().top - proTop);
+      if (dy < bestDy) { best = e; bestDy = dy; }
+    }
+    if (!best || bestDy > 40) return { ok: false, reason: "Pro sub-mode expander not found next to Pro" };
+    const r = best.getBoundingClientRect();
+    return { ok: true, x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) };
+  })()`;
+}
+
+export function projectItemRectExpression(name: string): string {
+  return `(() => {
+    const opt = [...document.querySelectorAll('[aria-label*="프로젝트 옵션 열기"]')].find((b) => (b.getAttribute("aria-label") || "").startsWith(${JSON.stringify(name)}));
+    let target = opt ? (opt.closest('a,[role="link"],li') || opt.parentElement) : null;
+    if (!target) {
+      const icons = [...document.querySelectorAll('[data-testid="project-folder-icon"]')];
+      for (const ic of icons) {
+        const row = ic.closest('a,li,[role="link"]') || ic.parentElement?.parentElement;
+        if (row && (row.textContent || "").includes(${JSON.stringify(name)})) { target = row; break; }
+      }
+    }
+    if (!target) return { ok: false, reason: "project not found in sidebar" };
+    const r = target.getBoundingClientRect();
+    return { ok: true, x: Math.round(r.x + r.width / 2), y: Math.round(r.y + Math.min(r.height / 2, 18)) };
+  })()`;
+}
+
+async function selectModelReasoning(
+  cdp: CdpConnection,
+  options: Pick<SendChatGptPromptOptions, "model" | "proMode" | "effort">
+): Promise<void> {
+  if (!options.model && !options.proMode && !options.effort) return;
+  const button = await cdp.evaluate<RectHit>(modelButtonRectExpression());
+  if (!button.ok || button.x === undefined || button.y === undefined) {
+    throw new Error(button.reason ?? "Could not open the ChatGPT model selector");
+  }
+  await dispatchMouseClickAt(cdp, button.x, button.y);
+  await sleep(1000);
+
+  const wantsProMode = Boolean(options.proMode) && (!options.model || /pro/i.test(options.model));
+  if (wantsProMode && options.proMode) {
+    // Open the Pro sub-mode submenu via the chevron, then pick 기본/확장.
+    const expander = await cdp.evaluate<RectHit>(proSubmenuExpanderRectExpression());
+    if (!expander.ok || expander.x === undefined || expander.y === undefined) {
+      await dispatchEscapeKey(cdp);
+      throw new Error(expander.reason ?? "Could not open the ChatGPT Pro sub-mode submenu");
+    }
+    await dispatchMouseClickAt(cdp, expander.x, expander.y);
+    await sleep(900);
+    const subLabel = `Pro ${options.proMode}`;
+    const sub = await cdp.evaluate<RectHit>(submenuItemRectExpression(subLabel));
+    if (!sub.ok || sub.x === undefined || sub.y === undefined) {
+      await dispatchEscapeKey(cdp);
+      throw new Error(`ChatGPT Pro sub-mode not found: ${subLabel}`);
+    }
+    await dispatchMouseClickAt(cdp, sub.x, sub.y);
+    await sleep(400);
+    return;
+  }
+
+  const primaryLabel = options.model ?? options.effort;
+  if (!primaryLabel) {
+    await dispatchEscapeKey(cdp);
+    return;
+  }
+
+  const primary = await cdp.evaluate<RectHit>(menuItemRectExpression(primaryLabel));
+  if (!primary.ok || primary.x === undefined || primary.y === undefined) {
+    await dispatchEscapeKey(cdp);
+    throw new Error(`ChatGPT model/effort option not found: ${primaryLabel}${primary.available ? ` (available: ${primary.available.join(", ")})` : ""}`);
+  }
+  await dispatchMouseClickAt(cdp, primary.x, primary.y);
+  await sleep(400);
+}
+
+async function selectProject(
+  cdp: CdpConnection,
+  options: Pick<SendChatGptPromptOptions, "project" | "projectNew">
+): Promise<void> {
+  if (options.projectNew) {
+    throw new Error("projectNew (new-project modal) automation is not implemented yet; create the project manually and use --project");
+  }
+  if (options.project) {
+    const hit = await cdp.evaluate<RectHit>(projectItemRectExpression(options.project));
+    if (!hit.ok || hit.x === undefined || hit.y === undefined) {
+      throw new Error(`ChatGPT project not found in sidebar: ${options.project}`);
+    }
+    await dispatchMouseClickAt(cdp, hit.x, hit.y);
+    await sleep(1200);
+  }
+}
+
 export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Promise<SendChatGptPromptResult> {
   const port = options.port ?? 9333;
   const timeoutMs = options.timeoutMs ?? 90_000;
@@ -550,6 +767,8 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
   const cdp = await connectCdp(page.webSocketDebuggerUrl);
   try {
     await cdp.send("Runtime.enable");
+    await selectProject(cdp, options);
+    await selectModelReasoning(cdp, options);
     const inserted = await cdp.evaluate<{ ok: boolean; reason?: string; actualText?: string }>(setComposerTextExpression(options.prompt));
     if (!inserted.ok) throw new Error(inserted.reason ?? "Could not insert text into ChatGPT composer");
     await sleep(300);

@@ -184,6 +184,31 @@ prodex sessions show latest
 
 This uses the currently available ChatGPT web session and model selection. It is not a hidden API client, and it does not read cookies, tokens, localStorage, or sessionStorage.
 
+#### Choosing the model, reasoning effort, and project
+
+The visible-browser send drives the same composer picker you use by hand, so you can pick the model, reasoning effort, or a sidebar project per ask:
+
+```bash
+# Pro extended sub-mode, inside an existing sidebar project
+prodex pro browser ask --model Pro --pro-mode 확장 --project "my-project" "Review the migration plan"
+
+# A non-Pro model at a specific reasoning effort
+prodex pro browser ask --effort "매우 높음" "Draft the release notes"
+```
+
+- `--model` picks the composer model by its visible label (for example `Pro` or `GPT-5.5`).
+- `--pro-mode 기본|확장` selects the Pro sub-mode; it applies only when the model is Pro.
+- `--effort 즉시|중간|높음|"매우 높음"` sets the reasoning effort for non-Pro models. English aliases `instant`/`medium`/`high`/`max` are accepted. `--pro-mode` and `--effort` are different model axes and cannot be combined.
+- `--project "name"` enters an existing sidebar project before sending. Creating a new project from the CLI is not supported yet; make it in ChatGPT first, then pass `--project`.
+
+Persist defaults so you can omit these flags on routine asks; a per-ask flag always overrides the saved default:
+
+```bash
+prodex setup --model Pro --pro-mode 확장 --project "my-project"
+```
+
+Whatever selection is applied is recorded on the consult receipt (`metadata.selection`). `prodex` only clicks the picker you can see; it never selects a model, effort, or project silently outside the visible browser.
+
 For a source checkout, keep the explicit send and inspection commands source-aware too:
 
 ```bash

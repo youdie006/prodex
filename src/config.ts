@@ -9,6 +9,13 @@ import { readVerifiedUtf8File, writeVerifiedUtf8File } from "./safe-file.js";
 
 const BRIDGE_DIRECTORY_MODE = 0o700;
 
+const BrowserDefaultsSchema = z.object({
+  model: z.string().min(1).optional(),
+  pro_mode: z.enum(["기본", "확장"]).optional(),
+  effort: z.enum(["즉시", "중간", "높음", "매우 높음"]).optional(),
+  project: z.string().min(1).optional()
+});
+
 const LocalConfigSchema = z.object({
   schema_version: z.literal(SCHEMA_VERSION),
   host: z.string().min(1),
@@ -16,11 +23,13 @@ const LocalConfigSchema = z.object({
   token: z.string().min(1),
   server_url: z.string().url(),
   token_expires_at: z.string().datetime().optional(),
+  browser_defaults: BrowserDefaultsSchema.optional(),
   created_at: z.string().datetime(),
   updated_at: z.string().datetime()
 });
 
 export type LocalConfig = z.infer<typeof LocalConfigSchema>;
+export type BrowserDefaults = z.infer<typeof BrowserDefaultsSchema>;
 export type TokenExpiryStatus =
   | { status: "non_expiring"; token_expires_at?: undefined; warning: string }
   | { status: "valid"; token_expires_at: string; warning?: undefined }
@@ -40,6 +49,31 @@ export interface WriteLocalConfigInput {
   port?: number;
   token?: string;
   tokenTtlHours?: number;
+  browserDefaults?: {
+    model?: string;
+    proMode?: "기본" | "확장";
+    effort?: "즉시" | "중간" | "높음" | "매우 높음";
+    project?: string;
+  };
+}
+
+// Merge new browser defaults onto the existing ones so setting one field never
+// wipes the others. Passing a field explicitly as undefined clears it.
+function mergeBrowserDefaults(
+  existing: BrowserDefaults | undefined,
+  input: WriteLocalConfigInput["browserDefaults"]
+): BrowserDefaults | undefined {
+  if (input === undefined) return existing;
+  const merged: BrowserDefaults = { ...existing };
+  const apply = <K extends keyof BrowserDefaults>(key: K, value: BrowserDefaults[K] | undefined): void => {
+    if (value === undefined) delete merged[key];
+    else merged[key] = value;
+  };
+  if ("model" in input) apply("model", input.model);
+  if ("proMode" in input) apply("pro_mode", input.proMode);
+  if ("effort" in input) apply("effort", input.effort);
+  if ("project" in input) apply("project", input.project);
+  return Object.keys(merged).length > 0 ? merged : undefined;
 }
 
 export function localConfigPath(cwd: string): string {
@@ -73,6 +107,7 @@ export async function writeLocalConfig(cwd: string, input: WriteLocalConfigInput
   const token = input.token ?? randomBytes(24).toString("hex");
   const tokenExpiresAt = computeTokenExpiresAt(input.tokenTtlHours, now);
   const existing = await readExistingConfig(cwd);
+  const browserDefaults = mergeBrowserDefaults(existing?.browser_defaults, input.browserDefaults);
   const config = LocalConfigSchema.parse({
     schema_version: SCHEMA_VERSION,
     host,
@@ -80,6 +115,7 @@ export async function writeLocalConfig(cwd: string, input: WriteLocalConfigInput
     token,
     server_url: makeServerUrl(host, port, token),
     ...(tokenExpiresAt ? { token_expires_at: tokenExpiresAt } : {}),
+    ...(browserDefaults ? { browser_defaults: browserDefaults } : {}),
     created_at: existing?.created_at ?? now,
     updated_at: now
   });
@@ -113,6 +149,17 @@ export async function loadLocalConfig(cwd: string): Promise<LocalConfig> {
   assertLoopbackHttpHost(new URL(config.server_url).hostname);
   assertServerUrlMatchesConfig(config);
   return config;
+}
+
+// Read persisted browser-selection defaults without failing when the local
+// config is absent or unrelated to this cwd (defaults are optional convenience).
+export async function loadBrowserDefaults(cwd: string): Promise<BrowserDefaults | undefined> {
+  try {
+    const config = await loadLocalConfig(cwd);
+    return config.browser_defaults;
+  } catch {
+    return undefined;
+  }
 }
 
 export function getTokenExpiryStatus(config: Pick<LocalConfig, "token_expires_at">, now: Date = new Date()): TokenExpiryStatus {
