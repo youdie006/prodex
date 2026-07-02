@@ -1589,6 +1589,16 @@ function redactReceiptForDisplay(receipt: Receipt, integrityStatus?: ReceiptInte
       ...(typeof diff === "string" ? { bytes: Buffer.byteLength(diff, "utf8") } : {})
     };
   }
+  const selection = metadata.selection;
+  if (selection && typeof selection === "object" && !Array.isArray(selection) && Object.hasOwn(selection, "project")) {
+    // The ChatGPT project name is personal context; keep the non-personal model
+    // axes visible but drop the name from display output. The raw receipt file
+    // keeps it for local inspection.
+    const redactedSelection: Record<string, unknown> = { ...(selection as Record<string, unknown>) };
+    delete redactedSelection.project;
+    redactedSelection.project_redacted = true;
+    metadata.selection = redactedSelection;
+  }
   if (integrityStatus) {
     metadata.integrity_status = integrityStatus;
   }

@@ -206,8 +206,15 @@ export function inferLoggedInLikely(text: string, visibleButtonLabels: string[] 
 export function isUsableChatGptAnswer(answer: string): boolean {
   const normalized = answer.trim();
   if (!normalized) return false;
-  if (/^(생각 중|thinking|thought for|thought about)/i.test(normalized.replace(/\.+$/, ""))) {
-    return normalized.split(/\r?\n/).filter(Boolean).length > 1;
+  const stripped = normalized.replace(/\.+$/, "");
+  const lineCount = normalized.split(/\r?\n/).filter(Boolean).length;
+  if (/^(생각 중|thinking|thought for|thought about)/i.test(stripped)) {
+    return lineCount > 1;
+  }
+  // Model-prefixed thinking status, e.g. "Pro 생각 중": a single short line
+  // ending in 생각 중 is the placeholder, not an answer.
+  if (lineCount <= 1 && /(^|\s)생각 중$/.test(stripped)) {
+    return false;
   }
   return true;
 }
@@ -575,12 +582,8 @@ interface RectHit {
   y?: number;
   reason?: string;
   available?: string[];
-}
-
-async function dispatchMouseClickAt(cdp: CdpConnection, x: number, y: number): Promise<void> {
-  await cdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", x, y });
-  await cdp.send("Input.dispatchMouseEvent", { type: "mousePressed", x, y, button: "left", clickCount: 1 });
-  await cdp.send("Input.dispatchMouseEvent", { type: "mouseReleased", x, y, button: "left", clickCount: 1 });
+  role?: string | null;
+  haspopup?: string | null;
 }
 
 async function dispatchEscapeKey(cdp: CdpConnection): Promise<void> {
@@ -588,8 +591,79 @@ async function dispatchEscapeKey(cdp: CdpConnection): Promise<void> {
   await cdp.send("Input.dispatchKeyEvent", { type: "keyUp", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
 }
 
-export function modelButtonRectExpression(): string {
+// Poll a boolean page expression instead of sleeping a fixed duration, so slow
+// renders wait longer and fast ones do not waste time.
+async function waitForExpressionTrue(cdp: CdpConnection, expression: string, timeoutMs: number, intervalMs = 150): Promise<boolean> {
+  const startedAt = Date.now();
+  for (;;) {
+    if (await cdp.evaluate<boolean>(expression)) return true;
+    if (Date.now() - startedAt >= timeoutMs) return false;
+    await sleep(intervalMs);
+  }
+}
+
+const MENU_OPEN_TIMEOUT_MS = 5_000;
+const MENU_SETTLE_TIMEOUT_MS = 5_000;
+const PROJECT_NAVIGATION_TIMEOUT_MS = 8_000;
+
+export function menuOpenExpression(): string {
+  return `Boolean(document.querySelector('[data-testid="composer-intelligence-picker-content"]'))`;
+}
+
+export function menuClosedExpression(): string {
+  return `!document.querySelector('[data-testid="composer-intelligence-picker-content"]')`;
+}
+
+export function menuItemPresentExpression(label: string): string {
+  return `[...document.querySelectorAll('[role="menuitemradio"],[role="menuitem"]')].some((r) => (r.textContent || "").trim() === ${JSON.stringify(label)})`;
+}
+
+// Shared click-point resolver: scroll the target into view, tag it with a
+// temporary attribute, and return its center. The coverage check happens later
+// in verifiedClickAt AFTER the pointer hovers the point, because ChatGPT uses
+// hover-revealed controls (e.g. the Pro sub-mode chevron) that only become
+// hit-testable once the row is hovered.
+const CLICK_POINT_SNIPPET = `
+    const clickPoint = (el, yCap) => {
+      document.querySelectorAll('[data-prodex-click]').forEach((n) => n.removeAttribute('data-prodex-click'));
+      el.scrollIntoView({ block: "center", inline: "nearest" });
+      const r = el.getBoundingClientRect();
+      if (r.width < 1 || r.height < 1) return { ok: false, reason: "target element has no visible area" };
+      el.setAttribute('data-prodex-click', '1');
+      const x = Math.round(r.x + r.width / 2);
+      const y = Math.round(r.y + (yCap ? Math.min(r.height / 2, yCap) : r.height / 2));
+      return { ok: true, x, y };
+    };`;
+
+function hoverVerifyExpression(x: number, y: number): string {
   return `(() => {
+    const el = document.querySelector('[data-prodex-click]');
+    const hit = document.elementFromPoint(${x}, ${y});
+    const ok = Boolean(el && hit && (hit === el || el.contains(hit) || hit.contains(el)));
+    if (el) el.removeAttribute('data-prodex-click');
+    return ok;
+  })()`;
+}
+
+// Move the pointer first, give hover styles a beat to apply, then confirm the
+// tagged target is what would actually receive the click before pressing.
+// These clicks land in the user's real session, so a covered or scrolled-out
+// target must fail loudly instead of clicking whatever sits at the point.
+async function verifiedClickAt(cdp: CdpConnection, x: number, y: number, label: string): Promise<void> {
+  await cdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", x, y });
+  await sleep(150);
+  const onTarget = await cdp.evaluate<boolean>(hoverVerifyExpression(x, y));
+  if (!onTarget) {
+    throw new Error(
+      `Refusing to click "${label}": another element covers its click point (overlay, scroll, or layout change). Retry, or interact manually in the visible browser.`
+    );
+  }
+  await cdp.send("Input.dispatchMouseEvent", { type: "mousePressed", x, y, button: "left", clickCount: 1 });
+  await cdp.send("Input.dispatchMouseEvent", { type: "mouseReleased", x, y, button: "left", clickCount: 1 });
+}
+
+export function modelButtonRectExpression(): string {
+  return `(() => {${CLICK_POINT_SNIPPET}
     const c = document.querySelector('#prompt-textarea,[contenteditable="true"],textarea');
     const scope = c ? (c.closest('form') || document) : document;
     const b = [...scope.querySelectorAll('[aria-haspopup="menu"]')].find((el) => {
@@ -598,41 +672,56 @@ export function modelButtonRectExpression(): string {
       return /\\S/.test(t) && !/파일|첨부|받아쓰기|음성|dictation|attach/i.test(t + aria);
     });
     if (!b) return { ok: false, reason: "model selector button not found" };
-    const r = b.getBoundingClientRect();
-    return { ok: true, x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) };
+    return clickPoint(b);
   })()`;
 }
 
 export function menuItemRectExpression(label: string): string {
-  return `(() => {
+  return `(() => {${CLICK_POINT_SNIPPET}
     const m = document.querySelector('[data-testid="composer-intelligence-picker-content"]');
     if (!m) return { ok: false, reason: "reasoning/model menu did not open" };
     const items = [...m.querySelectorAll('[role="menuitemradio"],[role="menuitem"]')];
     const it = items.find((r) => (r.textContent || "").trim() === ${JSON.stringify(label)});
     if (!it) return { ok: false, reason: "menu item not found", available: items.map((r) => (r.textContent || "").trim()).slice(0, 12) };
-    const r = it.getBoundingClientRect();
-    return { ok: true, x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) };
+    const point = clickPoint(it);
+    if (!point.ok) return point;
+    return { ...point, role: it.getAttribute("role"), haspopup: it.getAttribute("aria-haspopup") };
   })()`;
 }
 
 export function submenuItemRectExpression(label: string): string {
-  return `(() => {
+  return `(() => {${CLICK_POINT_SNIPPET}
     const items = [...document.querySelectorAll('[role="menuitemradio"],[role="menuitem"]')];
     const it = items.find((r) => (r.textContent || "").trim() === ${JSON.stringify(label)});
     if (!it) return { ok: false, reason: "submenu item not found" };
-    const r = it.getBoundingClientRect();
-    return { ok: true, x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) };
+    return clickPoint(it);
   })()`;
 }
 
 // "Pro" itself is a plain radio; its sub-modes (Pro 기본 / Pro 확장) live behind an
 // unlabeled aria-haspopup="menu" chevron sitting next to the Pro radio. Clicking
 // that chevron (hovering does not work) opens the sub-mode submenu.
+// The Pro radio's visible label reflects the active sub-mode ("Pro", "Pro 기본",
+// or "Pro 확장"), so it must be matched by prefix, never by exact text.
+const PRO_RADIO_FINDER_SNIPPET = `
+    const findProRadio = (scope) =>
+      [...scope.querySelectorAll('[role="menuitemradio"]')].find((r) => /^Pro( |$)/.test((r.textContent || "").trim()));`;
+
+export function proRadioRectExpression(): string {
+  return `(() => {${CLICK_POINT_SNIPPET}${PRO_RADIO_FINDER_SNIPPET}
+    const m = document.querySelector('[data-testid="composer-intelligence-picker-content"]');
+    if (!m) return { ok: false, reason: "reasoning/model menu did not open" };
+    const proRadio = findProRadio(m);
+    if (!proRadio) return { ok: false, reason: "Pro option not found in the model menu" };
+    return clickPoint(proRadio);
+  })()`;
+}
+
 export function proSubmenuExpanderRectExpression(): string {
-  return `(() => {
+  return `(() => {${CLICK_POINT_SNIPPET}${PRO_RADIO_FINDER_SNIPPET}
     const m = document.querySelector('[data-testid="composer-intelligence-picker-content"],[role="menu"]');
     if (!m) return { ok: false, reason: "model menu is not open" };
-    const proRadio = [...m.querySelectorAll('[role="menuitemradio"]')].find((r) => (r.textContent || "").trim() === "Pro");
+    const proRadio = findProRadio(m);
     if (!proRadio) return { ok: false, reason: "Pro option not found in the model menu" };
     const proTop = proRadio.getBoundingClientRect().top;
     const expanders = [...m.querySelectorAll('[role="menuitem"][aria-haspopup="menu"]')].filter((e) => {
@@ -646,13 +735,12 @@ export function proSubmenuExpanderRectExpression(): string {
       if (dy < bestDy) { best = e; bestDy = dy; }
     }
     if (!best || bestDy > 40) return { ok: false, reason: "Pro sub-mode expander not found next to Pro" };
-    const r = best.getBoundingClientRect();
-    return { ok: true, x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) };
+    return clickPoint(best);
   })()`;
 }
 
 export function projectItemRectExpression(name: string): string {
-  return `(() => {
+  return `(() => {${CLICK_POINT_SNIPPET}
     const opt = [...document.querySelectorAll('[aria-label*="프로젝트 옵션 열기"]')].find((b) => (b.getAttribute("aria-label") || "").startsWith(${JSON.stringify(name)}));
     let target = opt ? (opt.closest('a,[role="link"],li') || opt.parentElement) : null;
     if (!target) {
@@ -663,9 +751,17 @@ export function projectItemRectExpression(name: string): string {
       }
     }
     if (!target) return { ok: false, reason: "project not found in sidebar" };
-    const r = target.getBoundingClientRect();
-    return { ok: true, x: Math.round(r.x + r.width / 2), y: Math.round(r.y + Math.min(r.height / 2, 18)) };
+    return clickPoint(target, 18);
   })()`;
+}
+
+// Clicking a menuitemradio commits the choice and closes the picker; a menu
+// that stays open means the click did not land where we intended.
+async function assertSelectionCommitted(cdp: CdpConnection, label: string): Promise<void> {
+  const closed = await waitForExpressionTrue(cdp, menuClosedExpression(), MENU_SETTLE_TIMEOUT_MS);
+  if (!closed) {
+    throw new Error(`ChatGPT selection "${label}" did not commit; the model menu stayed open. Retry, or pick it manually in the visible browser.`);
+  }
 }
 
 async function selectModelReasoning(
@@ -677,43 +773,71 @@ async function selectModelReasoning(
   if (!button.ok || button.x === undefined || button.y === undefined) {
     throw new Error(button.reason ?? "Could not open the ChatGPT model selector");
   }
-  await dispatchMouseClickAt(cdp, button.x, button.y);
-  await sleep(1000);
+  try {
+    await verifiedClickAt(cdp, button.x, button.y, "model selector");
+    const opened = await waitForExpressionTrue(cdp, menuOpenExpression(), MENU_OPEN_TIMEOUT_MS);
+    if (!opened) throw new Error("ChatGPT model menu did not open after clicking the selector");
 
-  const wantsProMode = Boolean(options.proMode) && (!options.model || /pro/i.test(options.model));
-  if (wantsProMode && options.proMode) {
-    // Open the Pro sub-mode submenu via the chevron, then pick 기본/확장.
-    const expander = await cdp.evaluate<RectHit>(proSubmenuExpanderRectExpression());
-    if (!expander.ok || expander.x === undefined || expander.y === undefined) {
-      await dispatchEscapeKey(cdp);
-      throw new Error(expander.reason ?? "Could not open the ChatGPT Pro sub-mode submenu");
+    const wantsProMode = Boolean(options.proMode) && (!options.model || /pro/i.test(options.model));
+    if (wantsProMode && options.proMode) {
+      // Open the Pro sub-mode submenu via the chevron, then pick 기본/확장.
+      const expander = await cdp.evaluate<RectHit>(proSubmenuExpanderRectExpression());
+      if (!expander.ok || expander.x === undefined || expander.y === undefined) {
+        throw new Error(expander.reason ?? "Could not open the ChatGPT Pro sub-mode submenu");
+      }
+      await verifiedClickAt(cdp, expander.x, expander.y, "Pro sub-mode expander");
+      const subLabel = `Pro ${options.proMode}`;
+      const subVisible = await waitForExpressionTrue(cdp, menuItemPresentExpression(subLabel), MENU_OPEN_TIMEOUT_MS);
+      if (!subVisible) throw new Error(`ChatGPT Pro sub-mode not found: ${subLabel}`);
+      const sub = await cdp.evaluate<RectHit>(submenuItemRectExpression(subLabel));
+      if (!sub.ok || sub.x === undefined || sub.y === undefined) {
+        throw new Error(sub.reason ?? `ChatGPT Pro sub-mode not clickable: ${subLabel}`);
+      }
+      await verifiedClickAt(cdp, sub.x, sub.y, subLabel);
+      await assertSelectionCommitted(cdp, subLabel);
+      return;
     }
-    await dispatchMouseClickAt(cdp, expander.x, expander.y);
-    await sleep(900);
-    const subLabel = `Pro ${options.proMode}`;
-    const sub = await cdp.evaluate<RectHit>(submenuItemRectExpression(subLabel));
-    if (!sub.ok || sub.x === undefined || sub.y === undefined) {
+
+    const primaryLabel = options.model ?? options.effort;
+    if (!primaryLabel) {
       await dispatchEscapeKey(cdp);
-      throw new Error(`ChatGPT Pro sub-mode not found: ${subLabel}`);
+      return;
     }
-    await dispatchMouseClickAt(cdp, sub.x, sub.y);
-    await sleep(400);
-    return;
-  }
 
-  const primaryLabel = options.model ?? options.effort;
-  if (!primaryLabel) {
-    await dispatchEscapeKey(cdp);
-    return;
-  }
+    // --model Pro without a sub-mode: the Pro radio's label carries the active
+    // sub-mode, so exact-label lookup would miss it.
+    if (options.model && /^pro$/i.test(options.model)) {
+      const proRadio = await cdp.evaluate<RectHit>(proRadioRectExpression());
+      if (!proRadio.ok || proRadio.x === undefined || proRadio.y === undefined) {
+        throw new Error(proRadio.reason ?? "Pro option not found in the model menu");
+      }
+      await verifiedClickAt(cdp, proRadio.x, proRadio.y, "Pro");
+      await assertSelectionCommitted(cdp, "Pro");
+      return;
+    }
 
-  const primary = await cdp.evaluate<RectHit>(menuItemRectExpression(primaryLabel));
-  if (!primary.ok || primary.x === undefined || primary.y === undefined) {
-    await dispatchEscapeKey(cdp);
-    throw new Error(`ChatGPT model/effort option not found: ${primaryLabel}${primary.available ? ` (available: ${primary.available.join(", ")})` : ""}`);
+    const primary = await cdp.evaluate<RectHit>(menuItemRectExpression(primaryLabel));
+    if (!primary.ok || primary.x === undefined || primary.y === undefined) {
+      throw new Error(`ChatGPT model/effort option not found: ${primaryLabel}${primary.available ? ` (available: ${primary.available.join(", ")})` : ""}`);
+    }
+    if (primary.role === "menuitem" && primary.haspopup === "menu") {
+      throw new Error(
+        `ChatGPT model "${primaryLabel}" opens a submenu of variants instead of committing; selecting it is not supported yet. Supported today: reasoning efforts (--effort) and Pro via --pro-mode.`
+      );
+    }
+    await verifiedClickAt(cdp, primary.x, primary.y, primaryLabel);
+    await assertSelectionCommitted(cdp, primaryLabel);
+  } catch (error) {
+    // Leave the user's screen clean: back out of any open menu before rethrowing.
+    try {
+      await dispatchEscapeKey(cdp);
+      await sleep(150);
+      await dispatchEscapeKey(cdp);
+    } catch {
+      // best effort only
+    }
+    throw error;
   }
-  await dispatchMouseClickAt(cdp, primary.x, primary.y);
-  await sleep(400);
 }
 
 async function selectProject(
@@ -723,13 +847,31 @@ async function selectProject(
   if (options.projectNew) {
     throw new Error("projectNew (new-project modal) automation is not implemented yet; create the project manually and use --project");
   }
-  if (options.project) {
-    const hit = await cdp.evaluate<RectHit>(projectItemRectExpression(options.project));
-    if (!hit.ok || hit.x === undefined || hit.y === undefined) {
-      throw new Error(`ChatGPT project not found in sidebar: ${options.project}`);
-    }
-    await dispatchMouseClickAt(cdp, hit.x, hit.y);
-    await sleep(1200);
+  if (!options.project) return;
+  const hrefBefore = await cdp.evaluate<string>("location.href");
+  const hit = await cdp.evaluate<RectHit>(projectItemRectExpression(options.project));
+  if (!hit.ok || hit.x === undefined || hit.y === undefined) {
+    const detail = hit.reason && hit.reason !== "project not found in sidebar" ? ` (${hit.reason})` : "";
+    throw new Error(`ChatGPT project not found in sidebar: ${options.project}${detail}`);
+  }
+  await verifiedClickAt(cdp, hit.x, hit.y, `project ${options.project}`);
+  const navigated = await waitForExpressionTrue(
+    cdp,
+    `location.href !== ${JSON.stringify(hrefBefore)}`,
+    PROJECT_NAVIGATION_TIMEOUT_MS
+  );
+  if (!navigated) {
+    throw new Error(
+      `Clicking project "${options.project}" did not navigate the visible tab. If the tab is already inside this project, omit --project and retry.`
+    );
+  }
+  const composerReady = await waitForExpressionTrue(
+    cdp,
+    `Boolean(document.querySelector('#prompt-textarea,[contenteditable="true"],textarea'))`,
+    PROJECT_NAVIGATION_TIMEOUT_MS
+  );
+  if (!composerReady) {
+    throw new Error(`ChatGPT composer did not appear after entering project "${options.project}"`);
   }
 }
 
@@ -829,6 +971,78 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
     modelHints: completed.modelHints,
     warnings: []
   };
+}
+
+export interface ChatGptModelOption {
+  label: string;
+  kind: "radio" | "submenu";
+  checked: boolean;
+}
+
+export interface ListChatGptModelOptionsResult {
+  url: string;
+  options: ChatGptModelOption[];
+}
+
+export function modelMenuOptionsExpression(): string {
+  return `(() => {
+    const m = document.querySelector('[data-testid="composer-intelligence-picker-content"]');
+    if (!m) return [];
+    return [...m.querySelectorAll('[role="menuitemradio"],[role="menuitem"]')]
+      .map((it) => ({
+        label: (it.textContent || "").trim(),
+        kind: it.getAttribute("aria-haspopup") === "menu" ? "submenu" : "radio",
+        checked: it.getAttribute("aria-checked") === "true"
+      }))
+      .filter((o) => o.label.length > 0);
+  })()`;
+}
+
+// Read-only discovery: open the composer model menu, read the option labels,
+// and press Escape. Nothing is clicked inside the menu, so the user's model
+// selection is never changed.
+export async function listChatGptModelOptions(input: { port?: number; timeoutMs?: number } = {}): Promise<ListChatGptModelOptionsResult> {
+  const port = input.port ?? 9333;
+  const timeoutMs = input.timeoutMs ?? 15_000;
+  const pageResult = await findChatGptPage(port, computePageDiscoveryTimeout(timeoutMs), undefined);
+  if (!pageResult.ok) {
+    throwBlockerOrError(pageResult.blocker, "ChatGPT browser page is not available");
+  }
+  if (!pageResult.page) {
+    if (pageResult.blocker) throw new ChatGptBrowserBlockerError(pageResult.blocker);
+    assertChatGptPageAvailable();
+  }
+  const page = pageResult.page;
+  const status = await evaluateOnPage<ChatGptPageStatus>(page, statusExpression());
+  const blocker = detectChatGptPageBlocker(status);
+  if (blocker) throw new ChatGptBrowserBlockerError(blocker);
+  assertChatGptReadyForPrompt(inferChatGptPageLoggedInLikely(status), status.hasComposer);
+  assertVisibleChatGptTab(status.visibilityState, status.url, undefined);
+  const cdp = await connectCdp(page.webSocketDebuggerUrl);
+  try {
+    await cdp.send("Runtime.enable");
+    const button = await cdp.evaluate<RectHit>(modelButtonRectExpression());
+    if (!button.ok || button.x === undefined || button.y === undefined) {
+      throw new Error(button.reason ?? "Could not open the ChatGPT model selector");
+    }
+    try {
+      await verifiedClickAt(cdp, button.x, button.y, "model selector");
+      const opened = await waitForExpressionTrue(cdp, menuOpenExpression(), MENU_OPEN_TIMEOUT_MS);
+      if (!opened) throw new Error("ChatGPT model menu did not open after clicking the selector");
+      const options = await cdp.evaluate<ChatGptModelOption[]>(modelMenuOptionsExpression());
+      return { url: status.url, options };
+    } finally {
+      try {
+        await dispatchEscapeKey(cdp);
+        await sleep(150);
+        await dispatchEscapeKey(cdp);
+      } catch {
+        // best effort only
+      }
+    }
+  } finally {
+    cdp.close();
+  }
 }
 
 async function findChatGptPage(
@@ -1020,7 +1234,9 @@ export function statusExpression(): string {
     }));
     const assistant = messages.filter((message) => message.role === "assistant").at(-1);
     const answer = assistant?.text || "";
-    const placeholder = /^(생각 중|thinking|thought for|thought about)/i.test(answer.trim().replace(/\\.+$/, ""));
+    const ansStripped = answer.trim().replace(/\\.+$/, "");
+    const ansLines = ansStripped.split(/\\r?\\n/).filter((l) => l.trim());
+    const placeholder = /^(생각 중|thinking|thought for|thought about)/i.test(ansStripped) || (ansLines.length <= 1 && /(^|\\s)생각 중$/.test(ansStripped));
     const hasComposer = Boolean(findChatGptComposerCandidate());
     return {
       title: document.title,
@@ -1174,7 +1390,9 @@ function answerExpression(): string {
       .map((node) => (node.innerText || node.getAttribute("aria-label") || node.getAttribute("data-testid") || "").trim())
       .filter(Boolean);
     const answer = assistant?.text || "";
-    const placeholder = /^(생각 중|thinking|thought for|thought about)/i.test(answer.trim().replace(/\\.+$/, ""));
+    const ansStripped = answer.trim().replace(/\\.+$/, "");
+    const ansLines = ansStripped.split(/\\r?\\n/).filter((l) => l.trim());
+    const placeholder = /^(생각 중|thinking|thought for|thought about)/i.test(ansStripped) || (ansLines.length <= 1 && /(^|\\s)생각 중$/.test(ansStripped));
     return {
       title: document.title,
       url: location.href,

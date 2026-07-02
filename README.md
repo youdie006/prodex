@@ -196,18 +196,29 @@ prodex pro browser ask --model Pro --pro-mode 확장 --project "my-project" "Rev
 prodex pro browser ask --effort "매우 높음" "Draft the release notes"
 ```
 
-- `--model` picks the composer model by its visible label (for example `Pro` or `GPT-5.5`).
-- `--pro-mode 기본|확장` selects the Pro sub-mode; it applies only when the model is Pro.
-- `--effort 즉시|중간|높음|"매우 높음"` sets the reasoning effort for non-Pro models. English aliases `instant`/`medium`/`high`/`max` are accepted. `--pro-mode` and `--effort` are different model axes and cannot be combined.
-- `--project "name"` enters an existing sidebar project before sending. Creating a new project from the CLI is not supported yet; make it in ChatGPT first, then pass `--project`.
+Prerequisite: selection matches menu items by their visible text in the **Korean ChatGPT UI** (즉시/중간/높음/매우 높음, Pro 기본/확장, "프로젝트" sidebar labels). If your ChatGPT display language is not Korean, the selection flags will fail with "menu item not found"; either switch the UI language or send without selection flags.
 
-Persist defaults so you can omit these flags on routine asks; a per-ask flag always overrides the saved default:
+To see the labels your account currently shows, list them read-only (opens the menu, reads it, presses Escape — nothing is selected):
+
+```bash
+prodex pro browser models
+```
+
+- `--model` picks the composer model by its exact menu label. `Pro` is verified end-to-end. Models whose menu entry opens a submenu of variants (for example GPT-5.5) are rejected with a clear error instead of silently keeping the previous model; direct variant selection is planned.
+- `--pro-mode 기본|확장` selects the Pro sub-mode; it applies only when the model is Pro. `확장` can think for minutes, so it raises the default `--timeout-ms` from 90000 to 300000 (an explicit `--timeout-ms` always wins).
+- `--effort 즉시|중간|높음|"매우 높음"` sets the reasoning effort. English aliases `instant`/`medium`/`high`/`max` are accepted. The effort options and Pro share one radio group in ChatGPT, so picking an effort switches the composer to the standard reasoning model and deselects Pro; for the same reason `--pro-mode` and `--effort` cannot be combined.
+- `--project "name"` enters an existing sidebar project before sending. It cannot be combined with `--target-url` (the project click would navigate away from the confirmed tab). Creating a new project from the CLI is not supported yet; make it in ChatGPT first, then pass `--project`.
+
+Selection clicks are guarded: prodex refuses to click a control that is covered or out of view, waits for the menu to actually open instead of sleeping a fixed delay, and treats a menu that stays open after a pick as a failed selection. If any step fails, it backs out with Escape and reports a blocker instead of sending with the wrong model. Note that an applied selection stays active in your ChatGPT session after the send — switch back manually if you were on a different model.
+
+Persist defaults so you can omit these flags on routine asks; a per-ask flag always overrides the saved default. View saved defaults with `prodex status`, and clear one with the matching `--clear-*` flag:
 
 ```bash
 prodex setup --model Pro --pro-mode 확장 --project "my-project"
+prodex setup --clear-project
 ```
 
-Whatever selection is applied is recorded on the consult receipt (`metadata.selection`). `prodex` only clicks the picker you can see; it never selects a model, effort, or project silently outside the visible browser.
+Whatever selection is applied is recorded on the consult receipt (`metadata.selection`); receipt display output redacts the project name, keeping only the model axes visible. `prodex` only clicks the picker you can see; it never selects a model, effort, or project silently outside the visible browser.
 
 For a source checkout, keep the explicit send and inspection commands source-aware too:
 

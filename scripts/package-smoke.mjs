@@ -309,7 +309,7 @@ try {
     {
       args: ["pro", "browser", "chek"],
       expected:
-        "Unknown pro browser subcommand: chek. Did you mean `prodex pro browser check`? Expected one of: login, ask, smoke, check. Run `prodex pro browser --help`."
+        "Unknown pro browser subcommand: chek. Did you mean `prodex pro browser check`? Expected one of: login, ask, smoke, check, models. Run `prodex pro browser --help`."
     },
     {
       args: ["tunnel", "create"],
@@ -345,7 +345,7 @@ try {
     },
     {
       args: ["pro", "browser", "verify"],
-      expected: "Unknown pro browser subcommand: verify. Expected one of: login, ask, smoke, check. Run `prodex pro browser --help`."
+      expected: "Unknown pro browser subcommand: verify. Expected one of: login, ask, smoke, check, models. Run `prodex pro browser --help`."
     },
     {
       args: ["pro", "verify"],

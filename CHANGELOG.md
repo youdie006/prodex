@@ -1,0 +1,70 @@
+# Changelog
+
+All notable changes to this project are documented in this file.
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [0.4.0] - 2026-07-02
+
+### Added
+- `pro browser models`: read-only listing of the model menu options the visible
+  ChatGPT tab currently shows (opens the menu, reads labels, presses Escape).
+- `setup --clear-model / --clear-pro-mode / --clear-effort / --clear-project`
+  to remove individual saved browser-send defaults.
+- `status` output now includes `browser_defaults`.
+
+### Changed
+- `--pro-mode 확장` raises the default send timeout from 90000 ms to 300000 ms
+  (an explicit `--timeout-ms` still wins).
+- Selection clicks are now guarded: targets are scrolled into view and refused
+  when covered by another element, menu open/close is polled instead of fixed
+  sleeps, and a menu that stays open after a pick is treated as a failed
+  selection. On any selection error the menu is closed with Escape before the
+  blocker is reported.
+- Selecting a model whose menu entry opens a submenu of variants (for example
+  GPT-5.5) now fails fast with a clear error instead of silently keeping the
+  previous model.
+- `--project` now verifies that the sidebar click actually navigated and that
+  the composer is ready before sending.
+- Receipt display output (`receipts list/show`, MCP receipt tools) redacts the
+  ChatGPT project name from `metadata.selection`; the raw receipt file keeps it
+  for local inspection.
+
+### Fixed
+- `--target-url --confirm-target` can no longer be combined with `--project`,
+  which could navigate away from the confirmed tab after the check; a saved
+  default project is likewise ignored when `--target-url` is used.
+- The Pro radio is matched by prefix: its visible label carries the active
+  sub-mode (for example "Pro 확장"), which broke exact-text matching for
+  `--pro-mode` and `--model Pro` whenever a sub-mode was already selected.
+- Model-prefixed thinking placeholders (for example "Pro 생각 중") are no
+  longer accepted as the final answer; the poll keeps waiting for the real
+  response.
+
+## [0.3.0] - 2026-07-02
+
+### Added
+- Model, reasoning-effort, and project selection for visible-browser sends:
+  `pro browser ask --model / --pro-mode 기본|확장 / --effort 즉시|중간|높음|"매우 높음" /
+  --project "name"` (English effort aliases instant/medium/high/max).
+- `setup --model/--pro-mode/--effort/--project` persists browser-send defaults
+  in `.bridge/config.local.json` (`browser_defaults`); per-ask flags override
+  them.
+- Applied selections are recorded on the consult receipt
+  (`metadata.selection`).
+- `--project-new` is reserved and fails fast until new-project automation is
+  verified live.
+
+### Fixed
+- Pro sub-mode selection uses the chevron expander next to the Pro radio
+  (clicking the Pro radio itself commits Pro and closes the menu).
+- `repo_search` resolves ripgrep via absolute-path fallbacks when the MCP
+  server is spawned with a narrowed PATH.
+
+## [0.2.0] - 2026-07-01
+
+### Added
+- Initial public release as `@youdie006/prodex`: local CLI + MCP bridge
+  (stdio and loopback HTTP) that coordinates coding agents with a logged-in
+  ChatGPT Pro browser session over raw CDP, with HMAC-signed durable receipts
+  under `.bridge/`.

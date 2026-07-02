@@ -1,6 +1,22 @@
 import { describe, it, expect } from "vitest";
 
-import { parseReasoningEffort, parseProMode } from "../src/chatgpt-browser.js";
+import { isUsableChatGptAnswer, parseReasoningEffort, parseProMode } from "../src/chatgpt-browser.js";
+
+describe("isUsableChatGptAnswer thinking placeholders", () => {
+  it("rejects the bare Korean thinking status", () => {
+    expect(isUsableChatGptAnswer("생각 중")).toBe(false);
+  });
+
+  it("rejects the model-prefixed Korean thinking status", () => {
+    expect(isUsableChatGptAnswer("Pro 생각 중")).toBe(false);
+    expect(isUsableChatGptAnswer("GPT-5.5 생각 중...")).toBe(false);
+  });
+
+  it("accepts a real answer that merely mentions thinking", () => {
+    expect(isUsableChatGptAnswer("생각 중이라는 표현은 다음과 같이 씁니다.\n예시입니다.")).toBe(true);
+    expect(isUsableChatGptAnswer("OK")).toBe(true);
+  });
+});
 
 describe("parseReasoningEffort", () => {
   it("accepts the canonical Korean labels unchanged", () => {
