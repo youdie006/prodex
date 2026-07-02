@@ -2296,7 +2296,7 @@ describe("runCli", () => {
       "prodex pro browser smoke [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 90000]"
     );
     expect(text).toContain(
-      'prodex pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 90000] [--target-url url --confirm-target] [--file path] [--model Pro] [--pro-mode 기본|확장] [--effort 즉시|중간|높음|"매우 높음"] [--project "name"] "prompt"  # explicit visible-browser send'
+      'prodex pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 90000] [--target-url url --confirm-target] [--file path] [--model Pro] [--pro-mode 기본|확장] [--effort 즉시|중간|높음|"매우 높음"] [--project "name" | --project-new "name"] "prompt"  # explicit visible-browser send'
     );
     expect(text).toContain("prodex pro latest [--source-cli /absolute/path/to/dist/cli.js]");
     expect(text).toContain("prodex pro list [--source-cli /absolute/path/to/dist/cli.js]");
@@ -4174,7 +4174,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
       },
       {
         args: ["receipts", "delete"],
-        expected: "Unknown receipts subcommand: delete. Expected one of: list, show. Run `prodex receipts --help`."
+        expected: "Unknown receipts subcommand: delete. Expected one of: list, show, rotate-key. Run `prodex receipts --help`."
       },
       {
         args: ["sessions", "delete"],
@@ -4349,7 +4349,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     expect(text).toContain("prodex pro browser check [--source-cli /absolute/path/to/dist/cli.js]");
     expect(text).toContain("prodex pro browser smoke [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]");
     expect(text).toContain(
-      'prodex pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 90000] [--target-url url --confirm-target] [--file path] [--model Pro] [--pro-mode 기본|확장] [--effort 즉시|중간|높음|"매우 높음"] [--project "name"] "prompt"'
+      'prodex pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 90000] [--target-url url --confirm-target] [--file path] [--model Pro] [--pro-mode 기본|확장] [--effort 즉시|중간|높음|"매우 높음"] [--project "name" | --project-new "name"] "prompt"'
     );
     expect(text).toContain("Use `prodex pro ask` for dry-run/manual previews.");
     expect(text).toContain("`prodex pro browser ask` always attempts an explicit visible-browser send.");
@@ -4374,7 +4374,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     expect(text).toContain(`${sourcePrefix} pro browser check --source-cli ${sourceCli}`);
     expect(text).toContain(`${sourcePrefix} pro browser smoke --source-cli ${sourceCli} [--cwd /absolute/path/to/repo]`);
     expect(text).toContain(
-      `${sourcePrefix} pro browser ask --source-cli ${sourceCli} [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 90000] [--target-url url --confirm-target] [--file path] [--model Pro] [--pro-mode 기본|확장] [--effort 즉시|중간|높음|"매우 높음"] [--project "name"] "prompt"`
+      `${sourcePrefix} pro browser ask --source-cli ${sourceCli} [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 90000] [--target-url url --confirm-target] [--file path] [--model Pro] [--pro-mode 기본|확장] [--effort 즉시|중간|높음|"매우 높음"] [--project "name" | --project-new "name"] "prompt"`
     );
     expect(text).toContain(`Use \`${sourcePrefix} pro ask\` for dry-run/manual previews.`);
     expect(text).toContain(`\`${sourcePrefix} pro browser ask --source-cli ${sourceCli}\` always attempts an explicit visible-browser send.`);

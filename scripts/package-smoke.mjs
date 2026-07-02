@@ -109,7 +109,7 @@ try {
   );
   assertIncludes(
     help.stdout,
-    'prodex pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 90000] [--target-url url --confirm-target] [--file path] [--model Pro] [--pro-mode 기본|확장] [--effort 즉시|중간|높음|"매우 높음"] [--project "name"] "prompt"',
+    'prodex pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 90000] [--target-url url --confirm-target] [--file path] [--model Pro] [--pro-mode 기본|확장] [--effort 즉시|중간|높음|"매우 높음"] [--project "name" | --project-new "name"] "prompt"',
     "installed help output"
   );
   assertIncludes(help.stdout, "prodex pro browser help [--source-cli /absolute/path/to/dist/cli.js]", "installed help output");
@@ -325,7 +325,7 @@ try {
     },
     {
       args: ["receipts", "delete"],
-      expected: "Unknown receipts subcommand: delete. Expected one of: list, show. Run `prodex receipts --help`."
+      expected: "Unknown receipts subcommand: delete. Expected one of: list, show, rotate-key. Run `prodex receipts --help`."
     },
     {
       args: ["sessions", "delete"],
@@ -1038,7 +1038,7 @@ try {
   );
   assertIncludes(
     browserHelp.stdout,
-    'prodex pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 90000] [--target-url url --confirm-target] [--file path] [--model Pro] [--pro-mode 기본|확장] [--effort 즉시|중간|높음|"매우 높음"] [--project "name"] "prompt"',
+    'prodex pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 90000] [--target-url url --confirm-target] [--file path] [--model Pro] [--pro-mode 기본|확장] [--effort 즉시|중간|높음|"매우 높음"] [--project "name" | --project-new "name"] "prompt"',
     "installed browser help"
   );
   assertIncludes(
@@ -1069,7 +1069,7 @@ try {
   );
   assertIncludes(
     sourceBrowserHelp.stdout,
-    `${sourcePrefix} pro browser ask --source-cli ${installedSourceCli} [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 90000] [--target-url url --confirm-target] [--file path] [--model Pro] [--pro-mode 기본|확장] [--effort 즉시|중간|높음|"매우 높음"] [--project "name"] "prompt"`,
+    `${sourcePrefix} pro browser ask --source-cli ${installedSourceCli} [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 90000] [--target-url url --confirm-target] [--file path] [--model Pro] [--pro-mode 기본|확장] [--effort 즉시|중간|높음|"매우 높음"] [--project "name" | --project-new "name"] "prompt"`,
     "installed source browser help"
   );
   assertIncludes(

@@ -728,8 +728,7 @@ export class BridgeStore {
     if (receipt.integrity?.algorithm !== "hmac-sha256") {
       throw new Error(`Receipt ${receipt.id} is missing local integrity seal. ${remediation}`);
     }
-    const expected = await this.receiptDigest(receipt);
-    if (!safeHexEqual(receipt.integrity.digest, expected)) {
+    if (!(await this.receiptDigestMatches(receipt))) {
       throw new Error(`Receipt ${receipt.id} failed local integrity verification. ${remediation}`);
     }
   }
@@ -743,8 +742,7 @@ export class BridgeStore {
       return { trusted: false, reason: "missing local integrity seal" };
     }
     try {
-      const expected = await this.receiptDigest(receipt);
-      if (!safeHexEqual(receipt.integrity.digest, expected)) {
+      if (!(await this.receiptDigestMatches(receipt))) {
         return { trusted: false, reason: "local integrity verification failed" };
       }
       return undefined;
@@ -756,14 +754,39 @@ export class BridgeStore {
     }
   }
 
+  // New receipts are always signed with the first (active) key.
   private async receiptDigest(receipt: Receipt): Promise<string> {
-    const key = await this.readReceiptIntegrityKey();
-    return createHmac("sha256", Buffer.from(key, "hex")).update(canonicalJson(stripReceiptIntegrity(receipt))).digest("hex");
+    const [activeKey] = await this.readReceiptIntegrityKeys();
+    return receiptDigestWithKey(receipt, activeKey);
+  }
+
+  // Verification accepts any key in the file so receipts signed before a
+  // rotation stay trusted.
+  private async receiptDigestMatches(receipt: Receipt): Promise<boolean> {
+    if (receipt.integrity?.algorithm !== "hmac-sha256") return false;
+    const digest = receipt.integrity.digest;
+    for (const key of await this.readReceiptIntegrityKeys()) {
+      if (safeHexEqual(digest, receiptDigestWithKey(receipt, key))) return true;
+    }
+    return false;
+  }
+
+  // Prepend a freshly generated key; existing keys stay for verification only.
+  async rotateReceiptIntegrityKey(): Promise<{ keys: number }> {
+    await this.ensureReceiptIntegrityKey();
+    const existing = await this.readReceiptIntegrityKeys();
+    const keys = [randomBytes(RECEIPT_INTEGRITY_KEY_BYTES).toString("hex"), ...existing];
+    await writeVerifiedUtf8File(this.receiptIntegrityKeyPath(), `${keys.join("\n")}\n`, () => this.assertReceiptIntegrityKeyTargetSafe(), {
+      create: true,
+      mode: BRIDGE_FILE_MODE
+    });
+    return { keys: keys.length };
   }
 
   private async ensureReceiptIntegrityKey(): Promise<string> {
     try {
-      return await this.readReceiptIntegrityKey();
+      const [activeKey] = await this.readReceiptIntegrityKeys();
+      return activeKey;
     } catch (error) {
       if (!isErrorCode(error, "ENOENT")) throw error;
     }
@@ -775,16 +798,21 @@ export class BridgeStore {
     return key;
   }
 
-  private async readReceiptIntegrityKey(): Promise<string> {
-    const key = (
+  // The key file holds one 32-byte hex key per line: the first line signs new
+  // receipts, later lines are legacy keys kept so pre-rotation receipts verify.
+  private async readReceiptIntegrityKeys(): Promise<string[]> {
+    const lines = (
       await readVerifiedUtf8File(this.receiptIntegrityKeyPath(), () => this.assertReceiptIntegrityKeyTargetSafe({ allowMissing: false }), {
         mode: BRIDGE_FILE_MODE
       })
-    ).trim();
-    if (!/^[a-f0-9]{64}$/.test(key)) {
+    )
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0);
+    if (lines.length === 0 || !lines.every((line) => /^[a-f0-9]{64}$/.test(line))) {
       throw new Error(".bridge/receipt-key.local is corrupt. Move it aside and recreate write receipts.");
     }
-    return key;
+    return lines;
   }
 
   private async ensureBridgeGitignore(): Promise<void> {
@@ -1403,6 +1431,10 @@ function assertMatchingRecordIdentity(kind: string, expectedId: string, actualId
   }
 }
 
+function receiptDigestWithKey(receipt: Receipt, key: string): string {
+  return createHmac("sha256", Buffer.from(key, "hex")).update(canonicalJson(stripReceiptIntegrity(receipt))).digest("hex");
+}
+
 function stripReceiptIntegrity(receipt: Receipt): Omit<Receipt, "integrity"> {
   const { integrity: _integrity, ...unsigned } = receipt;
   return unsigned;
@@ -1590,12 +1622,18 @@ function redactReceiptForDisplay(receipt: Receipt, integrityStatus?: ReceiptInte
     };
   }
   const selection = metadata.selection;
-  if (selection && typeof selection === "object" && !Array.isArray(selection) && Object.hasOwn(selection, "project")) {
+  if (
+    selection &&
+    typeof selection === "object" &&
+    !Array.isArray(selection) &&
+    (Object.hasOwn(selection, "project") || Object.hasOwn(selection, "project_new"))
+  ) {
     // The ChatGPT project name is personal context; keep the non-personal model
     // axes visible but drop the name from display output. The raw receipt file
     // keeps it for local inspection.
     const redactedSelection: Record<string, unknown> = { ...(selection as Record<string, unknown>) };
     delete redactedSelection.project;
+    delete redactedSelection.project_new;
     redactedSelection.project_redacted = true;
     metadata.selection = redactedSelection;
   }

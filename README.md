@@ -196,7 +196,7 @@ prodex pro browser ask --model Pro --pro-mode 확장 --project "my-project" "Rev
 prodex pro browser ask --effort "매우 높음" "Draft the release notes"
 ```
 
-Prerequisite: selection matches menu items by their visible text in the **Korean ChatGPT UI** (즉시/중간/높음/매우 높음, Pro 기본/확장, "프로젝트" sidebar labels). If your ChatGPT display language is not Korean, the selection flags will fail with "menu item not found"; either switch the UI language or send without selection flags.
+Prerequisite: selection matches menu items by their visible text in the **Korean ChatGPT UI** (즉시/중간/높음/매우 높음, Pro 기본/확장, "프로젝트" sidebar labels). If your ChatGPT display language is not Korean, the `--effort`/`--pro-mode`/`--project` flags will fail with "menu item not found"; either switch the UI language, send without selection flags, or use the escape hatch: `--model "<exact label>"` clicks any radio entry in the picker by the exact text your UI shows (run `pro browser models` to list them).
 
 To see the labels your account currently shows, list them read-only (opens the menu, reads it, presses Escape — nothing is selected):
 
@@ -207,15 +207,16 @@ prodex pro browser models
 - `--model` picks the composer model by its exact menu label. `Pro` is verified end-to-end. Models whose menu entry opens a submenu of variants (for example GPT-5.5) are rejected with a clear error instead of silently keeping the previous model; direct variant selection is planned.
 - `--pro-mode 기본|확장` selects the Pro sub-mode; it applies only when the model is Pro. `확장` can think for minutes, so it raises the default `--timeout-ms` from 90000 to 300000 (an explicit `--timeout-ms` always wins).
 - `--effort 즉시|중간|높음|"매우 높음"` sets the reasoning effort. English aliases `instant`/`medium`/`high`/`max` are accepted. The effort options and Pro share one radio group in ChatGPT, so picking an effort switches the composer to the standard reasoning model and deselects Pro; for the same reason `--pro-mode` and `--effort` cannot be combined.
-- `--project "name"` enters an existing sidebar project before sending. It cannot be combined with `--target-url` (the project click would navigate away from the confirmed tab). Creating a new project from the CLI is not supported yet; make it in ChatGPT first, then pass `--project`.
+- `--project "name"` enters an existing sidebar project before sending. `--project-new "name"` creates a new project (sidebar 새 프로젝트 popover, committed with Enter) and sends inside it. Neither can be combined with `--target-url` (the project step would navigate away from the confirmed tab), and `--project-new` never comes from saved defaults — creating a project is always an explicit per-ask choice.
 
 Selection clicks are guarded: prodex refuses to click a control that is covered or out of view, waits for the menu to actually open instead of sleeping a fixed delay, and treats a menu that stays open after a pick as a failed selection. If any step fails, it backs out with Escape and reports a blocker instead of sending with the wrong model. Note that an applied selection stays active in your ChatGPT session after the send — switch back manually if you were on a different model.
 
-Persist defaults so you can omit these flags on routine asks; a per-ask flag always overrides the saved default. View saved defaults with `prodex status`, and clear one with the matching `--clear-*` flag:
+Persist defaults so you can omit these flags on routine asks; a per-ask flag always overrides the saved default. View saved defaults with `prodex status`, clear one with the matching `--clear-*` flag, or answer a short wizard instead of remembering flags:
 
 ```bash
 prodex setup --model Pro --pro-mode 확장 --project "my-project"
 prodex setup --clear-project
+prodex setup --interactive   # asks model / Pro sub-mode or effort / project
 ```
 
 Whatever selection is applied is recorded on the consult receipt (`metadata.selection`); receipt display output redacts the project name, keeping only the model axes visible. `prodex` only clicks the picker you can see; it never selects a model, effort, or project silently outside the visible browser.
@@ -240,6 +241,14 @@ prodex results reseal <task-id> --confirm-current-result
 ```
 
 This writes a new local `task_completed` receipt for the current result payload. Prefer the explicit task id you just reviewed; `latest` is accepted for convenience but resolves from the current raw result list at execution time. It does not reseal unsigned receipts, forged receipts, or receipts that already point at a different result digest.
+
+Receipts are HMAC-signed with a local key in `.bridge/receipt-key.local`. If you suspect the key was exposed, rotate it:
+
+```bash
+prodex receipts rotate-key
+```
+
+New receipts are signed with the fresh key; previous keys stay in the file (verification only) so receipts signed before the rotation remain trusted.
 
 To send into a specific visible Project or thread, open that ChatGPT URL in the dedicated browser first, confirm it is the right destination, then pass the same URL:
 

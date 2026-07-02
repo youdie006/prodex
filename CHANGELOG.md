@@ -4,6 +4,24 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-07-03
+
+### Added
+- `--project-new "name"` creates a ChatGPT project from the sidebar popover
+  (name typed, committed with Enter, navigation verified) and sends inside it.
+  It cannot be combined with `--target-url` and never comes from saved
+  defaults.
+- `setup --interactive`: a short wizard that collects the browser-send
+  defaults (model, Pro sub-mode or effort, project) instead of flags.
+- `receipts rotate-key`: rotates the local receipt-integrity HMAC key. The key
+  file now holds one key per line — the first signs new receipts, the rest are
+  kept so receipts signed before a rotation still verify.
+
+### Changed
+- Non-Korean ChatGPT UIs get a documented escape hatch: `--model "<exact
+  label>"` clicks any radio entry in the picker, and the composer-button
+  detection now also excludes common English control labels.
+
 ## [0.4.0] - 2026-07-02
 
 ### Added

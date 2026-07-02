@@ -95,6 +95,8 @@ export interface CliIO {
   stdout: (line: string) => void;
   stderr: (line: string) => void;
   allowAskProBrowserSend?: boolean;
+  /** Answer an interactive question (used by `setup --interactive`); defaults to terminal readline. */
+  promptUser?: (question: string) => Promise<string>;
 }
 
 export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<number> {
@@ -125,11 +127,20 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
 
   if (command === "setup") {
     const setupValueFlags = ["--cwd", "--host", "--port", "--token", "--token-ttl-hours", ...ASK_PRO_SELECTION_DEFAULT_FLAGS];
-    const setupBooleanFlags = [...ASK_PRO_SELECTION_CLEAR_FLAGS];
+    const setupBooleanFlags = [...ASK_PRO_SELECTION_CLEAR_FLAGS, "--interactive"];
     if (printHelpIfRequested(rest, "setup", io.stdout, printSetupHelp, { valueFlags: setupValueFlags, booleanFlags: setupBooleanFlags })) return 0;
     assertOnlyOptions(rest, "setup", setupValueFlags, setupBooleanFlags);
     const targetCwd = resolveCwdFlag(io.cwd, rest);
-    const browserDefaults = parseBrowserDefaultFlags(rest);
+    const interactive = rest.includes("--interactive");
+    if (interactive) {
+      const conflicting = [...ASK_PRO_SELECTION_DEFAULT_FLAGS, ...ASK_PRO_SELECTION_CLEAR_FLAGS].filter((flag) => rest.includes(flag));
+      if (conflicting.length > 0) {
+        throw new Error(`setup --interactive collects the browser defaults itself; drop ${conflicting.join(", ")} or run without --interactive.`);
+      }
+    }
+    const browserDefaults = interactive
+      ? await runBrowserDefaultsWizard(resolvePromptUser(io), io.stdout)
+      : parseBrowserDefaultFlags(rest);
     const config = await writeLocalConfig(targetCwd, {
       host: readFlag(rest, "--host") ?? "127.0.0.1",
       port: readPortFlag(rest, "--port") ?? 8787,
@@ -720,7 +731,17 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
       io.stdout(JSON.stringify(receipt, null, 2));
       return 0;
     }
-    throw unknownSubcommandError("receipts", subcommand, ["list", "show"]);
+    if (subcommand === "rotate-key") {
+      if (printHelpIfRequested(receiptArgs, "receipts rotate-key", io.stdout, printReceiptsHelp, { valueFlags: ["--cwd"] })) return 0;
+      assertOnlyOptions(receiptArgs, "receipts rotate-key", ["--cwd"]);
+      const targetStore = new BridgeStore(resolveCwdFlag(io.cwd, receiptArgs));
+      await targetStore.ensure();
+      const rotated = await targetStore.rotateReceiptIntegrityKey();
+      io.stdout(`Rotated the local receipt integrity key: ${rotated.keys} key(s) in .bridge/receipt-key.local.`);
+      io.stdout("New receipts are signed with the new key; receipts signed before the rotation still verify via the retained legacy keys.");
+      return 0;
+    }
+    throw unknownSubcommandError("receipts", subcommand, ["list", "show", "rotate-key"]);
   }
 
   if (command === "sessions") {
@@ -982,14 +1003,9 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
     if (explicitProject !== undefined && explicitProjectNew !== undefined) {
       throw new Error("ask-pro cannot combine --project and --project-new; pick an existing project or create one.");
     }
-    if (explicitProjectNew !== undefined) {
-      // Creating a project mutates the real ChatGPT account and the modal
-      // automation is unverified, so this stays gated until it is confirmed live.
-      throw new Error('--project-new is not supported yet; create the project in ChatGPT, then use --project "name".');
-    }
-    if (normalizedTargetUrl && explicitProject !== undefined) {
+    if (normalizedTargetUrl && (explicitProject !== undefined || explicitProjectNew !== undefined)) {
       throw new Error(
-        "ask-pro cannot combine --target-url with --project: --target-url pins the confirmed tab while --project navigates the sidebar away from it. Open the project thread in the browser and pass its URL as --target-url instead."
+        "ask-pro cannot combine --target-url with --project/--project-new: --target-url pins the confirmed tab while the project step navigates the sidebar away from it. Open the project thread in the browser and pass its URL as --target-url instead."
       );
     }
     const explicitModel = readFlag(parsedAskPro.optionArgs, "--model");
@@ -1005,12 +1021,15 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
     // pinning --target-url suppresses a default project (it would navigate away
     // from the confirmed tab).
     const selectionModel = explicitModel ?? browserDefaults?.model;
-    const selectionProject = explicitProject ?? (normalizedTargetUrl ? undefined : browserDefaults?.project);
+    const selectionProjectNew = explicitProjectNew;
+    const selectionProject =
+      explicitProject ?? (normalizedTargetUrl || selectionProjectNew !== undefined ? undefined : browserDefaults?.project);
     const reasoningAxisChosen = explicitProMode !== undefined || explicitEffort !== undefined;
     const selectionProMode = explicitProMode ?? (reasoningAxisChosen ? undefined : browserDefaults?.pro_mode);
     const selectionEffort = explicitEffort ?? (reasoningAxisChosen ? undefined : browserDefaults?.effort);
     const selectionMetadata: Record<string, string> = {
       ...(selectionProject ? { project: selectionProject } : {}),
+      ...(selectionProjectNew ? { project_new: selectionProjectNew } : {}),
       ...(selectionModel ? { model: selectionModel } : {}),
       ...(selectionProMode ? { pro_mode: selectionProMode } : {}),
       ...(selectionEffort ? { effort: selectionEffort } : {})
@@ -1083,6 +1102,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
           targetUrl: normalizedTargetUrl,
           timeoutMs: browserTimeoutMs,
           project: selectionProject,
+          projectNew: selectionProjectNew,
           model: selectionModel,
           proMode: selectionProMode,
           effort: selectionEffort
@@ -1234,7 +1254,7 @@ Commands:
   prodex --version
   prodex init [--cwd /absolute/path/to/repo]
   prodex doctor [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]
-  prodex setup [--cwd /absolute/path/to/repo] [--host 127.0.0.1] [--port 8787] [--token-ttl-hours <hours>] [--model Pro] [--pro-mode 기본|확장] [--effort 즉시|중간|높음|"매우 높음"] [--project "name"]
+  prodex setup [--cwd /absolute/path/to/repo] [--host 127.0.0.1] [--port 8787] [--token-ttl-hours <hours>] [--model Pro] [--pro-mode 기본|확장] [--effort 즉시|중간|높음|"매우 높음"] [--project "name"] [--clear-model|--clear-pro-mode|--clear-effort|--clear-project] [--interactive]
   prodex start [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]
   prodex status [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js] [--show-token] [--url-only] [--unsafe-show-non-expiring-token]
   prodex tunnel url [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js] --public-url https://... [--show-token] [--url-only]
@@ -1250,7 +1270,7 @@ Commands:
   prodex pro browser check [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 1500]
   prodex pro browser smoke [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 90000]
   prodex pro browser models [--source-cli /absolute/path/to/dist/cli.js] [--port 9333] [--timeout-ms 15000]  # read-only list of model menu options
-  prodex pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 90000] [--target-url url --confirm-target] [--file path] [--model Pro] [--pro-mode 기본|확장] [--effort 즉시|중간|높음|"매우 높음"] [--project "name"] "prompt"  # explicit visible-browser send
+  prodex pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 90000] [--target-url url --confirm-target] [--file path] [--model Pro] [--pro-mode 기본|확장] [--effort 즉시|중간|높음|"매우 높음"] [--project "name" | --project-new "name"] "prompt"  # explicit visible-browser send
   prodex pro latest [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]
   prodex pro list [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]
   prodex pro show <task-id|latest> [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]
@@ -1265,6 +1285,7 @@ Commands:
   prodex results reseal <task-id|latest> --confirm-current-result [--cwd /absolute/path/to/repo]
   prodex receipts list [--kind kind] [--task-id task-id] [--cwd /absolute/path/to/repo]
   prodex receipts show <receipt-id|latest> [--cwd /absolute/path/to/repo]
+  prodex receipts rotate-key [--cwd /absolute/path/to/repo]
   prodex sessions list [--status preview|running|done|blocked] [--cwd /absolute/path/to/repo]
   prodex sessions show <session-id|latest> [--cwd /absolute/path/to/repo]
   prodex mcp [--cwd /absolute/path/to/repo]`);
@@ -1283,7 +1304,7 @@ function printSetupHelp(stdout: (line: string) => void): void {
   stdout(`prodex setup
 
 Commands:
-  prodex setup [--cwd /absolute/path/to/repo] [--host 127.0.0.1] [--port 8787] [--token-ttl-hours <hours>] [--model Pro] [--pro-mode 기본|확장] [--effort 즉시|중간|높음|"매우 높음"] [--project "name"]
+  prodex setup [--cwd /absolute/path/to/repo] [--host 127.0.0.1] [--port 8787] [--token-ttl-hours <hours>] [--model Pro] [--pro-mode 기본|확장] [--effort 즉시|중간|높음|"매우 높음"] [--project "name"] [--clear-model|--clear-pro-mode|--clear-effort|--clear-project] [--interactive]
 
 Save a loopback-only HTTP MCP profile in .bridge/config.local.json. Use --token-ttl-hours before tunnels or ChatGPT Project use.
 
@@ -1379,7 +1400,7 @@ Commands:
   prodex pro browser check [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]
   prodex pro browser smoke [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]
   prodex pro browser models [--source-cli /absolute/path/to/dist/cli.js]
-  prodex pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--target-url url --confirm-target] [--file path] [--model Pro] [--pro-mode 기본|확장] [--effort 즉시|중간|높음|"매우 높음"] [--project "name"] "prompt"
+  prodex pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--target-url url --confirm-target] [--file path] [--model Pro] [--pro-mode 기본|확장] [--effort 즉시|중간|높음|"매우 높음"] [--project "name" | --project-new "name"] "prompt"
   prodex pro latest [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]
   prodex pro list [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]
   prodex pro show <task-id|latest> [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]
@@ -1441,7 +1462,12 @@ function printReceiptsHelp(stdout: (line: string) => void): void {
 
 Commands:
   prodex receipts list [--kind kind] [--task-id task-id] [--cwd /absolute/path/to/repo]
-  prodex receipts show <receipt-id|latest> [--cwd /absolute/path/to/repo]`);
+  prodex receipts show <receipt-id|latest> [--cwd /absolute/path/to/repo]
+  prodex receipts rotate-key [--cwd /absolute/path/to/repo]
+
+rotate-key generates a new signing key for receipt integrity seals and keeps the
+previous keys in .bridge/receipt-key.local so receipts signed before the
+rotation still verify.`);
 }
 
 function printSessionsHelp(stdout: (line: string) => void): void {
@@ -2984,7 +3010,7 @@ function printProBrowserHelp(stdout: (line: string) => void, sourceCli?: string)
   const smokeUsage = sourceCli
     ? `${cli} pro browser smoke${sourceCliOption} [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 90000]`
     : "prodex pro browser smoke [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 90000]";
-  const selectionUsage = '[--model Pro] [--pro-mode 기본|확장] [--effort 즉시|중간|높음|"매우 높음"] [--project "name"]';
+  const selectionUsage = '[--model Pro] [--pro-mode 기본|확장] [--effort 즉시|중간|높음|"매우 높음"] [--project "name" | --project-new "name"]';
   const askUsage = sourceCli
     ? `${cli} pro browser ask${sourceCliOption} [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 90000] [--target-url url --confirm-target] [--file path] ${selectionUsage} "prompt"`
     : `prodex pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 90000] [--target-url url --confirm-target] [--file path] ${selectionUsage} "prompt"`;
@@ -3837,6 +3863,70 @@ function parseBrowserDefaultFlags(args: string[]): WriteLocalConfigInput["browse
     ...(clearEffort ? { effort: undefined } : {}),
     ...(project !== undefined ? { project } : {}),
     ...(clearProject ? { project: undefined } : {})
+  };
+}
+
+function resolvePromptUser(io: CliIO): (question: string) => Promise<string> {
+  if (io.promptUser) return io.promptUser;
+  if (!process.stdin.isTTY) {
+    throw new Error("setup --interactive needs a terminal (TTY). Use the --model/--pro-mode/--effort/--project flags instead.");
+  }
+  return async (question: string) => {
+    const readline = await import("node:readline/promises");
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    try {
+      return (await rl.question(question)).trim();
+    } finally {
+      rl.close();
+    }
+  };
+}
+
+// Ask up to `attempts` times; empty input means skip (returns undefined).
+async function askChoice(
+  prompt: (question: string) => Promise<string>,
+  question: string,
+  choices: readonly string[],
+  attempts = 3
+): Promise<string | undefined> {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const raw = (await prompt(question)).trim();
+    if (raw === "") return undefined;
+    const index = Number.parseInt(raw, 10);
+    if (Number.isInteger(index) && index >= 1 && index <= choices.length) return choices[index - 1];
+  }
+  throw new Error(`No valid choice after ${attempts} attempts; run setup again or use flags.`);
+}
+
+async function runBrowserDefaultsWizard(
+  prompt: (question: string) => Promise<string>,
+  stdout: (line: string) => void
+): Promise<WriteLocalConfigInput["browserDefaults"] | undefined> {
+  stdout("Browser send defaults (press Enter to skip a question; labels match the Korean ChatGPT UI):");
+  const model = await askChoice(prompt, "Default model — 1) Pro [Enter=skip]: ", ["Pro"]);
+  let proMode: "기본" | "확장" | undefined;
+  let effort: "즉시" | "중간" | "높음" | "매우 높음" | undefined;
+  if (model === "Pro") {
+    proMode = (await askChoice(prompt, "Pro sub-mode — 1) 기본  2) 확장 [Enter=skip]: ", ["기본", "확장"])) as
+      | "기본"
+      | "확장"
+      | undefined;
+  } else {
+    effort = (await askChoice(prompt, "Reasoning effort — 1) 즉시  2) 중간  3) 높음  4) 매우 높음 [Enter=skip]: ", [
+      "즉시",
+      "중간",
+      "높음",
+      "매우 높음"
+    ])) as "즉시" | "중간" | "높음" | "매우 높음" | undefined;
+  }
+  const projectRaw = (await prompt('Default project name (existing sidebar project) [Enter=skip]: ')).trim();
+  const project = projectRaw === "" ? undefined : projectRaw;
+  if (model === undefined && proMode === undefined && effort === undefined && project === undefined) return undefined;
+  return {
+    ...(model !== undefined ? { model } : {}),
+    ...(proMode !== undefined ? { proMode } : {}),
+    ...(effort !== undefined ? { effort } : {}),
+    ...(project !== undefined ? { project } : {})
   };
 }
 

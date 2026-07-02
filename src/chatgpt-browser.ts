@@ -669,7 +669,7 @@ export function modelButtonRectExpression(): string {
     const b = [...scope.querySelectorAll('[aria-haspopup="menu"]')].find((el) => {
       const t = (el.textContent || "").trim();
       const aria = el.getAttribute("aria-label") || "";
-      return /\\S/.test(t) && !/파일|첨부|받아쓰기|음성|dictation|attach/i.test(t + aria);
+      return /\\S/.test(t) && !/파일|첨부|받아쓰기|음성|dictation|attach|file|voice|record|search|mic/i.test(t + aria);
     });
     if (!b) return { ok: false, reason: "model selector button not found" };
     return clickPoint(b);
@@ -840,12 +840,110 @@ async function selectModelReasoning(
   }
 }
 
+export function newProjectButtonRectExpression(): string {
+  return `(() => {${CLICK_POINT_SNIPPET}
+    const el =
+      document.querySelector('button[aria-label="새 프로젝트"]') ||
+      [...document.querySelectorAll('button,[role="button"]')].find((b) =>
+        /새 프로젝트|new project/i.test(((b.textContent || "") + (b.getAttribute("aria-label") || "")).trim())
+      );
+    if (!el) return { ok: false, reason: "new-project button not found in the sidebar" };
+    return clickPoint(el);
+  })()`;
+}
+
+// The new-project popover has a single visible text input for the name;
+// creation is committed by pressing Enter (there is no dedicated create button).
+const VISIBLE_TEXT_INPUT_FINDER = `
+    const findNameInput = () =>
+      [...document.querySelectorAll('input[type="text"]')].find((i) => {
+        const r = i.getBoundingClientRect();
+        return r.width > 0 && r.height > 0;
+      });`;
+
+export function newProjectNameInputRectExpression(): string {
+  return `(() => {${CLICK_POINT_SNIPPET}${VISIBLE_TEXT_INPUT_FINDER}
+    const input = findNameInput();
+    if (!input) return { ok: false, reason: "new-project name input did not appear" };
+    return clickPoint(input);
+  })()`;
+}
+
+export function newProjectNameInputVisibleExpression(): string {
+  return `(() => {${VISIBLE_TEXT_INPUT_FINDER}
+    return Boolean(findNameInput());
+  })()`;
+}
+
+function newProjectNameInputValueExpression(): string {
+  return `(() => {${VISIBLE_TEXT_INPUT_FINDER}
+    const input = findNameInput();
+    return input ? input.value : null;
+  })()`;
+}
+
+async function dispatchEnterKey(cdp: CdpConnection): Promise<void> {
+  await cdp.send("Input.dispatchKeyEvent", { type: "keyDown", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13, text: "\r" });
+  await cdp.send("Input.dispatchKeyEvent", { type: "keyUp", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13 });
+}
+
+// Creates a project in the user's real ChatGPT account: sidebar 새 프로젝트 →
+// type the name into the popover input → Enter → wait for navigation into the
+// new project. Backs out with Escape on any failure.
+async function createChatGptProject(cdp: CdpConnection, name: string): Promise<void> {
+  const hrefBefore = await cdp.evaluate<string>("location.href");
+  const button = await cdp.evaluate<RectHit>(newProjectButtonRectExpression());
+  if (!button.ok || button.x === undefined || button.y === undefined) {
+    throw new Error(button.reason ?? "new-project button not found in the sidebar");
+  }
+  try {
+    await verifiedClickAt(cdp, button.x, button.y, "새 프로젝트");
+    const inputVisible = await waitForExpressionTrue(cdp, newProjectNameInputVisibleExpression(), MENU_OPEN_TIMEOUT_MS);
+    if (!inputVisible) throw new Error("new-project name input did not appear");
+    const input = await cdp.evaluate<RectHit>(newProjectNameInputRectExpression());
+    if (!input.ok || input.x === undefined || input.y === undefined) {
+      throw new Error(input.reason ?? "new-project name input is not clickable");
+    }
+    await verifiedClickAt(cdp, input.x, input.y, "project name input");
+    await sleep(150);
+    await cdp.send("Input.insertText", { text: name });
+    await sleep(150);
+    const typed = await cdp.evaluate<string | null>(newProjectNameInputValueExpression());
+    if (typed !== name) {
+      throw new Error(`could not type the project name into the new-project input (saw: ${typed === null ? "no input" : JSON.stringify(typed)})`);
+    }
+    await dispatchEnterKey(cdp);
+    const navigated = await waitForExpressionTrue(
+      cdp,
+      `location.href !== ${JSON.stringify(hrefBefore)}`,
+      PROJECT_NAVIGATION_TIMEOUT_MS
+    );
+    if (!navigated) throw new Error(`Creating project "${name}" did not navigate into the new project`);
+    const composerReady = await waitForExpressionTrue(
+      cdp,
+      `Boolean(document.querySelector('#prompt-textarea,[contenteditable="true"],textarea'))`,
+      PROJECT_NAVIGATION_TIMEOUT_MS
+    );
+    if (!composerReady) throw new Error(`ChatGPT composer did not appear after creating project "${name}"`);
+  } catch (error) {
+    try {
+      await dispatchEscapeKey(cdp);
+      await sleep(150);
+      await dispatchEscapeKey(cdp);
+    } catch {
+      // best effort only
+    }
+    throw error;
+  }
+}
+
 async function selectProject(
   cdp: CdpConnection,
   options: Pick<SendChatGptPromptOptions, "project" | "projectNew">
 ): Promise<void> {
   if (options.projectNew) {
-    throw new Error("projectNew (new-project modal) automation is not implemented yet; create the project manually and use --project");
+    await createChatGptProject(cdp, options.projectNew);
+    return;
   }
   if (!options.project) return;
   const hrefBefore = await cdp.evaluate<string>("location.href");
@@ -905,12 +1003,16 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
   if (busyBlocker) {
     throw new ChatGptBrowserBlockerError(busyBlocker);
   }
-  const beforeSubmit = await evaluateOnPage<ChatGptAnswerState>(page, answerExpression());
+  let beforeSubmit!: ChatGptAnswerState;
   const cdp = await connectCdp(page.webSocketDebuggerUrl);
   try {
     await cdp.send("Runtime.enable");
     await selectProject(cdp, options);
     await selectModelReasoning(cdp, options);
+    // Capture the answer baseline AFTER any project navigation or model switch
+    // so assistant-message counts compare within the thread we actually send
+    // into; a --project/--project-new hop lands on a page with its own counts.
+    beforeSubmit = await evaluateOnPage<ChatGptAnswerState>(page, answerExpression());
     const inserted = await cdp.evaluate<{ ok: boolean; reason?: string; actualText?: string }>(setComposerTextExpression(options.prompt));
     if (!inserted.ok) throw new Error(inserted.reason ?? "Could not insert text into ChatGPT composer");
     await sleep(300);

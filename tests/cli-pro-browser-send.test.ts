@@ -1204,16 +1204,47 @@ describe("pro browser ask model/project selection", () => {
     await expect(readdir(path.join(cwd, ".bridge"))).rejects.toThrow();
   });
 
-  it("rejects --project-new as not yet supported before touching the browser", async () => {
+  it("forwards --project-new to the visible-browser send and suppresses the default project", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-select-"));
+    await writeLocalConfig(cwd, { token: "test-token", browserDefaults: { project: "sandbox-default" } });
+    sendChatGptPromptMock.mockResolvedValueOnce({
+      url: "https://chatgpt.com/c/abc",
+      title: "ChatGPT",
+      answer: "ok",
+      modelHints: [],
+      warnings: []
+    });
+
+    await runCli(["pro", "browser", "ask", "--project-new", "sandbox-new", "Review this"], {
+      cwd,
+      stdout: () => {},
+      stderr: () => {}
+    });
+
+    expect(sendChatGptPromptMock).toHaveBeenCalledWith(
+      expect.objectContaining({ projectNew: "sandbox-new", project: undefined })
+    );
+  });
+
+  it("rejects combining --target-url with --project-new before touching the browser", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-select-"));
 
     await expect(
-      runCli(["pro", "browser", "ask", "--project-new", "sandbox-new", "Review this"], {
-        cwd,
-        stdout: () => {},
-        stderr: () => {}
-      })
-    ).rejects.toThrow(/--project-new is not supported yet/);
+      runCli(
+        [
+          "pro",
+          "browser",
+          "ask",
+          "--target-url",
+          "https://chatgpt.com/c/abc",
+          "--confirm-target",
+          "--project-new",
+          "sandbox-new",
+          "Review this"
+        ],
+        { cwd, stdout: () => {}, stderr: () => {} }
+      )
+    ).rejects.toThrow(/--target-url.*--project/);
 
     expect(sendChatGptPromptMock).not.toHaveBeenCalled();
     await expect(readdir(path.join(cwd, ".bridge"))).rejects.toThrow();
@@ -1414,6 +1445,69 @@ describe("pro browser ask model/project selection", () => {
     expect(text).not.toContain("sandbox-demo");
     expect(text).toContain("project_redacted");
     expect(text).toContain("Pro");
+  });
+
+  it("collects browser defaults through the interactive setup wizard", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-select-"));
+    const answers = ["1", "2", "sandbox-demo"]; // model=Pro, sub-mode=확장, project name
+    const asked: string[] = [];
+
+    await runCli(["setup", "--token", "test-token", "--interactive"], {
+      cwd,
+      stdout: () => {},
+      stderr: () => {},
+      promptUser: async (question: string) => {
+        asked.push(question);
+        return answers.shift() ?? "";
+      }
+    });
+
+    const config = await loadLocalConfig(cwd);
+    expect(config.browser_defaults).toEqual({ model: "Pro", pro_mode: "확장", project: "sandbox-demo" });
+    expect(asked.length).toBe(3);
+  });
+
+  it("asks for effort instead of sub-mode when the wizard model is not Pro", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-select-"));
+    const answers = ["", "4", ""]; // skip model, effort=매우 높음, skip project
+
+    await runCli(["setup", "--token", "test-token", "--interactive"], {
+      cwd,
+      stdout: () => {},
+      stderr: () => {},
+      promptUser: async () => answers.shift() ?? ""
+    });
+
+    const config = await loadLocalConfig(cwd);
+    expect(config.browser_defaults).toEqual({ effort: "매우 높음" });
+  });
+
+  it("re-asks on invalid wizard input before giving up", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-select-"));
+    const answers = ["9", "1", "1", ""]; // invalid model choice, then Pro, sub-mode 기본, skip project
+
+    await runCli(["setup", "--token", "test-token", "--interactive"], {
+      cwd,
+      stdout: () => {},
+      stderr: () => {},
+      promptUser: async () => answers.shift() ?? ""
+    });
+
+    const config = await loadLocalConfig(cwd);
+    expect(config.browser_defaults).toEqual({ model: "Pro", pro_mode: "기본" });
+  });
+
+  it("rejects --interactive combined with selection flags", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-select-"));
+
+    await expect(
+      runCli(["setup", "--token", "test-token", "--interactive", "--model", "Pro"], {
+        cwd,
+        stdout: () => {},
+        stderr: () => {},
+        promptUser: async () => ""
+      })
+    ).rejects.toThrow(/--interactive/);
   });
 
   it("lists model menu options read-only via pro browser models", async () => {
