@@ -196,7 +196,7 @@ prodex pro browser ask --model Pro --pro-mode 확장 --project "my-project" "Rev
 prodex pro browser ask --effort "매우 높음" "Draft the release notes"
 ```
 
-Prerequisite: selection matches menu items by their visible text in the **Korean ChatGPT UI** (즉시/중간/높음/매우 높음, Pro 기본/확장, "프로젝트" sidebar labels). If your ChatGPT display language is not Korean, the `--effort`/`--pro-mode`/`--project` flags will fail with "menu item not found"; either switch the UI language, send without selection flags, or use the escape hatch: `--model "<exact label>"` clicks any radio entry in the picker by the exact text your UI shows (run `pro browser models` to list them).
+Selection matches menu items by their visible text and is verified in both the **Korean** (즉시/중간/높음/매우 높음, Pro 기본/확장) and the **English (US)** ChatGPT UI (Instant/Medium/High/Extra High, Pro Standard/Extended) — every canonical flag value matches either locale's labels automatically. For other display languages, use the escape hatch: `--model "<exact label>"` clicks any radio entry in the picker by the exact text your UI shows (run `pro browser models` to list them).
 
 To see the labels your account currently shows, list them read-only (opens the menu, reads it, presses Escape — nothing is selected):
 

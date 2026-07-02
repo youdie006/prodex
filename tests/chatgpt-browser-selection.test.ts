@@ -41,6 +41,11 @@ describe("parseReasoningEffort", () => {
     expect(parseReasoningEffort("max")).toBe("매우 높음");
   });
 
+  it("accepts the English menu labels as verified in the English UI", () => {
+    expect(parseReasoningEffort("Extra High")).toBe("매우 높음");
+    expect(parseReasoningEffort("Instant")).toBe("즉시");
+  });
+
   it("throws with the valid choices on an unknown value", () => {
     expect(() => parseReasoningEffort("turbo")).toThrow(/매우 높음/);
   });

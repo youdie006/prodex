@@ -62,7 +62,22 @@ const REASONING_EFFORT_ALIASES: Record<string, ChatGptReasoningEffort> = {
   instant: "즉시",
   medium: "중간",
   high: "높음",
-  max: "매우 높음"
+  max: "매우 높음",
+  extrahigh: "매우 높음"
+};
+
+// Menu labels per canonical value, verified live in both the Korean and the
+// English (US) ChatGPT UI. Matching tries every candidate so either UI works.
+const EFFORT_MENU_LABELS: Record<ChatGptReasoningEffort, readonly string[]> = {
+  "즉시": ["즉시", "Instant"],
+  "중간": ["중간", "Medium"],
+  "높음": ["높음", "High"],
+  "매우 높음": ["매우 높음", "Extra High"]
+};
+
+const PRO_MODE_SUBMENU_LABELS: Record<ChatGptProMode, readonly string[]> = {
+  "기본": ["Pro 기본", "Pro Standard"],
+  "확장": ["Pro 확장", "Pro Extended"]
 };
 
 const PRO_MODE_ALIASES: Record<string, ChatGptProMode> = {
@@ -213,7 +228,7 @@ export function isUsableChatGptAnswer(answer: string): boolean {
   }
   // Model-prefixed thinking status, e.g. "Pro 생각 중": a single short line
   // ending in 생각 중 is the placeholder, not an answer.
-  if (lineCount <= 1 && /(^|\s)생각 중$/.test(stripped)) {
+  if (lineCount <= 1 && /(^|\s)(생각 중|thinking)$/i.test(stripped)) {
     return false;
   }
   return true;
@@ -614,8 +629,12 @@ export function menuClosedExpression(): string {
   return `!document.querySelector('[data-testid="composer-intelligence-picker-content"]')`;
 }
 
-export function menuItemPresentExpression(label: string): string {
-  return `[...document.querySelectorAll('[role="menuitemradio"],[role="menuitem"]')].some((r) => (r.textContent || "").trim() === ${JSON.stringify(label)})`;
+function toLabelCandidates(label: string | readonly string[]): string[] {
+  return typeof label === "string" ? [label] : [...label];
+}
+
+export function menuItemPresentExpression(label: string | readonly string[]): string {
+  return `[...document.querySelectorAll('[role="menuitemradio"],[role="menuitem"]')].some((r) => ${JSON.stringify(toLabelCandidates(label))}.includes((r.textContent || "").trim()))`;
 }
 
 // Shared click-point resolver: scroll the target into view, tag it with a
@@ -676,12 +695,12 @@ export function modelButtonRectExpression(): string {
   })()`;
 }
 
-export function menuItemRectExpression(label: string): string {
+export function menuItemRectExpression(label: string | readonly string[]): string {
   return `(() => {${CLICK_POINT_SNIPPET}
     const m = document.querySelector('[data-testid="composer-intelligence-picker-content"]');
     if (!m) return { ok: false, reason: "reasoning/model menu did not open" };
     const items = [...m.querySelectorAll('[role="menuitemradio"],[role="menuitem"]')];
-    const it = items.find((r) => (r.textContent || "").trim() === ${JSON.stringify(label)});
+    const it = items.find((r) => ${JSON.stringify(toLabelCandidates(label))}.includes((r.textContent || "").trim()));
     if (!it) return { ok: false, reason: "menu item not found", available: items.map((r) => (r.textContent || "").trim()).slice(0, 12) };
     const point = clickPoint(it);
     if (!point.ok) return point;
@@ -689,10 +708,10 @@ export function menuItemRectExpression(label: string): string {
   })()`;
 }
 
-export function submenuItemRectExpression(label: string): string {
+export function submenuItemRectExpression(label: string | readonly string[]): string {
   return `(() => {${CLICK_POINT_SNIPPET}
     const items = [...document.querySelectorAll('[role="menuitemradio"],[role="menuitem"]')];
-    const it = items.find((r) => (r.textContent || "").trim() === ${JSON.stringify(label)});
+    const it = items.find((r) => ${JSON.stringify(toLabelCandidates(label))}.includes((r.textContent || "").trim()));
     if (!it) return { ok: false, reason: "submenu item not found" };
     return clickPoint(it);
   })()`;
@@ -741,7 +760,8 @@ export function proSubmenuExpanderRectExpression(): string {
 
 export function projectItemRectExpression(name: string): string {
   return `(() => {${CLICK_POINT_SNIPPET}
-    const opt = [...document.querySelectorAll('[aria-label*="프로젝트 옵션 열기"]')].find((b) => (b.getAttribute("aria-label") || "").startsWith(${JSON.stringify(name)}));
+    // Korean: "<name> 프로젝트 옵션 열기"; English: "Open project options for <name>".
+    const opt = [...document.querySelectorAll('[aria-label*="프로젝트 옵션"],[aria-label*="project options" i]')].find((b) => (b.getAttribute("aria-label") || "").includes(${JSON.stringify(name)}));
     let target = opt ? (opt.closest('a,[role="link"],li') || opt.parentElement) : null;
     if (!target) {
       const icons = [...document.querySelectorAll('[data-testid="project-folder-icon"]')];
@@ -786,15 +806,15 @@ async function selectModelReasoning(
         throw new Error(expander.reason ?? "Could not open the ChatGPT Pro sub-mode submenu");
       }
       await verifiedClickAt(cdp, expander.x, expander.y, "Pro sub-mode expander");
-      const subLabel = `Pro ${options.proMode}`;
-      const subVisible = await waitForExpressionTrue(cdp, menuItemPresentExpression(subLabel), MENU_OPEN_TIMEOUT_MS);
-      if (!subVisible) throw new Error(`ChatGPT Pro sub-mode not found: ${subLabel}`);
-      const sub = await cdp.evaluate<RectHit>(submenuItemRectExpression(subLabel));
+      const subLabels = PRO_MODE_SUBMENU_LABELS[options.proMode];
+      const subVisible = await waitForExpressionTrue(cdp, menuItemPresentExpression(subLabels), MENU_OPEN_TIMEOUT_MS);
+      if (!subVisible) throw new Error(`ChatGPT Pro sub-mode not found: ${subLabels.join(" / ")}`);
+      const sub = await cdp.evaluate<RectHit>(submenuItemRectExpression(subLabels));
       if (!sub.ok || sub.x === undefined || sub.y === undefined) {
-        throw new Error(sub.reason ?? `ChatGPT Pro sub-mode not clickable: ${subLabel}`);
+        throw new Error(sub.reason ?? `ChatGPT Pro sub-mode not clickable: ${subLabels.join(" / ")}`);
       }
-      await verifiedClickAt(cdp, sub.x, sub.y, subLabel);
-      await assertSelectionCommitted(cdp, subLabel);
+      await verifiedClickAt(cdp, sub.x, sub.y, subLabels[0]);
+      await assertSelectionCommitted(cdp, subLabels[0]);
       return;
     }
 
@@ -816,7 +836,10 @@ async function selectModelReasoning(
       return;
     }
 
-    const primary = await cdp.evaluate<RectHit>(menuItemRectExpression(primaryLabel));
+    // A user-supplied model name is matched verbatim; efforts match any of the
+    // per-locale labels for the canonical value.
+    const primaryCandidates = options.model ? [options.model] : EFFORT_MENU_LABELS[options.effort as ChatGptReasoningEffort];
+    const primary = await cdp.evaluate<RectHit>(menuItemRectExpression(primaryCandidates));
     if (!primary.ok || primary.x === undefined || primary.y === undefined) {
       throw new Error(`ChatGPT model/effort option not found: ${primaryLabel}${primary.available ? ` (available: ${primary.available.join(", ")})` : ""}`);
     }
@@ -843,7 +866,7 @@ async function selectModelReasoning(
 export function newProjectButtonRectExpression(): string {
   return `(() => {${CLICK_POINT_SNIPPET}
     const el =
-      document.querySelector('button[aria-label="새 프로젝트"]') ||
+      document.querySelector('button[aria-label="새 프로젝트"],button[aria-label="New project"]') ||
       [...document.querySelectorAll('button,[role="button"]')].find((b) =>
         /새 프로젝트|new project/i.test(((b.textContent || "") + (b.getAttribute("aria-label") || "")).trim())
       );
@@ -1338,7 +1361,7 @@ export function statusExpression(): string {
     const answer = assistant?.text || "";
     const ansStripped = answer.trim().replace(/\\.+$/, "");
     const ansLines = ansStripped.split(/\\r?\\n/).filter((l) => l.trim());
-    const placeholder = /^(생각 중|thinking|thought for|thought about)/i.test(ansStripped) || (ansLines.length <= 1 && /(^|\\s)생각 중$/.test(ansStripped));
+    const placeholder = /^(생각 중|thinking|thought for|thought about)/i.test(ansStripped) || (ansLines.length <= 1 && /(^|\\s)(생각 중|thinking)$/i.test(ansStripped));
     const hasComposer = Boolean(findChatGptComposerCandidate());
     return {
       title: document.title,
@@ -1494,7 +1517,7 @@ function answerExpression(): string {
     const answer = assistant?.text || "";
     const ansStripped = answer.trim().replace(/\\.+$/, "");
     const ansLines = ansStripped.split(/\\r?\\n/).filter((l) => l.trim());
-    const placeholder = /^(생각 중|thinking|thought for|thought about)/i.test(ansStripped) || (ansLines.length <= 1 && /(^|\\s)생각 중$/.test(ansStripped));
+    const placeholder = /^(생각 중|thinking|thought for|thought about)/i.test(ansStripped) || (ansLines.length <= 1 && /(^|\\s)(생각 중|thinking)$/i.test(ansStripped));
     return {
       title: document.title,
       url: location.href,
