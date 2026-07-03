@@ -164,6 +164,7 @@ export const CHATGPT_COMPOSER_CANDIDATE_EXCLUDED_ANCESTORS = '[data-message-auth
 export const PRODEX_ACTIVE_COMPOSER_ATTRIBUTE = "data-prodex-active-composer";
 
 export interface DevtoolsPage {
+  id?: string;
   type: string;
   url: string;
   title: string;
@@ -439,6 +440,45 @@ export function assertVisibleChatGptTab(visibilityState: string | undefined, url
   if (visibilityState === "visible") return;
   const blocker = chatGptVisibilityBlocker(visibilityState, targetUrl ?? url);
   if (blocker) throw new ChatGptBrowserBlockerError(blocker);
+}
+
+// The visible-tab requirement exists so the user can watch every automated
+// send. When another tab merely covers the ChatGPT tab, actively bring it to
+// the foreground via the DevTools activate endpoint instead of failing; the
+// tab_not_visible blocker remains the fallback when activation does not help
+// (e.g. the whole window is minimized at the OS level).
+async function activateChatGptPage(port: number, page: DevtoolsPage): Promise<void> {
+  if (!page.id) return;
+  try {
+    await fetch(`http://127.0.0.1:${port}/json/activate/${page.id}`, { signal: AbortSignal.timeout(2000) });
+  } catch {
+    // best effort only; the visibility assert below reports the real state
+  }
+}
+
+// Right after a project hop or model switch the SPA re-renders and the composer
+// can momentarily read as absent. Poll a few times so a transient re-render is
+// not misreported as "no logged-in session / no composer".
+async function readSettledChatGptPageStatus(page: DevtoolsPage): Promise<ChatGptPageStatus> {
+  let status = await evaluateOnPage<ChatGptPageStatus>(page, statusExpression());
+  for (let attempt = 0; attempt < 4 && !(status.hasComposer && inferChatGptPageLoggedInLikely(status)); attempt += 1) {
+    await sleep(400);
+    status = await evaluateOnPage<ChatGptPageStatus>(page, statusExpression());
+  }
+  return status;
+}
+
+async function ensureVisibleChatGptPage(port: number, page: DevtoolsPage, status: ChatGptPageStatus): Promise<ChatGptPageStatus> {
+  if (status.visibilityState === "visible") return status;
+  await activateChatGptPage(port, page);
+  const deadline = Date.now() + 3_000;
+  let latest = status;
+  while (Date.now() < deadline) {
+    await sleep(300);
+    latest = await evaluateOnPage<ChatGptPageStatus>(page, statusExpression());
+    if (latest.visibilityState === "visible") return latest;
+  }
+  return latest;
 }
 
 export function assertChatGptTargetUrlMatches(currentUrl: string, targetUrl: string): void {
@@ -1014,7 +1054,8 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
     assertChatGptPageAvailable();
   }
   const page = pageResult.page;
-  const status = await evaluateOnPage<ChatGptPageStatus>(page, statusExpression());
+  let status = await readSettledChatGptPageStatus(page);
+  status = await ensureVisibleChatGptPage(port, page, status);
   const blocker = detectChatGptPageBlocker(status);
   if (blocker) {
     throw new ChatGptBrowserBlockerError(blocker);
@@ -1077,9 +1118,12 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
     // A "fresh" answer must also be stable: ChatGPT can momentarily look done mid-stream, so accept
     // it only once the text stops changing across polls. Otherwise trailing tokens (e.g. the final
     // "_OK" of the smoke token) get dropped.
-    if (finalState.answer === stableAnswer) {
+    if (finalState.answer === stableAnswer && !finalState.generating) {
       stableConfirmations += 1;
-      if (stableConfirmations >= 1) break;
+      // Require two consecutive stable, non-generating polls so a mid-stream
+      // pause (identical text across one interval while more tokens are still
+      // coming) is not mistaken for completion.
+      if (stableConfirmations >= 2) break;
     } else {
       stableAnswer = finalState.answer;
       stableConfirmations = 0;
@@ -1138,7 +1182,8 @@ export async function listChatGptModelOptions(input: { port?: number; timeoutMs?
     assertChatGptPageAvailable();
   }
   const page = pageResult.page;
-  const status = await evaluateOnPage<ChatGptPageStatus>(page, statusExpression());
+  let status = await readSettledChatGptPageStatus(page);
+  status = await ensureVisibleChatGptPage(port, page, status);
   const blocker = detectChatGptPageBlocker(status);
   if (blocker) throw new ChatGptBrowserBlockerError(blocker);
   assertChatGptReadyForPrompt(inferChatGptPageLoggedInLikely(status), status.hasComposer);

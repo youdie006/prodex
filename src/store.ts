@@ -831,6 +831,7 @@ export class BridgeStore {
       "artifacts/*",
       "config.local.json",
       "receipt-key.local",
+      "last-browser-send",
       "!.gitignore"
     ];
     const lines = new Set(current.split(/\r?\n/).filter(Boolean));

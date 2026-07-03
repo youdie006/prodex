@@ -215,3 +215,24 @@ export function isLoopbackHost(hostname: string): boolean {
 export function firstLine(value: string): string {
   return value.split(/\r?\n/).find((line) => line.trim())?.trim() ?? "";
 }
+
+// Human-pacing for visible-browser sends: chatgpt.com anti-bot systems react to
+// machine-speed request bursts, so an agent loop is throttled to no faster than
+// one send per DEFAULT_MIN_SEND_INTERVAL_MS. Returns how long to wait before the
+// next send given the previous send's start time (0 = send now).
+export const DEFAULT_MIN_SEND_INTERVAL_MS = 10_000;
+
+export function resolveMinSendIntervalMs(env: NodeJS.ProcessEnv = process.env): number {
+  const raw = env.PRODEX_MIN_SEND_INTERVAL_MS;
+  if (raw === undefined || raw.trim() === "") return DEFAULT_MIN_SEND_INTERVAL_MS;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed < 0) return DEFAULT_MIN_SEND_INTERVAL_MS;
+  return Math.floor(parsed);
+}
+
+export function computeSendPacingWaitMs(lastSendAtMs: number | undefined, nowMs: number, intervalMs: number): number {
+  if (intervalMs <= 0 || lastSendAtMs === undefined) return 0;
+  const elapsed = nowMs - lastSendAtMs;
+  if (!Number.isFinite(elapsed) || elapsed < 0) return 0; // clock skew / bad marker: do not wait
+  return elapsed >= intervalMs ? 0 : intervalMs - elapsed;
+}

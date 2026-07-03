@@ -4,6 +4,26 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-07-03
+
+### Added
+- Visible-browser sends now bring the ChatGPT tab to the front automatically
+  (DevTools activate) before enforcing the visible-tab requirement, so a tab
+  merely covered by another recovers instead of failing; a fully minimized
+  window still stops with `tab_not_visible`.
+- Human-pacing for visible-browser sends: consecutive sends are auto-throttled
+  to one per `PRODEX_MIN_SEND_INTERVAL_MS` (default 10000 ms; `0` disables),
+  tracked per repo in `.bridge/last-browser-send`, to keep an agent loop from
+  hammering ChatGPT at machine speed.
+- README: standalone "Pro second opinion" quickstart and an FAQ covering
+  visibility, pacing, UI language, and account considerations.
+
+### Changed
+- Page status is now read with a short settle-and-retry so a transient SPA
+  re-render right after a project hop is not misreported as "no composer".
+- Answer completion now requires two consecutive stable, non-generating polls
+  (was one), so a mid-stream pause is not mistaken for the final answer.
+
 ## [0.6.1] - 2026-07-03
 
 ### Changed

@@ -1,3 +1,5 @@
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import path from "node:path";
 import { buildDryRunBundle } from "./bundle.js";
 import {
   type ChatGptBrowserLaunch,
@@ -50,7 +52,9 @@ import {
   formatInitCommand,
   formatSetupCommand,
   isMissingFileError,
+  computeSendPacingWaitMs,
   isUntrustedResultError,
+  resolveMinSendIntervalMs,
   sourceAwareBrowserBlocker,
   sourceAwareBrowserNextStep,
   sourceAwareResultError,
@@ -376,6 +380,32 @@ export async function runConsultsCommand(rest: string[], io: CliIO): Promise<num
     throw new Error("The legacy `consults` alias is retired. Use `prodex pro list`, `prodex pro latest`, or `prodex pro show <task-id|latest>`.");
 }
 
+// File marker + human-pacing gate for visible-browser sends. Reads the previous
+// send's start time from .bridge/last-browser-send, waits out any remaining
+// minimum interval (auto-throttle, not an error), then stamps the new send.
+async function enforceVisibleBrowserSendPacing(cwd: string, stderr: (line: string) => void): Promise<void> {
+  const intervalMs = resolveMinSendIntervalMs();
+  const markerPath = path.join(cwd, ".bridge", "last-browser-send");
+  let lastSendAtMs: number | undefined;
+  try {
+    const parsed = Date.parse((await readFile(markerPath, "utf8")).trim());
+    if (Number.isFinite(parsed)) lastSendAtMs = parsed;
+  } catch {
+    // no marker yet (first send) or unreadable: treat as no prior send
+  }
+  const waitMs = computeSendPacingWaitMs(lastSendAtMs, Date.now(), intervalMs);
+  if (waitMs > 0) {
+    stderr(`send_pacing: waiting ${Math.ceil(waitMs / 1000)}s to keep visible-browser sends at human pace (override with PRODEX_MIN_SEND_INTERVAL_MS).`);
+    await new Promise((resolve) => setTimeout(resolve, waitMs));
+  }
+  try {
+    await mkdir(path.dirname(markerPath), { recursive: true, mode: 0o700 });
+    await writeFile(markerPath, `${new Date().toISOString()}\n`, { encoding: "utf8", mode: 0o600 });
+  } catch {
+    // best effort: pacing must never block a legitimate send on a write failure
+  }
+}
+
 export async function runAskProCommand(rest: string[], io: CliIO): Promise<number> {
     const parsedAskPro = parseAskProArgs(rest);
     const hasDryRunMode = parsedAskPro.optionArgs.includes("--dry-run");
@@ -449,6 +479,7 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
     const sourceCli = resolveOptionalFileFlag(io.cwd, parsedAskPro.optionArgs, "--source-cli");
     const bundle = await buildDryRunBundle(targetCwd, { prompt, files });
     if (hasSendMode) {
+      await enforceVisibleBrowserSendPacing(targetCwd, io.stderr);
       const browserCommandOptions = {
         cwd: targetCwd,
         port: parsedAskPro.optionArgs.includes("--port") ? browserPort : undefined

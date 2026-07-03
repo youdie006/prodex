@@ -22,6 +22,19 @@ The goal is not to turn ChatGPT Pro into a public API. The goal is to make Codex
 - Let Claude create/fetch the same tasks through stdio MCP.
 - Keep durable records of what was asked, what was returned, and what Codex did with it.
 
+## Quickstart: a Pro second opinion from your terminal
+
+The most common way to use `prodex` is standalone — get a ChatGPT Pro answer on a file or question without leaving the terminal, using the Pro reasoning you already pay for. No MCP setup required.
+
+```bash
+npm install -g @youdie006/prodex          # needs Node 20+, git, ripgrep
+
+prodex pro browser login                  # opens a dedicated Chrome; log in to ChatGPT there
+prodex pro browser ask --file src/auth.ts "Review this for security holes"
+```
+
+The answer prints to your terminal and is saved under `.bridge/` for later. Keep that Chrome window visible while sending — `prodex` drives the picker you can see and will bring the tab to the front for you, but it deliberately will not send into a window you cannot watch. Add `--pro-mode 확장` for extended reasoning, or `--file` more than once to attach several files. See [First Pro Login](#first-pro-login) for the full flow, and the [FAQ](#faq) if a send stops.
+
 ## Core Shape
 
 ```text
@@ -42,7 +55,7 @@ ChatGPT Pro              ChatGPT Projects / Claude
 - Browser automation is optional and explicit: use it only through `pro browser ...`, with a real visible logged-in browser session.
 - Stop on blockers: login, captcha, rate limit, Cloudflare, permission, and model-limit states stop the workflow.
 - No bypass: no hidden API, cookie extraction, stealth automation, proxies, or captcha solving.
-- Low volume: no batch prompting or recurring loops that make ChatGPT Pro behave like an API server.
+- Low volume: no batch prompting or recurring loops that make ChatGPT Pro behave like an API server. Visible-browser sends are auto-throttled to human pace (one every 10s by default; tune with `PRODEX_MIN_SEND_INTERVAL_MS`, `0` to disable).
 - Local only: do not expose account access, browser sessions, or bridge endpoints to other users.
 - Local debug port: the visible-browser adapter uses Chrome's `--remote-debugging-port`, which is unauthenticated but bound to `127.0.0.1` only and live only while that browser is open.
 
@@ -57,7 +70,7 @@ ChatGPT Pro              ChatGPT Projects / Claude
 
 The npm package is CLI-only for now. The supported public surfaces are the `prodex` command, the stdio MCP server, and the optional HTTP MCP server. JavaScript imports from `prodex` or `prodex/dist/*` are intentionally not exported until a library API is designed and documented.
 
-## v0.2 Status
+## Status
 
 Implemented:
 
@@ -354,6 +367,20 @@ During local development, you can run the TypeScript source directly:
 ```bash
 npm run dev -- tasks list
 ```
+
+## FAQ
+
+**A send stopped or "won't send" — why?** The most common cause is that the ChatGPT window is minimized or on another virtual desktop. `prodex` brings the tab to the front before sending, but if the whole window is minimized at the OS level it stops with a `tab_not_visible` blocker rather than sending where you cannot watch. Un-minimize the dedicated Chrome and retry. Other stops (login, captcha, Cloudflare, rate/usage limit) are reported with a blocker code and next step, and recorded so `prodex pro latest` shows what happened.
+
+**Why did it pause before sending?** Visible-browser sends are throttled to human pace (default one every 10 seconds) so an agent loop can't hammer ChatGPT at machine speed. You'll see a `send_pacing: waiting Ns` note on stderr. Tune it with `PRODEX_MIN_SEND_INTERVAL_MS` (milliseconds; `0` disables). Pacing is tracked per repo via `.bridge/last-browser-send`.
+
+**"menu item not found" on `--effort`/`--pro-mode`/`--project`.** Selection matches the visible menu labels, verified in the Korean and English (US) ChatGPT UI. On another display language, run `prodex pro browser models` to see your labels and pass `--model "<exact label>"`, which clicks any picker radio by exact text.
+
+**Does this risk my ChatGPT account?** `prodex` is deliberately not a stealth bot: it uses a real visible browser, you log in manually, and it stops on captcha/verification instead of solving it. It does drive chatgpt.com, though, so keep usage at the human, occasional-consult volume the auto-pacing enforces — do not build tight recurring loops on top of it. Automating a paid account is your responsibility under OpenAI's terms.
+
+**Does it read my cookies or tokens?** No. It talks to the browser only through Chrome's local `--remote-debugging-port` (loopback-only, live only while that browser is open) and never reads cookies, tokens, localStorage, or sessionStorage.
+
+**Windows / macOS?** The code targets all three platforms, but the visible-browser adapter is exercised most on Linux; open an issue with details if a browser step misbehaves on macOS or Windows.
 
 ## Release Checks
 

@@ -19,6 +19,14 @@ import { runCli } from "../src/cli.js";
 import { loadLocalConfig, writeLocalConfig } from "../src/config.js";
 import { setSafeFileTestHooks } from "../src/safe-file.js";
 
+beforeEach(() => {
+  process.env.PRODEX_MIN_SEND_INTERVAL_MS = "0";
+});
+
+afterEach(() => {
+  delete process.env.PRODEX_MIN_SEND_INTERVAL_MS;
+});
+
 describe("pro browser ask persistence", () => {
   beforeEach(() => {
     sendChatGptPromptMock.mockReset();
@@ -1530,6 +1538,52 @@ describe("pro browser ask model/project selection", () => {
     expect(text).toContain("  높음");
     expect(text).toContain("GPT-5.5  (has sub-variants; not selectable via --model yet)");
     expect(sendChatGptPromptMock).not.toHaveBeenCalled();
+  });
+
+  it("stamps a send marker and throttles the next send at human pace", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-select-"));
+    await mkdir(path.join(cwd, ".bridge"), { recursive: true });
+    // A fresh prior-send marker makes the next send hit the pacing wait.
+    await writeFile(path.join(cwd, ".bridge", "last-browser-send"), `${new Date().toISOString()}\n`, "utf8");
+    process.env.PRODEX_MIN_SEND_INTERVAL_MS = "600";
+    sendChatGptPromptMock.mockResolvedValueOnce({
+      url: "https://chatgpt.com/c/abc",
+      title: "ChatGPT",
+      answer: "ok",
+      modelHints: [],
+      warnings: []
+    });
+    const err: string[] = [];
+
+    const startedAt = Date.now();
+    await runCli(["pro", "browser", "ask", "Review this"], { cwd, stdout: () => {}, stderr: (line) => err.push(line) });
+    const elapsed = Date.now() - startedAt;
+
+    expect(err.join("\n")).toContain("send_pacing");
+    expect(elapsed).toBeGreaterThanOrEqual(400);
+    expect(sendChatGptPromptMock).toHaveBeenCalledTimes(1);
+    const marker = await readFile(path.join(cwd, ".bridge", "last-browser-send"), "utf8");
+    expect(Number.isFinite(Date.parse(marker.trim()))).toBe(true);
+  });
+
+  it("does not throttle when pacing is disabled", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-select-"));
+    await mkdir(path.join(cwd, ".bridge"), { recursive: true });
+    await writeFile(path.join(cwd, ".bridge", "last-browser-send"), `${new Date().toISOString()}\n`, "utf8");
+    process.env.PRODEX_MIN_SEND_INTERVAL_MS = "0";
+    sendChatGptPromptMock.mockResolvedValueOnce({
+      url: "https://chatgpt.com/c/abc",
+      title: "ChatGPT",
+      answer: "ok",
+      modelHints: [],
+      warnings: []
+    });
+    const err: string[] = [];
+
+    await runCli(["pro", "browser", "ask", "Review this"], { cwd, stdout: () => {}, stderr: (line) => err.push(line) });
+
+    expect(err.join("\n")).not.toContain("send_pacing");
+    expect(sendChatGptPromptMock).toHaveBeenCalledTimes(1);
   });
 
   it("lets an explicit per-ask flag override the persisted default", async () => {
