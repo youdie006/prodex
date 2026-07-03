@@ -4,6 +4,23 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.2] - 2026-07-03
+
+### Security
+- Broaden the repo tool sensitive-path blocklist beyond `.env`/`.git`/
+  `.bridge`/`node_modules`/`dist` to cover common in-repo credential and key
+  material — `.npmrc`, `.netrc`, `.pgpass`, `.git-credentials`, `id_rsa`/
+  `id_ed25519` and friends, `*.pem`/`*.key`/`*.p12`/`*.pfx`/`*.jks`/`*.ppk`/
+  `*.kdbx`, `*.tfstate`, `*.gpg`/`*.asc`, `credentials.*`, `service-account.*`,
+  and the `.ssh`/`.aws`/`.gnupg`/`.gcloud`/`.azure`/`.kube`/`.docker`
+  directories. Applies to `repo_read_file`, `repo_search` (path filter + rg
+  excludes), and the `repo_write_file_*` flow, so a remote MCP caller can no
+  longer read or overwrite these in-repo secret files. Traversal/symlink
+  escape outside the repo was already blocked. Matching is conservative so
+  ordinary files (e.g. `keyboard.ts`, `notes/secretsanta.md`) are unaffected;
+  it is defense in depth, not an exhaustive secret scanner. README wording
+  corrected accordingly.
+
 ## [0.7.1] - 2026-07-03
 
 ### Changed

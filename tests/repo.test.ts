@@ -132,6 +132,47 @@ describe("repo path policy", () => {
     await expect(readRepoFile(root, ".env")).rejects.toThrow(/sensitive/);
   });
 
+  it("blocks common in-repo secret files by name, extension, and directory", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-repo-"));
+    await mkdir(path.join(root, "deploy"), { recursive: true });
+    await mkdir(path.join(root, ".ssh"), { recursive: true });
+    const secretPaths = [
+      ".npmrc",
+      ".netrc",
+      "id_rsa",
+      "id_ed25519",
+      "deploy/server.pem",
+      "deploy/tls.key",
+      "service-account.json",
+      "credentials.json",
+      "terraform.tfstate",
+      "keystore.p12",
+      ".ssh/known_hosts"
+    ];
+    for (const secret of secretPaths) {
+      await writeFile(path.join(root, secret), "SECRET\n", "utf8");
+      await expect(readRepoFile(root, secret)).rejects.toThrow(/sensitive/);
+    }
+  });
+
+  it("still allows ordinary files that merely resemble secret names", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-repo-"));
+    await mkdir(path.join(root, "notes"), { recursive: true });
+    await writeFile(path.join(root, "notes", "secretsanta.md"), "gifts\n", "utf8");
+    await writeFile(path.join(root, "keyboard.ts"), "export const k = 1;\n", "utf8");
+
+    await expect(readRepoFile(root, "notes/secretsanta.md")).resolves.toBeTruthy();
+    await expect(readRepoFile(root, "keyboard.ts")).resolves.toBeTruthy();
+  });
+
+  it("rejects globs that target secret files", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-repo-"));
+    await writeFile(path.join(root, "README.md"), "needle\n", "utf8");
+
+    await expect(searchRepo(root, "needle", "**/*.pem")).rejects.toThrow(/sensitive/);
+    await expect(searchRepo(root, "needle", "**/id_rsa")).rejects.toThrow(/sensitive/);
+  });
+
   it("blocks repo reads through symlink aliases to sensitive directories", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "prodex-repo-"));
     await mkdir(path.join(root, ".bridge"), { recursive: true });

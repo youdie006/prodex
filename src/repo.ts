@@ -164,6 +164,19 @@ export async function searchRepoWithMetadata(root: string, query: string, glob?:
     "!dist/**",
     "--glob",
     "!**/dist/**",
+    // Defense in depth: never even read common secret material during search.
+    // The per-result path filter (isAllowedRepoSearchResult) is the guarantee;
+    // these globs just avoid opening the files in the first place.
+    "--glob",
+    "!**/*.{pem,key,p12,pfx,pkcs12,keystore,jks,ppk,kdbx,tfstate,gpg,asc}",
+    "--glob",
+    "!**/{id_rsa,id_dsa,id_ecdsa,id_ed25519,.npmrc,.netrc,.pgpass,.git-credentials}",
+    "--glob",
+    "!**/.ssh/**",
+    "--glob",
+    "!**/.aws/**",
+    "--glob",
+    "!**/.gnupg/**",
     "-e",
     query
   ];
@@ -255,6 +268,9 @@ function assertNotSensitiveRepoPath(normalizedPath: string): void {
   if (segments.some(isSensitiveRepoSegment)) {
     throw new Error(`Path ${normalizedPath} is sensitive and cannot be read through repo tools`);
   }
+  if (segments.some(isSecretFileSegment)) {
+    throw new Error(`Path ${normalizedPath} is sensitive and cannot be read through repo tools`);
+  }
 }
 
 function assertRepoRelativeGlob(glob: string): void {
@@ -275,7 +291,8 @@ function assertNoSensitiveGlobSegment(normalizedGlob: string): void {
     segments.some(
       (segment) =>
         isSensitiveRepoSegment(segment) ||
-        isEnvLikeGlobSegment(segment)
+        isEnvLikeGlobSegment(segment) ||
+        isSecretFileSegment(segment)
     )
   ) {
     throw new Error(`Glob ${normalizedGlob} is sensitive and cannot be used through repo tools`);
@@ -297,6 +314,39 @@ async function isAllowedRepoSearchResult(root: string, repoPath: string): Promis
 function isSensitiveRepoSegment(segment: string): boolean {
   const folded = foldSensitiveSegment(segment);
   return folded === ".bridge" || folded === ".git" || folded === "node_modules" || folded === "dist";
+}
+
+// Credential and key material commonly committed inside a repo. Remote MCP
+// callers must not read or overwrite these even though they live under the
+// workspace root. Matched per path segment (folded to lowercase). Intentionally
+// conservative on prefixes (e.g. "credentials", "service-account") and on key
+// extensions so ordinary files like "keyboard.ts" or "notes/secretsanta.md" are
+// still allowed. NOTE: this is not exhaustive — treat it as defense in depth,
+// not a guarantee that every secret is covered.
+const SECRET_FILE_DIR_SEGMENTS = new Set([".ssh", ".aws", ".gnupg", ".gcloud", ".azure", ".kube", ".docker"]);
+const SECRET_FILE_EXACT_NAMES = new Set([
+  ".npmrc",
+  ".netrc",
+  ".pgpass",
+  ".htpasswd",
+  ".dockercfg",
+  ".pypirc",
+  ".git-credentials",
+  "id_rsa",
+  "id_dsa",
+  "id_ecdsa",
+  "id_ed25519"
+]);
+const SECRET_FILE_EXTENSIONS = /\.(pem|key|p12|pfx|pkcs12|keystore|jks|ppk|kdbx|tfstate|gpg|asc)(\.[a-z0-9]+)?$/;
+const SECRET_FILE_NAME_PREFIXES = /^(credentials|service[-_]?account)([._-]|$)/;
+
+function isSecretFileSegment(segment: string): boolean {
+  const folded = foldSensitiveSegment(segment);
+  if (SECRET_FILE_DIR_SEGMENTS.has(folded)) return true;
+  if (SECRET_FILE_EXACT_NAMES.has(folded)) return true;
+  if (SECRET_FILE_EXTENSIONS.test(folded)) return true;
+  if (SECRET_FILE_NAME_PREFIXES.test(folded)) return true;
+  return false;
 }
 
 function isEnvLikeSegment(segment: string): boolean {
