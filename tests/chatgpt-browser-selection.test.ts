@@ -1,6 +1,20 @@
 import { describe, it, expect } from "vitest";
 
-import { isUsableChatGptAnswer, parseReasoningEffort, parseProMode } from "../src/chatgpt-browser.js";
+import { isTabActivationEnabled, isUsableChatGptAnswer, parseReasoningEffort, parseProMode } from "../src/chatgpt-browser.js";
+
+describe("isTabActivationEnabled", () => {
+  it("is off by default so sends never steal focus", () => {
+    expect(isTabActivationEnabled({})).toBe(false);
+    expect(isTabActivationEnabled({ PRODEX_ACTIVATE_TAB: "0" })).toBe(false);
+    expect(isTabActivationEnabled({ PRODEX_ACTIVATE_TAB: "" })).toBe(false);
+  });
+
+  it("opts in on the documented truthy values", () => {
+    expect(isTabActivationEnabled({ PRODEX_ACTIVATE_TAB: "1" })).toBe(true);
+    expect(isTabActivationEnabled({ PRODEX_ACTIVATE_TAB: "true" })).toBe(true);
+    expect(isTabActivationEnabled({ PRODEX_ACTIVATE_TAB: "YES" })).toBe(true);
+  });
+});
 
 describe("isUsableChatGptAnswer thinking placeholders", () => {
   it("rejects the bare Korean thinking status", () => {

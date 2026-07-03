@@ -33,7 +33,7 @@ prodex pro browser login                  # opens a dedicated Chrome; log in to 
 prodex pro browser ask --file src/auth.ts "Review this for security holes"
 ```
 
-The answer prints to your terminal and is saved under `.bridge/` for later. Keep that Chrome window visible while sending — `prodex` drives the picker you can see and will bring the tab to the front for you, but it deliberately will not send into a window you cannot watch. Add `--pro-mode 확장` for extended reasoning, or `--file` more than once to attach several files. See [First Pro Login](#first-pro-login) for the full flow, and the [FAQ](#faq) if a send stops.
+The answer prints to your terminal and is saved under `.bridge/` for later. `prodex` drives the picker you can see and deliberately will not send into a window you cannot watch — but a dedicated Chrome window left non-minimized (even behind your editor) counts as watchable, so it sends quietly in the background without stealing focus. Just don't minimize it or switch that window to another tab. Add `--pro-mode 확장` for extended reasoning, or `--file` more than once to attach several files. See [First Pro Login](#first-pro-login) for the full flow, and the [FAQ](#faq) if a send stops.
 
 ## Core Shape
 
@@ -370,7 +370,9 @@ npm run dev -- tasks list
 
 ## FAQ
 
-**A send stopped or "won't send" — why?** The most common cause is that the ChatGPT window is minimized or on another virtual desktop. `prodex` brings the tab to the front before sending, but if the whole window is minimized at the OS level it stops with a `tab_not_visible` blocker rather than sending where you cannot watch. Un-minimize the dedicated Chrome and retry. Other stops (login, captcha, Cloudflare, rate/usage limit) are reported with a blocker code and next step, and recorded so `prodex pro latest` shows what happened.
+**A send stopped or "won't send" — why?** A tab counts as watchable only while its window is non-minimized and it is the active tab in that window. If you minimized the dedicated Chrome or switched it to another tab, the send stops with a `tab_not_visible` blocker rather than sending where you cannot watch. Leaving that window non-minimized behind your other apps is fine — it still sends in the background. By design `prodex` does not steal focus; if you'd rather it pull the tab to the front on a stopped send, set `PRODEX_ACTIVATE_TAB=1` (off by default so background loops aren't interrupted). Other stops (login, captcha, Cloudflare, rate/usage limit) are reported with a blocker code and next step, and recorded so `prodex pro latest` shows what happened.
+
+**I run consults in the background while working elsewhere — will the window keep popping up?** No. By default `prodex` never brings the window forward. Dedicate a Chrome window to the ChatGPT tab, leave it non-minimized behind your editor, and sends run silently. (On macOS a fully occluded window can report itself hidden even when not minimized; if that bites you, keep a sliver visible or accept the occasional blocker.)
 
 **Why did it pause before sending?** Visible-browser sends are throttled to human pace (default one every 10 seconds) so an agent loop can't hammer ChatGPT at machine speed. You'll see a `send_pacing: waiting Ns` note on stderr. Tune it with `PRODEX_MIN_SEND_INTERVAL_MS` (milliseconds; `0` disables). Pacing is tracked per repo via `.bridge/last-browser-send`.
 

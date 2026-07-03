@@ -4,6 +4,17 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.1] - 2026-07-03
+
+### Changed
+- Tab activation is now opt-in (`PRODEX_ACTIVATE_TAB=1`) instead of on by
+  default. Bringing the window to the front steals OS focus, which disrupts
+  background/agent-loop use; since a non-minimized window (even behind other
+  windows) already counts as visible, the default now sends without touching
+  window focus and reports the tab_not_visible blocker only when the window is
+  minimized or on another tab. This matches how comparable bridges
+  (browser-use, OpenCLI) avoid moving the user's visible window.
+
 ## [0.7.0] - 2026-07-03
 
 ### Added

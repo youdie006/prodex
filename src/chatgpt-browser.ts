@@ -442,11 +442,16 @@ export function assertVisibleChatGptTab(visibilityState: string | undefined, url
   if (blocker) throw new ChatGptBrowserBlockerError(blocker);
 }
 
-// The visible-tab requirement exists so the user can watch every automated
-// send. When another tab merely covers the ChatGPT tab, actively bring it to
-// the foreground via the DevTools activate endpoint instead of failing; the
-// tab_not_visible blocker remains the fallback when activation does not help
-// (e.g. the whole window is minimized at the OS level).
+// Opt-in only: bringing the tab to the front steals OS focus, which is the
+// widely-disliked bringToFront() anti-pattern and disrupts anyone running
+// sends in the background. A non-minimized window (even behind other windows)
+// already reports visibilityState "visible", so the default needs no
+// activation; users who want the convenience set PRODEX_ACTIVATE_TAB=1.
+export function isTabActivationEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  const raw = (env.PRODEX_ACTIVATE_TAB ?? "").trim().toLowerCase();
+  return raw === "1" || raw === "true" || raw === "yes";
+}
+
 async function activateChatGptPage(port: number, page: DevtoolsPage): Promise<void> {
   if (!page.id) return;
   try {
@@ -470,6 +475,7 @@ async function readSettledChatGptPageStatus(page: DevtoolsPage): Promise<ChatGpt
 
 async function ensureVisibleChatGptPage(port: number, page: DevtoolsPage, status: ChatGptPageStatus): Promise<ChatGptPageStatus> {
   if (status.visibilityState === "visible") return status;
+  if (!isTabActivationEnabled()) return status; // default: never steal focus; let the visibility assert report the blocker
   await activateChatGptPage(port, page);
   const deadline = Date.now() + 3_000;
   let latest = status;
