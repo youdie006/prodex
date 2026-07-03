@@ -1544,6 +1544,26 @@ describe("pro browser ask model/project selection", () => {
     expect(JSON.stringify(consult?.metadata?.warnings)).toContain("answer_incomplete");
   });
 
+  it("records a likely-UI-change failure as a send_ui_changed blocker with an update hint", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-select-"));
+    sendChatGptPromptMock.mockRejectedValueOnce(
+      new Error(
+        "Timed out after 90000ms and ChatGPT never registered the prompt (the composer still holds the prompt). The ChatGPT web UI may have changed, so prodex could not submit. Update prodex (npm i -g @youdie006/prodex@latest); if it persists, report it at https://github.com/youdie006/prodex/issues. You can also paste the prompt manually in the visible browser."
+      )
+    );
+
+    await expect(
+      runCli(["pro", "browser", "ask", "Review this"], { cwd, stdout: () => {}, stderr: () => {} })
+    ).rejects.toThrow(/blocked consult recorded|UI may have changed/);
+
+    const out: string[] = [];
+    await runCli(["pro", "latest"], { cwd, stdout: (line) => out.push(line), stderr: () => {} });
+    const text = out.join("\n");
+    expect(text).toContain("status: blocked");
+    expect(text).toContain("send_ui_changed");
+    expect(text).toContain("npm i -g @youdie006/prodex@latest");
+  });
+
   it("records a timeout as an actionable send_timeout blocker with a --timeout-ms hint", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-select-"));
     sendChatGptPromptMock.mockRejectedValueOnce(

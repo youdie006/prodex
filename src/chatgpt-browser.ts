@@ -246,6 +246,41 @@ export function hasFreshChatGptAnswer(
 // a new assistant message that already contains usable text but is still
 // streaming. Used to salvage the partial answer on a timeout instead of
 // discarding minutes of Pro reasoning.
+export interface AcceptanceTimeoutContext {
+  timeoutMs: number;
+  // The composer still held the prompt after submit — the send did not consume it.
+  composerStillHasText: boolean;
+  // submitExpression located an enabled send button to click.
+  submitButtonFound: boolean;
+}
+
+// The acceptance phase waits for the prompt to POST (a new user/assistant
+// message), not for the answer. So a timeout here almost never means "slow
+// model" — it means the submit did not register, which is the signature of a
+// changed ChatGPT UI (moved/renamed composer or send control). Distinguish that
+// from a genuinely clean-but-slow submit and point the user at an update/report
+// instead of a misleading "raise --timeout-ms".
+export function acceptanceTimeoutError(ctx: AcceptanceTimeoutContext): Error {
+  const uiLikelyChanged = ctx.composerStillHasText || !ctx.submitButtonFound;
+  if (uiLikelyChanged) {
+    const detail = [
+      ctx.composerStillHasText ? "the composer still holds the prompt" : undefined,
+      !ctx.submitButtonFound ? "no send button was found" : undefined
+    ]
+      .filter(Boolean)
+      .join(" and ");
+    return new Error(
+      `Timed out after ${ctx.timeoutMs}ms and ChatGPT never registered the prompt (${detail}). ` +
+        "The ChatGPT web UI may have changed, so prodex could not submit. Update prodex " +
+        "(npm i -g @youdie006/prodex@latest); if it persists, report it at " +
+        "https://github.com/youdie006/prodex/issues. You can also paste the prompt manually in the visible browser."
+    );
+  }
+  return new Error(
+    `Timed out after ${ctx.timeoutMs}ms waiting for ChatGPT to accept the prompt. Raise --timeout-ms and retry (Pro extended already uses a higher default).`
+  );
+}
+
 export function hasPartialChatGptAnswer(
   previousAssistantMessageCount: number,
   state: Pick<ChatGptAnswerState, "answer" | "assistantMessageCount">
@@ -1095,6 +1130,7 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
     throw new ChatGptBrowserBlockerError(busyBlocker);
   }
   let beforeSubmit!: ChatGptAnswerState;
+  let submitButtonFound = false;
   const cdp = await connectCdp(page.webSocketDebuggerUrl);
   try {
     await cdp.send("Runtime.enable");
@@ -1107,7 +1143,8 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
     await insertComposerTextViaCdp(cdp, options.prompt);
     await sleep(300);
     const submitted = await cdp.evaluate<{ ok: boolean; x?: number; y?: number; reason?: string }>(submitExpression());
-    if (submitted.ok && submitted.x !== undefined && submitted.y !== undefined) {
+    submitButtonFound = Boolean(submitted.ok && submitted.x !== undefined && submitted.y !== undefined);
+    if (submitButtonFound && submitted.x !== undefined && submitted.y !== undefined) {
       await dispatchMouseClickAt(cdp, submitted.x, submitted.y);
     } else {
       // No submit button located (hidden state) — fall back to a real Enter key
@@ -1134,9 +1171,16 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
     }
   }
   if (!accepted) {
-    throw new Error(
-      `Timed out after ${timeoutMs}ms waiting for ChatGPT to accept the prompt. Raise --timeout-ms and retry (Pro extended already uses a higher default).`
-    );
+    // A successful submit clears the composer, so text still sitting there means
+    // the send control did not register the prompt — the UI-changed signature.
+    let composerStillHasText = false;
+    try {
+      const composerState = await evaluateOnPage<{ ok: boolean }>(page, composerTextStateExpression());
+      composerStillHasText = composerState.ok;
+    } catch {
+      // best effort: fall back to submit-button signal only
+    }
+    throw acceptanceTimeoutError({ timeoutMs, composerStillHasText, submitButtonFound });
   }
 
   let stableAnswer: string | undefined;

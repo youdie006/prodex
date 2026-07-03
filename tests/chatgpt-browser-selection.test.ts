@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 
 import {
+  acceptanceTimeoutError,
   hasPartialChatGptAnswer,
   isTabActivationEnabled,
   isUsableChatGptAnswer,
@@ -8,6 +9,27 @@ import {
   parseProMode,
   resolveCdpTimeoutMs
 } from "../src/chatgpt-browser.js";
+
+describe("acceptanceTimeoutError", () => {
+  it("flags a likely ChatGPT UI change when the prompt was not consumed", () => {
+    const e = acceptanceTimeoutError({ timeoutMs: 90_000, composerStillHasText: true, submitButtonFound: true });
+    expect(e.message).toMatch(/ChatGPT web UI may have changed/);
+    expect(e.message).toMatch(/update prodex|npm i -g/i);
+    expect(e.message).not.toMatch(/Raise --timeout-ms/);
+  });
+
+  it("flags a UI change when no send button could be found", () => {
+    const e = acceptanceTimeoutError({ timeoutMs: 90_000, composerStillHasText: false, submitButtonFound: false });
+    expect(e.message).toMatch(/ChatGPT web UI may have changed/);
+    expect(e.message).toMatch(/send button/i);
+  });
+
+  it("falls back to a slowness/timeout message when the prompt was submitted cleanly", () => {
+    const e = acceptanceTimeoutError({ timeoutMs: 90_000, composerStillHasText: false, submitButtonFound: true });
+    expect(e.message).toMatch(/Raise --timeout-ms/);
+    expect(e.message).not.toMatch(/UI may have changed/);
+  });
+});
 
 describe("resolveCdpTimeoutMs", () => {
   it("falls back to a bounded default so a frozen browser cannot hang the poll forever", () => {

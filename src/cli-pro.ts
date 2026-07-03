@@ -701,6 +701,14 @@ export function browserSendBlockerFromError(error: unknown): { code: string; mes
     };
   }
   const message = errorMessage(error);
+  if (/ChatGPT web UI may have changed/.test(message)) {
+    return {
+      code: "send_ui_changed",
+      message,
+      retryable: true,
+      next_step: "Update prodex (npm i -g @youdie006/prodex@latest); if it persists, report it at https://github.com/youdie006/prodex/issues or paste the prompt manually in the visible browser."
+    };
+  }
   if (/^Timed out after \d+ms/.test(message)) {
     return {
       code: "send_timeout",

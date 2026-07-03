@@ -35,6 +35,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   "raise --timeout-ms" next step instead of the generic `browser_send_failed`
   bucket, and the timeout error messages include the elapsed budget.
 
+## [0.8.1] - 2026-07-04
+
+### Added
+- Selector-rot diagnostic: when a send times out before the prompt ever posts
+  (the composer still holds the text, or no send button was found), prodex now
+  reports a `send_ui_changed` blocker — "the ChatGPT web UI may have changed" —
+  with an update/report next step, instead of the misleading "raise
+  --timeout-ms" latency message. The acceptance phase waits for the prompt to
+  post, so a timeout there signals a broken submit (a UI change), not a slow
+  model. A genuinely clean-but-slow submit still gets the timeout hint.
+
 ## [0.8.0] - 2026-07-03
 
 ### Fixed
