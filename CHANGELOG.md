@@ -4,6 +4,22 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-07-03
+
+### Added
+- English (US) ChatGPT UI support for the selection flags: efforts, Pro
+  sub-modes, project rows, and the new-project button match both locales'
+  labels (Instant/Medium/High/Extra High, Pro Standard/Extended, "Open
+  project options for", "New project"), captured and verified live.
+  `parseReasoningEffort` also accepts the English menu labels as input.
+
+### Changed
+- Internal: cli.ts split into cli-args.ts (argument parsing) and
+  cli-help.ts (help text, CLI version); no behavior change, help output
+  verified byte-identical.
+- Model-prefixed English thinking placeholders are treated as still
+  generating, matching the Korean behavior.
+
 ## [0.5.0] - 2026-07-03
 
 ### Added
