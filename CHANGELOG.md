@@ -4,6 +4,16 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.1] - 2026-07-03
+
+### Changed
+- Internal: second pass of the cli.ts decomposition. Command handlers move
+  into cli-ledger.ts (tasks/results/receipts/sessions), cli-server.ts
+  (init/setup/start/status/tunnel), and cli-pro.ts (pro/ask-pro/legacy
+  chatgpt), with shared source-aware messaging in cli-shared.ts; cli.ts
+  shrinks from ~4,100 to ~1,700 lines. No behavior change: help output
+  verified byte-identical, full test suite and package smoke green.
+
 ## [0.6.0] - 2026-07-03
 
 ### Added
