@@ -4,6 +4,24 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.3] - 2026-07-03
+
+### Fixed
+- CI/release: `npm run build` now marks the packaged bin `dist/cli.js`
+  executable (new `postbuild` step), so `release:check` and `npm publish` no
+  longer need a manual `chmod +x`. This fixes the GitHub Actions
+  release-verify job, which failed on every push with "package bin entries
+  must be executable: dist/cli.js".
+- Visible-browser sends that time out while the answer is still streaming now
+  salvage the partial text and return it with an `answer_incomplete` warning
+  instead of discarding minutes of Pro reasoning; the answer is saved as a
+  normal done consult with the warning recorded on the receipt.
+
+### Changed
+- Timeouts now surface as a dedicated `send_timeout` blocker with a
+  "raise --timeout-ms" next step instead of the generic `browser_send_failed`
+  bucket, and the timeout error messages include the elapsed budget.
+
 ## [0.7.2] - 2026-07-03
 
 ### Security

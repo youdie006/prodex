@@ -242,6 +242,17 @@ export function hasFreshChatGptAnswer(
   return state.assistantMessageCount > previousAssistantMessageCount && isUsableChatGptAnswer(state.answer) && !state.generating;
 }
 
+// Like hasFreshChatGptAnswer but WITHOUT requiring generation to have finished:
+// a new assistant message that already contains usable text but is still
+// streaming. Used to salvage the partial answer on a timeout instead of
+// discarding minutes of Pro reasoning.
+export function hasPartialChatGptAnswer(
+  previousAssistantMessageCount: number,
+  state: Pick<ChatGptAnswerState, "answer" | "assistantMessageCount">
+): boolean {
+  return state.assistantMessageCount > previousAssistantMessageCount && isUsableChatGptAnswer(state.answer);
+}
+
 export function hasChatGptPromptAcceptance(
   previous: Pick<ChatGptAnswerState, "assistantMessageCount" | "userMessageCount">,
   state: Pick<ChatGptAnswerState, "assistantMessageCount" | "generating" | "userMessageCount">
@@ -1110,7 +1121,9 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
     }
   }
   if (!accepted) {
-    throw new Error("Timed out waiting for ChatGPT to accept the prompt.");
+    throw new Error(
+      `Timed out after ${timeoutMs}ms waiting for ChatGPT to accept the prompt. Raise --timeout-ms and retry (Pro extended already uses a higher default).`
+    );
   }
 
   let stableAnswer: string | undefined;
@@ -1136,16 +1149,32 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
     }
   }
   const completed = finalState;
-  if (!completed || !hasFreshChatGptAnswer(beforeSubmit.assistantMessageCount, completed)) {
-    throw new Error("Timed out waiting for ChatGPT response.");
+  if (completed && hasFreshChatGptAnswer(beforeSubmit.assistantMessageCount, completed)) {
+    return {
+      url: completed.url,
+      title: completed.title,
+      answer: completed.answer.trim(),
+      modelHints: completed.modelHints,
+      warnings: []
+    };
   }
-  return {
-    url: completed.url,
-    title: completed.title,
-    answer: completed.answer.trim(),
-    modelHints: completed.modelHints,
-    warnings: []
-  };
+  // Timed out while the answer was still streaming: salvage the partial text
+  // (a truncated-but-real Pro answer is far more useful than losing it) and
+  // flag it so the caller records the incompleteness and the retry hint.
+  if (completed && hasPartialChatGptAnswer(beforeSubmit.assistantMessageCount, completed)) {
+    return {
+      url: completed.url,
+      title: completed.title,
+      answer: completed.answer.trim(),
+      modelHints: completed.modelHints,
+      warnings: [
+        `answer_incomplete: ChatGPT was still generating after ${timeoutMs}ms, so the answer below may be truncated. Raise --timeout-ms and retry for the full response.`
+      ]
+    };
+  }
+  throw new Error(
+    `Timed out after ${timeoutMs}ms waiting for ChatGPT to respond. Raise --timeout-ms and retry (Pro extended already uses a higher default).`
+  );
 }
 
 export interface ChatGptModelOption {

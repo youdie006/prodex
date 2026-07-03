@@ -1518,6 +1518,50 @@ describe("pro browser ask model/project selection", () => {
     ).rejects.toThrow(/--interactive/);
   });
 
+  it("saves a partial answer with an answer_incomplete warning instead of discarding it", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-select-"));
+    sendChatGptPromptMock.mockResolvedValueOnce({
+      url: "https://chatgpt.com/c/abc",
+      title: "ChatGPT",
+      answer: "Partial reasoning that got cut off",
+      modelHints: [],
+      warnings: [
+        "answer_incomplete: ChatGPT was still generating after 90000ms, so the answer below may be truncated. Raise --timeout-ms and retry for the full response."
+      ]
+    });
+    const out: string[] = [];
+
+    await runCli(["pro", "browser", "ask", "Review this"], { cwd, stdout: (line) => out.push(line), stderr: () => {} });
+
+    expect(out[0]).toContain("\tdone\t");
+    const receiptsDir = path.join(cwd, ".bridge", "receipts");
+    const receipts = await Promise.all(
+      (await readdir(receiptsDir))
+        .filter((name) => name.endsWith(".json"))
+        .map(async (name) => JSON.parse(await readFile(path.join(receiptsDir, name), "utf8")) as { kind?: string; metadata?: { warnings?: string[] } })
+    );
+    const consult = receipts.find((entry) => entry.kind === "consult_answer_saved");
+    expect(JSON.stringify(consult?.metadata?.warnings)).toContain("answer_incomplete");
+  });
+
+  it("records a timeout as an actionable send_timeout blocker with a --timeout-ms hint", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-select-"));
+    sendChatGptPromptMock.mockRejectedValueOnce(
+      new Error("Timed out after 90000ms waiting for ChatGPT to respond. Raise --timeout-ms and retry (Pro extended already uses a higher default).")
+    );
+
+    await expect(
+      runCli(["pro", "browser", "ask", "Review this"], { cwd, stdout: () => {}, stderr: () => {} })
+    ).rejects.toThrow(/blocked consult recorded|Timed out/);
+
+    const out: string[] = [];
+    await runCli(["pro", "latest"], { cwd, stdout: (line) => out.push(line), stderr: () => {} });
+    const text = out.join("\n");
+    expect(text).toContain("status: blocked");
+    expect(text).toContain("send_timeout");
+    expect(text).toContain("--timeout-ms");
+  });
+
   it("lists model menu options read-only via pro browser models", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-select-"));
     listChatGptModelOptionsMock.mockResolvedValueOnce({

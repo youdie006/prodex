@@ -1,6 +1,6 @@
 {
   "name": "@youdie006/prodex",
-  "version": "0.7.2",
+  "version": "0.7.3",
   "description": "Local receipt bus for coordinating Codex execution with ChatGPT Pro/Projects consultation.",
   "author": "youdie006",
   "license": "MIT",
@@ -41,6 +41,7 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "postbuild": "node scripts/postbuild.mjs",
     "dev": "tsx src/cli.ts",
     "release:check": "node scripts/release-check.mjs",
     "release:pack": "node scripts/release-pack.mjs",

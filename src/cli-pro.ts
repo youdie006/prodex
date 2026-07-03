@@ -701,6 +701,14 @@ export function browserSendBlockerFromError(error: unknown): { code: string; mes
     };
   }
   const message = errorMessage(error);
+  if (/^Timed out after \d+ms/.test(message)) {
+    return {
+      code: "send_timeout",
+      message,
+      retryable: true,
+      next_step: "Raise --timeout-ms (Pro extended already uses a higher default) and rerun the consult."
+    };
+  }
   return {
     code: "browser_send_failed",
     message,

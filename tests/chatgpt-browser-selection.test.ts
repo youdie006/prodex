@@ -1,6 +1,27 @@
 import { describe, it, expect } from "vitest";
 
-import { isTabActivationEnabled, isUsableChatGptAnswer, parseReasoningEffort, parseProMode } from "../src/chatgpt-browser.js";
+import {
+  hasPartialChatGptAnswer,
+  isTabActivationEnabled,
+  isUsableChatGptAnswer,
+  parseReasoningEffort,
+  parseProMode
+} from "../src/chatgpt-browser.js";
+
+describe("hasPartialChatGptAnswer", () => {
+  it("recognizes a new assistant message with usable text even while still generating", () => {
+    expect(hasPartialChatGptAnswer(0, { answer: "Here is a partial thought", assistantMessageCount: 1, generating: true })).toBe(true);
+  });
+
+  it("is false when no new assistant message appeared", () => {
+    expect(hasPartialChatGptAnswer(1, { answer: "text", assistantMessageCount: 1, generating: true })).toBe(false);
+  });
+
+  it("is false for a bare thinking placeholder", () => {
+    expect(hasPartialChatGptAnswer(0, { answer: "Pro 생각 중", assistantMessageCount: 1, generating: true })).toBe(false);
+    expect(hasPartialChatGptAnswer(0, { answer: "", assistantMessageCount: 1, generating: true })).toBe(false);
+  });
+});
 
 describe("isTabActivationEnabled", () => {
   it("is off by default so sends never steal focus", () => {
