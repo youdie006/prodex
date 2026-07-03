@@ -158,11 +158,31 @@ describe("repo path policy", () => {
   it("still allows ordinary files that merely resemble secret names", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "prodex-repo-"));
     await mkdir(path.join(root, "notes"), { recursive: true });
-    await writeFile(path.join(root, "notes", "secretsanta.md"), "gifts\n", "utf8");
-    await writeFile(path.join(root, "keyboard.ts"), "export const k = 1;\n", "utf8");
+    await mkdir(path.join(root, "src", "credentials"), { recursive: true });
+    const allowed = [
+      "notes/secretsanta.md",
+      "keyboard.ts",
+      "credentials.ts", // source module, not a credential store
+      "credentials-helper.ts",
+      "service_account.py",
+      "src/credentials/oauth.ts", // directory named credentials must not block its subtree
+      "foo.key.ts", // secret extension only as a penultimate segment
+      "notes/using.gpg.md",
+      "README.asc"
+    ];
+    for (const p of allowed) {
+      await mkdir(path.dirname(path.join(root, p)), { recursive: true });
+      await writeFile(path.join(root, p), "ordinary\n", "utf8");
+      await expect(readRepoFile(root, p)).resolves.toBeTruthy();
+    }
+  });
 
-    await expect(readRepoFile(root, "notes/secretsanta.md")).resolves.toBeTruthy();
-    await expect(readRepoFile(root, "keyboard.ts")).resolves.toBeTruthy();
+  it("still blocks credential data files and terraform state backups", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-repo-"));
+    for (const p of ["credentials.json", "service-account.json", "terraform.tfstate.backup"]) {
+      await writeFile(path.join(root, p), "SECRET\n", "utf8");
+      await expect(readRepoFile(root, p)).rejects.toThrow(/sensitive/);
+    }
   });
 
   it("rejects globs that target secret files", async () => {

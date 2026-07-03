@@ -4,6 +4,19 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.4] - 2026-07-03
+
+### Fixed
+- Tighten the 0.7.3 secret-file blocklist to remove false positives found in an
+  adversarial regression review: a directory or module named `credentials`/
+  `service-account` (e.g. `credentials.ts`, `src/credentials/oauth.ts`,
+  `service_account.py`) is no longer blocked — those names now require a
+  data/config extension (`credentials.json`, `service-account.json` stay
+  blocked). Secret extensions match only as the final extension, so
+  `foo.key.ts` / `using.gpg.md` are allowed while `server.pem` / `tls.key`
+  stay blocked; `.asc` (public GPG signatures / AsciiDoc) is no longer treated
+  as secret; `*.tfstate.backup` remains blocked explicitly.
+
 ## [0.7.3] - 2026-07-03
 
 ### Fixed

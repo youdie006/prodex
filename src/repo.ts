@@ -337,15 +337,23 @@ const SECRET_FILE_EXACT_NAMES = new Set([
   "id_ecdsa",
   "id_ed25519"
 ]);
-const SECRET_FILE_EXTENSIONS = /\.(pem|key|p12|pfx|pkcs12|keystore|jks|ppk|kdbx|tfstate|gpg|asc)(\.[a-z0-9]+)?$/;
-const SECRET_FILE_NAME_PREFIXES = /^(credentials|service[-_]?account)([._-]|$)/;
+// Key material by final extension only. Anchored at end (no penultimate match)
+// so ordinary source/docs like `foo.key.ts` or `using.gpg.md` are not caught.
+// `.asc` is intentionally excluded (GPG detached signatures are public and the
+// extension doubles as AsciiDoc). Terraform state backups are added explicitly
+// since their real extension is `.backup`.
+const SECRET_FILE_EXTENSIONS = /(?:\.(?:pem|key|p12|pfx|pkcs12|keystore|jks|ppk|kdbx|tfstate|gpg)|\.tfstate\.backup)$/;
+// credentials.*/service-account.* only when they carry a data/config extension,
+// not a source extension and not a bare directory name — a `credentials/` dir or
+// `credentials.ts` module is ordinary code and must stay readable.
+const SECRET_FILE_NAME_PATTERNS = /^(?:credentials|service[-_]?account)\.(?:json|yaml|yml|ini|toml|env|txt|csv|pem|key|p12|pfx|pkcs12)$/;
 
 function isSecretFileSegment(segment: string): boolean {
   const folded = foldSensitiveSegment(segment);
   if (SECRET_FILE_DIR_SEGMENTS.has(folded)) return true;
   if (SECRET_FILE_EXACT_NAMES.has(folded)) return true;
   if (SECRET_FILE_EXTENSIONS.test(folded)) return true;
-  if (SECRET_FILE_NAME_PREFIXES.test(folded)) return true;
+  if (SECRET_FILE_NAME_PATTERNS.test(folded)) return true;
   return false;
 }
 
