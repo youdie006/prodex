@@ -211,3 +211,7 @@ export function isMissingFileError(error: unknown): boolean {
 export function isLoopbackHost(hostname: string): boolean {
   return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1" || hostname === "[::1]";
 }
+
+export function firstLine(value: string): string {
+  return value.split(/\r?\n/).find((line) => line.trim())?.trim() ?? "";
+}
