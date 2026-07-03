@@ -30,7 +30,7 @@ import {
   isLikelyChatGptSubmitButton,
   normalizeChatGptTargetUrl,
   selectChatGptPage,
-  setComposerTextExpression,
+  prepareComposerExpression,
   sendChatGptPrompt,
   submitExpression,
   isUsableChatGptAnswer
@@ -520,17 +520,19 @@ describe("ChatGPT browser adapter", () => {
   });
 
   it("scopes prompt insertion and submit to a ChatGPT composer root", () => {
-    const insertExpression = setComposerTextExpression("hello");
+    const prepareExpression = prepareComposerExpression();
     const submit = submitExpression();
 
     expect(CHATGPT_COMPOSER_CANDIDATE_EXCLUDED_ANCESTORS).not.toContain("textarea");
     expect(CHATGPT_COMPOSER_CANDIDATE_EXCLUDED_ANCESTORS).not.toContain("contenteditable");
     expect(CHATGPT_COMPOSER_CANDIDATE_EXCLUDED_ANCESTORS).not.toContain('div[role="textbox"]');
-    expect(insertExpression).toContain("findChatGptComposerCandidate");
-    expect(insertExpression).toContain("findChatGptComposerRoot");
-    expect(insertExpression).toContain(PRODEX_ACTIVE_COMPOSER_ATTRIBUTE);
-    expect(insertExpression).toContain("markChatGptComposerRoot(root)");
-    expect(insertExpression).not.toContain(".find((node) => !!(node.offsetWidth");
+    expect(prepareExpression).toContain("findChatGptComposerCandidate");
+    // prepare clears any stale active-composer marks (it must not SET one, which
+    // would re-render ChatGPT's editor) and never uses the old offsetWidth gate.
+    expect(prepareExpression).toContain(PRODEX_ACTIVE_COMPOSER_ATTRIBUTE);
+    expect(prepareExpression).toContain("removeAttribute(activeComposerAttribute)");
+    expect(prepareExpression).not.toContain("markChatGptComposerRoot(root)");
+    expect(prepareExpression).not.toContain(".find((node) => !!(node.offsetWidth");
     expect(submit).toContain("findChatGptComposerCandidate");
     expect(submit).toContain("findMarkedChatGptComposerRoot()");
     expect(submit.indexOf("findMarkedChatGptComposerRoot()")).toBeLessThan(submit.indexOf("findChatGptComposerCandidate()"));
@@ -538,33 +540,31 @@ describe("ChatGPT browser adapter", () => {
     expect(submit).not.toContain("document.querySelectorAll('button')].find");
   });
 
-  it("submits through the composer root marked during prompt insertion", () => {
+  it("prepares the visible composer and locates its submit button", () => {
     const wrongRoot = new FakeElement("form");
     const wrongEditor = new FakeTextArea();
     const wrongButton = new FakeButton("Save");
     const chatRoot = new FakeElement("form");
     const chatEditor = new FakeTextArea();
     const chatButton = new FakeButton("Send prompt", "send-button");
-    chatButton.disabled = true;
     wrongEditor.formRoot = wrongRoot;
     chatEditor.formRoot = chatRoot;
     wrongRoot.buttons = [wrongButton];
     chatRoot.buttons = [chatButton];
-    chatEditor.onDispatch = (event) => {
-      if (event.type === "input") chatButton.disabled = false;
-    };
     const document = new FakeDocument([wrongEditor, chatEditor], [wrongRoot, chatRoot]);
     const globals = [document, {}, FakeInputEvent, FakeEvent, FakeTextArea, FakeInput] as const;
 
-    const inserted = evaluateBrowserExpression<{ ok: boolean }>(setComposerTextExpression("hello"), globals);
-    const submitted = evaluateBrowserExpression<{ ok: boolean }>(submitExpression(), globals);
+    // prepare focuses/clears the real composer (the prompt is typed via CDP
+    // Input.insertText, verified live); submit then locates the send button.
+    const prepared = evaluateBrowserExpression<{ ok: boolean }>(prepareComposerExpression(), globals);
+    const submitted = evaluateBrowserExpression<{ ok: boolean; x?: number; y?: number }>(submitExpression(), globals);
 
-    expect(inserted.ok).toBe(true);
+    expect(prepared.ok).toBe(true);
+    // submitExpression returns the enabled submit button's click point; the
+    // caller performs a real CDP click.
     expect(submitted.ok).toBe(true);
-    expect(chatEditor.value).toBe("hello");
-    expect(chatRoot.getAttribute(PRODEX_ACTIVE_COMPOSER_ATTRIBUTE)).toBe("true");
-    expect(chatButton.clicked).toBe(true);
-    expect(wrongButton.clicked).toBe(false);
+    expect(typeof submitted.x).toBe("number");
+    expect(typeof submitted.y).toBe("number");
   });
 
   it("does not treat an incidental editable element as product-check composer readiness", async () => {
@@ -651,10 +651,25 @@ class FakeElement {
   constructor(readonly tagName = "div") {}
 
   getClientRects(): unknown[] {
-    return [this];
+    return this.offsetWidth > 0 && this.offsetHeight > 0 ? [this] : [];
+  }
+
+  getBoundingClientRect(): { width: number; height: number; x: number; y: number; top: number; left: number; right: number; bottom: number } {
+    return {
+      width: this.offsetWidth,
+      height: this.offsetHeight,
+      x: 0,
+      y: 0,
+      top: 0,
+      left: 0,
+      right: this.offsetWidth,
+      bottom: this.offsetHeight
+    };
   }
 
   focus(): void {}
+
+  scrollIntoView(): void {}
 
   dispatchEvent(event: FakeEvent): void {
     this.onDispatch?.(event);

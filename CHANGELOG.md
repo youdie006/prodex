@@ -35,6 +35,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   "raise --timeout-ms" next step instead of the generic `browser_send_failed`
   bucket, and the timeout error messages include the elapsed budget.
 
+## [0.8.0] - 2026-07-03
+
+### Fixed
+- Restore visible-browser sends after a ChatGPT composer/editor change that
+  had silently broken them. Three compounding causes, each fixed and
+  live-verified end-to-end in a fresh chat:
+  - Composer detection now requires real on-screen size (getBoundingClientRect
+    width/height), so the hidden 0x0 fallback `<textarea>` that precedes the
+    real ProseMirror editor is no longer picked (it had accepted a `.value`
+    write as a false success while the real editor stayed empty).
+  - The prompt is now typed with native CDP `Input.insertText` into the focused
+    editor instead of in-page `execCommand`/value writes, which ProseMirror
+    ignores for its internal model (so the send posted an empty message).
+  - Submit performs a real CDP mouse click on the send button (from a fresh
+    `getBoundingClientRect`) instead of a synthetic `button.click()`, which
+    ChatGPT's React handler ignores; prepare no longer writes a marker
+    attribute onto the composer form (that re-rendered/reset the editor).
+- `connectCdp` now bounds every connect and command with a default 20s timeout
+  even when the caller passes none, so a frozen/half-open browser socket makes
+  the poll loop error out instead of hanging indefinitely.
+
 ## [0.7.2] - 2026-07-03
 
 ### Security

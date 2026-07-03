@@ -658,6 +658,16 @@ interface RectHit {
   haspopup?: string | null;
 }
 
+// Plain real mouse click at a point (no hover-verify). Used for the send
+// button, whose coordinates come from a fresh getBoundingClientRect. A real
+// CDP click is required because ChatGPT's React send handler ignores a
+// synthetic element.click().
+async function dispatchMouseClickAt(cdp: CdpConnection, x: number, y: number): Promise<void> {
+  await cdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", x, y });
+  await cdp.send("Input.dispatchMouseEvent", { type: "mousePressed", x, y, button: "left", clickCount: 1 });
+  await cdp.send("Input.dispatchMouseEvent", { type: "mouseReleased", x, y, button: "left", clickCount: 1 });
+}
+
 async function dispatchEscapeKey(cdp: CdpConnection): Promise<void> {
   await cdp.send("Input.dispatchKeyEvent", { type: "keyDown", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
   await cdp.send("Input.dispatchKeyEvent", { type: "keyUp", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
@@ -1094,11 +1104,14 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
     // so assistant-message counts compare within the thread we actually send
     // into; a --project/--project-new hop lands on a page with its own counts.
     beforeSubmit = await evaluateOnPage<ChatGptAnswerState>(page, answerExpression());
-    const inserted = await cdp.evaluate<{ ok: boolean; reason?: string; actualText?: string }>(setComposerTextExpression(options.prompt));
-    if (!inserted.ok) throw new Error(inserted.reason ?? "Could not insert text into ChatGPT composer");
+    await insertComposerTextViaCdp(cdp, options.prompt);
     await sleep(300);
-    const submitted = await cdp.evaluate<{ ok: boolean; reason?: string }>(submitExpression());
-    if (!submitted.ok) {
+    const submitted = await cdp.evaluate<{ ok: boolean; x?: number; y?: number; reason?: string }>(submitExpression());
+    if (submitted.ok && submitted.x !== undefined && submitted.y !== undefined) {
+      await dispatchMouseClickAt(cdp, submitted.x, submitted.y);
+    } else {
+      // No submit button located (hidden state) — fall back to a real Enter key
+      // on the focused composer.
       await cdp.send("Input.dispatchKeyEvent", enterKeyEvent("keyDown"));
       await cdp.send("Input.dispatchKeyEvent", enterKeyEvent("keyUp"));
     }
@@ -1325,11 +1338,23 @@ async function evaluateOnPage<T>(page: DevtoolsPage, expression: string, options
   }
 }
 
+// Every CDP connect and command is bounded, even when the caller passes no
+// explicit timeout, so a frozen browser (half-open TCP that never fires open,
+// or a command that never gets a reply) rejects instead of leaving the poll
+// loop blocked forever. The debug port is loopback, so any healthy single
+// round-trip completes well under this ceiling.
+const CDP_DEFAULT_TIMEOUT_MS = 20_000;
+
+export function resolveCdpTimeoutMs(explicit?: number): number {
+  return typeof explicit === "number" && explicit > 0 ? explicit : CDP_DEFAULT_TIMEOUT_MS;
+}
+
 async function connectCdp(webSocketUrl: string, timeoutMs?: number): Promise<{
   send: (method: string, params?: Record<string, unknown>) => Promise<CdpResponse>;
   evaluate: <T>(expression: string) => Promise<T>;
   close: () => void;
 }> {
+  const effectiveTimeoutMs = resolveCdpTimeoutMs(timeoutMs);
   const ws = new WebSocket(webSocketUrl);
   let id = 0;
   const pending = new Map<
@@ -1354,16 +1379,14 @@ async function connectCdp(webSocketUrl: string, timeoutMs?: number): Promise<{
     }
   });
   await new Promise<void>((resolve, reject) => {
-    const timer = timeoutMs
-      ? setTimeout(() => {
-          ws.close();
-          reject(new Error("Chrome DevTools websocket timed out"));
-        }, Math.max(1, timeoutMs))
-      : undefined;
+    const timer = setTimeout(() => {
+      ws.close();
+      reject(new Error("Chrome DevTools websocket timed out"));
+    }, Math.max(1, effectiveTimeoutMs));
     ws.addEventListener(
       "open",
       () => {
-        if (timer) clearTimeout(timer);
+        clearTimeout(timer);
         resolve();
       },
       { once: true }
@@ -1371,7 +1394,7 @@ async function connectCdp(webSocketUrl: string, timeoutMs?: number): Promise<{
     ws.addEventListener(
       "error",
       () => {
-        if (timer) clearTimeout(timer);
+        clearTimeout(timer);
         reject(new Error("Chrome DevTools websocket failed"));
       },
       { once: true }
@@ -1380,13 +1403,11 @@ async function connectCdp(webSocketUrl: string, timeoutMs?: number): Promise<{
   const send = (method: string, params: Record<string, unknown> = {}) => {
     const messageId = ++id;
     return new Promise<CdpResponse>((resolve, reject) => {
-      const timer = timeoutMs
-        ? setTimeout(() => {
-            pending.delete(messageId);
-            ws.close();
-            reject(new Error(`Chrome DevTools command timed out: ${method}`));
-          }, Math.max(1, timeoutMs))
-        : undefined;
+      const timer = setTimeout(() => {
+        pending.delete(messageId);
+        ws.close();
+        reject(new Error(`Chrome DevTools command timed out: ${method}`));
+      }, Math.max(1, effectiveTimeoutMs));
       pending.set(messageId, { resolve, reject, timer });
       ws.send(JSON.stringify({ id: messageId, method, params }));
     });
@@ -1457,44 +1478,58 @@ export function statusExpression(): string {
   })()`;
 }
 
-export function setComposerTextExpression(text: string): string {
-  const serializedText = JSON.stringify(text);
+// Focus, clear, and mark the real composer, WITHOUT inserting text. The prompt
+// is typed separately via CDP Input.insertText: ChatGPT's ProseMirror editor
+// ignores in-page execCommand/value writes for its internal model (the send
+// button then submits an empty message), whereas native CDP-typed input is
+// processed correctly. Returns ok so the caller can insert next.
+export function prepareComposerExpression(): string {
   return `(() => {
     ${composerExpressionHelpers()}
     const el = findChatGptComposerCandidate();
     if (!el) return { ok: false, reason: "No visible composer" };
-    const root = findChatGptComposerRoot(el);
-    if (root) markChatGptComposerRoot(root);
+    // Clear any stale active-composer marks but do NOT set one: writing a custom
+    // attribute onto the composer form makes ChatGPT's React re-render and reset
+    // the ProseMirror editor, so the subsequent send posts an empty message.
+    // Submit finds the composer fresh instead.
+    document.querySelectorAll('[' + activeComposerAttribute + '="true"]').forEach((node) => node.removeAttribute(activeComposerAttribute));
     el.focus();
-    const text = ${serializedText};
-    const dispatchInput = () => {
-      el.dispatchEvent(new InputEvent("input", { inputType: "insertText", data: text, bubbles: true, composed: true }));
-      el.dispatchEvent(new Event("change", { bubbles: true }));
-    };
     if ("value" in el) {
-      const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
-      const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
-      if (setter) setter.call(el, text);
-      else el.value = text;
-      dispatchInput();
+      el.value = "";
+      el.dispatchEvent(new InputEvent("input", { inputType: "deleteContentBackward", bubbles: true, composed: true }));
     } else {
       const selection = window.getSelection();
       const range = document.createRange();
       range.selectNodeContents(el);
-      range.deleteContents();
-      range.collapse(true);
       selection?.removeAllRanges();
       selection?.addRange(range);
-      document.execCommand("insertText", false, text);
-      const current = el.innerText || el.textContent || "";
-      if (!current.trim()) {
-        el.textContent = text;
-        dispatchInput();
-      }
+      document.execCommand("delete");
     }
+    return { ok: true };
+  })()`;
+}
+
+// Read back the composer's current text so the caller can verify the CDP-typed
+// prompt actually landed in the editor.
+export function composerTextStateExpression(): string {
+  return `(() => {
+    ${composerExpressionHelpers()}
+    const el = findChatGptComposerCandidate();
+    if (!el) return { ok: false, reason: "No visible composer" };
     const actualText = ("value" in el ? el.value : el.innerText || el.textContent || "").trim();
     return actualText ? { ok: true, actualText: actualText.slice(0, 120) } : { ok: false, reason: "Composer stayed empty after text insertion" };
   })()`;
+}
+
+// Focus/clear/mark the composer, then type the prompt with native CDP input so
+// ProseMirror registers it, then verify it landed.
+async function insertComposerTextViaCdp(cdp: CdpConnection, text: string): Promise<void> {
+  const prepared = await cdp.evaluate<{ ok: boolean; reason?: string }>(prepareComposerExpression());
+  if (!prepared.ok) throw new Error(prepared.reason ?? "Could not focus the ChatGPT composer");
+  await cdp.send("Input.insertText", { text });
+  await sleep(200);
+  const state = await cdp.evaluate<{ ok: boolean; reason?: string }>(composerTextStateExpression());
+  if (!state.ok) throw new Error(state.reason ?? "Composer stayed empty after text insertion");
 }
 
 export function submitExpression(): string {
@@ -1505,8 +1540,11 @@ export function submitExpression(): string {
     const root = markedRoot || (composer ? findChatGptComposerRoot(composer) : undefined);
     const button = root ? findChatGptSubmitButton(root) : undefined;
     if (!button) return { ok: false, reason: "No enabled submit button" };
-    button.click();
-    return { ok: true };
+    // Return the button's click point; the caller performs a real CDP mouse
+    // click because ChatGPT ignores a synthetic button.click().
+    button.scrollIntoView({ block: "center", inline: "nearest" });
+    const r = button.getBoundingClientRect();
+    return { ok: true, x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) };
   })()`;
 }
 
@@ -1516,7 +1554,15 @@ function composerExpressionHelpers(): string {
   return `
     const excludedTextSelector = ${excludedTextSelector};
     const activeComposerAttribute = ${activeComposerAttribute};
-    const isVisible = (node) => !!(node.offsetWidth || node.offsetHeight || node.getClientRects().length);
+    // Require real on-screen size. ChatGPT ships a hidden 0x0 fallback <textarea>
+    // (class wcDTda_fallbackTextarea) that precedes the real ProseMirror editor
+    // in the DOM; getClientRects().length alone counts it as visible, so the
+    // composer finder would pick it, set its .value (a false "ok"), and submit
+    // the still-empty real editor. A width/height gate excludes it.
+    const isVisible = (node) => {
+      const rect = node.getBoundingClientRect();
+      return rect.width > 0 && rect.height > 0;
+    };
     const isEditableComposer = (node) => isVisible(node) && !(node.parentElement && node.parentElement.closest(excludedTextSelector));
     const findChatGptComposerRoot = (node) =>
       node.closest('form') ||

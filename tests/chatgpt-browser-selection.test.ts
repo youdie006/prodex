@@ -5,8 +5,22 @@ import {
   isTabActivationEnabled,
   isUsableChatGptAnswer,
   parseReasoningEffort,
-  parseProMode
+  parseProMode,
+  resolveCdpTimeoutMs
 } from "../src/chatgpt-browser.js";
+
+describe("resolveCdpTimeoutMs", () => {
+  it("falls back to a bounded default so a frozen browser cannot hang the poll forever", () => {
+    expect(resolveCdpTimeoutMs(undefined)).toBe(20_000);
+    expect(resolveCdpTimeoutMs(0)).toBe(20_000);
+    expect(resolveCdpTimeoutMs(-5)).toBe(20_000);
+  });
+
+  it("honors an explicit positive timeout", () => {
+    expect(resolveCdpTimeoutMs(5_000)).toBe(5_000);
+    expect(resolveCdpTimeoutMs(1)).toBe(1);
+  });
+});
 
 describe("hasPartialChatGptAnswer", () => {
   it("recognizes a new assistant message with usable text even while still generating", () => {
