@@ -330,3 +330,17 @@ export function readNumberFlag(args: string[], flag: string): number | undefined
 }
 
 export const RECEIPT_KINDS = ReceiptKindSchema.options satisfies readonly NonNullable<ListReceiptsInput["kind"]>[];
+
+export function printHelpIfRequested(
+  args: string[],
+  command: string,
+  stdout: (line: string) => void,
+  printHelp: (stdout: (line: string) => void) => void,
+  options: HelpRequestOptions = {}
+): boolean {
+  const helpIndex = findHelpFlagIndexBeforePromptDelimiter(args);
+  if (helpIndex === -1) return false;
+  assertHelpRequestArgs(args, command, options);
+  printHelp(stdout);
+  return true;
+}
