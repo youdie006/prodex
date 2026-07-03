@@ -13,10 +13,8 @@ import {
   unknownSubcommandError
 } from "./cli-args.js";
 import { printReceiptsHelp, printResultsHelp, printSessionsHelp, printTasksHelp } from "./cli-help.js";
-// sourceAwareResultError still lives in cli.ts next to the rest of the
-// source-aware message family; this value import is safe (hoisted function,
-// called long after module init) and goes away when that family moves out.
-import { sourceAwareResultError, type CliIO } from "./cli.js";
+import { sourceAwareResultError } from "./cli-shared.js";
+import type { CliIO } from "./cli.js";
 import type { BridgeFile, Receipt } from "./schema.js";
 import { BridgeStore, type ListReceiptsInput } from "./store.js";
 
