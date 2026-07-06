@@ -107,6 +107,43 @@ export function parseProMode(raw: string): ChatGptProMode {
 
 export const DEFAULT_CDP_PORT = 9333;
 
+// The ChatGPT streaming caret renders as a literal text character at the end
+// of the growing assistant message (a plain "_" in the current UI; "▍" and
+// friends historically). Measured live 2026-07-06: the caret can stay in
+// innerText for a beat AFTER the stop button disappears, so a short answer can
+// look stable and non-generating while still carrying the caret.
+const TRAILING_CARET_SUSPECT = /[_▍▌█▊▋]$/;
+
+/**
+ * Stability policy for the answer poll loop. Returns true once the observed
+ * (answer, generating) stream should be accepted as final:
+ * - normal answers: two consecutive identical, non-generating polls;
+ * - answers whose tail looks like the streaming caret: six additional
+ *   confirmations (~6s at the 1s poll cadence), so a lingering caret gets
+ *   dropped by ChatGPT's finalization re-render first, while an answer that
+ *   genuinely ends with an underscore is still accepted after the extra wait.
+ */
+export function createChatGptAnswerStabilityTracker(): (answer: string, generating: boolean) => boolean {
+  let stableAnswer: string | undefined;
+  let confirmations = 0;
+  return (answer, generating) => {
+    if (generating) {
+      // A generating poll invalidates any baseline: the text may still grow.
+      stableAnswer = undefined;
+      confirmations = 0;
+      return false;
+    }
+    if (answer !== stableAnswer) {
+      stableAnswer = answer;
+      confirmations = 0;
+      return false;
+    }
+    confirmations += 1;
+    const required = TRAILING_CARET_SUSPECT.test(answer) ? 8 : 2;
+    return confirmations >= required;
+  };
+}
+
 /**
  * Resolve the Chrome DevTools port: explicit flag > PRODEX_CDP_PORT env >
  * default 9333. The env var exists so a non-default port picked at login does
@@ -1261,8 +1298,7 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
     throw acceptanceTimeoutError({ timeoutMs, composerStillHasText, submitButtonFound });
   }
 
-  let stableAnswer: string | undefined;
-  let stableConfirmations = 0;
+  const answerIsStable = createChatGptAnswerStabilityTracker();
   while (Date.now() - started < timeoutMs) {
     await sleep(1000);
     finalState = await evaluateOnPage<ChatGptAnswerState>(page, answerExpression());
@@ -1270,19 +1306,11 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
     if (runtimeBlocker) throw new ChatGptBrowserBlockerError(runtimeBlocker);
     emitProgress("waiting", finalState.generating ? "generating" : "stabilizing");
     if (!hasFreshChatGptAnswer(beforeSubmit.assistantMessageCount, finalState)) continue;
-    // A "fresh" answer must also be stable: ChatGPT can momentarily look done mid-stream, so accept
-    // it only once the text stops changing across polls. Otherwise trailing tokens (e.g. the final
-    // "_OK" of the smoke token) get dropped.
-    if (finalState.answer === stableAnswer && !finalState.generating) {
-      stableConfirmations += 1;
-      // Require two consecutive stable, non-generating polls so a mid-stream
-      // pause (identical text across one interval while more tokens are still
-      // coming) is not mistaken for completion.
-      if (stableConfirmations >= 2) break;
-    } else {
-      stableAnswer = finalState.answer;
-      stableConfirmations = 0;
-    }
+    // A "fresh" answer must also be stable: ChatGPT can momentarily look done
+    // mid-stream, and the streaming caret renders as a literal trailing
+    // character that can outlive the stop button. The tracker requires extra
+    // confirmations for caret-suspect tails (see its doc comment).
+    if (answerIsStable(finalState.answer, finalState.generating)) break;
   }
   const completed = finalState;
   if (completed && hasFreshChatGptAnswer(beforeSubmit.assistantMessageCount, completed)) {

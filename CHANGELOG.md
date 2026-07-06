@@ -36,6 +36,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   partial with blocker code), so an all-green doctor no longer hides a missing
   browser setup; the line never fails doctor.
 
+### Fixed
+- Short answers no longer capture ChatGPT's streaming caret: the current UI
+  renders the caret as a literal trailing underscore in the message text, and
+  it can outlive the stop button, so a fast answer could be recorded as
+  "TOKEN_" instead of "TOKEN" (measured live). Caret-suspect tails now require
+  extra stable polls, converging on the finalized text; answers that genuinely
+  end with an underscore are still accepted after the extra wait.
+
 ### Changed
 - After a successful ask, a stderr footer names the saved artifact path and
   the `pro latest` re-print command. `send_timeout` blockers now suggest a
