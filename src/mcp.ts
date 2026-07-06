@@ -38,9 +38,11 @@ export interface CreateMcpServerOptions {
    * Wire it ONLY for the local stdio MCP server: the HTTP MCP surface is
    * exposed to ChatGPT itself (and possibly a tunnel), and must never be able
    * to drive the user's browser. Injected from cli.ts to avoid an import
-   * cycle (mcp -> cli-pro -> cli-server -> http-mcp -> mcp).
+   * cycle (mcp -> cli-pro -> cli-server -> http-mcp -> mcp). The optional
+   * onProgress receives human-readable progress lines for MCP progress
+   * notifications during multi-minute consults.
    */
-  browserConsult?: (input: BrowserConsultToolInput) => Promise<unknown>;
+  browserConsult?: (input: BrowserConsultToolInput, onProgress?: (message: string) => void) => Promise<unknown>;
 }
 
 function asText(value: unknown) {
@@ -274,7 +276,28 @@ export function createServer(cwd = process.cwd(), options: CreateMcpServerOption
           files: z.array(McpShortTextSchema).max(20).optional()
         }
       },
-      async (input) => asText(await browserConsult(input))
+      async (input, extra) => {
+        // Bridge send progress to MCP progress notifications, but only when
+        // the client asked for them (sent a progressToken). Clients that
+        // reset their request timeout on progress can then survive
+        // multi-minute Pro consults without a raised static timeout.
+        const progressToken = extra._meta?.progressToken;
+        let progress = 0;
+        const onProgress =
+          progressToken === undefined
+            ? undefined
+            : (message: string) => {
+                void extra
+                  .sendNotification({
+                    method: "notifications/progress",
+                    params: { progressToken, progress: ++progress, message }
+                  })
+                  .catch(() => {
+                    // Progress delivery must never break the consult.
+                  });
+              };
+        return asText(await browserConsult(input, onProgress));
+      }
     );
   }
 

@@ -6,3 +6,4 @@ artifacts/*
 config.local.json
 !.gitignore
 receipt-key.local
+last-browser-send

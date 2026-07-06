@@ -314,8 +314,19 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
   if (command === "pro") return runProCommand(rest, io, runCli);
 
   // Top-level shortcut for the flagship flow: `prodex ask "..."` is
-  // `prodex pro browser ask "..."` without the namespace prefix.
-  if (command === "ask") return runProCommand(["browser", "ask", ...rest], io, runCli);
+  // `prodex pro browser ask "..."` without the namespace prefix. Validation
+  // errors from the underlying dispatch name the internal ask-pro command,
+  // which the alias user never typed - rewrite them to say "ask".
+  if (command === "ask") {
+    try {
+      return await runProCommand(["browser", "ask", ...rest], io, runCli);
+    } catch (error) {
+      if (error instanceof Error && /\bask-pro\b/.test(error.message)) {
+        throw new Error(error.message.replace(/\bask-pro\b/g, "ask"), { cause: error });
+      }
+      throw error;
+    }
+  }
 
   if (command === "consults") return runConsultsCommand(rest, io);
 
@@ -327,7 +338,9 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
     const mcpCwd = resolveCwdFlag(io.cwd, rest);
     // pro_consult is stdio-only: the HTTP MCP surface is exposed to ChatGPT
     // itself (and possibly a tunnel) and must never drive the user's browser.
-    await runMcpServer(mcpCwd, { browserConsult: (input) => performBrowserConsultForMcp(mcpCwd, input) });
+    await runMcpServer(mcpCwd, {
+      browserConsult: (input, onProgress) => performBrowserConsultForMcp(mcpCwd, input, onProgress)
+    });
     return 0;
   }
 

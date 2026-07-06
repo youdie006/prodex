@@ -47,6 +47,44 @@ describe("pro_consult MCP tool registration", () => {
     expect(tools.tools.map((tool) => tool.name)).not.toContain("pro_consult");
   });
 
+  it("bridges send progress to MCP progress notifications when the client asks for them", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-consult-"));
+    sendChatGptPromptMock.mockImplementationOnce(
+      async (options: { onProgress?: (event: { phase: string; elapsedMs: number; detail?: string }) => void }) => {
+        options.onProgress?.({ phase: "connecting", elapsedMs: 0, detail: "port 9333" });
+        options.onProgress?.({ phase: "waiting", elapsedMs: 15_000, detail: "generating" });
+        return {
+          url: "https://chatgpt.com/c/mcp-progress",
+          title: "ChatGPT",
+          answer: "progress answer",
+          modelHints: [],
+          warnings: []
+        };
+      }
+    );
+    const { performBrowserConsultForMcp } = await import("../src/cli-pro.js");
+    const server = createServer(cwd, {
+      browserConsult: (input, onProgress) => performBrowserConsultForMcp(cwd, input, onProgress)
+    });
+    const client = await connectClient(server);
+    const progressMessages: string[] = [];
+
+    const result = (await client.callTool(
+      { name: "pro_consult", arguments: { prompt: "Progress question" } },
+      undefined,
+      {
+        onprogress: (progress: { message?: string }) => {
+          if (progress.message) progressMessages.push(progress.message);
+        }
+      }
+    )) as { content: Array<{ type: string; text: string }> };
+    await client.close();
+
+    expect(JSON.parse(result.content[0].text).answer).toContain("progress answer");
+    expect(progressMessages).toContain("progress: connecting to browser (port 9333)");
+    expect(progressMessages).toContain("progress: waiting 15s (generating)");
+  });
+
   it("is registered and answers when a browser-consult callback is wired", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-consult-"));
     sendChatGptPromptMock.mockResolvedValueOnce({
@@ -106,6 +144,23 @@ describe("performBrowserConsultForMcp", () => {
     expect(outcome.thread).toBe("https://chatgpt.com/c/mcp-options");
     expect(outcome.answer).toBe("selected answer");
     expect(outcome.notes.every((note) => !note.startsWith("progress:"))).toBe(true);
+  });
+
+  it("keeps truncation warnings visible in the MCP notes", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-consult-"));
+    sendChatGptPromptMock.mockResolvedValueOnce({
+      url: "https://chatgpt.com/c/mcp-truncated",
+      title: "ChatGPT",
+      answer: "partial answer",
+      modelHints: [],
+      warnings: [
+        "answer_incomplete: ChatGPT was still generating after 10ms, so the answer below may be truncated. Raise --timeout-ms and retry for the full response."
+      ]
+    });
+
+    const outcome = await performBrowserConsultForMcp(cwd, { prompt: "Truncation check" });
+
+    expect(outcome.notes.some((note) => note.startsWith("answer_incomplete:"))).toBe(true);
   });
 
   it("records the consult in the bridge ledger like a CLI ask", async () => {

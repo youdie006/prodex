@@ -36,7 +36,17 @@ Add to the Codex MCP config (`~/.codex/config.toml`):
 [mcp_servers.prodex]
 command = "prodex"
 args = ["mcp"]
+tool_timeout_sec = 3900
 ```
+
+`tool_timeout_sec` matters for `pro_consult`: a Pro extended consult can
+legitimately run for minutes (prodex accepts `timeout_ms` up to 3,600,000),
+and Codex's default tool timeout (300s on current builds, 60s on older ones)
+aborts the call before prodex finishes. Codex does not extend its timeout on
+MCP progress notifications, so the static budget must cover the longest
+consult you expect. Claude Code needs no change: its default stdio tool
+timeout is effectively unlimited (~28h) unless you tightened `MCP_TOOL_TIMEOUT`
+or a per-server `"timeout"`.
 
 ## Cursor
 

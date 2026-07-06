@@ -4,6 +4,40 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.1] - 2026-07-06
+
+### Fixed
+- Truncated Pro answers are no longer silent at runtime: `answer_incomplete`
+  (and any other send warnings) now print to stderr and reach the MCP
+  `pro_consult` notes, instead of living only inside the persisted receipt.
+  An adversarial review found an agent calling `pro_consult` with a short
+  `timeout_ms` would receive a cut-off answer marked `status:"done"` with no
+  truncation signal.
+- The Windows-host browser fallback under WSL keyed only on
+  `WSL_DISTRO_NAME`, which real WSL non-login shells do not export (measured
+  live), so it never activated where it mattered. Detection now also accepts
+  `WSL_INTEROP` and a `/proc/version` kernel probe.
+- The `prodex ask` alias no longer leaks the internal `ask-pro` command name
+  in validation errors ("ask requires a prompt", not "ask-pro requires a
+  prompt").
+- The answer-stability caret guard now trims trailing whitespace before the
+  suspect-tail check, so a streaming caret followed by a newline cannot slip
+  through with only two confirmations.
+- Millisecond flags (`--timeout-ms`, `--launch-timeout-ms`,
+  `--wait-timeout-ms`) reject fractional values instead of silently treating
+  `1.5` as 1.5ms; `--token-ttl-hours` keeps accepting fractions.
+
+### Added
+- `pro_consult` bridges send progress to MCP progress notifications when the
+  client requests them (progressToken), so SDK-default clients that reset
+  their request timeout on progress survive multi-minute consults. Verified
+  end to end against a live browser through a real stdio MCP client.
+- `pro browser check` echoes saved `browser_defaults` (model / pro-mode /
+  effort / project) next to the live model hints.
+- docs/clients.md: Codex needs `tool_timeout_sec` (its default tool timeout
+  races prodex's Pro extended budget and it ignores progress notifications);
+  Claude Code stdio needs no change (~28h default).
+
 ## [0.9.0] - 2026-07-06
 
 ### Added

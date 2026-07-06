@@ -34,7 +34,7 @@ import {
   readFlag,
   readPortFlag,
   readPositionalsWithOptions,
-  readPositiveNumberFlag,
+  readPositiveIntegerFlag,
   readRepeatedFlag,
   resolveCwdFlag,
   resolveOptionalFileFlag,
@@ -101,7 +101,7 @@ export async function runChatgptCommand(rest: string[], io: CliIO): Promise<numb
       const targetStore = new BridgeStore(targetCwd);
       const sourceCli = resolveOptionalFileFlag(io.cwd, chatgptArgs, "--source-cli");
       const port = resolveCdpPort(readPortFlag(chatgptArgs, "--port"));
-      const timeoutMs = readPositiveNumberFlag(chatgptArgs, "--timeout-ms") ?? 90000;
+      const timeoutMs = readPositiveIntegerFlag(chatgptArgs, "--timeout-ms") ?? 90000;
       const commandOptions = {
         ...(readFlag(chatgptArgs, "--cwd") ? { cwd: targetCwd } : {}),
         ...(readFlag(chatgptArgs, "--port") ? { port } : {})
@@ -243,7 +243,7 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
         const targetCwd = readFlag(browserArgs, "--cwd") ? resolveCwdFlag(io.cwd, browserArgs) : undefined;
         const profileDir = readFlag(browserArgs, "--profile-dir");
         const port = resolveCdpPort(readPortFlag(browserArgs, "--port"));
-        const launchTimeoutMs = readPositiveNumberFlag(browserArgs, "--launch-timeout-ms");
+        const launchTimeoutMs = readPositiveIntegerFlag(browserArgs, "--launch-timeout-ms");
         const commandOptions = {
           ...(targetCwd ? { cwd: targetCwd } : {}),
           ...(profileDir ? { profileDir } : {}),
@@ -283,7 +283,7 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
         const shouldWaitForReady =
           !browserArgs.includes("--no-wait") && (browserArgs.includes("--wait") || process.stdout.isTTY === true);
         if (!shouldWaitForReady) return 0;
-        const waitTimeoutMs = readPositiveNumberFlag(browserArgs, "--wait-timeout-ms") ?? 300_000;
+        const waitTimeoutMs = readPositiveIntegerFlag(browserArgs, "--wait-timeout-ms") ?? 300_000;
         const ready = await waitForChatGptLoginReady(io.stderr, { port: opened.port, timeoutMs: waitTimeoutMs });
         return ready ? 0 : 1;
       }
@@ -318,7 +318,7 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
         assertOnlyOptions(browserArgs, "pro browser check", ["--cwd", "--port", "--timeout-ms", "--source-cli"]);
         const targetCwd = resolveCwdFlag(io.cwd, browserArgs);
         readPortFlag(browserArgs, "--port");
-        readPositiveNumberFlag(browserArgs, "--timeout-ms");
+        readPositiveIntegerFlag(browserArgs, "--timeout-ms");
         const healthy = await printProductCheck(new BridgeStore(targetCwd), io, browserArgs, targetCwd);
         return healthy ? 0 : 1;
       }
@@ -327,7 +327,7 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
         assertOnlyOptions(browserArgs, "pro browser models", ["--port", "--timeout-ms", "--source-cli"]);
         const listed = await listChatGptModelOptions({
           port: readPortFlag(browserArgs, "--port"),
-          timeoutMs: readPositiveNumberFlag(browserArgs, "--timeout-ms")
+          timeoutMs: readPositiveIntegerFlag(browserArgs, "--timeout-ms")
         });
         io.stdout("Model menu options in the visible ChatGPT tab (read-only; nothing was selected):");
         for (const option of listed.options) {
@@ -528,7 +528,7 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
     // higher; an explicit --timeout-ms always wins.
     const defaultBrowserTimeoutMs = selectionProMode === "확장" ? 300_000 : 90_000;
     const browserTimeoutMs = hasSendMode
-      ? (readPositiveNumberFlag(parsedAskPro.optionArgs, "--timeout-ms") ?? defaultBrowserTimeoutMs)
+      ? (readPositiveIntegerFlag(parsedAskPro.optionArgs, "--timeout-ms") ?? defaultBrowserTimeoutMs)
       : undefined;
     const sourceCli = resolveOptionalFileFlag(io.cwd, parsedAskPro.optionArgs, "--source-cli");
     const bundle = await buildDryRunBundle(targetCwd, { prompt, files });
@@ -629,6 +629,10 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
       }
       const answerArtifactText = formatProConsultArtifact(consult);
       const persistenceWarnings = [...consult.warnings];
+      // Truncation and other send warnings must be visible at runtime, not
+      // only inside the persisted receipt: a caller who never opens .bridge
+      // would otherwise treat a cut-off answer as complete.
+      for (const warning of consult.warnings) io.stderr(warning);
       let answerArtifactPath: string | undefined;
       const answerArtifactBytes = Buffer.byteLength(answerArtifactText, "utf8");
       if (answerArtifactBytes > MAX_FETCHABLE_RESULT_ARTIFACT_BYTES) {
@@ -753,7 +757,11 @@ export interface BrowserConsultOutcome {
  * instead of printed lines. Registered only on the local stdio MCP server -
  * never on the HTTP MCP surface, which is exposed to ChatGPT itself.
  */
-export async function performBrowserConsultForMcp(cwd: string, input: BrowserConsultInput): Promise<BrowserConsultOutcome> {
+export async function performBrowserConsultForMcp(
+  cwd: string,
+  input: BrowserConsultInput,
+  onProgress?: (message: string) => void
+): Promise<BrowserConsultOutcome> {
   const stdoutLines: string[] = [];
   const stderrLines: string[] = [];
   const argv = [
@@ -770,7 +778,10 @@ export async function performBrowserConsultForMcp(cwd: string, input: BrowserCon
   await runAskProCommand(argv, {
     cwd,
     stdout: (line) => stdoutLines.push(line),
-    stderr: (line) => stderrLines.push(line),
+    stderr: (line) => {
+      stderrLines.push(line);
+      if (onProgress && line.startsWith("progress:")) onProgress(line);
+    },
     allowAskProBrowserSend: true
   });
   const header = stdoutLines[0] ?? "";
@@ -1104,7 +1115,7 @@ export async function printProductCheck(store: BridgeStore, io: CliIO, args: str
 
   const browserStatus = await getChatGptBrowserStatus({
     port: resolveCdpPort(readPortFlag(args, "--port")),
-    timeoutMs: readPositiveNumberFlag(args, "--timeout-ms") ?? 1500
+    timeoutMs: readPositiveIntegerFlag(args, "--timeout-ms") ?? 1500
   });
   const browserCommandOptions = {
     cwd: setupHintCwd,

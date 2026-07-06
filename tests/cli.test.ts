@@ -1166,7 +1166,7 @@ describe("runCli", () => {
         stdout: (line) => out.push(line),
         stderr: () => {}
       })
-    ).rejects.toThrow("--timeout-ms must be greater than 0");
+    ).rejects.toThrow("--timeout-ms must be a positive integer");
     expect(out).toEqual([]);
 
     await expect(
@@ -1184,7 +1184,7 @@ describe("runCli", () => {
         stdout: (line) => out.push(line),
         stderr: () => {}
       })
-    ).rejects.toThrow("--timeout-ms must be greater than 0");
+    ).rejects.toThrow("--timeout-ms must be a positive integer");
     expect(out).toEqual([]);
 
     await expect(readdir(path.join(cwd, ".bridge"))).rejects.toThrow();

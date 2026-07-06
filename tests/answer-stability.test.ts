@@ -53,6 +53,14 @@ describe("createChatGptAnswerStabilityTracker", () => {
     expect(accepted).toBe(true);
   });
 
+  it("treats a caret followed by trailing whitespace as suspect too", () => {
+    const observe = createChatGptAnswerStabilityTracker();
+    observe("PRODEX_UX_090_OK_\n", false);
+    expect(observe("PRODEX_UX_090_OK_\n", false)).toBe(false);
+    expect(observe("PRODEX_UX_090_OK_\n", false)).toBe(false);
+    expect(observe("PRODEX_UX_090_OK_\n", false)).toBe(false);
+  });
+
   it("treats the legacy block caret the same way", () => {
     const observe = createChatGptAnswerStabilityTracker();
     observe("streaming tail▍", false);

@@ -1,6 +1,6 @@
 {
   "name": "@youdie006/prodex",
-  "version": "0.9.0",
+  "version": "0.9.1",
   "description": "Local receipt bus for coordinating Codex execution with ChatGPT Pro/Projects consultation.",
   "author": "youdie006",
   "license": "MIT",

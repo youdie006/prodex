@@ -132,6 +132,14 @@ export function readPositiveNumberFlag(args: string[], flag: string): number | u
   if (value <= 0) throw new Error(`${flag} must be greater than 0`);
   return value;
 }
+export function readPositiveIntegerFlag(args: string[], flag: string): number | undefined {
+  // Millisecond flags: fractional values are a footgun (--wait-timeout-ms 1.5
+  // used to mean a 1.5ms budget), so require whole numbers.
+  const value = readNumberFlag(args, flag);
+  if (value === undefined) return undefined;
+  if (!Number.isInteger(value) || value <= 0) throw new Error(`${flag} must be a positive integer`);
+  return value;
+}
 export function readPortFlag(args: string[], flag: string): number | undefined {
   const value = readNumberFlag(args, flag);
   if (value === undefined) return undefined;

@@ -139,7 +139,9 @@ export function createChatGptAnswerStabilityTracker(): (answer: string, generati
       return false;
     }
     confirmations += 1;
-    const required = TRAILING_CARET_SUSPECT.test(answer) ? 8 : 2;
+    // Trim before the caret check: the caller trims the returned answer, so a
+    // caret followed by trailing whitespace must count as suspect too.
+    const required = TRAILING_CARET_SUSPECT.test(answer.trimEnd()) ? 8 : 2;
     return confirmations >= required;
   };
 }

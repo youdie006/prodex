@@ -1736,6 +1736,35 @@ describe("pro browser ask model/project selection", () => {
     expect(errs).toContain("progress: answer received after 13s");
   });
 
+  it("reports prompt errors for the ask alias without leaking the internal ask-pro name", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-send-"));
+
+    await expect(runCli(["ask"], { cwd, stdout: () => {}, stderr: () => {} })).rejects.toThrow(/^ask requires a prompt/);
+    await expect(runCli(["ask"], { cwd, stdout: () => {}, stderr: () => {} })).rejects.not.toThrow(/ask-pro/);
+  });
+
+  it("echoes answer_incomplete warnings to stderr so truncation is visible at runtime", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-send-"));
+    sendChatGptPromptMock.mockResolvedValueOnce({
+      url: "https://chatgpt.com/c/truncated",
+      title: "ChatGPT",
+      answer: "partial answer",
+      modelHints: [],
+      warnings: [
+        "answer_incomplete: ChatGPT was still generating after 10ms, so the answer below may be truncated. Raise --timeout-ms and retry for the full response."
+      ]
+    });
+    const errs: string[] = [];
+
+    await runCli(["pro", "browser", "ask", "Review this"], {
+      cwd,
+      stdout: () => {},
+      stderr: (line) => errs.push(line)
+    });
+
+    expect(errs.some((line) => line.startsWith("answer_incomplete:"))).toBe(true);
+  });
+
   it("routes top-level prodex ask to the visible-browser send", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-send-"));
     sendChatGptPromptMock.mockResolvedValueOnce({
