@@ -25,6 +25,7 @@ import {
   assertNoExtraArgs,
   assertOnlyOptions,
   findHelpFlagIndexBeforePromptDelimiter,
+  formatCliCommand,
   hasAskProDryRunMode,
   hasAskProMode,
   hasAskProSendMode,
@@ -395,7 +396,24 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
       io.stdout(formatProAnswer(consult, sourceCli, answerOptions));
       return 0;
     }
-    throw unknownSubcommandError("pro", subcommand, ["ask", "browser", "list", "latest", "show"]);
+    if (subcommand === "debate-prompt") {
+      if (
+        printHelpIfRequested(proArgs, "pro debate-prompt", io.stdout, printProHelp, {
+          valueFlags: ["--topic", "--rounds", "--source-cli", "--cwd"]
+        })
+      ) {
+        return 0;
+      }
+      assertOnlyOptions(proArgs, "pro debate-prompt", ["--topic", "--rounds", "--source-cli", "--cwd"]);
+      const sourceCli = resolveOptionalFileFlag(io.cwd, proArgs, "--source-cli");
+      const rounds = readPositiveIntegerFlag(proArgs, "--rounds") ?? 2;
+      if (rounds > 5) {
+        throw new Error("--rounds must be between 1 and 5: debates are bounded consults, not loops (keep Pro usage low-volume).");
+      }
+      io.stdout(formatDebatePrompt({ topic: readFlag(proArgs, "--topic"), rounds, sourceCli }));
+      return 0;
+    }
+    throw unknownSubcommandError("pro", subcommand, ["ask", "browser", "debate-prompt", "list", "latest", "show"]);
 }
 
 export async function runConsultsCommand(rest: string[], io: CliIO): Promise<number> {
@@ -497,6 +515,12 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
         "ask-pro cannot combine --target-url with --project/--project-new: --target-url pins the confirmed tab while the project step navigates the sidebar away from it. Open the project thread in the browser and pass its URL as --target-url instead."
       );
     }
+    const newChat = parsedAskPro.optionArgs.includes("--new-chat");
+    if (newChat && normalizedTargetUrl) {
+      throw new Error(
+        "ask-pro cannot combine --new-chat with --target-url: --new-chat navigates to a fresh chat while --target-url pins the confirmed tab."
+      );
+    }
     const explicitModel = readFlag(parsedAskPro.optionArgs, "--model");
     const explicitProModeRaw = readFlag(parsedAskPro.optionArgs, "--pro-mode");
     const explicitEffortRaw = readFlag(parsedAskPro.optionArgs, "--effort");
@@ -591,6 +615,7 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
           prompt: bundle.text,
           targetUrl: normalizedTargetUrl,
           timeoutMs: browserTimeoutMs,
+          ...(newChat ? { newChat: true } : {}),
           project: selectionProject,
           projectNew: selectionProjectNew,
           model: selectionModel,
@@ -732,6 +757,45 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
 
 export const PRO_BROWSER_SMOKE_TOKEN = "PRODEX_PRO_SMOKE_OK";
 
+/**
+ * Paste-into-agent orchestration prompt for a structured debate between the
+ * agent (Claude/Codex/...) and the user's ChatGPT Pro via pro_consult. The
+ * reliability guidance (new_chat per round, generous timeout, no blocked-
+ * consult retry loops) comes from live debate runs.
+ */
+export function formatDebatePrompt(options: { topic?: string; rounds: number; sourceCli?: string }): string {
+  const topic = options.topic ?? "<fill in the debate topic>";
+  const askFallback = `${formatCliCommand(options.sourceCli)} ask --new-chat --timeout-ms 240000 "<round prompt>"`;
+  return `prodex debate orchestration
+
+Topic: ${topic}
+
+You are one side of a structured debate. Your opponent is the user's ChatGPT
+(Pro), reached through the prodex MCP tool pro_consult (CLI fallback:
+\`${askFallback}\`). Run exactly ${options.rounds} rounds.
+
+Rules:
+1. Open by stating your position on the topic in at most 5 bullets.
+2. Each round:
+   - Send the opponent ONE self-contained pro_consult prompt: restate the
+     topic, quote your current argument verbatim, and ask for the strongest
+     rebuttal in at most 3 bullets ("bullets only, no preamble").
+   - Always pass new_chat: true (a fresh chat per round keeps sends
+     reliable) and timeout_ms: 240000 (debate turns need thinking time).
+   - Read the rebuttal, then defend or update your position in at most 3
+     bullets before the next round.
+3. Consults are auto-paced (about one per 10s). If a consult returns a
+   blocker, report it and stop - never retry blocked consults in a loop.
+4. In the final round's consult, ask the opponent for its final position in
+   2 bullets plus one explicit concession.
+5. Close with a synthesis: your final position, the strongest point you
+   concede to the opponent, the decisive argument of the debate, and open
+   questions. Cite the pro_consult task_id of every round so the receipts
+   under .bridge/ back each quote.
+
+Write the debate in the language of the topic.`;
+}
+
 export interface BrowserConsultInput {
   prompt: string;
   model?: string;
@@ -740,6 +804,8 @@ export interface BrowserConsultInput {
   project?: string;
   timeout_ms?: number;
   files?: string[];
+  /** Send into a fresh chat; recommended for agent loops and debates. */
+  new_chat?: boolean;
 }
 
 export interface BrowserConsultOutcome {
@@ -772,6 +838,7 @@ export async function performBrowserConsultForMcp(
     ...(input.project !== undefined ? ["--project", input.project] : []),
     ...(input.timeout_ms !== undefined ? ["--timeout-ms", String(input.timeout_ms)] : []),
     ...(input.files ?? []).flatMap((file) => ["--file", file]),
+    ...(input.new_chat ? ["--new-chat"] : []),
     "--",
     input.prompt
   ];

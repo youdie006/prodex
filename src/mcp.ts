@@ -28,6 +28,7 @@ export interface BrowserConsultToolInput {
   project?: string;
   timeout_ms?: number;
   files?: string[];
+  new_chat?: boolean;
 }
 
 export interface CreateMcpServerOptions {
@@ -273,7 +274,8 @@ export function createServer(cwd = process.cwd(), options: CreateMcpServerOption
           effort: McpShortTextSchema.optional(),
           project: McpShortTextSchema.optional(),
           timeout_ms: z.number().int().positive().max(3_600_000).optional(),
-          files: z.array(McpShortTextSchema).max(20).optional()
+          files: z.array(McpShortTextSchema).max(20).optional(),
+          new_chat: z.boolean().optional()
         }
       },
       async (input, extra) => {

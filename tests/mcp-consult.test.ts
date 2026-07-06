@@ -146,6 +146,21 @@ describe("performBrowserConsultForMcp", () => {
     expect(outcome.notes.every((note) => !note.startsWith("progress:"))).toBe(true);
   });
 
+  it("threads new_chat through to the send", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-consult-"));
+    sendChatGptPromptMock.mockResolvedValueOnce({
+      url: "https://chatgpt.com/c/mcp-fresh",
+      title: "ChatGPT",
+      answer: "fresh",
+      modelHints: [],
+      warnings: []
+    });
+
+    await performBrowserConsultForMcp(cwd, { prompt: "Fresh consult", new_chat: true });
+
+    expect(sendChatGptPromptMock).toHaveBeenCalledWith(expect.objectContaining({ newChat: true }));
+  });
+
   it("keeps truncation warnings visible in the MCP notes", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-consult-"));
     sendChatGptPromptMock.mockResolvedValueOnce({

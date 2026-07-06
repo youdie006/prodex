@@ -4,6 +4,23 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.0] - 2026-07-07
+
+### Added
+- `--new-chat` for `prodex ask` / `pro browser ask` and `new_chat` for the
+  `pro_consult` MCP tool: navigate to a fresh chat before sending. Long
+  accumulated threads eventually break prompt-acceptance detection (measured
+  live during a debate run), so agent loops and repeated consults should send
+  each ask into a fresh chat. Incompatible with `--target-url`. Live-verified:
+  a send parked on a polluted 11-message thread escaped to a new thread.
+- `prodex pro debate-prompt [--topic "..."] [--rounds N]`: prints a
+  paste-into-agent orchestration prompt for a structured debate between the
+  agent (Claude/Codex) and the user's ChatGPT Pro via `pro_consult` - one
+  self-contained consult per round, `new_chat: true` + `timeout_ms: 240000`
+  reliability guidance baked in, blocked-consult retry loops forbidden, and a
+  final synthesis that cites each round's receipt task_id. Rounds are capped
+  at 5 to keep Pro usage low-volume. Validated live with a two-round debate.
+
 ## [0.9.1] - 2026-07-06
 
 ### Fixed

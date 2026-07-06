@@ -187,6 +187,13 @@ export interface SendChatGptPromptOptions {
   proMode?: ChatGptProMode;
   /** Reasoning effort, used for non-Pro models. */
   effort?: ChatGptReasoningEffort;
+  /**
+   * Navigate the tab to a fresh chat (chatgpt.com root) before sending. Long
+   * accumulated threads eventually break prompt-acceptance detection
+   * (measured live), so agent loops and debates should send each consult
+   * into a fresh chat. Incompatible with targetUrl.
+   */
+  newChat?: boolean;
   /** Progress callback so long sends can report phase + elapsed instead of staying silent. */
   onProgress?: (event: SendChatGptProgressEvent) => void;
 }
@@ -1205,6 +1212,9 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
   };
   emitProgress("connecting", `port ${port}`);
   const normalizedTargetUrl = options.targetUrl ? normalizeChatGptTargetUrl(options.targetUrl) : undefined;
+  if (options.newChat && normalizedTargetUrl) {
+    throw new Error("newChat cannot be combined with targetUrl: a fresh chat navigates away from the pinned tab.");
+  }
   const pageResult = await findChatGptPage(port, computePageDiscoveryTimeout(timeoutMs), normalizedTargetUrl);
   if (!pageResult.ok) {
     throwBlockerOrError(pageResult.blocker, "ChatGPT browser page is not available");
@@ -1219,6 +1229,13 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
     assertChatGptPageAvailable();
   }
   const page = pageResult.page;
+  if (options.newChat) {
+    // Long accumulated threads eventually break acceptance detection, so
+    // start from a clean chat. The SPA settle-and-retry below absorbs the
+    // navigation before status checks run.
+    await evaluateOnPage(page, `location.assign("https://chatgpt.com/")`);
+    await sleep(1_500);
+  }
   let status = await readSettledChatGptPageStatus(page);
   status = await ensureVisibleChatGptPage(port, page, status);
   const blocker = detectChatGptPageBlocker(status);

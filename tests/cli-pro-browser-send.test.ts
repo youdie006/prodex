@@ -1736,6 +1736,34 @@ describe("pro browser ask model/project selection", () => {
     expect(errs).toContain("progress: answer received after 13s");
   });
 
+  it("forwards --new-chat to the visible-browser send", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-send-"));
+    sendChatGptPromptMock.mockResolvedValueOnce({
+      url: "https://chatgpt.com/c/fresh",
+      title: "ChatGPT",
+      answer: "fresh ok",
+      modelHints: [],
+      warnings: []
+    });
+
+    await runCli(["ask", "--new-chat", "Fresh question"], { cwd, stdout: () => {}, stderr: () => {} });
+
+    expect(sendChatGptPromptMock).toHaveBeenCalledWith(expect.objectContaining({ newChat: true }));
+  });
+
+  it("rejects --new-chat combined with --target-url before touching the browser", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-send-"));
+
+    await expect(
+      runCli(
+        ["pro", "browser", "ask", "--new-chat", "--target-url", "https://chatgpt.com/c/abc", "--confirm-target", "Question"],
+        { cwd, stdout: () => {}, stderr: () => {} }
+      )
+    ).rejects.toThrow(/new-chat.*target-url|target-url.*new-chat/i);
+
+    expect(sendChatGptPromptMock).not.toHaveBeenCalled();
+  });
+
   it("reports prompt errors for the ask alias without leaking the internal ask-pro name", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-send-"));
 
