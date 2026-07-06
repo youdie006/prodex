@@ -105,6 +105,14 @@ export function parseProMode(raw: string): ChatGptProMode {
   throw new Error(`--pro-mode must be one of ${PRO_MODES.join(", ")}`);
 }
 
+export type SendChatGptProgressPhase = "connecting" | "tab_ready" | "selecting" | "sent" | "waiting" | "answered";
+
+export interface SendChatGptProgressEvent {
+  phase: SendChatGptProgressPhase;
+  elapsedMs: number;
+  detail?: string;
+}
+
 export interface SendChatGptPromptOptions {
   port?: number;
   prompt: string;
@@ -120,6 +128,8 @@ export interface SendChatGptPromptOptions {
   proMode?: ChatGptProMode;
   /** Reasoning effort, used for non-Pro models. */
   effort?: ChatGptReasoningEffort;
+  /** Progress callback so long sends can report phase + elapsed instead of staying silent. */
+  onProgress?: (event: SendChatGptProgressEvent) => void;
 }
 
 export interface SendChatGptPromptResult {
@@ -1101,6 +1111,16 @@ async function selectProject(
 export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Promise<SendChatGptPromptResult> {
   const port = options.port ?? 9333;
   const timeoutMs = options.timeoutMs ?? 90_000;
+  const sendStartedAt = Date.now();
+  const emitProgress = (phase: SendChatGptProgressPhase, detail?: string): void => {
+    if (!options.onProgress) return;
+    try {
+      options.onProgress({ phase, elapsedMs: Date.now() - sendStartedAt, ...(detail !== undefined ? { detail } : {}) });
+    } catch {
+      // Progress reporting must never break the send itself.
+    }
+  };
+  emitProgress("connecting", `port ${port}`);
   const normalizedTargetUrl = options.targetUrl ? normalizeChatGptTargetUrl(options.targetUrl) : undefined;
   const pageResult = await findChatGptPage(port, computePageDiscoveryTimeout(timeoutMs), normalizedTargetUrl);
   if (!pageResult.ok) {
@@ -1129,6 +1149,18 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
   if (busyBlocker) {
     throw new ChatGptBrowserBlockerError(busyBlocker);
   }
+  emitProgress("tab_ready");
+  // Progress details deliberately avoid project names (receipts redact them too).
+  const selectionSummary = [
+    options.model !== undefined ? `model=${options.model}` : undefined,
+    options.proMode !== undefined ? `pro_mode=${options.proMode}` : undefined,
+    options.effort !== undefined ? `effort=${options.effort}` : undefined,
+    options.project !== undefined ? "project=set" : undefined,
+    options.projectNew !== undefined ? "project_new=set" : undefined
+  ]
+    .filter((part): part is string => part !== undefined)
+    .join(" ");
+  if (selectionSummary) emitProgress("selecting", selectionSummary);
   let beforeSubmit!: ChatGptAnswerState;
   let submitButtonFound = false;
   const cdp = await connectCdp(page.webSocketDebuggerUrl);
@@ -1155,6 +1187,7 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
   } finally {
     cdp.close();
   }
+  emitProgress("sent", `timeout ${Math.round(timeoutMs / 1000)}s`);
 
   const started = Date.now();
   const acceptDeadline = computePromptAcceptanceDeadline(timeoutMs, started);
@@ -1169,6 +1202,7 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
       accepted = true;
       break;
     }
+    emitProgress("waiting", "prompt posting");
   }
   if (!accepted) {
     // A successful submit clears the composer, so text still sitting there means
@@ -1190,6 +1224,7 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
     finalState = await evaluateOnPage<ChatGptAnswerState>(page, answerExpression());
     const runtimeBlocker = chatGptBlockerFromAnswerState(finalState);
     if (runtimeBlocker) throw new ChatGptBrowserBlockerError(runtimeBlocker);
+    emitProgress("waiting", finalState.generating ? "generating" : "stabilizing");
     if (!hasFreshChatGptAnswer(beforeSubmit.assistantMessageCount, finalState)) continue;
     // A "fresh" answer must also be stable: ChatGPT can momentarily look done mid-stream, so accept
     // it only once the text stops changing across polls. Otherwise trailing tokens (e.g. the final
@@ -1207,6 +1242,7 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
   }
   const completed = finalState;
   if (completed && hasFreshChatGptAnswer(beforeSubmit.assistantMessageCount, completed)) {
+    emitProgress("answered");
     return {
       url: completed.url,
       title: completed.title,
@@ -1219,6 +1255,7 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
   // (a truncated-but-real Pro answer is far more useful than losing it) and
   // flag it so the caller records the incompleteness and the retry hint.
   if (completed && hasPartialChatGptAnswer(beforeSubmit.assistantMessageCount, completed)) {
+    emitProgress("answered", "partial");
     return {
       url: completed.url,
       title: completed.title,

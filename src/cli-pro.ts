@@ -3,6 +3,7 @@ import path from "node:path";
 import { buildDryRunBundle } from "./bundle.js";
 import {
   type ChatGptBrowserLaunch,
+  type SendChatGptProgressEvent,
   chatGptVisibilityBlocker,
   defaultChatGptProfileDir,
   getChatGptBrowserStatus,
@@ -45,6 +46,7 @@ import {
   errorMessage,
   firstLine,
   formatBlockedConsultRecordedMessage,
+  formatProLatestCommand,
   formatBrowserCheckCommand,
   formatBrowserLoginCommand,
   formatBrowserSmokeCommand,
@@ -149,7 +151,8 @@ export async function runChatgptCommand(rest: string[], io: CliIO): Promise<numb
         result = await sendChatGptPrompt({
           port,
           prompt: smokePrompt,
-          timeoutMs
+          timeoutMs,
+          onProgress: createBrowserSendProgressPrinter(io.stderr)
         });
       } catch (error) {
         const blocker = sourceAwareBrowserBlocker(browserSendBlockerFromError(error), sourceCli, commandOptions);
@@ -406,6 +409,38 @@ async function enforceVisibleBrowserSendPacing(cwd: string, stderr: (line: strin
   }
 }
 
+const PROGRESS_PHASE_LABELS: Record<Exclude<SendChatGptProgressEvent["phase"], "waiting" | "answered">, string> = {
+  connecting: "connecting to browser",
+  tab_ready: "chatgpt tab ready",
+  selecting: "applying selection",
+  sent: "prompt sent, waiting for answer"
+};
+
+/**
+ * Turns send progress events into stderr lines so multi-minute Pro consults do
+ * not look frozen. Phase transitions print immediately; the per-poll waiting
+ * heartbeat is throttled to one line per heartbeatMs.
+ */
+export function createBrowserSendProgressPrinter(
+  write: (line: string) => void,
+  heartbeatMs = 10_000
+): (event: SendChatGptProgressEvent) => void {
+  let lastWaitingElapsedMs: number | undefined;
+  return (event) => {
+    if (event.phase === "waiting") {
+      if (lastWaitingElapsedMs !== undefined && event.elapsedMs - lastWaitingElapsedMs < heartbeatMs) return;
+      lastWaitingElapsedMs = event.elapsedMs;
+      write(`progress: waiting ${Math.round(event.elapsedMs / 1000)}s${event.detail ? ` (${event.detail})` : ""}`);
+      return;
+    }
+    if (event.phase === "answered") {
+      write(`progress: answer received after ${Math.round(event.elapsedMs / 1000)}s${event.detail ? ` (${event.detail})` : ""}`);
+      return;
+    }
+    write(`progress: ${PROGRESS_PHASE_LABELS[event.phase]}${event.detail ? ` (${event.detail})` : ""}`);
+  };
+}
+
 export async function runAskProCommand(rest: string[], io: CliIO): Promise<number> {
     const parsedAskPro = parseAskProArgs(rest);
     const hasDryRunMode = parsedAskPro.optionArgs.includes("--dry-run");
@@ -541,7 +576,8 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
           projectNew: selectionProjectNew,
           model: selectionModel,
           proMode: selectionProMode,
-          effort: selectionEffort
+          effort: selectionEffort,
+          onProgress: createBrowserSendProgressPrinter(io.stderr)
         });
       } catch (error) {
         const blocker = sourceAwareBrowserBlocker(browserSendBlockerFromError(error), sourceCli, browserCommandOptions);
@@ -642,6 +678,12 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
       io.stdout(`${result.task_id}\t${result.status}\t${consult.url}`);
       io.stdout("");
       io.stdout(result.summary);
+      // Discoverability footer on stderr: the answer above is also persisted,
+      // and `pro latest` re-prints it without a new browser send.
+      const cwdForHints = readFlag(parsedAskPro.optionArgs, "--cwd") ? targetCwd : undefined;
+      io.stderr(
+        `${answerArtifactPath ? `saved: ${answerArtifactPath}` : "saved: task result (answer too large for a fetchable artifact)"} | re-print: ${formatProLatestCommand(sourceCli, { cwd: cwdForHints })}`
+      );
     } else {
       await writeSessionBestEffort(
         targetStore,
@@ -709,12 +751,17 @@ export function browserSendBlockerFromError(error: unknown): { code: string; mes
       next_step: "Update prodex (npm i -g @youdie006/prodex@latest); if it persists, report it at https://github.com/youdie006/prodex/issues or paste the prompt manually in the visible browser."
     };
   }
-  if (/^Timed out after \d+ms/.test(message)) {
+  const timedOut = message.match(/^Timed out after (\d+)ms/);
+  if (timedOut) {
+    // Suggest a concrete doubled budget so the user can paste a rerun command
+    // instead of guessing what "raise --timeout-ms" means in milliseconds.
+    const usedMs = Number(timedOut[1]);
+    const suggestedMs = Number.isFinite(usedMs) && usedMs > 0 ? usedMs * 2 : 600_000;
     return {
       code: "send_timeout",
       message,
       retryable: true,
-      next_step: "Raise --timeout-ms (Pro extended already uses a higher default) and rerun the consult."
+      next_step: `Rerun with a bigger budget: \`prodex pro browser ask --timeout-ms ${suggestedMs} "<same prompt>"\`.`
     };
   }
   return {

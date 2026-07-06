@@ -102,7 +102,8 @@ describe("pro browser ask persistence", () => {
     expect(sendChatGptPromptMock).toHaveBeenCalledWith({
       port: 65530,
       prompt: "This is a one-time prodex smoke test. Reply exactly: PRODEX_PRO_SMOKE_OK",
-      timeoutMs: 123
+      timeoutMs: 123,
+      onProgress: expect.any(Function)
     });
     expect(JSON.parse(out.join("\n"))).toEqual(
       expect.objectContaining({
@@ -356,7 +357,8 @@ describe("pro browser ask persistence", () => {
     expect(sendChatGptPromptMock).toHaveBeenCalledWith({
       port: 65534,
       prompt: "This is a one-time prodex smoke test. Reply exactly: PRODEX_PRO_SMOKE_OK",
-      timeoutMs: 10
+      timeoutMs: 10,
+      onProgress: expect.any(Function)
     });
     await expect(readdir(path.join(launcherCwd, ".bridge"))).rejects.toThrow();
 
@@ -1582,6 +1584,45 @@ describe("pro browser ask model/project selection", () => {
     expect(text).toContain("--timeout-ms");
   });
 
+  it("suggests a concrete doubled --timeout-ms rerun command on send timeout", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-select-"));
+    sendChatGptPromptMock.mockRejectedValueOnce(
+      new Error("Timed out after 90000ms waiting for ChatGPT to respond. Raise --timeout-ms and retry (Pro extended already uses a higher default).")
+    );
+
+    await expect(
+      runCli(["pro", "browser", "ask", "Review this"], { cwd, stdout: () => {}, stderr: () => {} })
+    ).rejects.toThrow(/--timeout-ms 180000/);
+
+    const out: string[] = [];
+    await runCli(["pro", "latest"], { cwd, stdout: (line) => out.push(line), stderr: () => {} });
+    const text = out.join("\n");
+    expect(text).toContain("pro browser ask --timeout-ms 180000");
+  });
+
+  it("prints a saved-artifact footer with a re-print command after a successful ask", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-send-"));
+    sendChatGptPromptMock.mockResolvedValueOnce({
+      url: "https://chatgpt.com/c/footer",
+      title: "ChatGPT",
+      answer: "footer answer",
+      modelHints: [],
+      warnings: []
+    });
+    const errs: string[] = [];
+
+    await runCli(["pro", "browser", "ask", "Review this"], {
+      cwd,
+      stdout: () => {},
+      stderr: (line) => errs.push(line)
+    });
+
+    const footer = errs.find((line) => line.startsWith("saved: "));
+    expect(footer).toBeDefined();
+    expect(footer).toMatch(/saved: \.bridge\/artifacts\/pro-consults\/task_[^\s]+\.md/);
+    expect(footer).toContain("re-print: prodex pro latest");
+  });
+
   it("lists model menu options read-only via pro browser models", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-select-"));
     listChatGptModelOptionsMock.mockResolvedValueOnce({
@@ -1664,6 +1705,79 @@ describe("pro browser ask model/project selection", () => {
     await runCli(["pro", "browser", "ask", "--pro-mode", "확장", "Review this"], { cwd, stdout: () => {}, stderr: () => {} });
 
     expect(sendChatGptPromptMock).toHaveBeenCalledWith(expect.objectContaining({ model: "Pro", proMode: "확장" }));
+  });
+
+  it("streams progress lines to stderr during a visible-browser send", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-send-"));
+    sendChatGptPromptMock.mockImplementationOnce(
+      async (options: { onProgress?: (event: { phase: string; elapsedMs: number; detail?: string }) => void }) => {
+        options.onProgress?.({ phase: "connecting", elapsedMs: 0, detail: "port 9333" });
+        options.onProgress?.({ phase: "waiting", elapsedMs: 12_000, detail: "generating" });
+        options.onProgress?.({ phase: "answered", elapsedMs: 13_000 });
+        return {
+          url: "https://chatgpt.com/c/progress",
+          title: "ChatGPT",
+          answer: "done",
+          modelHints: [],
+          warnings: []
+        };
+      }
+    );
+    const errs: string[] = [];
+
+    await runCli(["pro", "browser", "ask", "check progress"], {
+      cwd,
+      stdout: () => {},
+      stderr: (line) => errs.push(line)
+    });
+
+    expect(errs).toContain("progress: connecting to browser (port 9333)");
+    expect(errs).toContain("progress: waiting 12s (generating)");
+    expect(errs).toContain("progress: answer received after 13s");
+  });
+
+  it("routes top-level prodex ask to the visible-browser send", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-send-"));
+    sendChatGptPromptMock.mockResolvedValueOnce({
+      url: "https://chatgpt.com/c/alias",
+      title: "ChatGPT",
+      answer: "alias ok",
+      modelHints: [],
+      warnings: []
+    });
+    const out: string[] = [];
+
+    await runCli(["ask", "Quick question"], {
+      cwd,
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    expect(sendChatGptPromptMock).toHaveBeenCalledWith(
+      expect.objectContaining({ prompt: expect.stringContaining("Quick question") })
+    );
+    expect(out.join("\n")).toContain("alias ok");
+  });
+
+  it("passes selection flags through the top-level ask alias", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-send-"));
+    sendChatGptPromptMock.mockResolvedValueOnce({
+      url: "https://chatgpt.com/c/alias-flags",
+      title: "ChatGPT",
+      answer: "flags ok",
+      modelHints: [],
+      warnings: []
+    });
+
+    await runCli(["ask", "--model", "Pro", "--pro-mode", "확장", "Quick question"], {
+      cwd,
+      stdout: () => {},
+      stderr: () => {}
+    });
+
+    expect(sendChatGptPromptMock).toHaveBeenCalledWith(
+      expect.objectContaining({ model: "Pro", proMode: "확장", timeoutMs: 300_000 })
+    );
   });
 });
 

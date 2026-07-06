@@ -8,8 +8,13 @@ export const CLI_VERSION = packageJson.version ?? "0.0.0";
 export function printHelp(stdout: (line: string) => void): void {
   stdout(`prodex v${CLI_VERSION}
 
+Ask ChatGPT from the terminal (visible logged-in browser):
+  prodex ask "Explain this stack trace"          # shortcut for: prodex pro browser ask
+  prodex ask --file src/auth.ts "Review this for security holes"
+
 Commands:
   prodex --version
+  prodex ask [same flags as pro browser ask] "prompt"  # top-level shortcut for pro browser ask
   prodex init [--cwd /absolute/path/to/repo]
   prodex doctor [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]
   prodex setup [--cwd /absolute/path/to/repo] [--host 127.0.0.1] [--port 8787] [--token-ttl-hours <hours>] [--model Pro] [--pro-mode 기본|확장] [--effort 즉시|중간|높음|"매우 높음"] [--project "name"] [--clear-model|--clear-pro-mode|--clear-effort|--clear-project] [--interactive]

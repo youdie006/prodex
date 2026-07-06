@@ -311,6 +311,10 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
 
   if (command === "pro") return runProCommand(rest, io, runCli);
 
+  // Top-level shortcut for the flagship flow: `prodex ask "..."` is
+  // `prodex pro browser ask "..."` without the namespace prefix.
+  if (command === "ask") return runProCommand(["browser", "ask", ...rest], io, runCli);
+
   if (command === "consults") return runConsultsCommand(rest, io);
 
   if (command === "ask-pro") return runAskProCommand(rest, io);
