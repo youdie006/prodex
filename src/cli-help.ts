@@ -12,21 +12,12 @@ Ask ChatGPT from the terminal (visible logged-in browser):
   prodex ask "Explain this stack trace"          # shortcut for: prodex pro browser ask
   prodex ask --file src/auth.ts "Review this for security holes"
 
-Commands:
-  prodex --version
+First-time setup:
+  prodex pro browser login    # dedicated Chrome; interactive runs wait until your login is READY
+  prodex doctor               # bridge + MCP + browser health
+
+Ask / consult commands:
   prodex ask [same flags as pro browser ask] "prompt"  # top-level shortcut for pro browser ask
-  prodex init [--cwd /absolute/path/to/repo]
-  prodex doctor [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]
-  prodex setup [--cwd /absolute/path/to/repo] [--host 127.0.0.1] [--port 8787] [--token-ttl-hours <hours>] [--model Pro] [--pro-mode 기본|확장] [--effort 즉시|중간|높음|"매우 높음"] [--project "name"] [--clear-model|--clear-pro-mode|--clear-effort|--clear-project] [--interactive]
-  prodex start [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]
-  prodex status [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js] [--show-token] [--url-only] [--unsafe-show-non-expiring-token]
-  prodex tunnel url [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js] --public-url https://... [--show-token] [--url-only]
-  prodex release status [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]
-  prodex release pack [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js] --pack-destination /absolute/path [--keep-workdir]
-  prodex onboard [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]
-  prodex project prompt [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]
-  prodex claude prompt [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]
-  prodex claude config [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]
   prodex pro ask [--dry-run] [--cwd /absolute/path/to/repo] [--file path] "prompt"  # dry-run preview
   prodex pro browser login [--cwd /absolute/path/to/repo] [--dry-run] [--source-cli /absolute/path/to/dist/cli.js] [--profile-dir path] [--port 9333] [--url https://chatgpt.com/...] [--launch-timeout-ms 5000] [--wait|--no-wait] [--wait-timeout-ms 300000]  # preview/open visible browser login
   prodex pro browser help [--source-cli /absolute/path/to/dist/cli.js]
@@ -37,6 +28,9 @@ Commands:
   prodex pro latest [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]
   prodex pro list [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]
   prodex pro show <task-id|latest> [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]
+
+Bridge ledger (durable tasks/results/receipts/sessions under .bridge/):
+  prodex init [--cwd /absolute/path/to/repo]
   prodex tasks create [--cwd /absolute/path/to/repo] --title "Title" --prompt "Prompt"
   prodex tasks list [--status new|claimed|done|blocked] [--cwd /absolute/path/to/repo]
   prodex tasks show <task-id|latest> [--cwd /absolute/path/to/repo]
@@ -51,7 +45,23 @@ Commands:
   prodex receipts rotate-key [--cwd /absolute/path/to/repo]
   prodex sessions list [--status preview|running|done|blocked] [--cwd /absolute/path/to/repo]
   prodex sessions show <session-id|latest> [--cwd /absolute/path/to/repo]
-  prodex mcp [--cwd /absolute/path/to/repo]`);
+
+Agent / MCP integration:
+  prodex mcp [--cwd /absolute/path/to/repo]
+  prodex setup [--cwd /absolute/path/to/repo] [--host 127.0.0.1] [--port 8787] [--token-ttl-hours <hours>] [--model Pro] [--pro-mode 기본|확장] [--effort 즉시|중간|높음|"매우 높음"] [--project "name"] [--clear-model|--clear-pro-mode|--clear-effort|--clear-project] [--interactive]
+  prodex start [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]
+  prodex status [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js] [--show-token] [--url-only] [--unsafe-show-non-expiring-token]
+  prodex tunnel url [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js] --public-url https://... [--show-token] [--url-only]
+  prodex claude prompt [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]
+  prodex claude config [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]
+  prodex project prompt [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]
+  prodex onboard [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]
+
+Maintenance:
+  prodex --version
+  prodex doctor [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]
+  prodex release status [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]
+  prodex release pack [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js] --pack-destination /absolute/path [--keep-workdir]`);
 }
 export function printInitHelp(stdout: (line: string) => void): void {
   stdout(`prodex init

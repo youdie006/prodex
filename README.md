@@ -29,11 +29,13 @@ The most common way to use `prodex` is standalone — get a ChatGPT Pro answer o
 ```bash
 npm install -g @youdie006/prodex          # needs Node 20+, git, ripgrep
 
-prodex pro browser login                  # opens a dedicated Chrome; log in to ChatGPT there
-prodex pro browser ask --file src/auth.ts "Review this for security holes"
+prodex pro browser login                  # opens a dedicated Chrome and waits until your ChatGPT login is READY
+prodex ask --file src/auth.ts "Review this for security holes"
 ```
 
-The answer prints to your terminal and is saved under `.bridge/` for later. `prodex` drives the picker you can see and deliberately will not send into a window you cannot watch — but a dedicated Chrome window left non-minimized (even behind your editor) counts as watchable, so it sends quietly in the background without stealing focus. Just don't minimize it or switch that window to another tab. Add `--pro-mode 확장` for extended reasoning, or `--file` more than once to attach several files. See [First Pro Login](#first-pro-login) for the full flow, and the [FAQ](#faq) if a send stops.
+`prodex ask` is the short form of `prodex pro browser ask`; the full form and every flag work identically. In an interactive terminal, `login` keeps watching the opened window and tells you exactly which manual step is still missing (log in, clear a check, open a chat) until it reports READY. While ChatGPT thinks, `prodex` prints progress to stderr (connecting, prompt sent, elapsed seconds while generating), so a multi-minute Pro answer never looks frozen.
+
+The answer prints to your terminal and is saved under `.bridge/` for later (`prodex pro latest` re-prints it). `prodex` drives the picker you can see and deliberately will not send into a window you cannot watch — but a dedicated Chrome window left non-minimized (even behind your editor) counts as watchable, so it sends quietly in the background without stealing focus. Just don't minimize it or switch that window to another tab. Add `--pro-mode 확장` for extended reasoning, or `--file` more than once to attach several files. See [First Pro Login](#first-pro-login) for the full flow, and the [FAQ](#faq) if a send stops.
 
 ## Core Shape
 
@@ -97,9 +99,11 @@ Not implemented:
 - Shell execution tools.
 - Automatic public tunnel setup.
 
-## Quick Start
+## Agent Bridge Quick Start
 
-Requires Node.js 20 or newer, `git`, and `ripgrep` (`rg`) on PATH. The optional visible-browser adapter also needs a Chromium-family browser (`google-chrome`, `chromium`, `chromium-browser`, `microsoft-edge`, `brave-browser`) or `PRODEX_CHROME=/path/to/browser`.
+This section connects coding agents (Claude, Codex, ChatGPT Projects) to the bridge over MCP. It is not required for the standalone terminal flow above — if you only want Pro answers in your terminal, the [Quickstart](#quickstart-a-pro-second-opinion-from-your-terminal) is complete on its own.
+
+Requires Node.js 20 or newer, `git`, and `ripgrep` (`rg`) on PATH. The optional visible-browser adapter needs a Chromium-family browser: PATH binaries (`google-chrome`, `chromium`, `chromium-browser`, `microsoft-edge`, `brave-browser`), standard macOS app bundles, Windows Program Files/LOCALAPPDATA installs, and Windows-host browsers under WSL are all probed automatically; anything else via `PRODEX_CHROME=/path/to/browser`.
 
 Install from npm — **note the scope**. The unscoped `prodex` on npm is an unrelated third-party package; do **not** install it. Use the scoped name:
 
@@ -153,7 +157,7 @@ prodex pro browser check
 prodex pro browser smoke --cwd /absolute/path/to/your/repo
 ```
 
-If you use a non-default debug port or Chrome profile, pass it to `login`; the printed follow-up `check` and `smoke` commands keep the matching `--port`. If you launch from outside the repo you want to inspect, pass `--cwd /absolute/path/to/your/repo` to `login`, `check`, or `smoke` so the command targets the same bridge. On slower first launches, add `--launch-timeout-ms 12000`.
+If you use a non-default debug port or Chrome profile, pass it to `login`; the printed follow-up `check` and `smoke` commands keep the matching `--port`. To stop repeating `--port` on every command, export `PRODEX_CDP_PORT=<port>` once — explicit `--port` still wins. If you launch from outside the repo you want to inspect, pass `--cwd /absolute/path/to/your/repo` to `login`, `check`, or `smoke` so the command targets the same bridge. On slower first launches, add `--launch-timeout-ms 12000`.
 
 For a source checkout, keep the follow-up commands in source-checkout form too:
 
@@ -170,7 +174,7 @@ node "$SOURCE_CLI" pro browser smoke --source-cli "$SOURCE_CLI" --cwd /absolute/
 What happens:
 
 - `login --dry-run` prints the dedicated Chrome profile, debug URL, and next commands without opening a browser.
-- `login` opens that dedicated Chrome profile at ChatGPT.
+- `login` opens that dedicated Chrome profile at ChatGPT. In an interactive terminal it then waits (default 5 minutes; `--no-wait` skips, `--wait-timeout-ms` tunes) and narrates which manual step is still missing until it reports READY; scripts and agents get the immediate return unless they pass `--wait`.
 - You log in manually in the visible browser.
 - If ChatGPT asks for captcha, Cloudflare/human verification, permission, or account verification, handle it in that browser.
 - If ChatGPT shows a usage limit, message limit, model limit, or rate limit, wait for the reset or choose an available model in the browser.
@@ -184,11 +188,11 @@ What happens:
 
 You can close that Chrome window after check/smoke or when you are done. The next time you need it, run `pro browser login` or `pro browser check` again. `check` will tell you what to do if the browser is closed.
 
-Actual explicit visible-browser consult:
+Actual explicit visible-browser consult (`prodex ask` is the short form of `prodex pro browser ask`):
 
 ```bash
 cd /absolute/path/to/your/repo
-prodex pro browser ask --cwd /absolute/path/to/your/repo --file README.md "Review the project positioning"
+prodex ask --file README.md "Review the project positioning"
 prodex pro latest
 prodex results show latest
 prodex results artifact latest
