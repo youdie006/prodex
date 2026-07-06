@@ -20,9 +20,27 @@ const BridgeFileInputSchema = z.object({
 });
 export const DEFAULT_STDIO_MESSAGE_LIMIT_BYTES = 1_048_576;
 
+export interface BrowserConsultToolInput {
+  prompt: string;
+  model?: string;
+  pro_mode?: string;
+  effort?: string;
+  project?: string;
+  timeout_ms?: number;
+  files?: string[];
+}
+
 export interface CreateMcpServerOptions {
   source?: BridgeSource;
   claimedBy?: string;
+  /**
+   * When provided, registers the pro_consult tool backed by this callback.
+   * Wire it ONLY for the local stdio MCP server: the HTTP MCP surface is
+   * exposed to ChatGPT itself (and possibly a tunnel), and must never be able
+   * to drive the user's browser. Injected from cli.ts to avoid an import
+   * cycle (mcp -> cli-pro -> cli-server -> http-mcp -> mcp).
+   */
+  browserConsult?: (input: BrowserConsultToolInput) => Promise<unknown>;
 }
 
 function asText(value: unknown) {
@@ -239,11 +257,32 @@ export function createServer(cwd = process.cwd(), options: CreateMcpServerOption
     async (input) => asText(await handlers.repo_stage_reviewed_paths(input))
   );
 
+  const browserConsult = options.browserConsult;
+  if (browserConsult) {
+    server.registerTool(
+      "pro_consult",
+      {
+        description:
+          "Ask the user's logged-in ChatGPT (Pro) in the visible browser and wait for the full answer. This drives a real browser send: it can take minutes (Pro extended reasoning), is human-paced, and records a durable receipt under .bridge/. Requires a running `prodex pro browser login` session. Returns task_id, thread URL, and the answer text.",
+        inputSchema: {
+          prompt: McpBridgeTextSchema.min(1),
+          model: McpShortTextSchema.optional(),
+          pro_mode: McpShortTextSchema.optional(),
+          effort: McpShortTextSchema.optional(),
+          project: McpShortTextSchema.optional(),
+          timeout_ms: z.number().int().positive().max(3_600_000).optional(),
+          files: z.array(McpShortTextSchema).max(20).optional()
+        }
+      },
+      async (input) => asText(await browserConsult(input))
+    );
+  }
+
   return server;
 }
 
-export async function runMcpServer(cwd = process.cwd()): Promise<void> {
-  const server = createServer(cwd);
+export async function runMcpServer(cwd = process.cwd(), options: CreateMcpServerOptions = {}): Promise<void> {
+  const server = createServer(cwd, options);
   const transport = new LimitedStdioServerTransport();
   await server.connect(transport);
 }

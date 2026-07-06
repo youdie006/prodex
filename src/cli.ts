@@ -116,6 +116,7 @@ import {
   assertNoOrphanConsultResults,
   formatConfigWarningLine,
   isConsultRecord,
+  performBrowserConsultForMcp,
   runAskProCommand,
   runChatgptCommand,
   runConsultsCommand,
@@ -323,7 +324,10 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
   if (command === "mcp") {
     if (printHelpIfRequested(rest, "mcp", io.stdout, printMcpHelp, { valueFlags: ["--cwd"] })) return 0;
     assertOnlyOptions(rest, "mcp", ["--cwd"]);
-    await runMcpServer(resolveCwdFlag(io.cwd, rest));
+    const mcpCwd = resolveCwdFlag(io.cwd, rest);
+    // pro_consult is stdio-only: the HTTP MCP surface is exposed to ChatGPT
+    // itself (and possibly a tunnel) and must never drive the user's browser.
+    await runMcpServer(mcpCwd, { browserConsult: (input) => performBrowserConsultForMcp(mcpCwd, input) });
     return 0;
   }
 

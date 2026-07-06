@@ -728,6 +728,62 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
 
 export const PRO_BROWSER_SMOKE_TOKEN = "PRODEX_PRO_SMOKE_OK";
 
+export interface BrowserConsultInput {
+  prompt: string;
+  model?: string;
+  pro_mode?: string;
+  effort?: string;
+  project?: string;
+  timeout_ms?: number;
+  files?: string[];
+}
+
+export interface BrowserConsultOutcome {
+  task_id: string;
+  status: string;
+  thread: string;
+  answer: string;
+  notes: string[];
+}
+
+/**
+ * MCP-facing wrapper around the visible-browser ask flow. Reuses the full CLI
+ * path (send pacing, task/session/receipt persistence, artifact save) by
+ * invoking runAskProCommand with captured io, then returns structured fields
+ * instead of printed lines. Registered only on the local stdio MCP server -
+ * never on the HTTP MCP surface, which is exposed to ChatGPT itself.
+ */
+export async function performBrowserConsultForMcp(cwd: string, input: BrowserConsultInput): Promise<BrowserConsultOutcome> {
+  const stdoutLines: string[] = [];
+  const stderrLines: string[] = [];
+  const argv = [
+    "--send",
+    ...(input.model !== undefined ? ["--model", input.model] : []),
+    ...(input.pro_mode !== undefined ? ["--pro-mode", input.pro_mode] : []),
+    ...(input.effort !== undefined ? ["--effort", input.effort] : []),
+    ...(input.project !== undefined ? ["--project", input.project] : []),
+    ...(input.timeout_ms !== undefined ? ["--timeout-ms", String(input.timeout_ms)] : []),
+    ...(input.files ?? []).flatMap((file) => ["--file", file]),
+    "--",
+    input.prompt
+  ];
+  await runAskProCommand(argv, {
+    cwd,
+    stdout: (line) => stdoutLines.push(line),
+    stderr: (line) => stderrLines.push(line),
+    allowAskProBrowserSend: true
+  });
+  const header = stdoutLines[0] ?? "";
+  const [taskId = "", status = "", thread = ""] = header.split("\t");
+  return {
+    task_id: taskId,
+    status,
+    thread,
+    answer: stdoutLines.slice(2).join("\n"),
+    notes: stderrLines.filter((line) => !line.startsWith("progress:"))
+  };
+}
+
 export interface LoginWaitDeps {
   statusFn?: typeof getChatGptBrowserStatus;
   sleepFn?: (ms: number) => Promise<void>;
