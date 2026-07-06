@@ -4,37 +4,6 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.7.4] - 2026-07-03
-
-### Fixed
-- Tighten the 0.7.3 secret-file blocklist to remove false positives found in an
-  adversarial regression review: a directory or module named `credentials`/
-  `service-account` (e.g. `credentials.ts`, `src/credentials/oauth.ts`,
-  `service_account.py`) is no longer blocked — those names now require a
-  data/config extension (`credentials.json`, `service-account.json` stay
-  blocked). Secret extensions match only as the final extension, so
-  `foo.key.ts` / `using.gpg.md` are allowed while `server.pem` / `tls.key`
-  stay blocked; `.asc` (public GPG signatures / AsciiDoc) is no longer treated
-  as secret; `*.tfstate.backup` remains blocked explicitly.
-
-## [0.7.3] - 2026-07-03
-
-### Fixed
-- CI/release: `npm run build` now marks the packaged bin `dist/cli.js`
-  executable (new `postbuild` step), so `release:check` and `npm publish` no
-  longer need a manual `chmod +x`. This fixes the GitHub Actions
-  release-verify job, which failed on every push with "package bin entries
-  must be executable: dist/cli.js".
-- Visible-browser sends that time out while the answer is still streaming now
-  salvage the partial text and return it with an `answer_incomplete` warning
-  instead of discarding minutes of Pro reasoning; the answer is saved as a
-  normal done consult with the warning recorded on the receipt.
-
-### Changed
-- Timeouts now surface as a dedicated `send_timeout` blocker with a
-  "raise --timeout-ms" next step instead of the generic `browser_send_failed`
-  bucket, and the timeout error messages include the elapsed budget.
-
 ## [0.8.3] - 2026-07-06
 
 ### Fixed
@@ -88,6 +57,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `connectCdp` now bounds every connect and command with a default 20s timeout
   even when the caller passes none, so a frozen/half-open browser socket makes
   the poll loop error out instead of hanging indefinitely.
+
+## [0.7.4] - 2026-07-03
+
+### Fixed
+- Tighten the 0.7.3 secret-file blocklist to remove false positives found in an
+  adversarial regression review: a directory or module named `credentials`/
+  `service-account` (e.g. `credentials.ts`, `src/credentials/oauth.ts`,
+  `service_account.py`) is no longer blocked — those names now require a
+  data/config extension (`credentials.json`, `service-account.json` stay
+  blocked). Secret extensions match only as the final extension, so
+  `foo.key.ts` / `using.gpg.md` are allowed while `server.pem` / `tls.key`
+  stay blocked; `.asc` (public GPG signatures / AsciiDoc) is no longer treated
+  as secret; `*.tfstate.backup` remains blocked explicitly.
+
+## [0.7.3] - 2026-07-03
+
+### Fixed
+- CI/release: `npm run build` now marks the packaged bin `dist/cli.js`
+  executable (new `postbuild` step), so `release:check` and `npm publish` no
+  longer need a manual `chmod +x`. This fixes the GitHub Actions
+  release-verify job, which failed on every push with "package bin entries
+  must be executable: dist/cli.js".
+- Visible-browser sends that time out while the answer is still streaming now
+  salvage the partial text and return it with an `answer_incomplete` warning
+  instead of discarding minutes of Pro reasoning; the answer is saved as a
+  normal done consult with the warning recorded on the receipt.
+
+### Changed
+- Timeouts now surface as a dedicated `send_timeout` blocker with a
+  "raise --timeout-ms" next step instead of the generic `browser_send_failed`
+  bucket, and the timeout error messages include the elapsed budget.
 
 ## [0.7.2] - 2026-07-03
 
