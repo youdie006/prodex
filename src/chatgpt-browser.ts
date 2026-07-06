@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from "node:child_process";
-import { accessSync, constants, statSync } from "node:fs";
+import { accessSync, constants, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
 
@@ -1842,19 +1842,33 @@ const WSL_WINDOWS_CHROME_PATHS = [
   "/mnt/c/Program Files (x86)/Microsoft/Edge/Application/msedge.exe"
 ] as const;
 
+function kernelLooksLikeWsl(): boolean {
+  try {
+    return /microsoft/i.test(readFileSync("/proc/version", "utf8"));
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Ordered browser candidates for the current platform: PATH binary names
  * first, then well-known absolute install locations (macOS app bundles,
  * Windows Program Files/LOCALAPPDATA, and Windows-host browsers under WSL).
+ * WSL detection cannot rely on WSL_DISTRO_NAME alone: non-login shells
+ * (measured live) may not carry it, so WSL_INTEROP and the kernel string are
+ * probed too.
  */
 export function chromeCommandCandidates(
   platform: NodeJS.Platform = process.platform,
-  env: Record<string, string | undefined> = process.env
+  env: Record<string, string | undefined> = process.env,
+  isWsl: () => boolean = kernelLooksLikeWsl
 ): string[] {
   const candidates: string[] = [...CHROME_PATH_BINARY_NAMES];
   if (platform === "darwin") candidates.push(...DARWIN_CHROME_PATHS);
   if (platform === "win32") candidates.push(...win32ChromePaths(env));
-  if (platform === "linux" && env.WSL_DISTRO_NAME) candidates.push(...WSL_WINDOWS_CHROME_PATHS);
+  if (platform === "linux" && (env.WSL_DISTRO_NAME || env.WSL_INTEROP || isWsl())) {
+    candidates.push(...WSL_WINDOWS_CHROME_PATHS);
+  }
   return candidates;
 }
 

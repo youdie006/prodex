@@ -63,6 +63,21 @@ async function runBrowserCheck(): Promise<string> {
 }
 
 describe("browser product check", () => {
+  it("echoes saved browser send defaults so users see what an ask will apply", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-product-check-"));
+    const { writeLocalConfig } = await import("../src/config.js");
+    await writeLocalConfig(cwd, { token: "test-token", browserDefaults: { model: "Pro", proMode: "확장" } });
+    const out: string[] = [];
+
+    await runCli(["pro", "browser", "check"], {
+      cwd,
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    expect(out.join("\n")).toContain("browser_defaults: model=Pro, pro-mode=확장");
+  });
+
   it("reports blockers even when ChatGPT is logged in with a composer", async () => {
     const { code, text } = await runBrowserCheckResult();
     expect(code).toBe(1);

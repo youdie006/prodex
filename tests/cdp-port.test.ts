@@ -78,4 +78,19 @@ describe("chromeCommandCandidates", () => {
     expect(candidates).toContain("/mnt/c/Program Files/Google/Chrome/Application/chrome.exe");
     expect(candidates).toContain("google-chrome");
   });
+
+  it("detects WSL via WSL_INTEROP when WSL_DISTRO_NAME is unset (non-login shells)", () => {
+    const candidates = chromeCommandCandidates("linux", { WSL_INTEROP: "/run/WSL/1_interop" });
+    expect(candidates).toContain("/mnt/c/Program Files/Google/Chrome/Application/chrome.exe");
+  });
+
+  it("detects WSL via the injected kernel probe when no WSL env vars survive", () => {
+    const candidates = chromeCommandCandidates("linux", {}, () => true);
+    expect(candidates).toContain("/mnt/c/Program Files/Google/Chrome/Application/chrome.exe");
+  });
+
+  it("does not add Windows paths on plain linux", () => {
+    const candidates = chromeCommandCandidates("linux", {}, () => false);
+    expect(candidates.every((candidate) => !candidate.startsWith("/mnt/c/"))).toBe(true);
+  });
 });

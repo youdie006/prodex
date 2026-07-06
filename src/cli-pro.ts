@@ -42,7 +42,7 @@ import {
 } from "./cli-args.js";
 import { printProBrowserHelp, printProHelp } from "./cli-help.js";
 import { listRawResultsForInspection, listTasksForInspection } from "./cli-ledger.js";
-import { redactServerUrl } from "./cli-server.js";
+import { formatBrowserDefaults, redactServerUrl } from "./cli-server.js";
 import {
   type BrowserCommandOptions,
   errorMessage,
@@ -1091,6 +1091,15 @@ export async function printProductCheck(store: BridgeStore, io: CliIO, args: str
     } else {
       io.stdout(`config: failed ${sourceAwareSetupMessage(errorMessage(error), sourceCli, { cwd: setupHintCwd })}`);
     }
+  }
+
+  // Echo the saved send defaults next to the live model hints so users can
+  // see what an ask will actually apply without opening the config file.
+  try {
+    const savedDefaults = await loadBrowserDefaults(configCwd);
+    if (savedDefaults) io.stdout(`browser_defaults: ${formatBrowserDefaults(savedDefaults)}`);
+  } catch {
+    // config unreadable: already reported by the config line above
   }
 
   const browserStatus = await getChatGptBrowserStatus({
