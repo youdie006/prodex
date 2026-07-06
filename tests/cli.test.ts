@@ -2287,7 +2287,7 @@ describe("runCli", () => {
     const text = out.join("\n");
     expect(text).toContain('prodex pro ask [--dry-run] [--cwd /absolute/path/to/repo] [--file path] "prompt"  # dry-run preview');
     expect(text).toContain(
-      "prodex pro browser login [--cwd /absolute/path/to/repo] [--dry-run] [--source-cli /absolute/path/to/dist/cli.js] [--profile-dir path] [--port 9333] [--url https://chatgpt.com/...] [--launch-timeout-ms 5000]  # preview/open visible browser login"
+      "prodex pro browser login [--cwd /absolute/path/to/repo] [--dry-run] [--source-cli /absolute/path/to/dist/cli.js] [--profile-dir path] [--port 9333] [--url https://chatgpt.com/...] [--launch-timeout-ms 5000] [--wait|--no-wait] [--wait-timeout-ms 300000]  # preview/open visible browser login"
     );
     expect(text).toContain(
       "prodex pro browser check [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 1500]"
@@ -5741,6 +5741,25 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     expect(text).toContain("bridge_list_receipts");
     expect(text).toContain("bridge_get_receipt");
     expect(text).toContain("repo_stage_reviewed_paths");
+  });
+
+  it("doctor reports the visible-browser state without failing when no browser runs", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
+    const out: string[] = [];
+
+    const code = await runCli(["doctor"], {
+      cwd,
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    const text = out.join("\n");
+    expect(code).toBe(0);
+    const chatgptLine = out.find((line) => line.startsWith("chatgpt: "));
+    expect(chatgptLine).toBeDefined();
+    expect(chatgptLine).toContain("not connected");
+    expect(chatgptLine).toContain("pro browser login");
+    expect(text).toContain("optional");
   });
 
   it("doctor can print source-checkout remediation commands", async () => {

@@ -21,6 +21,7 @@ import {
   openChatGptBrowser,
   parseProMode,
   parseReasoningEffort,
+  resolveCdpPort,
   sendChatGptPrompt
 } from "./chatgpt-browser.js";
 import {
@@ -1138,6 +1139,27 @@ async function runDoctor(store: BridgeStore, io: CliIO, sourceCli?: string, setu
   } catch (error) {
     ok = false;
     io.stdout(`http_mcp_smoke: failed ${errorMessage(error)}`);
+  }
+
+  // Informational visible-browser status so an all-green doctor cannot hide a
+  // missing browser setup. The browser is optional for bridge-only use, so
+  // this line never fails doctor.
+  try {
+    const cdpPort = resolveCdpPort();
+    const browser = await getChatGptBrowserStatus({ port: cdpPort, timeoutMs: 1_500 });
+    if (browser.reachable && browser.loggedInLikely && browser.hasComposer) {
+      io.stdout(`chatgpt: ok logged_in=true composer=true (port ${cdpPort})`);
+    } else if (!browser.reachable) {
+      io.stdout(
+        `chatgpt: not connected (port ${cdpPort}) - optional; run \`${formatBrowserLoginCommand(sourceCli, { cwd: setupHintCwd })}\` for visible-browser Pro consults`
+      );
+    } else {
+      io.stdout(
+        `chatgpt: partial logged_in=${browser.loggedInLikely} composer=${browser.hasComposer}${browser.blocker ? ` blocker=${browser.blocker.code}` : ""} - optional; run \`${formatBrowserCheckCommand(sourceCli, { cwd: setupHintCwd })}\` for details`
+      );
+    }
+  } catch (error) {
+    io.stdout(`chatgpt: check failed ${errorMessage(error)} - optional; run \`${formatBrowserCheckCommand(sourceCli, { cwd: setupHintCwd })}\``);
   }
 
   return ok ? 0 : 1;

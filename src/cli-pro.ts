@@ -4,6 +4,8 @@ import { buildDryRunBundle } from "./bundle.js";
 import {
   type ChatGptBrowserLaunch,
   type SendChatGptProgressEvent,
+  DEFAULT_CDP_PORT,
+  resolveCdpPort,
   chatGptVisibilityBlocker,
   defaultChatGptProfileDir,
   getChatGptBrowserStatus,
@@ -77,7 +79,7 @@ export async function runChatgptCommand(rest: string[], io: CliIO): Promise<numb
     if (subcommand === "open") {
       assertOnlyOptions(chatgptArgs, "chatgpt open", ["--port", "--profile-dir", "--url"]);
       const opened = openChatGptBrowser({
-        port: readPortFlag(chatgptArgs, "--port") ?? 9333,
+        port: resolveCdpPort(readPortFlag(chatgptArgs, "--port")),
         profileDir: readFlag(chatgptArgs, "--profile-dir"),
         url: readChatGptBrowserUrlFlag(chatgptArgs)
       });
@@ -89,7 +91,7 @@ export async function runChatgptCommand(rest: string[], io: CliIO): Promise<numb
     }
     if (subcommand === "status") {
       assertOnlyOptions(chatgptArgs, "chatgpt status", ["--port"]);
-      const status = await getChatGptBrowserStatus({ port: readPortFlag(chatgptArgs, "--port") ?? 9333 });
+      const status = await getChatGptBrowserStatus({ port: resolveCdpPort(readPortFlag(chatgptArgs, "--port")) });
       io.stdout(JSON.stringify(status, null, 2));
       return 0;
     }
@@ -98,7 +100,7 @@ export async function runChatgptCommand(rest: string[], io: CliIO): Promise<numb
       const targetCwd = resolveCwdFlag(io.cwd, chatgptArgs);
       const targetStore = new BridgeStore(targetCwd);
       const sourceCli = resolveOptionalFileFlag(io.cwd, chatgptArgs, "--source-cli");
-      const port = readPortFlag(chatgptArgs, "--port") ?? 9333;
+      const port = resolveCdpPort(readPortFlag(chatgptArgs, "--port"));
       const timeoutMs = readPositiveNumberFlag(chatgptArgs, "--timeout-ms") ?? 90000;
       const commandOptions = {
         ...(readFlag(chatgptArgs, "--cwd") ? { cwd: targetCwd } : {}),
@@ -221,23 +223,31 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
       if (browserSubcommand === "login") {
         if (
           printProBrowserHelpIfRequested(browserArgs, "pro browser login", io, {
-            valueFlags: ["--cwd", "--profile-dir", "--port", "--url", "--source-cli", "--launch-timeout-ms"],
-            booleanFlags: ["--dry-run"]
+            valueFlags: ["--cwd", "--profile-dir", "--port", "--url", "--source-cli", "--launch-timeout-ms", "--wait-timeout-ms"],
+            booleanFlags: ["--dry-run", "--wait", "--no-wait"]
           })
         ) {
           return 0;
         }
-        assertOnlyOptions(browserArgs, "pro browser login", ["--cwd", "--profile-dir", "--port", "--url", "--source-cli", "--launch-timeout-ms"], ["--dry-run"]);
+        assertOnlyOptions(
+          browserArgs,
+          "pro browser login",
+          ["--cwd", "--profile-dir", "--port", "--url", "--source-cli", "--launch-timeout-ms", "--wait-timeout-ms"],
+          ["--dry-run", "--wait", "--no-wait"]
+        );
+        if (browserArgs.includes("--wait") && browserArgs.includes("--no-wait")) {
+          throw new Error("pro browser login cannot combine --wait and --no-wait");
+        }
         const loginUrl = readChatGptBrowserUrlFlag(browserArgs);
         const sourceCli = resolveOptionalFileFlag(io.cwd, browserArgs, "--source-cli");
         const targetCwd = readFlag(browserArgs, "--cwd") ? resolveCwdFlag(io.cwd, browserArgs) : undefined;
         const profileDir = readFlag(browserArgs, "--profile-dir");
-        const port = readPortFlag(browserArgs, "--port") ?? 9333;
+        const port = resolveCdpPort(readPortFlag(browserArgs, "--port"));
         const launchTimeoutMs = readPositiveNumberFlag(browserArgs, "--launch-timeout-ms");
         const commandOptions = {
           ...(targetCwd ? { cwd: targetCwd } : {}),
           ...(profileDir ? { profileDir } : {}),
-          ...(port !== 9333 ? { port } : {}),
+          ...(port !== DEFAULT_CDP_PORT ? { port } : {}),
           ...(readFlag(browserArgs, "--url") ? { url: loginUrl } : {}),
           ...(launchTimeoutMs !== undefined ? { launchTimeoutMs } : {})
         };
@@ -266,7 +276,16 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
           sourceCli,
           commandOptions
         });
-        return 0;
+        // Guided wait: interactive terminals walk the user to a verified READY
+        // state instead of returning while login is still unfinished. Scripts
+        // and agents (non-TTY) keep the immediate return unless --wait is
+        // passed; --no-wait always skips.
+        const shouldWaitForReady =
+          !browserArgs.includes("--no-wait") && (browserArgs.includes("--wait") || process.stdout.isTTY === true);
+        if (!shouldWaitForReady) return 0;
+        const waitTimeoutMs = readPositiveNumberFlag(browserArgs, "--wait-timeout-ms") ?? 300_000;
+        const ready = await waitForChatGptLoginReady(io.stderr, { port: opened.port, timeoutMs: waitTimeoutMs });
+        return ready ? 0 : 1;
       }
       if (browserSubcommand === "ask") {
         if (
@@ -504,7 +523,7 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
       ...(selectionProMode ? { pro_mode: selectionProMode } : {}),
       ...(selectionEffort ? { effort: selectionEffort } : {})
     };
-    const browserPort = hasSendMode ? (readPortFlag(parsedAskPro.optionArgs, "--port") ?? 9333) : undefined;
+    const browserPort = hasSendMode ? resolveCdpPort(readPortFlag(parsedAskPro.optionArgs, "--port")) : undefined;
     // Pro extended can legitimately think for minutes, so its default timeout is
     // higher; an explicit --timeout-ms always wins.
     const defaultBrowserTimeoutMs = selectionProMode === "확장" ? 300_000 : 90_000;
@@ -708,6 +727,59 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
 }
 
 export const PRO_BROWSER_SMOKE_TOKEN = "PRODEX_PRO_SMOKE_OK";
+
+export interface LoginWaitDeps {
+  statusFn?: typeof getChatGptBrowserStatus;
+  sleepFn?: (ms: number) => Promise<void>;
+  now?: () => number;
+}
+
+/**
+ * Guided login: poll the visible browser until a logged-in ChatGPT tab with a
+ * usable composer appears, narrating each state change so the user knows what
+ * manual step (login, challenge, opening a chat) is still missing.
+ */
+export async function waitForChatGptLoginReady(
+  stderr: (line: string) => void,
+  options: { port: number; timeoutMs?: number; pollMs?: number },
+  deps: LoginWaitDeps = {}
+): Promise<boolean> {
+  const statusFn = deps.statusFn ?? getChatGptBrowserStatus;
+  const sleepFn = deps.sleepFn ?? sleep;
+  const now = deps.now ?? Date.now;
+  const timeoutMs = options.timeoutMs ?? 300_000;
+  const pollMs = options.pollMs ?? 2_000;
+  const startedAt = now();
+  stderr("login: waiting for a logged-in ChatGPT tab (finish login in the opened window; Ctrl+C stops waiting)...");
+  let lastState = "";
+  while (now() - startedAt < timeoutMs) {
+    const status = await statusFn({ port: options.port, timeoutMs: 1_500 });
+    const state = !status.reachable
+      ? "login: browser starting..."
+      : status.blocker
+        ? `login: blocked - ${status.blocker.message}`
+        : !status.loggedInLikely
+          ? "login: waiting for ChatGPT login in the opened window..."
+          : !status.hasComposer
+            ? "login: logged in; open a chat so the prompt composer is visible..."
+            : "";
+    if (state === "") {
+      stderr(`login: READY - logged-in ChatGPT tab with composer detected (${Math.round((now() - startedAt) / 1000)}s).`);
+      return true;
+    }
+    if (state !== lastState) {
+      lastState = state;
+      stderr(state);
+    }
+    const remainingMs = timeoutMs - (now() - startedAt);
+    if (remainingMs <= 0) break;
+    await sleepFn(Math.min(pollMs, Math.max(1, remainingMs)));
+  }
+  stderr(
+    `login: not ready after ${Math.round(timeoutMs / 1000)}s. Finish login in the browser, then verify with \`prodex pro browser check\`.`
+  );
+  return false;
+}
 
 export async function assertBrowserLaunchStayedAlive(opened: ChatGptBrowserLaunch, timeoutMs?: number): Promise<void> {
   const outcome = await waitForBrowserLaunchReady(opened, timeoutMs);
@@ -966,7 +1038,7 @@ export async function printProductCheck(store: BridgeStore, io: CliIO, args: str
   }
 
   const browserStatus = await getChatGptBrowserStatus({
-    port: readPortFlag(args, "--port") ?? 9333,
+    port: resolveCdpPort(readPortFlag(args, "--port")),
     timeoutMs: readPositiveNumberFlag(args, "--timeout-ms") ?? 1500
   });
   const browserCommandOptions = {

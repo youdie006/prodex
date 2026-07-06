@@ -105,6 +105,26 @@ export function parseProMode(raw: string): ChatGptProMode {
   throw new Error(`--pro-mode must be one of ${PRO_MODES.join(", ")}`);
 }
 
+export const DEFAULT_CDP_PORT = 9333;
+
+/**
+ * Resolve the Chrome DevTools port: explicit flag > PRODEX_CDP_PORT env >
+ * default 9333. The env var exists so a non-default port picked at login does
+ * not have to be repeated as --port on every later command.
+ */
+export function resolveCdpPort(explicit?: number): number {
+  if (explicit !== undefined) return explicit;
+  const fromEnv = process.env.PRODEX_CDP_PORT;
+  if (fromEnv !== undefined && fromEnv !== "") {
+    const parsed = Number(fromEnv);
+    if (!Number.isInteger(parsed) || parsed <= 0 || parsed > 65_535) {
+      throw new Error(`PRODEX_CDP_PORT must be an integer between 1 and 65535, got: ${fromEnv}`);
+    }
+    return parsed;
+  }
+  return DEFAULT_CDP_PORT;
+}
+
 export type SendChatGptProgressPhase = "connecting" | "tab_ready" | "selecting" | "sent" | "waiting" | "answered";
 
 export interface SendChatGptProgressEvent {
@@ -605,7 +625,7 @@ export function chatGptVisibilityBlocker(
 
 export function openChatGptBrowser(options: ChatGptBrowserOptions = {}): ChatGptBrowserLaunch {
   const command = resolveChromeCommand();
-  const port = options.port ?? 9333;
+  const port = resolveCdpPort(options.port);
   const profileDir = options.profileDir ?? defaultChatGptProfileDir();
   const args = buildChromeLaunchArgs({
     port,
@@ -647,7 +667,7 @@ export function openChatGptBrowser(options: ChatGptBrowserOptions = {}): ChatGpt
 }
 
 export async function getChatGptBrowserStatus(options: { port?: number; timeoutMs?: number } = {}): Promise<ChatGptBrowserStatus> {
-  const port = options.port ?? 9333;
+  const port = resolveCdpPort(options.port);
   const page = await findChatGptPage(port, options.timeoutMs ?? 1500);
   if (!page.ok) {
     return {
@@ -1109,7 +1129,7 @@ async function selectProject(
 }
 
 export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Promise<SendChatGptPromptResult> {
-  const port = options.port ?? 9333;
+  const port = resolveCdpPort(options.port);
   const timeoutMs = options.timeoutMs ?? 90_000;
   const sendStartedAt = Date.now();
   const emitProgress = (phase: SendChatGptProgressPhase, detail?: string): void => {
@@ -1300,7 +1320,7 @@ export function modelMenuOptionsExpression(): string {
 // and press Escape. Nothing is clicked inside the menu, so the user's model
 // selection is never changed.
 export async function listChatGptModelOptions(input: { port?: number; timeoutMs?: number } = {}): Promise<ListChatGptModelOptionsResult> {
-  const port = input.port ?? 9333;
+  const port = resolveCdpPort(input.port);
   const timeoutMs = input.timeoutMs ?? 15_000;
   const pageResult = await findChatGptPage(port, computePageDiscoveryTimeout(timeoutMs), undefined);
   if (!pageResult.ok) {
@@ -1744,13 +1764,64 @@ function enterKeyEvent(type: "keyDown" | "keyUp"): Record<string, unknown> {
   return { type, key: "Enter", code: "Enter", windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13 };
 }
 
+const CHROME_PATH_BINARY_NAMES = ["google-chrome", "chromium", "chromium-browser", "microsoft-edge", "brave-browser"] as const;
+
+const DARWIN_CHROME_PATHS = [
+  "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+  "/Applications/Chromium.app/Contents/MacOS/Chromium",
+  "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+  "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser"
+] as const;
+
+function win32ChromePaths(env: Record<string, string | undefined>): string[] {
+  return [
+    "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+    "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
+    ...(env.LOCALAPPDATA ? [`${env.LOCALAPPDATA}\\Google\\Chrome\\Application\\chrome.exe`] : []),
+    "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe",
+    "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe"
+  ];
+}
+
+const WSL_WINDOWS_CHROME_PATHS = [
+  "/mnt/c/Program Files/Google/Chrome/Application/chrome.exe",
+  "/mnt/c/Program Files (x86)/Google/Chrome/Application/chrome.exe",
+  "/mnt/c/Program Files/Microsoft/Edge/Application/msedge.exe",
+  "/mnt/c/Program Files (x86)/Microsoft/Edge/Application/msedge.exe"
+] as const;
+
+/**
+ * Ordered browser candidates for the current platform: PATH binary names
+ * first, then well-known absolute install locations (macOS app bundles,
+ * Windows Program Files/LOCALAPPDATA, and Windows-host browsers under WSL).
+ */
+export function chromeCommandCandidates(
+  platform: NodeJS.Platform = process.platform,
+  env: Record<string, string | undefined> = process.env
+): string[] {
+  const candidates: string[] = [...CHROME_PATH_BINARY_NAMES];
+  if (platform === "darwin") candidates.push(...DARWIN_CHROME_PATHS);
+  if (platform === "win32") candidates.push(...win32ChromePaths(env));
+  if (platform === "linux" && env.WSL_DISTRO_NAME) candidates.push(...WSL_WINDOWS_CHROME_PATHS);
+  return candidates;
+}
+
 function resolveChromeCommand(): string {
   const fromEnv = process.env.PRODEX_CHROME;
   if (fromEnv) {
     assertChromeCommandAvailable(fromEnv, "PRODEX_CHROME");
     return fromEnv;
   }
-  for (const command of ["google-chrome", "chromium", "chromium-browser", "microsoft-edge", "brave-browser"]) {
+  for (const command of chromeCommandCandidates()) {
+    if (isPathLikeCommand(command)) {
+      try {
+        if (!statSync(command).isFile()) continue;
+      } catch {
+        continue;
+      }
+      if (hasChromeLikeVersion(command)) return command;
+      continue;
+    }
     if (isCommandOnPath(command) && hasChromeLikeVersion(command)) return command;
   }
   throw new Error("Could not find Chrome/Chromium. Set PRODEX_CHROME to the browser executable.");
