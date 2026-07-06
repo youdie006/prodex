@@ -1,6 +1,6 @@
 {
   "name": "@youdie006/prodex",
-  "version": "0.8.2",
+  "version": "0.8.3",
   "description": "Local receipt bus for coordinating Codex execution with ChatGPT Pro/Projects consultation.",
   "author": "youdie006",
   "license": "MIT",
@@ -26,7 +26,7 @@
   ],
   "type": "module",
   "bin": {
-    "prodex": "./dist/cli.js"
+    "prodex": "dist/cli.js"
   },
   "exports": {},
   "files": [

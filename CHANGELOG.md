@@ -35,6 +35,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   "raise --timeout-ms" next step instead of the generic `browser_send_failed`
   bucket, and the timeout error messages include the elapsed budget.
 
+## [0.8.3] - 2026-07-06
+
+### Fixed
+- Package `bin` path is now `dist/cli.js` (was `./dist/cli.js`). npm 11 rejects
+  the `./` prefix and silently drops the bin entry on publish, which would ship
+  a package with no `prodex` command. Older releases published under npm 10
+  (which kept the `./` form) were unaffected, but the CI auto-publish uses the
+  latest npm, so this is required for the tokenless release path. (0.8.2 was
+  never published to npm — its CI publish surfaced this before it completed.)
+
 ## [0.8.2] - 2026-07-04
 
 ### Changed
