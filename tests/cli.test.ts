@@ -5746,20 +5746,27 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
   it("doctor reports the visible-browser state without failing when no browser runs", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     const out: string[] = [];
+    // Pin the CDP probe to a dead port so a real browser on the developer's
+    // machine cannot flip this test between not-connected and partial.
+    process.env.PRODEX_CDP_PORT = "9";
+    try {
+      const code = await runCli(["doctor"], {
+        cwd,
+        stdout: (line) => out.push(line),
+        stderr: () => {}
+      });
 
-    const code = await runCli(["doctor"], {
-      cwd,
-      stdout: (line) => out.push(line),
-      stderr: () => {}
-    });
-
-    const text = out.join("\n");
-    expect(code).toBe(0);
-    const chatgptLine = out.find((line) => line.startsWith("chatgpt: "));
-    expect(chatgptLine).toBeDefined();
-    expect(chatgptLine).toContain("not connected");
-    expect(chatgptLine).toContain("pro browser login");
-    expect(text).toContain("optional");
+      const text = out.join("\n");
+      expect(code).toBe(0);
+      const chatgptLine = out.find((line) => line.startsWith("chatgpt: "));
+      expect(chatgptLine).toBeDefined();
+      expect(chatgptLine).toContain("not connected");
+      expect(chatgptLine).toContain("(port 9)");
+      expect(chatgptLine).toContain("pro browser login");
+      expect(text).toContain("optional");
+    } finally {
+      delete process.env.PRODEX_CDP_PORT;
+    }
   });
 
   it("doctor can print source-checkout remediation commands", async () => {
