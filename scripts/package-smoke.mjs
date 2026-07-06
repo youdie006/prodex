@@ -1106,11 +1106,11 @@ try {
   const invalidBrowserTimeout = await runExpectFailure(binPath, ["pro", "browser", "check", "--port", "65534", "--timeout-ms", "0"], {
     cwd: consumerDir
   });
-  assertIncludes(invalidBrowserTimeout.stderr, "--timeout-ms must be greater than 0", "installed invalid browser timeout output");
+  assertIncludes(invalidBrowserTimeout.stderr, "--timeout-ms must be a positive integer", "installed invalid browser timeout output");
   const invalidBrowserLaunchTimeout = await runExpectFailure(binPath, ["pro", "browser", "login", "--dry-run", "--launch-timeout-ms", "0"], {
     cwd: consumerDir
   });
-  assertIncludes(invalidBrowserLaunchTimeout.stderr, "--launch-timeout-ms must be greater than 0", "installed invalid browser launch timeout output");
+  assertIncludes(invalidBrowserLaunchTimeout.stderr, "--launch-timeout-ms must be a positive integer", "installed invalid browser launch timeout output");
   const invalidTokenTtl = await runExpectFailure(binPath, ["setup", "--token-ttl-hours", "0"], {
     cwd: consumerDir
   });
@@ -1124,7 +1124,7 @@ try {
   const invalidProAskTimeout = await runExpectFailure(binPath, ["pro", "browser", "ask", "--port", "65534", "--timeout-ms", "0", "Review this"], {
     cwd: consumerDir
   });
-  assertIncludes(invalidProAskTimeout.stderr, "--timeout-ms must be greater than 0", "installed invalid pro browser ask timeout output");
+  assertIncludes(invalidProAskTimeout.stderr, "--timeout-ms must be a positive integer", "installed invalid pro browser ask timeout output");
   await assertMissingFile(path.join(consumerDir, ".bridge"), "installed consumer bridge after invalid pro browser ask timeout");
   const missingProAskFile = await runExpectFailure(binPath, ["pro", "ask", "--file", "missing.md", "Review this"], {
     cwd: consumerDir
