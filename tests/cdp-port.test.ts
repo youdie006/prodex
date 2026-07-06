@@ -30,6 +30,27 @@ describe("resolveCdpPort", () => {
   });
 });
 
+describe("browserLaunchEnv", () => {
+  it("injects DISPLAY=:0 on linux when no display is set but a WSLg X socket exists", async () => {
+    const { browserLaunchEnv } = await import("../src/chatgpt-browser.js");
+    const env = browserLaunchEnv("linux", { PATH: "/usr/bin" }, () => true);
+    expect(env.DISPLAY).toBe(":0");
+    expect(env.PATH).toBe("/usr/bin");
+  });
+
+  it("leaves the environment alone when a display is already set", async () => {
+    const { browserLaunchEnv } = await import("../src/chatgpt-browser.js");
+    const env = browserLaunchEnv("linux", { DISPLAY: ":1" }, () => true);
+    expect(env.DISPLAY).toBe(":1");
+  });
+
+  it("leaves the environment alone without an X socket or on other platforms", async () => {
+    const { browserLaunchEnv } = await import("../src/chatgpt-browser.js");
+    expect(browserLaunchEnv("linux", {}, () => false).DISPLAY).toBeUndefined();
+    expect(browserLaunchEnv("darwin", {}, () => true).DISPLAY).toBeUndefined();
+  });
+});
+
 describe("chromeCommandCandidates", () => {
   it("keeps the PATH binary names on linux", () => {
     const candidates = chromeCommandCandidates("linux", {});

@@ -623,6 +623,30 @@ export function chatGptVisibilityBlocker(
   };
 }
 
+/**
+ * Environment for the browser spawn. On Linux shells without DISPLAY or
+ * WAYLAND_DISPLAY (common in WSL where a non-login shell does not export
+ * them), a present WSLg X socket means a desktop is actually available -
+ * inject DISPLAY=:0 so Chrome does not exit immediately with code 1.
+ */
+export function browserLaunchEnv(
+  platform: NodeJS.Platform = process.platform,
+  env: Record<string, string | undefined> = process.env,
+  hasX0Socket: () => boolean = () => {
+    try {
+      statSync("/tmp/.X11-unix/X0");
+      return true;
+    } catch {
+      return false;
+    }
+  }
+): Record<string, string | undefined> {
+  if (platform === "linux" && !env.DISPLAY && !env.WAYLAND_DISPLAY && hasX0Socket()) {
+    return { ...env, DISPLAY: ":0" };
+  }
+  return env;
+}
+
 export function openChatGptBrowser(options: ChatGptBrowserOptions = {}): ChatGptBrowserLaunch {
   const command = resolveChromeCommand();
   const port = resolveCdpPort(options.port);
@@ -632,7 +656,7 @@ export function openChatGptBrowser(options: ChatGptBrowserOptions = {}): ChatGpt
     profileDir,
     url: options.url ?? "https://chatgpt.com/"
   });
-  const child = spawn(command, args, { detached: true, stdio: "ignore" });
+  const child = spawn(command, args, { detached: true, stdio: "ignore", env: browserLaunchEnv() });
   let earlyExit: ChatGptBrowserEarlyExit | undefined;
   const earlyExitWaiters = new Set<(exit: ChatGptBrowserEarlyExit) => void>();
   const recordEarlyExit = (exit: ChatGptBrowserEarlyExit) => {

@@ -4,6 +4,46 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2026-07-06
+
+### Added
+- `prodex ask "..."` top-level shortcut for `prodex pro browser ask` with
+  identical flags, and a restructured `--help` that opens with the flagship
+  ask examples and groups commands into ask/consult, bridge ledger, agent/MCP
+  integration, and maintenance sections.
+- Live progress for visible-browser sends: connecting / tab ready / applying
+  selection / prompt sent phases plus a throttled waiting heartbeat (elapsed
+  seconds, generating|stabilizing) on stderr, so multi-minute Pro consults no
+  longer look frozen. Applies to `pro browser ask` and `pro browser smoke`.
+- Guided login: `pro browser login` in an interactive terminal now waits
+  (default 5 minutes) until a logged-in ChatGPT tab with a visible composer is
+  detected, narrating which manual step is still missing, and exits nonzero if
+  readiness never arrives. `--wait` forces it for scripts, `--no-wait` skips,
+  `--wait-timeout-ms` tunes the budget; non-TTY runs keep the old immediate
+  return.
+- `pro_consult` tool on the local stdio MCP server so Claude/Codex can ask
+  ChatGPT directly through the same explicit visible-browser flow (pacing,
+  receipts, artifacts identical to the CLI). The HTTP MCP surface never
+  registers it, so nothing reachable through a tunnel or ChatGPT itself can
+  drive the browser.
+- `PRODEX_CDP_PORT` environment override for the DevTools port (explicit
+  --port still wins), replacing ten scattered hardcoded 9333 fallbacks.
+- Browser discovery now also probes macOS app bundles, Windows Program
+  Files/LOCALAPPDATA installs, and Windows-host browsers under WSL; on Linux
+  shells without DISPLAY/WAYLAND_DISPLAY, a present WSLg X socket injects
+  DISPLAY=:0 so the browser launch does not die instantly in WSL.
+- `doctor` reports an informational `chatgpt:` line (ok / not connected /
+  partial with blocker code), so an all-green doctor no longer hides a missing
+  browser setup; the line never fails doctor.
+
+### Changed
+- After a successful ask, a stderr footer names the saved artifact path and
+  the `pro latest` re-print command. `send_timeout` blockers now suggest a
+  paste-ready rerun command with a concrete doubled `--timeout-ms` value.
+- README: the terminal quickstart uses `prodex ask` and documents the guided
+  login and progress output; the MCP section is reframed as the optional
+  "Agent Bridge Quick Start" instead of a second competing onboarding path.
+
 ## [0.8.3] - 2026-07-06
 
 ### Fixed
