@@ -93,7 +93,7 @@ export function parseReasoningEffort(raw: string): ChatGptReasoningEffort {
   if (match) return match;
   const alias = REASONING_EFFORT_ALIASES[trimmed.toLowerCase().replace(/\s+/g, "")];
   if (alias) return alias;
-  throw new Error(`--effort must be one of ${REASONING_EFFORTS.join(", ")}`);
+  throw new Error(`--effort must be one of ${REASONING_EFFORTS.join(", ")} (English aliases: instant, medium, high, max)`);
 }
 
 /** Normalize a CLI Pro sub-mode value onto the exact ChatGPT menu label. */
@@ -103,7 +103,7 @@ export function parseProMode(raw: string): ChatGptProMode {
   if (match) return match;
   const alias = PRO_MODE_ALIASES[trimmed.toLowerCase().replace(/\s+/g, "")];
   if (alias) return alias;
-  throw new Error(`--pro-mode must be one of ${PRO_MODES.join(", ")}`);
+  throw new Error(`--pro-mode must be one of ${PRO_MODES.join(", ")} (English aliases: standard, extended)`);
 }
 
 export const DEFAULT_CDP_PORT = 9333;
@@ -236,7 +236,7 @@ interface ChatGptPageStatus extends ChatGptPageTextState {
 }
 
 export const CHATGPT_RUNTIME_BLOCKER_TEXT_EXCLUDED_ANCESTORS =
-  '[data-message-author-role],script,style,noscript,[aria-hidden="true"],div[role="textbox"],textarea,[contenteditable="true"]';
+  '[data-message-author-role],script,style,noscript,[aria-hidden="true"],div[role="textbox"],textarea,[contenteditable="true"],nav,aside,[role="navigation"]';
 export const CHATGPT_COMPOSER_CANDIDATE_EXCLUDED_ANCESTORS = '[data-message-author-role],script,style,noscript,[aria-hidden="true"]';
 export const PRODEX_ACTIVE_COMPOSER_ATTRIBUTE = "data-prodex-active-composer";
 
@@ -1574,8 +1574,16 @@ async function connectCdp(webSocketUrl: string, timeoutMs?: number): Promise<{
     { resolve: (value: CdpResponse) => void; reject: (error: Error) => void; timer?: ReturnType<typeof setTimeout> }
   >();
   ws.addEventListener("message", (event) => {
-    const data = typeof event.data === "string" ? event.data : Buffer.from(event.data as ArrayBuffer).toString("utf8");
-    const message = JSON.parse(data) as CdpResponse;
+    let message: CdpResponse;
+    try {
+      const data = typeof event.data === "string" ? event.data : Buffer.from(event.data as ArrayBuffer).toString("utf8");
+      message = JSON.parse(data) as CdpResponse;
+    } catch {
+      // A malformed/binary frame must not throw inside the listener (it would
+      // be uncaught); drop it - a real response arrives on a later frame or
+      // the per-command timeout fires.
+      return;
+    }
     if (message.id && pending.has(message.id)) {
       const waiter = pending.get(message.id)!;
       if (waiter.timer) clearTimeout(waiter.timer);
@@ -1608,6 +1616,16 @@ async function connectCdp(webSocketUrl: string, timeoutMs?: number): Promise<{
       () => {
         clearTimeout(timer);
         reject(new Error("Chrome DevTools websocket failed"));
+      },
+      { once: true }
+    );
+    // A socket that closes during connect without firing "error" would
+    // otherwise wait the full timeout; fail fast instead.
+    ws.addEventListener(
+      "close",
+      () => {
+        clearTimeout(timer);
+        reject(new Error("Chrome DevTools websocket closed during connect"));
       },
       { once: true }
     );
@@ -1721,26 +1739,36 @@ export function prepareComposerExpression(): string {
   })()`;
 }
 
-// Read back the composer's current text so the caller can verify the CDP-typed
-// prompt actually landed in the editor.
-export function composerTextStateExpression(): string {
+// Read back the composer's current text and verify it MATCHES the prompt (not
+// just that it is non-empty): a failed clear would leave stale text prepended,
+// silently submitting a contaminated prompt. Whitespace is collapsed on both
+// sides because ProseMirror round-trips newlines as extra blank lines.
+export function composerTextStateExpression(expectedText?: string): string {
+  const expectedJson = JSON.stringify(expectedText ?? null);
   return `(() => {
     ${composerExpressionHelpers()}
     const el = findChatGptComposerCandidate();
     if (!el) return { ok: false, reason: "No visible composer" };
-    const actualText = ("value" in el ? el.value : el.innerText || el.textContent || "").trim();
-    return actualText ? { ok: true, actualText: actualText.slice(0, 120) } : { ok: false, reason: "Composer stayed empty after text insertion" };
+    const raw = ("value" in el ? el.value : el.innerText || el.textContent || "").trim();
+    if (!raw) return { ok: false, reason: "Composer stayed empty after text insertion" };
+    const expected = ${expectedJson};
+    if (expected === null) return { ok: true, actualText: raw.slice(0, 120) };
+    const norm = (s) => s.replace(/\\s+/g, " ").trim();
+    if (norm(raw) !== norm(expected)) {
+      return { ok: false, reason: "Composer text did not match the prompt after insertion (possible leftover text in the composer)", actualText: raw.slice(0, 120) };
+    }
+    return { ok: true, actualText: raw.slice(0, 120) };
   })()`;
 }
 
 // Focus/clear/mark the composer, then type the prompt with native CDP input so
-// ProseMirror registers it, then verify it landed.
+// ProseMirror registers it, then verify the composer holds exactly the prompt.
 async function insertComposerTextViaCdp(cdp: CdpConnection, text: string): Promise<void> {
   const prepared = await cdp.evaluate<{ ok: boolean; reason?: string }>(prepareComposerExpression());
   if (!prepared.ok) throw new Error(prepared.reason ?? "Could not focus the ChatGPT composer");
   await cdp.send("Input.insertText", { text });
   await sleep(200);
-  const state = await cdp.evaluate<{ ok: boolean; reason?: string }>(composerTextStateExpression());
+  const state = await cdp.evaluate<{ ok: boolean; reason?: string }>(composerTextStateExpression(text));
   if (!state.ok) throw new Error(state.reason ?? "Composer stayed empty after text insertion");
 }
 

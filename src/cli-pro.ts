@@ -213,7 +213,16 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
         throw new Error("prodex pro ask is a dry-run preview. Use `prodex pro browser ask` for visible-browser sends.");
       }
       const hasDryRun = hasAskProDryRunMode(proArgs);
-      return runCliFn(["ask-pro", ...(hasDryRun ? [] : ["--dry-run"]), ...proArgs], io);
+      try {
+        return await runCliFn(["ask-pro", ...(hasDryRun ? [] : ["--dry-run"]), ...proArgs], io);
+      } catch (error) {
+        // Validation errors from the internal dispatch name ask-pro; present
+        // them as the `pro ask` the user actually typed.
+        if (error instanceof Error && /\bask-pro\b/.test(error.message)) {
+          throw new Error(error.message.replace(/\bask-pro\b/g, "pro ask"), { cause: error });
+        }
+        throw error;
+      }
     }
     if (subcommand === "browser") {
       const [browserSubcommand, ...browserArgs] = proArgs;

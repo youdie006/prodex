@@ -6,6 +6,7 @@ import type { BridgeStore, ListReceiptsInput } from "./store.js";
 export const TOP_LEVEL_COMMANDS = [
   "help",
   "version",
+  "ask",
   "init",
   "setup",
   "start",

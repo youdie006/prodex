@@ -368,6 +368,33 @@ describe("MCP tool handlers", () => {
     expect(fetched.session).toEqual(expect.objectContaining({ id: session.id, status: "preview" }));
   });
 
+  it("redacts the ChatGPT project name and thread URL from session MCP tools", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-"));
+    const store = new BridgeStore(cwd);
+    const session = await store.writeSession({
+      id: "sess_20990101_000000_personal",
+      direction: "codex_to_chatgpt",
+      backend: "chatgpt-control",
+      status: "done",
+      project: "ACME-Secret-Client-Q3",
+      thread: "https://chatgpt.com/c/secret-thread-id-12345"
+    });
+    const handlers = createMcpToolHandlers({ cwd });
+
+    const fetched = await handlers.bridge_get_session({ session_id: session.id });
+    const listed = await handlers.bridge_list_sessions({ status: "done" });
+
+    // Personal context must not reach the (possibly ChatGPT/tunnel-facing) MCP surface.
+    expect(JSON.stringify(fetched.session)).not.toContain("ACME-Secret-Client-Q3");
+    expect(JSON.stringify(fetched.session)).not.toContain("secret-thread-id-12345");
+    expect(JSON.stringify(listed.sessions)).not.toContain("ACME-Secret-Client-Q3");
+    expect(JSON.stringify(listed.sessions)).not.toContain("secret-thread-id-12345");
+    // The raw session file keeps them for local inspection.
+    const raw = await store.getSessionReadOnly(session.id);
+    expect(raw.project).toBe("ACME-Secret-Client-Q3");
+    expect(raw.thread).toBe("https://chatgpt.com/c/secret-thread-id-12345");
+  });
+
   it("lists and fetches receipts with legacy inline write content redacted", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-"));
     const store = new BridgeStore(cwd);

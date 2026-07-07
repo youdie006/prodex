@@ -4,6 +4,44 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.0] - 2026-07-07
+
+### Security
+- Secret-file blocklist: the service-account guard was anchored
+  (`^service-account.json$`) and trivially bypassed by any prefix - Firebase's
+  `serviceAccountKey.json`, `<name>-service-account.json`, and
+  `firebase-adminsdk-*.json` were readable/searchable through the ChatGPT HTTP
+  MCP tools. It now blocks any filename containing service-account / adminsdk
+  with a data extension, plus `secrets.{json,yaml,...}`, `.p8`, `.ovpn`, and
+  `.tfvars`. Source modules (`secrets.ts`, `service-account.ts`,
+  `credentials.ts`) stay readable. Found by a security audit with live PoCs.
+- The `bridge_get_session` / `bridge_list_sessions` MCP tools no longer return
+  the ChatGPT project name or thread URL - the same personal context receipts
+  already redact - so a client on the semi-trusted HTTP MCP surface cannot
+  enumerate them. The raw session file keeps them for local CLI inspection.
+
+### Fixed
+- Blocker detection no longer scans the ChatGPT sidebar: a past-chat title like
+  "usage limit reset" or "verify human" in the history list used to match the
+  blocker patterns and abort an otherwise valid send on every poll. The runtime
+  blocker-text scan now excludes `nav`/`aside`/navigation (verified live: chat
+  titles live inside the sidebar `<nav>`).
+- Composer insertion now verifies the composer holds exactly the prompt
+  (whitespace-normalized), not merely that it is non-empty. A failed clear that
+  left stale text would otherwise silently submit a contaminated prompt.
+- Concurrent `claimTask` calls can no longer both succeed: the claim is
+  serialized behind an O_EXCL lock file, so a multi-agent bridge gets exactly
+  one winner instead of a silent double-claim.
+- `connectCdp` guards the message-listener `JSON.parse` (a malformed/binary
+  frame is dropped instead of throwing uncaught) and fails fast if the socket
+  closes during connect instead of waiting the full timeout.
+
+### Changed
+- UX polish from a breadth audit: `prodex ask` typos now suggest `ask` (it was
+  missing from the suggestion table); `pro --help` lists `debate-prompt`;
+  `--effort`/`--pro-mode` errors include the English aliases; and `pro ask`
+  validation errors say `pro ask`, not the internal `ask-pro`.
+
 ## [0.14.0] - 2026-07-07
 
 ### Fixed

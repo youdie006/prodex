@@ -31,6 +31,7 @@ import {
   normalizeChatGptTargetUrl,
   selectChatGptPage,
   prepareComposerExpression,
+  composerTextStateExpression,
   sendChatGptPrompt,
   submitExpression,
   isUsableChatGptAnswer
@@ -155,6 +156,13 @@ describe("ChatGPT browser adapter", () => {
     expect(CHATGPT_RUNTIME_BLOCKER_TEXT_EXCLUDED_ANCESTORS).toContain('div[role="textbox"]');
     expect(CHATGPT_RUNTIME_BLOCKER_TEXT_EXCLUDED_ANCESTORS).toContain('textarea');
     expect(CHATGPT_RUNTIME_BLOCKER_TEXT_EXCLUDED_ANCESTORS).toContain('[contenteditable="true"]');
+  });
+
+  it("excludes the sidebar/nav from runtime blocker scans so a chat title cannot fake a blocker", () => {
+    // A history title like "usage limit reset" or "verify human" lives inside
+    // the sidebar <nav> and must not be scanned as a page blocker.
+    expect(CHATGPT_RUNTIME_BLOCKER_TEXT_EXCLUDED_ANCESTORS).toContain("nav");
+    expect(CHATGPT_RUNTIME_BLOCKER_TEXT_EXCLUDED_ANCESTORS).toContain('[role="navigation"]');
   });
 
   it("detects ChatGPT browser blocker states before sending", () => {
@@ -538,6 +546,49 @@ describe("ChatGPT browser adapter", () => {
     expect(submit.indexOf("findMarkedChatGptComposerRoot()")).toBeLessThan(submit.indexOf("findChatGptComposerCandidate()"));
     expect(submit).toContain("root.querySelectorAll('button')");
     expect(submit).not.toContain("document.querySelectorAll('button')].find");
+  });
+
+  it("verifies the composer holds exactly the prompt and rejects leftover contamination", () => {
+    const makeDoc = (composerValue: string) => {
+      const root = new FakeElement("form");
+      const editor = new FakeTextArea();
+      editor.formRoot = root;
+      editor.value = composerValue;
+      root.buttons = [new FakeButton("Send prompt", "send-button")];
+      return new FakeDocument([editor], [root]);
+    };
+    const globals = (doc: FakeDocument) => [doc, {}, FakeInputEvent, FakeEvent, FakeTextArea, FakeInput] as const;
+    const prompt = "Review this repo\nfor security holes";
+
+    // Clean: ProseMirror round-trips the prompt with an extra blank line; the
+    // whitespace-normalized comparison must still accept it.
+    const clean = evaluateBrowserExpression<{ ok: boolean }>(
+      composerTextStateExpression(prompt),
+      globals(makeDoc("Review this repo\n\nfor security holes"))
+    );
+    expect(clean.ok).toBe(true);
+
+    // Contaminated: a failed clear left stale text prepended - must be rejected
+    // so a wrong prompt is never sent.
+    const dirty = evaluateBrowserExpression<{ ok: boolean; reason?: string }>(
+      composerTextStateExpression(prompt),
+      globals(makeDoc("leftover draft Review this repo\nfor security holes"))
+    );
+    expect(dirty.ok).toBe(false);
+    expect(dirty.reason).toMatch(/did not match the prompt/);
+
+    // Empty stays an empty-composer error.
+    const empty = evaluateBrowserExpression<{ ok: boolean; reason?: string }>(
+      composerTextStateExpression(prompt),
+      globals(makeDoc(""))
+    );
+    expect(empty.ok).toBe(false);
+    expect(empty.reason).toMatch(/empty/);
+
+    // No expected arg (the acceptance-timeout "still has text" probe) accepts
+    // any non-empty composer as before.
+    const noArg = evaluateBrowserExpression<{ ok: boolean }>(composerTextStateExpression(), globals(makeDoc("anything")));
+    expect(noArg.ok).toBe(true);
   });
 
   it("prepares the visible composer and locates its submit button", () => {

@@ -48,6 +48,48 @@ describe("BridgeStore", () => {
     expect(stored.schema_version).toBe(1);
   });
 
+  it("rejects claiming a task that is already claimed", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-store-"));
+    const store = new BridgeStore(root);
+    await store.ensure();
+    const task = await store.createTask({
+      source: "codex",
+      title: "Claim once",
+      prompt: "x",
+      repo_id: "default",
+      files: [],
+      provenance: { adapter: "cli" }
+    });
+
+    await store.claimTask(task.id, "agent-a");
+    await expect(store.claimTask(task.id, "agent-b")).rejects.toThrow(/not new|already/i);
+  });
+
+  it("does not double-claim a task under concurrent claims", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-store-"));
+    const store = new BridgeStore(root);
+    await store.ensure();
+    const task = await store.createTask({
+      source: "codex",
+      title: "Race claim",
+      prompt: "x",
+      repo_id: "default",
+      files: [],
+      provenance: { adapter: "cli" }
+    });
+
+    const results = await Promise.allSettled([
+      store.claimTask(task.id, "agent-a"),
+      store.claimTask(task.id, "agent-b")
+    ]);
+    const fulfilled = results.filter((r) => r.status === "fulfilled");
+    expect(fulfilled).toHaveLength(1);
+    // The persisted task reflects exactly the one winner.
+    const persisted = await store.getTask(task.id);
+    expect(persisted.status).toBe("claimed");
+    expect((fulfilled[0] as PromiseFulfilledResult<{ claimed_by?: string }>).value.claimed_by).toBe(persisted.claimed_by);
+  });
+
   it("stores bridge directories and generated files with private permissions", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "prodex-store-"));
     const store = new BridgeStore(root);

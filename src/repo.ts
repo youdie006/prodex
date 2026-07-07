@@ -341,12 +341,24 @@ const SECRET_FILE_EXACT_NAMES = new Set([
 // so ordinary source/docs like `foo.key.ts` or `using.gpg.md` are not caught.
 // `.asc` is intentionally excluded (GPG detached signatures are public and the
 // extension doubles as AsciiDoc). Terraform state backups are added explicitly
-// since their real extension is `.backup`.
-const SECRET_FILE_EXTENSIONS = /(?:\.(?:pem|key|p12|pfx|pkcs12|keystore|jks|ppk|kdbx|tfstate|gpg)|\.tfstate\.backup)$/;
-// credentials.*/service-account.* only when they carry a data/config extension,
-// not a source extension and not a bare directory name — a `credentials/` dir or
-// `credentials.ts` module is ordinary code and must stay readable.
-const SECRET_FILE_NAME_PATTERNS = /^(?:credentials|service[-_]?account)\.(?:json|yaml|yml|ini|toml|env|txt|csv|pem|key|p12|pfx|pkcs12)$/;
+// since their real extension is `.backup`. `.p8` (Apple auth keys), `.ovpn`
+// (VPN config with inline private key), and `.tfvars` (Terraform variable
+// values, commonly secrets) are key/secret-bearing config formats.
+const SECRET_FILE_EXTENSIONS = /(?:\.(?:pem|key|p12|pfx|pkcs12|keystore|jks|ppk|kdbx|tfstate|gpg|p8|ovpn|tfvars)|\.tfstate\.backup)$/;
+// credentials.*/service-account.*/secrets.* only when they carry a data/config
+// extension, not a source extension and not a bare directory name — a
+// `credentials/` dir, `credentials.ts`, or `secrets.ts` module is ordinary code
+// and must stay readable. Cloud service-account key files (Firebase's
+// `serviceAccountKey.json`, `<name>-service-account.json`, and
+// `firebase-adminsdk-*.json`) always carry live private keys, so any filename
+// CONTAINING service-account / serviceaccount / adminsdk with a data extension
+// is blocked (the previous anchored `^service-account.json$` was trivially
+// bypassed by any prefix). Matching runs on the lowercased segment.
+const SECRET_DATA_EXTENSIONS_GROUP = "(?:json|yaml|yml|ini|toml|env|txt|csv|pem|key|p12|pfx|pkcs12)";
+const SECRET_FILE_NAME_PATTERNS = new RegExp(
+  `^(?:credentials|secrets?)\\.${SECRET_DATA_EXTENSIONS_GROUP}$` +
+    `|(?:service[-_]?account|adminsdk)[^/]*\\.${SECRET_DATA_EXTENSIONS_GROUP}$`
+);
 
 function isSecretFileSegment(segment: string): boolean {
   const folded = foldSensitiveSegment(segment);

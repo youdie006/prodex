@@ -17,6 +17,22 @@ export interface McpToolContext {
   claimedBy?: string;
 }
 
+type SessionRecord = Awaited<ReturnType<BridgeStore["getSessionReadOnly"]>>;
+
+/**
+ * Drop the ChatGPT project name and thread URL before a session crosses the
+ * MCP boundary. Both are personal context (the same way receipts redact the
+ * project name), and the session tools are registered on the HTTP MCP surface
+ * that ChatGPT itself (and possibly a tunnel) can reach. The raw session file
+ * keeps them for local CLI inspection.
+ */
+function redactSessionForMcp(session: SessionRecord): SessionRecord {
+  const redacted: Record<string, unknown> = { ...session };
+  if (Object.hasOwn(redacted, "project")) redacted.project = undefined;
+  if (Object.hasOwn(redacted, "thread")) redacted.thread = undefined;
+  return redacted as SessionRecord;
+}
+
 export function createMcpToolHandlers(context: McpToolContext) {
   const store = new BridgeStore(context.cwd);
   const source = context.source ?? "claude";
@@ -135,12 +151,12 @@ export function createMcpToolHandlers(context: McpToolContext) {
     },
 
     async bridge_list_sessions(input: { status?: "preview" | "running" | "done" | "blocked" }) {
-      return { sessions: await store.listSessionsReadOnly(input.status) };
+      return { sessions: (await store.listSessionsReadOnly(input.status)).map(redactSessionForMcp) };
     },
 
     async bridge_get_session(input: { session_id: string }) {
       assertMcpTextField(input.session_id, "session_id", MAX_MCP_SHORT_TEXT_BYTES);
-      return { session: await store.getSessionReadOnly(input.session_id) };
+      return { session: redactSessionForMcp(await store.getSessionReadOnly(input.session_id)) };
     },
 
     async repo_read_file(input: { path: string; start_line?: number; max_lines?: number }) {

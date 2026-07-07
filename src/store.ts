@@ -196,10 +196,34 @@ export class BridgeStore {
   }
 
   async claimTask(taskId: string, claimedBy: string): Promise<Task> {
-    const task = await this.getTask(taskId);
-    if (task.status !== "new") {
-      throw new Error(`Task ${taskId} is ${task.status}, not new`);
+    // Claiming is check-then-write, so two agents that both read "new" would
+    // otherwise both write "claimed" (a silent double-claim). Serialize the
+    // whole read-modify-write behind an O_EXCL lock file so exactly one claim
+    // wins; a concurrent claimer sees the lock (or the already-claimed status
+    // after it releases) and is rejected.
+    const lockPath = path.join(this.dir("tasks"), `.${taskId}.claim.lock`);
+    let lockHandle: FileHandle;
+    try {
+      lockHandle = await open(lockPath, "wx", BRIDGE_FILE_MODE);
+    } catch (error) {
+      if (isErrorCode(error, "EEXIST")) {
+        throw new Error(`Task ${taskId} is already being claimed by another process`);
+      }
+      throw error;
     }
+    try {
+      const task = await this.getTask(taskId);
+      if (task.status !== "new") {
+        throw new Error(`Task ${taskId} is ${task.status}, not new`);
+      }
+      return await this.writeClaimedTask(taskId, task, claimedBy);
+    } finally {
+      await lockHandle.close().catch(() => undefined);
+      await rm(lockPath, { force: true }).catch(() => undefined);
+    }
+  }
+
+  private async writeClaimedTask(taskId: string, task: Task, claimedBy: string): Promise<Task> {
     const updated = TaskSchema.parse({
       ...task,
       status: "claimed",

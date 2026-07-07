@@ -145,11 +145,21 @@ describe("repo path policy", () => {
       "deploy/tls.key",
       "service-account.json",
       "credentials.json",
+      "serviceAccountKey.json", // Firebase canonical secret name (prefix bypass)
+      "my-project-service-account.json",
+      "firebase-adminsdk-abc123.json",
+      "secrets.yaml",
+      "secrets.json",
+      "config/secrets.yml",
+      "AuthKey_ABC123.p8", // Apple APNs key
+      "client.ovpn", // VPN config with inline private key
+      "prod.tfvars",
       "terraform.tfstate",
       "keystore.p12",
       ".ssh/known_hosts"
     ];
     for (const secret of secretPaths) {
+      await mkdir(path.dirname(path.join(root, secret)), { recursive: true });
       await writeFile(path.join(root, secret), "SECRET\n", "utf8");
       await expect(readRepoFile(root, secret)).rejects.toThrow(/sensitive/);
     }
@@ -164,7 +174,10 @@ describe("repo path policy", () => {
       "keyboard.ts",
       "credentials.ts", // source module, not a credential store
       "credentials-helper.ts",
-      "service_account.py",
+      "service_account.py", // source module: secret guard requires a data extension
+      "service-account.ts",
+      "secrets.ts", // source module exporting secret KEYS, not values
+      "secretManager.ts",
       "src/credentials/oauth.ts", // directory named credentials must not block its subtree
       "foo.key.ts", // secret extension only as a penultimate segment
       "notes/using.gpg.md",

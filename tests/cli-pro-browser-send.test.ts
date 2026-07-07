@@ -2167,6 +2167,15 @@ describe("pro browser ask model/project selection", () => {
     );
   });
 
+  it("reports prompt errors for pro ask under its own name, not ask-pro", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-send-"));
+
+    await expect(runCli(["pro", "ask"], { cwd, stdout: () => {}, stderr: () => {} })).rejects.toThrow(
+      /^pro ask requires a prompt/
+    );
+    await expect(runCli(["pro", "ask"], { cwd, stdout: () => {}, stderr: () => {} })).rejects.not.toThrow(/ask-pro/);
+  });
+
   it("rewrites the dry-run guidance for alias users to say ask", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-send-"));
 

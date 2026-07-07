@@ -159,6 +159,7 @@ export function printProHelp(stdout: (line: string) => void): void {
 
 Commands:
   prodex pro ask [--dry-run] [--cwd /absolute/path/to/repo] [--file path] "prompt"
+  prodex pro debate-prompt [--topic "..."] [--rounds 2] [--source-cli /absolute/path/to/dist/cli.js]
   prodex pro browser help [--source-cli /absolute/path/to/dist/cli.js]
   prodex pro browser login [--cwd /absolute/path/to/repo] [--dry-run] [--source-cli /absolute/path/to/dist/cli.js] [--launch-timeout-ms 5000] [--wait|--no-wait] [--wait-timeout-ms 300000]
   prodex pro browser check [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]
