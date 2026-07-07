@@ -4,6 +4,19 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.0] - 2026-07-07
+
+### Added
+- Machine-wide bridge registry: every `BridgeStore.ensure()` records its
+  bridge root in `~/.local/share/prodex/bridges.json` (absolute paths only -
+  no task contents, no secrets), so local indexers can find scattered
+  per-repo `.bridge` directories from one well-known file. The first
+  consumer is sessionwiki's prodex adapter, which turns every bridge task
+  (prompt + answer) into a searchable session. Best-effort by design: a
+  registry failure never breaks a bridge operation; a corrupt registry is
+  rebuilt; writes are atomic. `PRODEX_BRIDGES_REGISTRY` overrides the
+  location (used by the hermetic test setup).
+
 ## [0.10.0] - 2026-07-07
 
 ### Added

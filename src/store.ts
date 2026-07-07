@@ -1,4 +1,5 @@
 import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
+import { registerBridgeRoot } from "./registry.js";
 import { constants, existsSync } from "node:fs";
 import { link, lstat, mkdir, open, readdir, realpath, rename, rm } from "node:fs/promises";
 import type { FileHandle } from "node:fs/promises";
@@ -121,6 +122,9 @@ export class BridgeStore {
     await this.assertStorageDirsAreRealDirectories();
     await this.ensureBridgeGitignore();
     await this.ensureReceiptIntegrityKey();
+    // Advisory: let local indexers (sessionwiki's prodex adapter) find this
+    // bridge. Best-effort inside - a registry failure never breaks the bridge.
+    await registerBridgeRoot(this.root);
   }
 
   dir(kind: BridgeStorageKind): string {
