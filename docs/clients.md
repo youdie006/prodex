@@ -48,6 +48,19 @@ consult you expect. Claude Code needs no change: its default stdio tool
 timeout is effectively unlimited (~28h) unless you tightened `MCP_TOOL_TIMEOUT`
 or a per-server `"timeout"`.
 
+Approval gate (verified on Codex 0.142.5): Codex asks for per-call approval
+before invoking prodex MCP tools. In interactive `codex` sessions you simply
+approve the prompt. In non-interactive `codex exec`, the approval cannot be
+asked and auto-resolves to cancel - every prodex call fails instantly with
+"user cancelled MCP tool call" before reaching prodex, and neither
+`--full-auto` nor `approval_policy=never` clears that specific gate. For
+unattended runs you must either approve the tools once in an interactive
+session first, or explicitly run
+`codex exec --dangerously-bypass-approvals-and-sandbox ...` and accept what
+that flag disables. Verified end to end: a Codex-initiated `pro_consult`
+reached the live browser and returned the expected answer with a ledger
+receipt.
+
 ## Cursor
 
 Project `.cursor/mcp.json` (or the global one):
