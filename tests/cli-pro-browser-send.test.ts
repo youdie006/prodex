@@ -1736,6 +1736,87 @@ describe("pro browser ask model/project selection", () => {
     expect(errs).toContain("progress: answer received after 13s");
   });
 
+  it("emits structured JSON with --json instead of the tab header format", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-send-"));
+    sendChatGptPromptMock.mockResolvedValueOnce({
+      url: "https://chatgpt.com/c/json",
+      title: "ChatGPT",
+      answer: "json answer",
+      modelHints: [],
+      warnings: []
+    });
+    const out: string[] = [];
+
+    await runCli(["ask", "--json", "Structured please"], {
+      cwd,
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    const payload = JSON.parse(out.join("\n")) as {
+      task_id: string;
+      status: string;
+      thread: string;
+      answer: string;
+      warnings: string[];
+    };
+    expect(payload.status).toBe("done");
+    expect(payload.task_id).toMatch(/^task_/);
+    expect(payload.thread).toBe("https://chatgpt.com/c/json");
+    expect(payload.answer).toBe("json answer");
+    expect(payload.warnings).toEqual([]);
+  });
+
+  it("rejects --json on the dry-run preview path", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-send-"));
+
+    await expect(
+      runCli(["pro", "ask", "--json", "preview"], { cwd, stdout: () => {}, stderr: () => {} })
+    ).rejects.toThrow(/--json.*visible-browser send/i);
+  });
+
+  it("appends piped stdin to the prompt when --stdin is set", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-send-"));
+    sendChatGptPromptMock.mockResolvedValueOnce({
+      url: "https://chatgpt.com/c/stdin",
+      title: "ChatGPT",
+      answer: "stdin ok",
+      modelHints: [],
+      warnings: []
+    });
+
+    await runCli(["ask", "--stdin", "Review this diff"], {
+      cwd,
+      stdout: () => {},
+      stderr: () => {},
+      readStdin: async () => "diff --git a/x b/x\n+added line"
+    });
+
+    expect(sendChatGptPromptMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prompt: expect.stringContaining("Review this diff")
+      })
+    );
+    const sentPrompt = (sendChatGptPromptMock.mock.calls[0][0] as { prompt: string }).prompt;
+    expect(sentPrompt).toContain("--- piped input (stdin) ---");
+    expect(sentPrompt).toContain("+added line");
+  });
+
+  it("rejects --stdin when no piped input arrives", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-send-"));
+
+    await expect(
+      runCli(["ask", "--stdin", "Review this"], {
+        cwd,
+        stdout: () => {},
+        stderr: () => {},
+        readStdin: async () => "   "
+      })
+    ).rejects.toThrow(/--stdin.*no piped input/i);
+
+    expect(sendChatGptPromptMock).not.toHaveBeenCalled();
+  });
+
   it("forwards --new-chat to the visible-browser send", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-send-"));
     sendChatGptPromptMock.mockResolvedValueOnce({
@@ -1769,6 +1850,22 @@ describe("pro browser ask model/project selection", () => {
 
     await expect(runCli(["ask"], { cwd, stdout: () => {}, stderr: () => {} })).rejects.toThrow(/^ask requires a prompt/);
     await expect(runCli(["ask"], { cwd, stdout: () => {}, stderr: () => {} })).rejects.not.toThrow(/ask-pro/);
+  });
+
+  it("reports prompt errors for pro browser ask under its own name", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-send-"));
+
+    await expect(runCli(["pro", "browser", "ask"], { cwd, stdout: () => {}, stderr: () => {} })).rejects.toThrow(
+      /^pro browser ask requires a prompt/
+    );
+  });
+
+  it("rewrites the dry-run guidance for alias users to say ask", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-send-"));
+
+    await expect(runCli(["ask", "--dry-run", "x"], { cwd, stdout: () => {}, stderr: () => {} })).rejects.toThrow(
+      /prodex ask is an explicit visible-browser send/
+    );
   });
 
   it("echoes answer_incomplete warnings to stderr so truncation is visible at runtime", async () => {

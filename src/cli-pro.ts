@@ -304,7 +304,16 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
           throw new Error("prodex pro browser ask is an explicit visible-browser send. Use `prodex pro ask` for dry-run previews.");
         }
         const hasMode = hasAskProMode(browserArgs);
-        return runCliFn(["ask-pro", ...(hasMode ? [] : ["--send"]), ...browserArgs], { ...io, allowAskProBrowserSend: true });
+        try {
+          return await runCliFn(["ask-pro", ...(hasMode ? [] : ["--send"]), ...browserArgs], { ...io, allowAskProBrowserSend: true });
+        } catch (error) {
+          // Validation errors from the internal dispatch name ask-pro, which
+          // the user never typed - present them as pro browser ask.
+          if (error instanceof Error && /\bask-pro\b/.test(error.message)) {
+            throw new Error(error.message.replace(/\bask-pro\b/g, "pro browser ask"), { cause: error });
+          }
+          throw error;
+        }
       }
       if (browserSubcommand === "open" || browserSubcommand === "status" || browserSubcommand === "doctor") {
         const replacement = browserSubcommand === "open" ? "login" : "check";
@@ -502,8 +511,25 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
     if (normalizedTargetUrl && hasSendMode && !parsedAskPro.optionArgs.includes("--confirm-target")) {
       throw new Error("--target-url requires --confirm-target after you manually verify the visible ChatGPT tab is the intended Project/thread.");
     }
+    const jsonOutput = parsedAskPro.optionArgs.includes("--json");
+    if (jsonOutput && !hasSendMode) {
+      throw new Error("--json applies to the visible-browser send output; the dry-run preview does not support it.");
+    }
     const prompt = parsedAskPro.promptParts.join(" ").trim();
     if (!prompt) throw new Error("ask-pro requires a prompt");
+    let promptText = prompt;
+    if (parsedAskPro.optionArgs.includes("--stdin")) {
+      // Unix ergonomics: `git diff | prodex ask --stdin "review this"`.
+      const piped = ((await io.readStdin?.()) ?? "").trim();
+      if (!piped) {
+        throw new Error("--stdin was set but no piped input was received on stdin (pipe something in, e.g. `git diff | prodex ask --stdin \"review\"`).");
+      }
+      const MAX_STDIN_CHARS = 200_000;
+      if (piped.length > MAX_STDIN_CHARS) {
+        throw new Error(`--stdin input is too large (${piped.length} chars > ${MAX_STDIN_CHARS}); attach a file with --file instead.`);
+      }
+      promptText = `${prompt}\n\n--- piped input (stdin) ---\n${piped}`;
+    }
     const browserDefaults = await loadBrowserDefaults(targetCwd);
     const explicitProject = readFlag(parsedAskPro.optionArgs, "--project");
     const explicitProjectNew = readFlag(parsedAskPro.optionArgs, "--project-new");
@@ -555,7 +581,7 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
       ? (readPositiveIntegerFlag(parsedAskPro.optionArgs, "--timeout-ms") ?? defaultBrowserTimeoutMs)
       : undefined;
     const sourceCli = resolveOptionalFileFlag(io.cwd, parsedAskPro.optionArgs, "--source-cli");
-    const bundle = await buildDryRunBundle(targetCwd, { prompt, files });
+    const bundle = await buildDryRunBundle(targetCwd, { prompt: promptText, files });
     if (hasSendMode) {
       await enforceVisibleBrowserSendPacing(targetCwd, io.stderr);
       const browserCommandOptions = {
@@ -723,9 +749,25 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
         },
         io
       );
-      io.stdout(`${result.task_id}\t${result.status}\t${consult.url}`);
-      io.stdout("");
-      io.stdout(result.summary);
+      if (jsonOutput) {
+        io.stdout(
+          JSON.stringify(
+            {
+              task_id: result.task_id,
+              status: result.status,
+              thread: consult.url,
+              answer: result.summary,
+              warnings: persistenceWarnings
+            },
+            null,
+            2
+          )
+        );
+      } else {
+        io.stdout(`${result.task_id}\t${result.status}\t${consult.url}`);
+        io.stdout("");
+        io.stdout(result.summary);
+      }
       // Discoverability footer on stderr: the answer above is also persisted,
       // and `pro latest` re-prints it without a new browser send.
       const cwdForHints = readFlag(parsedAskPro.optionArgs, "--cwd") ? targetCwd : undefined;

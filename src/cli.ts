@@ -177,6 +177,8 @@ export interface CliIO {
   allowAskProBrowserSend?: boolean;
   /** Answer an interactive question (used by `setup --interactive`); defaults to terminal readline. */
   promptUser?: (question: string) => Promise<string>;
+  /** Read all piped stdin (used by `ask --stdin`); defaults to reading process.stdin. */
+  readStdin?: () => Promise<string>;
 }
 
 export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<number> {
@@ -321,8 +323,14 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
     try {
       return await runProCommand(["browser", "ask", ...rest], io, runCli);
     } catch (error) {
-      if (error instanceof Error && /\bask-pro\b/.test(error.message)) {
-        throw new Error(error.message.replace(/\bask-pro\b/g, "ask"), { cause: error });
+      if (error instanceof Error && /\bask-pro\b|\bpro browser ask\b/.test(error.message)) {
+        throw new Error(
+          error.message
+            .replace(/\bprodex pro browser ask\b/g, "prodex ask")
+            .replace(/\bpro browser ask\b/g, "ask")
+            .replace(/\bask-pro\b/g, "ask"),
+          { cause: error }
+        );
       }
       throw error;
     }
@@ -351,7 +359,15 @@ function defaultIo(): CliIO {
   return {
     cwd: process.cwd(),
     stdout: (line) => console.log(line),
-    stderr: (line) => console.error(line)
+    stderr: (line) => console.error(line),
+    readStdin: async () => {
+      if (process.stdin.isTTY) return "";
+      const chunks: Buffer[] = [];
+      for await (const chunk of process.stdin) {
+        chunks.push(Buffer.from(chunk));
+      }
+      return Buffer.concat(chunks).toString("utf8");
+    }
   };
 }
 
@@ -456,15 +472,34 @@ function formatOnboardingGuide(cwd: string, hasReadme: boolean, sourceCli?: stri
 
 repo: ${cwd}
 
-1. Prepare the local bridge:
-   ${cli} init --cwd ${quotedCwd}
-   ${cli} doctor --cwd ${quotedCwd}${sourceCliOption}
+1. Ask ChatGPT Pro from this terminal (standalone; no MCP needed):
+   ${cli} pro browser login${sourceCliOption}  # opens visible browser
+   ${cli} pro browser login --dry-run${sourceCliOption}  # preview, no browser opens
+   In an interactive terminal, login waits and narrates until your ChatGPT session is READY.
+   cd ${quotedCwd}
+   ${cli} ask --new-chat "Review this repo"${sourceCliOption}  # short form of pro browser ask
+   ${proAskCommand}  # dry-run/manual preview
+   ${proBrowserAskCommand}  # visible-browser send
+   ${cli} pro latest${sourceCliOption} --cwd ${quotedCwd}
+   ${cli} pro browser help${sourceCliOption}
+   ${cli} pro browser check${sourceCliOption} --cwd ${quotedCwd}
+   ${cli} pro browser smoke${sourceCliOption} --cwd ${quotedCwd}
 
-2. Claude stdio MCP:
+2. Let coding agents consult ChatGPT (stdio MCP: Claude, Codex, Cursor, ...):
    ${cli} claude config --cwd ${quotedCwd}${sourceCliOption}
    ${cli} claude prompt --cwd ${quotedCwd}${sourceCliOption}
+   Agents get the bridge/ledger tools plus pro_consult (ask ChatGPT Pro directly; see docs/clients.md for Codex timeout and approval notes).
+   ${cli} pro debate-prompt --topic "your question"${sourceCliOption}  # structured GPT Pro debate prompt for your agent
 
-3. ChatGPT Project HTTP MCP:
+3. Local bridge health and records:
+   ${cli} init --cwd ${quotedCwd}
+   ${cli} doctor --cwd ${quotedCwd}${sourceCliOption}
+   ${cli} pro list${sourceCliOption} --cwd ${quotedCwd}
+   ${cli} results show latest --cwd ${quotedCwd}
+   ${cli} results artifact latest --cwd ${quotedCwd}
+   ${cli} results reseal <task-id> --confirm-current-result --cwd ${quotedCwd}  # only after reviewing .bridge/results/<task-id>.json
+
+4. ChatGPT Project HTTP MCP:
    Note: HTTP MCP uses a short-lived token. Paste token-bearing URLs only into your own trusted private MCP client.
    ${TOKEN_BEARING_MCP_URL_AUTHORITY_WARNING}
    ${cli} setup --cwd ${quotedCwd} --token-ttl-hours 24
@@ -472,21 +507,6 @@ repo: ${cwd}
    Keep this terminal open while ChatGPT uses the bridge; run the next commands in a second terminal.
    ${cli} status --cwd ${quotedCwd} --show-token --url-only${sourceCliOption}
    ${cli} project prompt --cwd ${quotedCwd}${sourceCliOption}
-
-4. Optional ChatGPT Pro consults:
-   cd ${quotedCwd}
-   ${proAskCommand}  # dry-run/manual preview
-   ${cli} pro browser login --dry-run${sourceCliOption}  # preview, no browser opens
-   ${cli} pro browser login${sourceCliOption}  # opens visible browser
-   ${cli} pro browser help${sourceCliOption}
-   ${cli} pro browser check${sourceCliOption} --cwd ${quotedCwd}
-   ${cli} pro browser smoke${sourceCliOption} --cwd ${quotedCwd}
-   ${proBrowserAskCommand}  # visible-browser send
-   ${cli} pro list${sourceCliOption} --cwd ${quotedCwd}
-   ${cli} pro latest${sourceCliOption} --cwd ${quotedCwd}
-   ${cli} results show latest --cwd ${quotedCwd}
-   ${cli} results artifact latest --cwd ${quotedCwd}
-   ${cli} results reseal <task-id> --confirm-current-result --cwd ${quotedCwd}  # only after reviewing .bridge/results/<task-id>.json
 
 Safety notes:
 - This command only prints commands; it does not start servers, open browsers, or write files.

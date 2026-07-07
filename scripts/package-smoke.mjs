@@ -109,7 +109,7 @@ try {
   );
   assertIncludes(
     help.stdout,
-    'prodex pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 90000] [--target-url url --confirm-target] [--new-chat] [--file path] [--model Pro] [--pro-mode 기본|확장] [--effort 즉시|중간|높음|"매우 높음"] [--project "name" | --project-new "name"] "prompt"',
+    'prodex pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 90000] [--target-url url --confirm-target] [--new-chat] [--stdin] [--json] [--file path] [--model Pro] [--pro-mode 기본|확장] [--effort 즉시|중간|높음|"매우 높음"] [--project "name" | --project-new "name"] "prompt"',
     "installed help output"
   );
   assertIncludes(help.stdout, "prodex pro browser help [--source-cli /absolute/path/to/dist/cli.js]", "installed help output");
@@ -645,7 +645,7 @@ try {
   const onboard = await run(binPath, ["onboard", "--cwd", consumerDir], { cwd: path.dirname(consumerDir) });
   assertIncludes(onboard.stdout, "prodex onboarding", "installed onboard output");
   assertNotIncludes(onboard.stdout, "\t", "installed onboard output");
-  assertIncludes(onboard.stdout, "\n3. ChatGPT Project HTTP MCP:", "installed onboard output");
+  assertIncludes(onboard.stdout, "\n4. ChatGPT Project HTTP MCP:", "installed onboard output");
   assertIncludes(onboard.stdout, `prodex init --cwd ${consumerDir}`, "installed onboard output");
   assertIncludes(onboard.stdout, `prodex doctor --cwd ${consumerDir}`, "installed onboard output");
   assertIncludes(onboard.stdout, `prodex claude config --cwd ${consumerDir}`, "installed onboard output");
@@ -683,7 +683,7 @@ try {
   assertNotIncludes(onboard.stdout, "prodex_token=", "installed onboard output");
   const sourceOnboard = await run(binPath, ["onboard", "--cwd", consumerDir, "--source-cli", installedSourceCli], { cwd: path.dirname(consumerDir) });
   assertNotIncludes(sourceOnboard.stdout, "\t", "installed source onboard output");
-  assertIncludes(sourceOnboard.stdout, "\n3. ChatGPT Project HTTP MCP:", "installed source onboard output");
+  assertIncludes(sourceOnboard.stdout, "\n4. ChatGPT Project HTTP MCP:", "installed source onboard output");
   assertIncludes(sourceOnboard.stdout, `${sourcePrefix} init --cwd ${consumerDir}`, "installed source onboard output");
   assertIncludes(
     sourceOnboard.stdout,
@@ -1038,7 +1038,7 @@ try {
   );
   assertIncludes(
     browserHelp.stdout,
-    'prodex pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 90000] [--target-url url --confirm-target] [--new-chat] [--file path] [--model Pro] [--pro-mode 기본|확장] [--effort 즉시|중간|높음|"매우 높음"] [--project "name" | --project-new "name"] "prompt"',
+    'prodex pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 90000] [--target-url url --confirm-target] [--new-chat] [--stdin] [--json] [--file path] [--model Pro] [--pro-mode 기본|확장] [--effort 즉시|중간|높음|"매우 높음"] [--project "name" | --project-new "name"] "prompt"',
     "installed browser help"
   );
   assertIncludes(
@@ -1069,7 +1069,7 @@ try {
   );
   assertIncludes(
     sourceBrowserHelp.stdout,
-    `${sourcePrefix} pro browser ask --source-cli ${installedSourceCli} [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 90000] [--target-url url --confirm-target] [--new-chat] [--file path] [--model Pro] [--pro-mode 기본|확장] [--effort 즉시|중간|높음|"매우 높음"] [--project "name" | --project-new "name"] "prompt"`,
+    `${sourcePrefix} pro browser ask --source-cli ${installedSourceCli} [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 90000] [--target-url url --confirm-target] [--new-chat] [--stdin] [--json] [--file path] [--model Pro] [--pro-mode 기본|확장] [--effort 즉시|중간|높음|"매우 높음"] [--project "name" | --project-new "name"] "prompt"`,
     "installed source browser help"
   );
   assertIncludes(

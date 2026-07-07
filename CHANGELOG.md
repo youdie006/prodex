@@ -4,6 +4,28 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.0] - 2026-07-07
+
+### Added
+- Pipe input into asks: `git diff | prodex ask --stdin "Review this diff"`
+  appends piped stdin to the prompt (guarded: errors when nothing was piped
+  or input exceeds 200k chars). Live-verified with a real diff summarized
+  correctly through the browser.
+- `--json` on visible-browser asks prints one structured object (task_id,
+  status, thread, answer, warnings) to stdout instead of the tab header
+  format, for script consumers; progress and the saved-artifact footer stay
+  on stderr. Rejected on the dry-run preview path.
+- `onboard` now opens with the standalone terminal flow (guided login,
+  `ask --new-chat`, re-print), then the agent MCP section (including
+  pro_consult and `pro debate-prompt`), then bridge health, then the
+  ChatGPT Project HTTP MCP - matching the README narrative instead of the
+  old bridge-first ordering.
+
+### Fixed
+- `pro browser ask` validation errors now name `pro browser ask` instead of
+  the internal `ask-pro`; the `prodex ask` alias maps both spellings to
+  `ask` (including the dry-run guidance sentence).
+
 ## [0.11.0] - 2026-07-07
 
 ### Added
