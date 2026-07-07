@@ -4,6 +4,22 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.3] - 2026-07-08
+
+### Fixed
+- `--new-chat` no longer risks a false "ChatGPT never registered the prompt"
+  timeout on a slow navigation. It previously navigated to a fresh chat then
+  waited a fixed 1.5s; if the old thread was still rendered when the answer-
+  count baseline was captured, acceptance (which needs the fresh thread's
+  lower counts to exceed the old counts) could never trigger. It now waits for
+  the tab to actually reach the fresh empty chat (root URL, zero messages)
+  before baselining (`isFreshChatGptPage` / condition-based wait).
+- Submit is now polled for up to 2s instead of a single check after a fixed
+  300ms sleep. The send button reliably appears within ~200ms of the prompt
+  landing (measured live), but a slow render moment could leave it briefly
+  absent, and a single miss fell back to Enter and risked the prompt never
+  posting.
+
 ## [0.15.2] - 2026-07-07
 
 ### Fixed

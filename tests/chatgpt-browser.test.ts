@@ -26,6 +26,7 @@ import {
   getChatGptBrowserStatus,
   hasChatGptPromptAcceptance,
   hasFreshChatGptAnswer,
+  isFreshChatGptPage,
   inferChatGptPageLoggedInLikely,
   inferLoggedInLikely,
   isLikelyChatGptGeneratingControl,
@@ -636,6 +637,18 @@ describe("ChatGPT browser adapter", () => {
     expect(submitted.ok).toBe(true);
     expect(typeof submitted.x).toBe("number");
     expect(typeof submitted.y).toBe("number");
+  });
+
+  it("distinguishes a fresh empty chat from a lingering old thread", () => {
+    // Fresh new chat: root URL, no messages yet.
+    expect(isFreshChatGptPage({ url: "https://chatgpt.com/", assistantMessageCount: 0, userMessageCount: 0 })).toBe(true);
+    expect(isFreshChatGptPage({ url: "https://chatgpt.com/?model=gpt-5", assistantMessageCount: 0, userMessageCount: 0 })).toBe(true);
+    // Old thread still rendered (slow navigation): a /c/<id> URL or non-zero
+    // message counts must NOT be mistaken for the fresh chat, or the answer
+    // baseline is captured on the wrong thread.
+    expect(isFreshChatGptPage({ url: "https://chatgpt.com/c/abc-123", assistantMessageCount: 5, userMessageCount: 5 })).toBe(false);
+    expect(isFreshChatGptPage({ url: "https://chatgpt.com/", assistantMessageCount: 3, userMessageCount: 3 })).toBe(false);
+    expect(isFreshChatGptPage({ url: "https://chatgpt.com/c/abc-123", assistantMessageCount: 0, userMessageCount: 0 })).toBe(false);
   });
 
   it("detects streaming via the stop-button and aria-busy signals, not just the label", async () => {

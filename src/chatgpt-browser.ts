@@ -422,6 +422,39 @@ export function hasPartialChatGptAnswer(
   return state.assistantMessageCount > previousAssistantMessageCount && isUsableChatGptAnswer(state.answer);
 }
 
+/**
+ * True when the tab is on a fresh, empty ChatGPT chat: the root URL (not a
+ * /c/<id> conversation) with zero messages. Used after a --new-chat navigation
+ * to confirm the page actually reached the fresh chat before the answer-count
+ * baseline is captured - a lingering old thread (slow navigation) has a /c/ URL
+ * or non-zero counts and would poison the baseline.
+ */
+export function isFreshChatGptPage(state: {
+  url: string;
+  assistantMessageCount: number;
+  userMessageCount: number;
+}): boolean {
+  const onRoot = /^https:\/\/chatgpt\.com\/?(?:[?#].*)?$/.test(state.url);
+  return onRoot && state.assistantMessageCount === 0 && state.userMessageCount === 0;
+}
+
+/**
+ * Poll until the tab settles on a fresh empty chat (or the timeout elapses).
+ * Deterministically replaces a fixed post-navigation sleep so a slow SPA
+ * navigation cannot leave the old thread's state in place. Best-effort: on
+ * timeout it returns and the caller proceeds (the acceptance logic still
+ * guards), but the poll removes the common race.
+ */
+async function waitForFreshChatGptPage(page: DevtoolsPage, timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const state = await evaluateOnPage<ChatGptAnswerState>(page, answerExpression());
+    if (isFreshChatGptPage(state)) return true;
+    await sleep(300);
+  }
+  return false;
+}
+
 export function hasChatGptPromptAcceptance(
   previous: Pick<ChatGptAnswerState, "assistantMessageCount" | "userMessageCount">,
   state: Pick<ChatGptAnswerState, "assistantMessageCount" | "generating" | "userMessageCount">
@@ -1299,10 +1332,12 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
   const page = pageResult.page;
   if (options.newChat) {
     // Long accumulated threads eventually break acceptance detection, so
-    // start from a clean chat. The SPA settle-and-retry below absorbs the
-    // navigation before status checks run.
+    // start from a clean chat. Wait for the tab to actually reach the fresh
+    // empty chat (root URL, zero messages) rather than a fixed sleep: a slow
+    // SPA navigation could otherwise leave the old thread rendered, poisoning
+    // the answer-count baseline captured below and causing a false timeout.
     await evaluateOnPage(page, `location.assign("https://chatgpt.com/")`);
-    await sleep(1_500);
+    await waitForFreshChatGptPage(page, 8_000);
   }
   let status = await readSettledChatGptPageStatus(page);
   status = await ensureVisibleChatGptPage(port, page, status);
@@ -1341,8 +1376,17 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
     // into; a --project/--project-new hop lands on a page with its own counts.
     beforeSubmit = await evaluateOnPage<ChatGptAnswerState>(page, answerExpression());
     await insertComposerTextViaCdp(cdp, options.prompt);
-    await sleep(300);
-    const submitted = await cdp.evaluate<{ ok: boolean; x?: number; y?: number; reason?: string }>(submitExpression());
+    // Poll for the send button instead of a single check after a fixed sleep:
+    // it reliably appears within ~200ms of the text landing (measured live),
+    // but a slow render moment could leave it briefly absent, and a single
+    // miss would fall back to Enter and risk the prompt never posting.
+    let submitted: { ok: boolean; x?: number; y?: number; reason?: string } = { ok: false };
+    const submitDeadline = Date.now() + 2_000;
+    do {
+      submitted = await cdp.evaluate<{ ok: boolean; x?: number; y?: number; reason?: string }>(submitExpression());
+      if (submitted.ok) break;
+      await sleep(200);
+    } while (Date.now() < submitDeadline);
     submitButtonFound = Boolean(submitted.ok && submitted.x !== undefined && submitted.y !== undefined);
     if (submitButtonFound && submitted.x !== undefined && submitted.y !== undefined) {
       await dispatchMouseClickAt(cdp, submitted.x, submitted.y);
