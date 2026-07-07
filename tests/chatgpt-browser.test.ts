@@ -12,6 +12,7 @@ import {
   chatGptBlockerFromAnswerState,
   CHATGPT_RUNTIME_BLOCKER_TEXT_EXCLUDED_ANCESTORS,
   CHATGPT_BLOCKER_SCAN_EXCLUDED_ANCESTORS,
+  CHATGPT_STREAMING_SELECTOR,
   CHATGPT_COMPOSER_CANDIDATE_EXCLUDED_ANCESTORS,
   PRODEX_ACTIVE_COMPOSER_ATTRIBUTE,
   chatGptPageSelectionBlocker,
@@ -635,6 +636,20 @@ describe("ChatGPT browser adapter", () => {
     expect(submitted.ok).toBe(true);
     expect(typeof submitted.x).toBe("number");
     expect(typeof submitted.y).toBe("number");
+  });
+
+  it("detects streaming via the stop-button and aria-busy signals, not just the label", async () => {
+    // The streaming stop control is icon-only (data-testid="stop-button",
+    // measured live) so its label won't match the "stop generating" pattern;
+    // structural signals must drive `generating` to avoid silent truncation.
+    expect(CHATGPT_STREAMING_SELECTOR).toContain('[data-testid="stop-button"]');
+    expect(CHATGPT_STREAMING_SELECTOR).toContain('aria-busy="true"');
+    const browser = await import("../src/chatgpt-browser.js");
+    const statusExpr = (browser as { statusExpression: () => string }).statusExpression();
+    // The generating computation must query the streaming selector, not rely
+    // only on button-label text.
+    expect(statusExpr).toContain("document.querySelector");
+    expect(statusExpr).toContain("stop-button");
   });
 
   it("does not treat an incidental editable element as product-check composer readiness", async () => {

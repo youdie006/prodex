@@ -274,6 +274,14 @@ interface CdpResponse {
 const MAX_PAGE_DISCOVERY_TIMEOUT_MS = 5_000;
 const PAGE_VISIBILITY_PROBE_TIMEOUT_MS = 1_000;
 const CHATGPT_GENERATING_CONTROL_PATTERN = /\bstop\s+(?:generating|responding|response)\b|응답\s*중지|생성\s*중지/i;
+// While ChatGPT streams a response the composer's send control becomes an
+// icon-only stop button (data-testid="stop-button", measured live) and the
+// active assistant message carries aria-busy="true". These structural signals
+// are more reliable than the button label text, which the pattern above can
+// miss on an icon-only/relabeled control - a miss would let a mid-stream pause
+// be accepted as the final answer, silently truncating it.
+export const CHATGPT_STREAMING_SELECTOR =
+  '[data-testid="stop-button"],[data-message-author-role="assistant"][aria-busy="true"],[data-message-author-role="assistant"] [aria-busy="true"]';
 
 export function defaultChatGptProfileDir(): string {
   return path.join(os.homedir(), ".local", "share", "prodex", "chrome-chatgpt-pro");
@@ -1674,6 +1682,7 @@ async function connectCdp(webSocketUrl: string, timeoutMs?: number): Promise<{
 export function statusExpression(): string {
   const excludedTextSelector = JSON.stringify(CHATGPT_RUNTIME_BLOCKER_TEXT_EXCLUDED_ANCESTORS);
   const blockerScanExcludedSelector = JSON.stringify(CHATGPT_BLOCKER_SCAN_EXCLUDED_ANCESTORS);
+  const streamingSelector = JSON.stringify(CHATGPT_STREAMING_SELECTOR);
   const generatingControlPattern = JSON.stringify(CHATGPT_GENERATING_CONTROL_PATTERN.source);
   const generatingControlFlags = JSON.stringify(CHATGPT_GENERATING_CONTROL_PATTERN.flags);
   return `(() => {
@@ -1726,7 +1735,7 @@ export function statusExpression(): string {
       blockerScanTextSample: blockerScanText.slice(0, 12000),
       visibleButtonLabels,
       hasComposer,
-      generating: placeholder || visibleButtonLabels.some((label) => generatingControlPattern.test(label)),
+      generating: placeholder || Boolean(document.querySelector(${streamingSelector})) || visibleButtonLabels.some((label) => generatingControlPattern.test(label)),
       modelHints: lines.filter((line) => /GPT|Pro|Thinking|ChatGPT|Extra High|Auto/i.test(line)).slice(0, 30)
     };
   })()`;
@@ -1869,6 +1878,7 @@ function composerExpressionHelpers(): string {
 function answerExpression(): string {
   const excludedTextSelector = JSON.stringify(CHATGPT_RUNTIME_BLOCKER_TEXT_EXCLUDED_ANCESTORS);
   const blockerScanExcludedSelector = JSON.stringify(CHATGPT_BLOCKER_SCAN_EXCLUDED_ANCESTORS);
+  const streamingSelector = JSON.stringify(CHATGPT_STREAMING_SELECTOR);
   const generatingControlPattern = JSON.stringify(CHATGPT_GENERATING_CONTROL_PATTERN.source);
   const generatingControlFlags = JSON.stringify(CHATGPT_GENERATING_CONTROL_PATTERN.flags);
   return `(() => {
@@ -1918,7 +1928,7 @@ function answerExpression(): string {
       blockerTextSample: visibleTextOutsideMessages(excludedTextSelector).slice(0, 12000),
       blockerScanTextSample: visibleTextOutsideMessages(blockerScanExcludedSelector).slice(0, 12000),
       visibleButtonLabels: buttons,
-      generating: placeholder || buttons.some((label) => generatingControlPattern.test(label)),
+      generating: placeholder || Boolean(document.querySelector(${streamingSelector})) || buttons.some((label) => generatingControlPattern.test(label)),
       assistantMessageCount: assistantMessages.length,
       userMessageCount: userMessages.length,
       modelHints: lines.filter((line) => /GPT|Pro|Thinking|ChatGPT|Extra High|Auto/i.test(line)).slice(0, 30)
