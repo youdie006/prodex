@@ -49,6 +49,10 @@ export async function runTasksCommand(rest: string[], io: CliIO): Promise<number
       const targetStore = new BridgeStore(resolveCwdFlag(io.cwd, taskArgs));
       const status = readTaskStatusFlag(taskArgs);
       const tasks = await listTasksForInspection(targetStore, status);
+      if (tasks.length === 0) {
+        io.stdout(status ? `No tasks with status ${status}.` : "No tasks yet.");
+        return 0;
+      }
       for (const task of tasks) {
         io.stdout(`${task.id}\t${task.status}\t${task.title}`);
       }
@@ -205,6 +209,10 @@ export async function runReceiptsCommand(rest: string[], io: CliIO): Promise<num
         kind: readReceiptKindFlag(receiptArgs),
         task_id: readFlag(receiptArgs, "--task-id")
       });
+      if (receipts.length === 0) {
+        io.stdout("No receipts yet.");
+        return 0;
+      }
       for (const receipt of receipts) {
         io.stdout(`${receipt.id}\t${receipt.kind}\t${receipt.summary}${receiptInspectionListSuffix(receipt)}`);
       }
@@ -247,6 +255,10 @@ export async function runSessionsCommand(rest: string[], io: CliIO): Promise<num
       const targetStore = new BridgeStore(resolveCwdFlag(io.cwd, sessionArgs));
       const status = readSessionStatusFlag(sessionArgs);
       const sessions = await listSessionsForInspection(targetStore, status);
+      if (sessions.length === 0) {
+        io.stdout(status ? `No sessions with status ${status}.` : "No sessions yet.");
+        return 0;
+      }
       for (const session of sessions) {
         io.stdout(`${session.id}\t${session.status}\t${session.backend}\t${session.direction}`);
       }

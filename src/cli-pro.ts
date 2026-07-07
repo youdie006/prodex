@@ -374,6 +374,10 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
       const sourceCli = resolveOptionalFileFlag(io.cwd, proArgs, "--source-cli");
       const answerOptions = { cwd: readFlag(proArgs, "--cwd") ? targetCwd : undefined };
       const consults = await listConsultListEntries(targetStore);
+      if (consults.length === 0) {
+        io.stdout("No GPT Pro consults yet. Run `prodex ask \"...\"` to create one.");
+        return 0;
+      }
       for (const entry of consults) {
         if (entry.kind === "untrusted") {
           io.stdout(`${entry.task.id}\tuntrusted\t${sourceAwareResultMessage(errorMessage(entry.error), sourceCli, answerOptions)}`);

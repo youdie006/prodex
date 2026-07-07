@@ -4,6 +4,15 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.6] - 2026-07-08
+
+### Changed
+- Empty list commands now print a clear message instead of blank output:
+  `tasks list`, `receipts list`, `sessions list`, and `pro list` say "No tasks
+  yet." / "No receipts yet." / "No sessions yet." / "No GPT Pro consults yet."
+  (with the status qualifier when `--status` is given), so a fresh or
+  wrong-directory ledger is no longer indistinguishable from a crash.
+
 ## [0.15.5] - 2026-07-08
 
 ### Added

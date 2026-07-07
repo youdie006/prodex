@@ -172,6 +172,20 @@ describe("runCli", () => {
     }
   });
 
+  it("prints a helpful empty-state instead of blank output for empty lists", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
+    for (const [cmd, needle] of [
+      [["tasks", "list"], /no tasks/i],
+      [["receipts", "list"], /no receipts/i],
+      [["sessions", "list"], /no sessions/i],
+      [["pro", "list"], /no .*consult|no gpt pro/i]
+    ] as const) {
+      const out: string[] = [];
+      await runCli([...cmd], { cwd, stdout: (line) => out.push(line), stderr: () => {} });
+      expect(out.join("\n")).toMatch(needle);
+    }
+  });
+
   it("creates and lists tasks", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     const out: string[] = [];
