@@ -562,6 +562,11 @@ describe("ChatGPT browser adapter", () => {
     expect(prepareExpression).toContain("removeAttribute(activeComposerAttribute)");
     expect(prepareExpression).not.toContain("markChatGptComposerRoot(root)");
     expect(prepareExpression).not.toContain(".find((node) => !!(node.offsetWidth");
+    // prepare must NOT manipulate the DOM selection for the ProseMirror editor:
+    // an in-page select-all / execCommand desyncs ProseMirror so a later click
+    // never submits (clearing is done via native CDP keyboard events instead).
+    expect(prepareExpression).not.toContain("selectNodeContents");
+    expect(prepareExpression).not.toContain('execCommand("delete")');
     expect(submit).toContain("findChatGptComposerCandidate");
     expect(submit).toContain("findMarkedChatGptComposerRoot()");
     expect(submit.indexOf("findMarkedChatGptComposerRoot()")).toBeLessThan(submit.indexOf("findChatGptComposerCandidate()"));

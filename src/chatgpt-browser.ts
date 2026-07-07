@@ -1376,25 +1376,29 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
     // into; a --project/--project-new hop lands on a page with its own counts.
     beforeSubmit = await evaluateOnPage<ChatGptAnswerState>(page, answerExpression());
     await insertComposerTextViaCdp(cdp, options.prompt);
-    // Poll for the send button instead of a single check after a fixed sleep:
-    // it reliably appears within ~200ms of the text landing (measured live),
-    // but a slow render moment could leave it briefly absent, and a single
-    // miss would fall back to Enter and risk the prompt never posting.
-    let submitted: { ok: boolean; x?: number; y?: number; reason?: string } = { ok: false };
-    const submitDeadline = Date.now() + 2_000;
-    do {
-      submitted = await cdp.evaluate<{ ok: boolean; x?: number; y?: number; reason?: string }>(submitExpression());
-      if (submitted.ok) break;
-      await sleep(200);
-    } while (Date.now() < submitDeadline);
-    submitButtonFound = Boolean(submitted.ok && submitted.x !== undefined && submitted.y !== undefined);
-    if (submitButtonFound && submitted.x !== undefined && submitted.y !== undefined) {
-      await dispatchMouseClickAt(cdp, submitted.x, submitted.y);
-    } else {
-      // No submit button located (hidden state) — fall back to a real Enter key
-      // on the focused composer.
-      await cdp.send("Input.dispatchKeyEvent", enterKeyEvent("keyDown"));
-      await cdp.send("Input.dispatchKeyEvent", enterKeyEvent("keyUp"));
+    // Submit. Prefer the Enter key: it goes to the focused composer and does
+    // not depend on coordinates, whereas the send button moves ~100px as the
+    // composer grows after the prompt lands, so a click at captured coordinates
+    // can miss the button and never post (measured live: captured y=583 while
+    // the button had already moved to y=693 - the core cause of intermittent
+    // "ChatGPT never registered the prompt" failures). Verify the user message
+    // actually appeared; only if Enter did not send (e.g. a config where Enter
+    // inserts a newline) fall back to clicking the send button, re-reading
+    // FRESH coordinates each attempt. Safe against double-submit: once the
+    // prompt posts the composer clears and no send button is found.
+    const promptPostedExpression = `document.querySelectorAll('[data-message-author-role="user"]').length > ${beforeSubmit.userMessageCount}`;
+    await cdp.send("Input.dispatchKeyEvent", enterKeyEvent("keyDown"));
+    await cdp.send("Input.dispatchKeyEvent", enterKeyEvent("keyUp"));
+    let promptPosted = await waitForExpressionTrue(cdp, promptPostedExpression, 1_500);
+    for (let attempt = 0; attempt < 3 && !promptPosted; attempt += 1) {
+      const submitted = await cdp.evaluate<{ ok: boolean; x?: number; y?: number; reason?: string }>(submitExpression());
+      if (submitted.ok && submitted.x !== undefined && submitted.y !== undefined) {
+        submitButtonFound = true;
+        await dispatchMouseClickAt(cdp, submitted.x, submitted.y);
+        promptPosted = await waitForExpressionTrue(cdp, promptPostedExpression, 1_500);
+      } else {
+        await sleep(200);
+      }
     }
   } finally {
     cdp.close();
@@ -1801,18 +1805,18 @@ export function prepareComposerExpression(): string {
     // Submit finds the composer fresh instead.
     document.querySelectorAll('[' + activeComposerAttribute + '="true"]').forEach((node) => node.removeAttribute(activeComposerAttribute));
     el.focus();
+    // Only the fallback <textarea> is cleared in-page. For the ProseMirror
+    // contenteditable editor we do NOT touch the DOM selection here: an in-page
+    // Selection API select-all (or execCommand) desyncs ProseMirror's internal
+    // state so the composer shows the text and the send button enables, but a
+    // click never actually submits (measured live with an A/B repro). Clearing
+    // is done submit-safely via native CDP keyboard events in the caller.
     if ("value" in el) {
       el.value = "";
       el.dispatchEvent(new InputEvent("input", { inputType: "deleteContentBackward", bubbles: true, composed: true }));
-    } else {
-      const selection = window.getSelection();
-      const range = document.createRange();
-      range.selectNodeContents(el);
-      selection?.removeAllRanges();
-      selection?.addRange(range);
-      document.execCommand("delete");
     }
-    return { ok: true };
+    const hasText = ("value" in el ? el.value : el.innerText || el.textContent || "").trim().length > 0;
+    return { ok: true, hasText };
   })()`;
 }
 
@@ -1838,11 +1842,24 @@ export function composerTextStateExpression(expectedText?: string): string {
   })()`;
 }
 
-// Focus/clear/mark the composer, then type the prompt with native CDP input so
-// ProseMirror registers it, then verify the composer holds exactly the prompt.
+// Focus the composer, clear any leftover text submit-safely, type the prompt
+// with native CDP input so ProseMirror registers it, then verify the composer
+// holds exactly the prompt.
 async function insertComposerTextViaCdp(cdp: CdpConnection, text: string): Promise<void> {
-  const prepared = await cdp.evaluate<{ ok: boolean; reason?: string }>(prepareComposerExpression());
+  const prepared = await cdp.evaluate<{ ok: boolean; reason?: string; hasText?: boolean }>(prepareComposerExpression());
   if (!prepared.ok) throw new Error(prepared.reason ?? "Could not focus the ChatGPT composer");
+  // Clear leftover text (e.g. from a prior failed send) via native keyboard
+  // events - Ctrl+A then Backspace - which ProseMirror processes without the
+  // state desync that an in-page Selection API clear causes. Skipped when the
+  // composer is already empty (the common fresh-chat case) to avoid needless
+  // key events.
+  if (prepared.hasText) {
+    await cdp.send("Input.dispatchKeyEvent", { type: "keyDown", key: "a", code: "KeyA", windowsVirtualKeyCode: 65, modifiers: 2 });
+    await cdp.send("Input.dispatchKeyEvent", { type: "keyUp", key: "a", code: "KeyA", windowsVirtualKeyCode: 65, modifiers: 2 });
+    await cdp.send("Input.dispatchKeyEvent", { type: "keyDown", key: "Backspace", code: "Backspace", windowsVirtualKeyCode: 8 });
+    await cdp.send("Input.dispatchKeyEvent", { type: "keyUp", key: "Backspace", code: "Backspace", windowsVirtualKeyCode: 8 });
+    await sleep(100);
+  }
   await cdp.send("Input.insertText", { text });
   await sleep(200);
   const state = await cdp.evaluate<{ ok: boolean; reason?: string }>(composerTextStateExpression(text));

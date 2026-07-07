@@ -4,6 +4,24 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.4] - 2026-07-08
+
+### Fixed
+- Intermittent "ChatGPT never registered the prompt" failures, root-caused with
+  live instrumentation to two issues in the send path:
+  - The composer clear used an in-page Selection API select-all +
+    `execCommand("delete")`, which desyncs ProseMirror's internal state so the
+    prompt shows and the send button enables but a click never submits
+    (confirmed with an A/B repro). prepare now only focuses; leftover text is
+    cleared submit-safely via native CDP keyboard events (Ctrl+A, Backspace).
+  - Submit is now sent with the Enter key (which targets the focused composer
+    and is coordinate-free) instead of a click at captured coordinates. After
+    the prompt lands the composer grows and the send button moves ~100px, so a
+    click at the captured position missed the button entirely (measured live:
+    captured y=583 while the button had moved to y=693). Clicking the send
+    button, re-reading fresh coordinates and verifying the post each attempt,
+    remains as a fallback for configs where Enter inserts a newline.
+
 ## [0.15.3] - 2026-07-08
 
 ### Fixed
