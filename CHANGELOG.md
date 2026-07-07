@@ -45,6 +45,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the internal `ask-pro`; the `prodex ask` alias maps both spellings to
   `ask` (including the dry-run guidance sentence).
 
+## [0.11.1] - 2026-07-07
+
+### Fixed
+- Bridge registry: concurrent registrations can no longer lose a root. Writes
+  from one process are serialized, and a bounded verify-retry re-merges after
+  a cross-process rename race (the registry also still self-heals on every
+  later `ensure()`). Found by an adversarial audit (30 concurrent first
+  registrations used to record 1).
+
 ## [0.11.0] - 2026-07-07
 
 ### Added

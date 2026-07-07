@@ -40,6 +40,17 @@ describe("registerBridgeRoot", () => {
     });
   });
 
+  it("does not lose roots under concurrent registration", async () => {
+    await withTempRegistry(async (file) => {
+      const roots = Array.from({ length: 20 }, (_, i) => `/tmp/repo-conc-${i}`);
+      await Promise.all(roots.map((r) => registerBridgeRoot(r)));
+      const parsed = JSON.parse(await fs.readFile(file, "utf8"));
+      for (const r of roots) {
+        expect(parsed.roots).toContain(r);
+      }
+    });
+  });
+
   it("honors the env override for its location", async () => {
     await withTempRegistry(async (file) => {
       expect(bridgesRegistryPath()).toBe(file);
