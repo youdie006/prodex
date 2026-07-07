@@ -4,6 +4,30 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.0] - 2026-07-07
+
+### Fixed
+- Auto-recovery now relaunches the profile you last logged in with, not the
+  fixed default. `pro browser login` records its profile dir + port
+  (`~/.local/share/prodex/last-login.json`, `PRODEX_LAST_LOGIN_FILE` override),
+  and `ask` recovery reads it back - a custom-profile user could otherwise be
+  silently sent to a different account (or wait 2 minutes on a logged-out
+  default profile). Found by an adversarial audit.
+- `--json` now stays valid JSON on the blocked path: a login/captcha/limit/
+  timeout blocker prints `{status:"blocked", blocker:{...}}` to stdout (the
+  human error still goes to stderr), so a script can branch on the case it
+  most needs to. Previously only the `done` path was JSON.
+- `--new-chat` no longer silently enters a persisted default project; a fresh
+  root chat is used (an explicit `--project` still wins). The pointless
+  double navigation (root, then into the project) is gone.
+
+### Changed
+- Bridge registry hardening (on top of the 0.11.1 concurrency fix):
+  roots are canonicalized with `realpath` so one bridge has one entry even
+  via symlinked/relative spellings; roots whose directory no longer exists
+  are pruned when a new root is registered; total entries are capped at 2000
+  (newest kept). Registry work remains fully best-effort.
+
 ## [0.13.0] - 2026-07-07
 
 ### Added

@@ -28,6 +28,26 @@ export function bridgesRegistryPath(): string {
 // verify-retry plus the self-heal on every later ensure().
 let registryQueue: Promise<void> = Promise.resolve();
 
+const MAX_REGISTRY_ROOTS = 2_000;
+
+async function canonicalize(root: string): Promise<string> {
+  // realpath collapses symlinks/relative spellings so one bridge has one
+  // entry; fall back to resolve() when the path does not exist yet.
+  try {
+    return await fs.realpath(path.resolve(root));
+  } catch {
+    return path.resolve(root);
+  }
+}
+
+async function directoryExists(dir: string): Promise<boolean> {
+  try {
+    return (await fs.stat(dir)).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
 export function registerBridgeRoot(root: string): Promise<void> {
   const next = registryQueue.then(() => registerBridgeRootInner(root));
   // Keep the chain alive even if an inner registration rejects.
@@ -38,7 +58,7 @@ export function registerBridgeRoot(root: string): Promise<void> {
 async function registerBridgeRootInner(root: string): Promise<void> {
   try {
     const file = bridgesRegistryPath();
-    const abs = path.resolve(root);
+    const abs = await canonicalize(root);
     // Read-modify-write with a bounded verify-retry: rename gives torn-write
     // atomicity but not lost-update safety - two processes registering
     // DIFFERENT roots at the same instant would each read the old list and
@@ -56,7 +76,15 @@ async function registerBridgeRootInner(root: string): Promise<void> {
         // First write, or an unreadable/corrupt registry: start fresh.
       }
       if (roots.includes(abs)) return;
-      roots.push(abs);
+      // A genuinely new root: opportunistically prune entries whose directory
+      // is gone (cheap here since this path only runs on first registration,
+      // not on every ensure()) and cap total growth, keeping the newest.
+      const survivors: string[] = [];
+      for (const existing of roots) {
+        if (await directoryExists(existing)) survivors.push(existing);
+      }
+      survivors.push(abs);
+      roots = survivors.length > MAX_REGISTRY_ROOTS ? survivors.slice(survivors.length - MAX_REGISTRY_ROOTS) : survivors;
       await fs.mkdir(path.dirname(file), { recursive: true });
       const tmp = `${file}.${process.pid}.${attempt}.tmp`;
       await fs.writeFile(tmp, `${JSON.stringify({ schema_version: SCHEMA_VERSION, roots }, null, 2)}\n`, "utf8");

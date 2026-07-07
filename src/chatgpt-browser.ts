@@ -1,5 +1,6 @@
 import { spawn, spawnSync } from "node:child_process";
 import { accessSync, constants, readFileSync, statSync } from "node:fs";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
 
@@ -266,6 +267,45 @@ const CHATGPT_GENERATING_CONTROL_PATTERN = /\bstop\s+(?:generating|responding|re
 
 export function defaultChatGptProfileDir(): string {
   return path.join(os.homedir(), ".local", "share", "prodex", "chrome-chatgpt-pro");
+}
+
+export interface BrowserLoginLaunchRecord {
+  profile_dir: string;
+  port: number;
+}
+
+function lastBrowserLoginPath(): string {
+  const override = process.env.PRODEX_LAST_LOGIN_FILE;
+  if (override && override.length > 0) return override;
+  return path.join(os.homedir(), ".local", "share", "prodex", "last-login.json");
+}
+
+/**
+ * Remember how the last login launched the browser (profile dir + port) so
+ * auto-recovery relaunches the SAME profile instead of the default one - a
+ * custom-profile user must never be silently sent to a different account.
+ * Best-effort: failures never break the login.
+ */
+export async function recordBrowserLoginLaunch(record: BrowserLoginLaunchRecord): Promise<void> {
+  try {
+    const file = lastBrowserLoginPath();
+    await mkdir(path.dirname(file), { recursive: true });
+    await writeFile(file, `${JSON.stringify(record, null, 2)}\n`, "utf8");
+  } catch {
+    // Advisory record only.
+  }
+}
+
+export async function readLastBrowserLoginLaunch(): Promise<Partial<BrowserLoginLaunchRecord> | undefined> {
+  try {
+    const parsed = JSON.parse(await readFile(lastBrowserLoginPath(), "utf8")) as Partial<BrowserLoginLaunchRecord>;
+    return {
+      ...(typeof parsed.profile_dir === "string" && parsed.profile_dir.length > 0 ? { profile_dir: parsed.profile_dir } : {}),
+      ...(typeof parsed.port === "number" && Number.isInteger(parsed.port) ? { port: parsed.port } : {})
+    };
+  } catch {
+    return undefined;
+  }
 }
 
 export function buildChromeLaunchArgs(options: Required<ChatGptBrowserOptions>): string[] {

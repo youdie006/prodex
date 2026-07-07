@@ -1813,6 +1813,72 @@ describe("pro browser ask model/project selection", () => {
     expect(errs.some((line) => line.startsWith("recover:"))).toBe(true);
   });
 
+  it("recovers with the last recorded login profile, not the default", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-send-"));
+    const lastLoginFile = path.join(cwd, "last-login.json");
+    const { writeFile } = await import("node:fs/promises");
+    await writeFile(lastLoginFile, JSON.stringify({ profile_dir: "/custom/chrome-profile", port: 9333 }), "utf8");
+    process.env.PRODEX_LAST_LOGIN_FILE = lastLoginFile;
+    try {
+      const blocker = {
+        code: "browser_unreachable",
+        message: "No Chrome DevTools endpoint is reachable on 127.0.0.1:9333.",
+        retryable: true,
+        next_step: "Run `prodex pro browser login`, log in, then retry."
+      };
+      sendChatGptPromptMock
+        .mockRejectedValueOnce(Object.assign(new Error(blocker.message), { blocker }))
+        .mockResolvedValueOnce({
+          url: "https://chatgpt.com/c/profile",
+          title: "ChatGPT",
+          answer: "profile ok",
+          modelHints: [],
+          warnings: []
+        });
+      openChatGptBrowserMock.mockReturnValueOnce({
+        port: 9333,
+        profileDir: "/custom/chrome-profile",
+        waitForEarlyExit: async () => undefined
+      });
+      getChatGptBrowserStatusMock.mockResolvedValue({ reachable: true, loggedInLikely: true, hasComposer: true, modelHints: [] });
+
+      await runCli(["ask", "--auto-login", "Recover with profile"], { cwd, stdout: () => {}, stderr: () => {} });
+
+      expect(openChatGptBrowserMock).toHaveBeenCalledWith(
+        expect.objectContaining({ profileDir: "/custom/chrome-profile" })
+      );
+    } finally {
+      delete process.env.PRODEX_LAST_LOGIN_FILE;
+    }
+  });
+
+  it("records the login launch so recovery can reuse the profile", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-send-"));
+    const lastLoginFile = path.join(cwd, "last-login.json");
+    process.env.PRODEX_LAST_LOGIN_FILE = lastLoginFile;
+    try {
+      openChatGptBrowserMock.mockReturnValueOnce({
+        port: 9444,
+        profileDir: "/custom/other-profile",
+        waitForEarlyExit: async () => undefined
+      });
+      getChatGptBrowserStatusMock.mockResolvedValue({ reachable: true, loggedInLikely: true, hasComposer: true, modelHints: [] });
+
+      await runCli(["pro", "browser", "login", "--no-wait", "--profile-dir", "/custom/other-profile", "--port", "9444"], {
+        cwd,
+        stdout: () => {},
+        stderr: () => {}
+      });
+
+      const { readFile } = await import("node:fs/promises");
+      const recorded = JSON.parse(await readFile(lastLoginFile, "utf8")) as { profile_dir: string; port: number };
+      expect(recorded.profile_dir).toBe("/custom/other-profile");
+      expect(recorded.port).toBe(9444);
+    } finally {
+      delete process.env.PRODEX_LAST_LOGIN_FILE;
+    }
+  });
+
   it("auto-recovers in an interactive terminal without --auto-login", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-send-"));
     const blocker = {
@@ -1942,6 +2008,70 @@ describe("pro browser ask model/project selection", () => {
     expect(payload.thread).toBe("https://chatgpt.com/c/json");
     expect(payload.answer).toBe("json answer");
     expect(payload.warnings).toEqual([]);
+  });
+
+  it("emits blocked-consult JSON on stdout when --json is set", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-send-"));
+    const blocker = {
+      code: "captcha_required",
+      message: "ChatGPT is asking for captcha or human verification.",
+      retryable: true,
+      next_step: "Solve it manually in the visible browser, then retry."
+    };
+    sendChatGptPromptMock.mockRejectedValueOnce(Object.assign(new Error(`${blocker.message} Next: ${blocker.next_step}`), { blocker }));
+    const out: string[] = [];
+
+    await expect(
+      runCli(["ask", "--json", "Blocked please"], { cwd, stdout: (line) => out.push(line), stderr: () => {} })
+    ).rejects.toThrow(/blocked consult recorded/);
+
+    const payload = JSON.parse(out.join("\n")) as {
+      task_id: string;
+      status: string;
+      blocker: { code: string; next_step?: string };
+    };
+    expect(payload.status).toBe("blocked");
+    expect(payload.task_id).toMatch(/^task_/);
+    expect(payload.blocker.code).toBe("captcha_required");
+  });
+
+  it("suppresses a persisted default project under --new-chat", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-send-"));
+    await writeLocalConfig(cwd, { token: "test-token", browserDefaults: { project: "sandbox-default" } });
+    sendChatGptPromptMock.mockResolvedValueOnce({
+      url: "https://chatgpt.com/c/fresh-noproj",
+      title: "ChatGPT",
+      answer: "ok",
+      modelHints: [],
+      warnings: []
+    });
+
+    await runCli(["ask", "--new-chat", "Fresh question"], { cwd, stdout: () => {}, stderr: () => {} });
+
+    expect(sendChatGptPromptMock).toHaveBeenCalledWith(
+      expect.objectContaining({ newChat: true, project: undefined })
+    );
+  });
+
+  it("keeps an explicit --project even with --new-chat", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-send-"));
+    sendChatGptPromptMock.mockResolvedValueOnce({
+      url: "https://chatgpt.com/c/fresh-proj",
+      title: "ChatGPT",
+      answer: "ok",
+      modelHints: [],
+      warnings: []
+    });
+
+    await runCli(["ask", "--new-chat", "--project", "sandbox-explicit", "Fresh question"], {
+      cwd,
+      stdout: () => {},
+      stderr: () => {}
+    });
+
+    expect(sendChatGptPromptMock).toHaveBeenCalledWith(
+      expect.objectContaining({ newChat: true, project: "sandbox-explicit" })
+    );
   });
 
   it("rejects --json on the dry-run preview path", async () => {

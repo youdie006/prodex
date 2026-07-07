@@ -14,6 +14,8 @@ import {
   openChatGptBrowser,
   parseProMode,
   parseReasoningEffort,
+  readLastBrowserLoginLaunch,
+  recordBrowserLoginLaunch,
   sendChatGptPrompt
 } from "./chatgpt-browser.js";
 import {
@@ -269,6 +271,8 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
           url: loginUrl
         });
         await assertBrowserLaunchStayedAlive(opened, launchTimeoutMs);
+        // Remember this launch so ask auto-recovery reuses the same profile.
+        await recordBrowserLoginLaunch({ profile_dir: opened.profileDir, port: opened.port });
         printBrowserLoginGuide(io.stdout, {
           opened: true,
           loginUrl,
@@ -561,8 +565,11 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
     // from the confirmed tab).
     const selectionModel = explicitModel ?? browserDefaults?.model;
     const selectionProjectNew = explicitProjectNew;
+    // A persisted default project is suppressed under --new-chat (the point
+    // is a fresh root chat); an explicit --project still wins.
     const selectionProject =
-      explicitProject ?? (normalizedTargetUrl || selectionProjectNew !== undefined ? undefined : browserDefaults?.project);
+      explicitProject ??
+      (normalizedTargetUrl || selectionProjectNew !== undefined || newChat ? undefined : browserDefaults?.project);
     const reasoningAxisChosen = explicitProMode !== undefined || explicitEffort !== undefined;
     const selectionProMode = explicitProMode ?? (reasoningAxisChosen ? undefined : browserDefaults?.pro_mode);
     const selectionEffort = explicitEffort ?? (reasoningAxisChosen ? undefined : browserDefaults?.effort);
@@ -693,6 +700,17 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
           );
         } catch (recordError) {
           throw new Error(`${message} (also failed to record blocked consult: ${errorMessage(recordError)})`);
+        }
+        // Keep stdout machine-parseable for --json consumers on the blocked
+        // path too; the human-readable error still goes to stderr via throw.
+        if (jsonOutput) {
+          io.stdout(
+            JSON.stringify(
+              { task_id: task.id, status: "blocked", thread: normalizedTargetUrl ?? null, answer: null, warnings: [], blocker },
+              null,
+              2
+            )
+          );
         }
         throw new Error(formatBlockedConsultRecordedMessage(message, task.id, sourceCli, { cwd: targetCwd }));
       }
@@ -932,7 +950,14 @@ export async function performBrowserConsultForMcp(
 export async function attemptBrowserAutoRecovery(stderr: (line: string) => void, options: { port?: number }): Promise<boolean> {
   stderr("recover: browser is not running - launching the dedicated ChatGPT browser (Ctrl+C aborts)...");
   try {
-    const opened = openChatGptBrowser({ ...(options.port !== undefined ? { port: options.port } : {}) });
+    // Reuse the profile the user last logged in with; launching the default
+    // profile for a custom-profile user would wait on the wrong (logged-out)
+    // profile or, worse, silently send to a different account.
+    const lastLogin = await readLastBrowserLoginLaunch();
+    const opened = openChatGptBrowser({
+      ...(options.port !== undefined ? { port: options.port } : {}),
+      ...(lastLogin?.profile_dir ? { profileDir: lastLogin.profile_dir } : {})
+    });
     await assertBrowserLaunchStayedAlive(opened);
     const ready = await waitForChatGptLoginReady(stderr, { port: opened.port, timeoutMs: 120_000 });
     if (ready) stderr("recover: browser READY - retrying the send...");
