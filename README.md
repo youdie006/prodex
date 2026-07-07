@@ -400,6 +400,12 @@ npm run dev -- tasks list
 
 **Why did it pause before sending?** Visible-browser sends are throttled to human pace (default one every 10 seconds) so an agent loop can't hammer ChatGPT at machine speed. You'll see a `send_pacing: waiting Ns` note on stderr. Tune it with `PRODEX_MIN_SEND_INTERVAL_MS` (milliseconds; `0` disables). Pacing is tracked per repo via `.bridge/last-browser-send`.
 
+**The browser was closed — do I have to run `login` again?** Not in a terminal: an interactive `ask` notices `browser_unreachable`, relaunches the dedicated browser, waits for your saved session to report READY, and retries the send once. Scripts opt in with `--auto-login`; `--no-auto-login` disables it. Only a missing browser triggers this — login/captcha/limit blockers still stop and report.
+
+**The answer timed out.** Pro extended reasoning can take minutes. `--pro-mode 확장` already raises the default budget to 300s; the `send_timeout` blocker suggests a paste-ready rerun command with a doubled `--timeout-ms`. If the answer was mid-stream when time ran out, prodex salvages the partial text and records an `answer_incomplete` warning instead of discarding it.
+
+**Sends started failing after many consults in one chat.** Long accumulated threads eventually confuse prompt-acceptance detection (measured live around ten-plus messages). Send repeated consults into fresh chats with `--new-chat` (`new_chat: true` on the MCP tool) — the answer still lands in your account and in `.bridge/` receipts either way.
+
 **"menu item not found" on `--effort`/`--pro-mode`/`--project`.** Selection matches the visible menu labels, verified in the Korean and English (US) ChatGPT UI. On another display language, run `prodex pro browser models` to see your labels and pass `--model "<exact label>"`, which clicks any picker radio by exact text.
 
 **Does this risk my ChatGPT account?** `prodex` is deliberately not a stealth bot: it uses a real visible browser, you log in manually, and it stops on captcha/verification instead of solving it. It does drive chatgpt.com, though, so keep usage at the human, occasional-consult volume the auto-pacing enforces — do not build tight recurring loops on top of it. Automating a paid account is your responsibility under OpenAI's terms.
