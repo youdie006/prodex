@@ -68,6 +68,24 @@ ChatGPT Pro              ChatGPT Projects / Claude
 - `docs/claude.md`: Claude stdio MCP setup and tool notes.
 - `.bridge/`: local task/result/session/artifact/receipt storage.
 
+## Works with
+
+Two sibling local-first tools by the same author understand prodex's on-disk
+ledger (prodex >=0.11.0 registers every bridge root in
+`~/.local/share/prodex/bridges.json` so they can find it):
+
+- [sessionwiki](https://github.com/youdie006/sessionwiki) (>=0.19.0) indexes
+  every consult as a searchable session - the task is the question, the
+  answer artifact is the answer. "What did GPT Pro say about the retry loop
+  last week?" is `sessionwiki search "retry"`, and `sessionwiki resume <id>`
+  prints the ChatGPT thread the consult ran in.
+- [swapdex](https://github.com/youdie006/swapdex) switches Claude Code / Codex
+  login accounts; its `ui` lists recent sessions (including consults, via
+  sessionwiki) after every switch.
+
+Nothing changes if they are not installed - the registry is advisory, holds
+paths only, and a registry failure never breaks a bridge operation.
+
 ## Package Surface
 
 The npm package is CLI-only for now. The supported public surfaces are the `prodex` command, the stdio MCP server, and the optional HTTP MCP server. JavaScript imports from `prodex` or `prodex/dist/*` are intentionally not exported until a library API is designed and documented.
