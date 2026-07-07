@@ -1364,6 +1364,11 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
     .filter((part): part is string => part !== undefined)
     .join(" ");
   if (selectionSummary) emitProgress("selecting", selectionSummary);
+  // Env-gated send diagnostics (PRODEX_DEBUG_SEND=1) for field-debugging the
+  // send/acceptance path; off by default, no user-facing effect.
+  const dbgSend = (msg: string): void => {
+    if (process.env.PRODEX_DEBUG_SEND) process.stderr.write(`DBG-SEND +${Date.now() - sendStartedAt}ms ${msg}\n`);
+  };
   let beforeSubmit!: ChatGptAnswerState;
   let submitButtonFound = false;
   const cdp = await connectCdp(page.webSocketDebuggerUrl);
@@ -1375,6 +1380,7 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
     // so assistant-message counts compare within the thread we actually send
     // into; a --project/--project-new hop lands on a page with its own counts.
     beforeSubmit = await evaluateOnPage<ChatGptAnswerState>(page, answerExpression());
+    dbgSend(`baseline url=${beforeSubmit.url} user=${beforeSubmit.userMessageCount} assistant=${beforeSubmit.assistantMessageCount}`);
     await insertComposerTextViaCdp(cdp, options.prompt);
     // Submit. Prefer the Enter key: it goes to the focused composer and does
     // not depend on coordinates, whereas the send button moves ~100px as the
@@ -1400,6 +1406,7 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
         await sleep(200);
       }
     }
+    dbgSend(`submit posted=${promptPosted} submitButtonFound=${submitButtonFound}`);
   } finally {
     cdp.close();
   }
@@ -1414,6 +1421,7 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
     finalState = await evaluateOnPage<ChatGptAnswerState>(page, answerExpression());
     const runtimeBlocker = chatGptBlockerFromAnswerState(finalState);
     if (runtimeBlocker) throw new ChatGptBrowserBlockerError(runtimeBlocker);
+    dbgSend(`accept-poll url=${finalState.url} user=${finalState.userMessageCount} assistant=${finalState.assistantMessageCount} generating=${finalState.generating}`);
     if (hasChatGptPromptAcceptance(beforeSubmit, finalState)) {
       accepted = true;
       break;

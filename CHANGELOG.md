@@ -4,6 +4,23 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.5] - 2026-07-08
+
+### Added
+- `PRODEX_DEBUG_SEND=1` prints send diagnostics to stderr (baseline message
+  counts, whether the prompt posted, and per-poll acceptance counts) for
+  field-debugging send/acceptance issues. Off by default, no user-facing
+  effect.
+
+### Notes
+- Follow-up on the 0.15.4 send fix: with the Enter-first submit, visible-browser
+  sends are reliable under normal human-paced use (verified 6/6 at the default
+  ~10s pacing). The residual failures seen during 0.15.4 debugging were
+  reproduced only with pacing disabled (machine-speed back-to-back sends),
+  which degrades the ChatGPT session - exactly what the built-in send pacing
+  (`PRODEX_MIN_SEND_INTERVAL_MS`, default 10s) exists to prevent. Not a code
+  defect.
+
 ## [0.15.4] - 2026-07-08
 
 ### Fixed
