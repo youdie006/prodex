@@ -242,7 +242,16 @@ export function assertNoExtraArgs(args: string[], command: string, maxPositional
     throw new Error(`Unexpected argument for ${command}: ${arg}`);
   }
 }
-export const ASK_PRO_BOOLEAN_FLAGS = new Set(["--dry-run", "--send", "--confirm-target", "--new-chat", "--stdin", "--json"]);
+export const ASK_PRO_BOOLEAN_FLAGS = new Set([
+  "--dry-run",
+  "--send",
+  "--confirm-target",
+  "--new-chat",
+  "--stdin",
+  "--json",
+  "--auto-login",
+  "--no-auto-login"
+]);
 export const ASK_PRO_SELECTION_VALUE_FLAGS = ["--project", "--project-new", "--model", "--pro-mode", "--effort"] as const;
 export const ASK_PRO_VALUE_FLAGS = new Set([
   "--cwd",

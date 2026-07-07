@@ -282,7 +282,7 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
         // and agents (non-TTY) keep the immediate return unless --wait is
         // passed; --no-wait always skips.
         const shouldWaitForReady =
-          !browserArgs.includes("--no-wait") && (browserArgs.includes("--wait") || process.stdout.isTTY === true);
+          !browserArgs.includes("--no-wait") && (browserArgs.includes("--wait") || io.isInteractive === true);
         if (!shouldWaitForReady) return 0;
         const waitTimeoutMs = readPositiveIntegerFlag(browserArgs, "--wait-timeout-ms") ?? 300_000;
         const ready = await waitForChatGptLoginReady(io.stderr, { port: opened.port, timeoutMs: waitTimeoutMs });
@@ -634,9 +634,8 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
         }
         throw new Error(formatBlockedConsultRecordedMessage(blocker.message, task.id, sourceCli, { cwd: targetCwd }));
       }
-      let consult: Awaited<ReturnType<typeof sendChatGptPrompt>>;
-      try {
-        consult = await sendChatGptPrompt({
+      const sendOnce = () =>
+        sendChatGptPrompt({
           port: browserPort,
           prompt: bundle.text,
           targetUrl: normalizedTargetUrl,
@@ -649,6 +648,25 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
           effort: selectionEffort,
           onProgress: createBrowserSendProgressPrinter(io.stderr)
         });
+      // One-command recovery: interactive terminals (or explicit --auto-login)
+      // launch the dedicated browser and retry once when no browser runs.
+      // Scripts and agents keep the plain blocker unless they opt in.
+      const autoLoginAllowed =
+        !parsedAskPro.optionArgs.includes("--no-auto-login") &&
+        (parsedAskPro.optionArgs.includes("--auto-login") || io.isInteractive === true);
+      let consult: Awaited<ReturnType<typeof sendChatGptPrompt>>;
+      try {
+        try {
+          consult = await sendOnce();
+        } catch (error) {
+          const firstBlocker = browserSendBlockerFromError(error);
+          if (firstBlocker.code !== "browser_unreachable" || !autoLoginAllowed) throw error;
+          const recovered = await attemptBrowserAutoRecovery(io.stderr, {
+            ...(browserPort !== undefined ? { port: browserPort } : {})
+          });
+          if (!recovered) throw error;
+          consult = await sendOnce();
+        }
       } catch (error) {
         const blocker = sourceAwareBrowserBlocker(browserSendBlockerFromError(error), sourceCli, browserCommandOptions);
         const message = blocker.next_step ? `${blocker.message} Next: ${blocker.next_step}` : errorMessage(error);
@@ -902,6 +920,27 @@ export async function performBrowserConsultForMcp(
     answer: stdoutLines.slice(2).join("\n"),
     notes: stderrLines.filter((line) => !line.startsWith("progress:"))
   };
+}
+
+/**
+ * One-command recovery for interactive asks: when the send fails because no
+ * browser is running, launch the dedicated browser, wait until the saved
+ * session is READY, and let the caller retry once. Returns false (never
+ * throws) when recovery does not reach readiness, so the original blocker
+ * flow stays intact.
+ */
+export async function attemptBrowserAutoRecovery(stderr: (line: string) => void, options: { port?: number }): Promise<boolean> {
+  stderr("recover: browser is not running - launching the dedicated ChatGPT browser (Ctrl+C aborts)...");
+  try {
+    const opened = openChatGptBrowser({ ...(options.port !== undefined ? { port: options.port } : {}) });
+    await assertBrowserLaunchStayedAlive(opened);
+    const ready = await waitForChatGptLoginReady(stderr, { port: opened.port, timeoutMs: 120_000 });
+    if (ready) stderr("recover: browser READY - retrying the send...");
+    return ready;
+  } catch (error) {
+    stderr(`recover: failed - ${errorMessage(error)}`);
+    return false;
+  }
 }
 
 export interface LoginWaitDeps {

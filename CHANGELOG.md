@@ -4,6 +4,25 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.0] - 2026-07-07
+
+### Added
+- One-command recovery: when `prodex ask` / `pro browser ask` fails because no
+  browser is running (`browser_unreachable`), an interactive terminal now
+  launches the dedicated browser, waits until the saved session is READY, and
+  retries the send once - no separate `pro browser login` step. `--auto-login`
+  forces it for scripts, `--no-auto-login` disables it, and non-interactive
+  runs stay off by default so a window never pops up unattended. Only
+  `browser_unreachable` triggers recovery; every other blocker (login, captcha,
+  usage limit, ...) reports as before. Live-verified: with the browser killed,
+  a single `ask --auto-login` relaunched it, reached READY in 7s on the saved
+  session, and returned the answer.
+
+### Changed
+- Terminal interactivity is now threaded through `CliIO.isInteractive`
+  (defaults to `process.stdout.isTTY`) instead of read directly, so guided
+  login and auto-recovery gate deterministically.
+
 ## [0.12.0] - 2026-07-07
 
 ### Added

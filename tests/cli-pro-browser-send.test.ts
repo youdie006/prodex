@@ -5,13 +5,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const sendChatGptPromptMock = vi.hoisted(() => vi.fn());
 const listChatGptModelOptionsMock = vi.hoisted(() => vi.fn());
+const openChatGptBrowserMock = vi.hoisted(() => vi.fn());
+const getChatGptBrowserStatusMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../src/chatgpt-browser.js", async () => {
   const actual = await vi.importActual<typeof import("../src/chatgpt-browser.js")>("../src/chatgpt-browser.js");
   return {
     ...actual,
     sendChatGptPrompt: sendChatGptPromptMock,
-    listChatGptModelOptions: listChatGptModelOptionsMock
+    listChatGptModelOptions: listChatGptModelOptionsMock,
+    openChatGptBrowser: openChatGptBrowserMock,
+    getChatGptBrowserStatus: getChatGptBrowserStatusMock
   };
 });
 
@@ -30,6 +34,22 @@ afterEach(() => {
 describe("pro browser ask persistence", () => {
   beforeEach(() => {
     sendChatGptPromptMock.mockReset();
+    openChatGptBrowserMock.mockReset();
+    // Default to a realistic unreachable status so pro browser check keeps
+    // working; auto-recovery tests override per-case.
+    getChatGptBrowserStatusMock.mockReset();
+    getChatGptBrowserStatusMock.mockResolvedValue({
+      reachable: false,
+      loggedInLikely: false,
+      hasComposer: false,
+      modelHints: [],
+      blocker: {
+        code: "browser_unreachable",
+        message: "No Chrome DevTools endpoint is reachable on 127.0.0.1:9333.",
+        retryable: true,
+        next_step: "Run `prodex pro browser login`, log in, then retry."
+      }
+    });
     setSafeFileTestHooks({});
   });
 
@@ -1101,6 +1121,20 @@ describe("pro browser ask persistence", () => {
 describe("pro browser ask model/project selection", () => {
   beforeEach(() => {
     sendChatGptPromptMock.mockReset();
+    openChatGptBrowserMock.mockReset();
+    getChatGptBrowserStatusMock.mockReset();
+    getChatGptBrowserStatusMock.mockResolvedValue({
+      reachable: false,
+      loggedInLikely: false,
+      hasComposer: false,
+      modelHints: [],
+      blocker: {
+        code: "browser_unreachable",
+        message: "No Chrome DevTools endpoint is reachable on 127.0.0.1:9333.",
+        retryable: true,
+        next_step: "Run `prodex pro browser login`, log in, then retry."
+      }
+    });
     setSafeFileTestHooks({});
   });
 
@@ -1734,6 +1768,149 @@ describe("pro browser ask model/project selection", () => {
     expect(errs).toContain("progress: connecting to browser (port 9333)");
     expect(errs).toContain("progress: waiting 12s (generating)");
     expect(errs).toContain("progress: answer received after 13s");
+  });
+
+  it("auto-recovers a closed browser and retries the send once with --auto-login", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-send-"));
+    const blocker = {
+      code: "browser_unreachable",
+      message: "No Chrome DevTools endpoint is reachable on 127.0.0.1:9333.",
+      retryable: true,
+      next_step: "Run `prodex pro browser login`, log in, then retry."
+    };
+    sendChatGptPromptMock
+      .mockRejectedValueOnce(Object.assign(new Error(blocker.message), { blocker }))
+      .mockResolvedValueOnce({
+        url: "https://chatgpt.com/c/recovered",
+        title: "ChatGPT",
+        answer: "recovered answer",
+        modelHints: [],
+        warnings: []
+      });
+    openChatGptBrowserMock.mockReturnValueOnce({
+      port: 9333,
+      profileDir: "/tmp/fake-profile",
+      waitForEarlyExit: async () => undefined
+    });
+    getChatGptBrowserStatusMock.mockResolvedValue({
+      reachable: true,
+      loggedInLikely: true,
+      hasComposer: true,
+      modelHints: []
+    });
+    const out: string[] = [];
+    const errs: string[] = [];
+
+    await runCli(["ask", "--auto-login", "Recover please"], {
+      cwd,
+      stdout: (line) => out.push(line),
+      stderr: (line) => errs.push(line)
+    });
+
+    expect(openChatGptBrowserMock).toHaveBeenCalledTimes(1);
+    expect(sendChatGptPromptMock).toHaveBeenCalledTimes(2);
+    expect(out.join("\n")).toContain("recovered answer");
+    expect(errs.some((line) => line.startsWith("recover:"))).toBe(true);
+  });
+
+  it("auto-recovers in an interactive terminal without --auto-login", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-send-"));
+    const blocker = {
+      code: "browser_unreachable",
+      message: "No Chrome DevTools endpoint is reachable on 127.0.0.1:9333.",
+      retryable: true,
+      next_step: "Run `prodex pro browser login`, log in, then retry."
+    };
+    sendChatGptPromptMock
+      .mockRejectedValueOnce(Object.assign(new Error(blocker.message), { blocker }))
+      .mockResolvedValueOnce({
+        url: "https://chatgpt.com/c/tty",
+        title: "ChatGPT",
+        answer: "tty recovered",
+        modelHints: [],
+        warnings: []
+      });
+    openChatGptBrowserMock.mockReturnValueOnce({ port: 9333, profileDir: "/tmp/p", waitForEarlyExit: async () => undefined });
+    getChatGptBrowserStatusMock.mockResolvedValue({ reachable: true, loggedInLikely: true, hasComposer: true, modelHints: [] });
+    const out: string[] = [];
+
+    await runCli(["ask", "Recover please"], {
+      cwd,
+      stdout: (line) => out.push(line),
+      stderr: () => {},
+      isInteractive: true
+    });
+
+    expect(openChatGptBrowserMock).toHaveBeenCalledTimes(1);
+    expect(out.join("\n")).toContain("tty recovered");
+  });
+
+  it("honors --no-auto-login even in an interactive terminal", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-send-"));
+    const blocker = {
+      code: "browser_unreachable",
+      message: "No Chrome DevTools endpoint is reachable on 127.0.0.1:9333.",
+      retryable: true,
+      next_step: "Run `prodex pro browser login`, log in, then retry."
+    };
+    sendChatGptPromptMock.mockRejectedValueOnce(Object.assign(new Error(blocker.message), { blocker }));
+
+    await expect(
+      runCli(["ask", "--no-auto-login", "Recover please"], {
+        cwd,
+        stdout: () => {},
+        stderr: () => {},
+        isInteractive: true
+      })
+    ).rejects.toThrow(/blocked consult recorded/);
+
+    expect(openChatGptBrowserMock).not.toHaveBeenCalled();
+  });
+
+  it("does not auto-recover in non-interactive runs by default", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-send-"));
+    const blocker = {
+      code: "browser_unreachable",
+      message: "No Chrome DevTools endpoint is reachable on 127.0.0.1:9333.",
+      retryable: true,
+      next_step: "Run `prodex pro browser login`, log in, then retry."
+    };
+    sendChatGptPromptMock.mockRejectedValueOnce(Object.assign(new Error(blocker.message), { blocker }));
+
+    await expect(
+      runCli(["ask", "Recover please"], { cwd, stdout: () => {}, stderr: () => {} })
+    ).rejects.toThrow(/blocked consult recorded/);
+
+    expect(openChatGptBrowserMock).not.toHaveBeenCalled();
+    expect(sendChatGptPromptMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("falls back to the blocker when recovery never becomes ready", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-send-"));
+    const blocker = {
+      code: "browser_unreachable",
+      message: "No Chrome DevTools endpoint is reachable on 127.0.0.1:9333.",
+      retryable: true,
+      next_step: "Run `prodex pro browser login`, log in, then retry."
+    };
+    sendChatGptPromptMock.mockRejectedValueOnce(Object.assign(new Error(blocker.message), { blocker }));
+    openChatGptBrowserMock.mockReturnValueOnce({
+      port: 9333,
+      profileDir: "/tmp/fake-profile",
+      waitForEarlyExit: async () => ({ code: 1, signal: null })
+    });
+    getChatGptBrowserStatusMock.mockResolvedValue({
+      reachable: false,
+      loggedInLikely: false,
+      hasComposer: false,
+      modelHints: []
+    });
+
+    await expect(
+      runCli(["ask", "--auto-login", "Recover please"], { cwd, stdout: () => {}, stderr: () => {} })
+    ).rejects.toThrow(/blocked consult recorded/);
+
+    expect(sendChatGptPromptMock).toHaveBeenCalledTimes(1);
   });
 
   it("emits structured JSON with --json instead of the tab header format", async () => {

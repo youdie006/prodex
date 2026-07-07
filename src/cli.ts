@@ -179,6 +179,8 @@ export interface CliIO {
   promptUser?: (question: string) => Promise<string>;
   /** Read all piped stdin (used by `ask --stdin`); defaults to reading process.stdin. */
   readStdin?: () => Promise<string>;
+  /** Whether this run is an interactive terminal (gates guided login and auto-recovery); defaults to process.stdout.isTTY. */
+  isInteractive?: boolean;
 }
 
 export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<number> {
@@ -360,6 +362,7 @@ function defaultIo(): CliIO {
     cwd: process.cwd(),
     stdout: (line) => console.log(line),
     stderr: (line) => console.error(line),
+    isInteractive: process.stdout.isTTY === true,
     readStdin: async () => {
       if (process.stdin.isTTY) return "";
       const chunks: Buffer[] = [];
