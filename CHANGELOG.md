@@ -4,6 +4,19 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.1] - 2026-07-07
+
+### Fixed
+- Regression from 0.15.0: excluding the sidebar `nav` from the blocker-text
+  scan also stripped it from the login/status text and button signals, so a
+  logged-in Pro session was misdetected as "missing a clear logged-in ChatGPT
+  session" and every send was falsely blocked (the logged-in signals - "New
+  chat", "Projects", the profile button, the plan hint - live in the sidebar).
+  Blocker detection and login detection now use separate text samples: blocker
+  scanning stays nav-excluded (a sidebar chat title still cannot fake a
+  blocker), while login/status detection keeps the sidebar. Live-verified: a
+  real send that failed under 0.15.0 succeeds again.
+
 ## [0.15.0] - 2026-07-07
 
 ### Security

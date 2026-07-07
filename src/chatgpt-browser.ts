@@ -217,12 +217,14 @@ interface ChatGptAnswerState {
   userMessageCount: number;
   textSample: string;
   blockerTextSample: string;
+  blockerScanTextSample?: string;
   visibleButtonLabels: string[];
 }
 
 export interface ChatGptPageTextState {
   textSample: string;
   blockerTextSample?: string;
+  blockerScanTextSample?: string;
   visibleButtonLabels: string[];
 }
 
@@ -235,8 +237,16 @@ interface ChatGptPageStatus extends ChatGptPageTextState {
   visibilityState: string;
 }
 
+// Text/buttons for login and status detection: exclude message bodies and the
+// composer, but KEEP the sidebar/nav - the logged-in signals ("New chat",
+// "Projects", the profile button, the plan hint) live there.
 export const CHATGPT_RUNTIME_BLOCKER_TEXT_EXCLUDED_ANCESTORS =
-  '[data-message-author-role],script,style,noscript,[aria-hidden="true"],div[role="textbox"],textarea,[contenteditable="true"],nav,aside,[role="navigation"]';
+  '[data-message-author-role],script,style,noscript,[aria-hidden="true"],div[role="textbox"],textarea,[contenteditable="true"]';
+// Text scanned for PAGE BLOCKERS (captcha/usage-limit/cloudflare/...) also
+// excludes the sidebar/nav: a past-chat title like "usage limit reset" or
+// "verify human" in the history list must not be matched as a live blocker.
+export const CHATGPT_BLOCKER_SCAN_EXCLUDED_ANCESTORS =
+  `${'[data-message-author-role],script,style,noscript,[aria-hidden="true"],div[role="textbox"],textarea,[contenteditable="true"]'},nav,aside,[role="navigation"]`;
 export const CHATGPT_COMPOSER_CANDIDATE_EXCLUDED_ANCESTORS = '[data-message-author-role],script,style,noscript,[aria-hidden="true"]';
 export const PRODEX_ACTIVE_COMPOSER_ATTRIBUTE = "data-prodex-active-composer";
 
@@ -482,10 +492,18 @@ export function detectChatGptBlocker(
 }
 
 export function detectChatGptPageBlocker(state: ChatGptPageTextState): ChatGptBrowserStatus["blocker"] | undefined {
-  return detectChatGptBlocker(state.blockerTextSample ?? state.textSample, state.visibleButtonLabels);
+  // Blocker scan uses the nav-excluded sample so a sidebar chat title cannot
+  // fake a blocker; fall back to the nav-included sample / full text when the
+  // scan sample is absent (older callers).
+  return detectChatGptBlocker(
+    state.blockerScanTextSample ?? state.blockerTextSample ?? state.textSample,
+    state.visibleButtonLabels
+  );
 }
 
 export function inferChatGptPageLoggedInLikely(state: ChatGptPageTextState): boolean {
+  // Login detection uses the nav-INCLUDED sample: "New chat"/"Projects"/plan
+  // hints live in the sidebar and are the primary logged-in signal.
   return inferLoggedInLikely(state.blockerTextSample ?? state.textSample, state.visibleButtonLabels);
 }
 
@@ -500,16 +518,18 @@ function hasLikelyChatGptLoginPrompt(haystack: string): boolean {
 export function chatGptBlockerErrorFromAnswerState(state: {
   textSample: string;
   blockerTextSample?: string;
+  blockerScanTextSample?: string;
   visibleButtonLabels: string[];
-}): string | undefined {
+}):string | undefined {
   return formatBlockerError(chatGptBlockerFromAnswerState(state));
 }
 
 export function chatGptBlockerFromAnswerState(state: {
   textSample: string;
   blockerTextSample?: string;
+  blockerScanTextSample?: string;
   visibleButtonLabels: string[];
-}): ChatGptBrowserStatus["blocker"] | undefined {
+}):ChatGptBrowserStatus["blocker"] | undefined {
   return detectChatGptPageBlocker(state);
 }
 
@@ -1653,14 +1673,16 @@ async function connectCdp(webSocketUrl: string, timeoutMs?: number): Promise<{
 
 export function statusExpression(): string {
   const excludedTextSelector = JSON.stringify(CHATGPT_RUNTIME_BLOCKER_TEXT_EXCLUDED_ANCESTORS);
+  const blockerScanExcludedSelector = JSON.stringify(CHATGPT_BLOCKER_SCAN_EXCLUDED_ANCESTORS);
   const generatingControlPattern = JSON.stringify(CHATGPT_GENERATING_CONTROL_PATTERN.source);
   const generatingControlFlags = JSON.stringify(CHATGPT_GENERATING_CONTROL_PATTERN.flags);
   return `(() => {
     ${composerExpressionHelpers()}
     const text = document.body?.innerText || "";
     const runtimeExcludedTextSelector = ${excludedTextSelector};
+    const blockerScanExcludedSelector = ${blockerScanExcludedSelector};
     const generatingControlPattern = new RegExp(${generatingControlPattern}, ${generatingControlFlags});
-    const visibleTextOutsideMessages = () => {
+    const visibleTextOutsideMessages = (excludedSelector) => {
       if (!document.body) return "";
       const parts = [];
       const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
@@ -1669,7 +1691,7 @@ export function statusExpression(): string {
         const parent = node.parentElement;
         const value = node.nodeValue?.trim();
         if (!parent || !value) continue;
-        if (parent.closest(runtimeExcludedTextSelector)) continue;
+        if (parent.closest(excludedSelector)) continue;
         const style = window.getComputedStyle(parent);
         if (style.display === "none" || style.visibility === "hidden") continue;
         if (!(parent.offsetWidth || parent.offsetHeight || parent.getClientRects().length)) continue;
@@ -1677,7 +1699,8 @@ export function statusExpression(): string {
       }
       return parts.join(String.fromCharCode(10));
     };
-    const blockerText = visibleTextOutsideMessages();
+    const blockerText = visibleTextOutsideMessages(runtimeExcludedTextSelector);
+    const blockerScanText = visibleTextOutsideMessages(blockerScanExcludedSelector);
     const lines = text.split(String.fromCharCode(10)).map((line) => line.trim()).filter(Boolean);
     const visibleButtonLabels = [...document.querySelectorAll('button,a,[role="button"]')]
       .filter((el) => !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length))
@@ -1700,6 +1723,7 @@ export function statusExpression(): string {
       visibilityState: document.visibilityState,
       textSample: text.slice(0, 12000),
       blockerTextSample: blockerText.slice(0, 12000),
+      blockerScanTextSample: blockerScanText.slice(0, 12000),
       visibleButtonLabels,
       hasComposer,
       generating: placeholder || visibleButtonLabels.some((label) => generatingControlPattern.test(label)),
@@ -1844,13 +1868,15 @@ function composerExpressionHelpers(): string {
 
 function answerExpression(): string {
   const excludedTextSelector = JSON.stringify(CHATGPT_RUNTIME_BLOCKER_TEXT_EXCLUDED_ANCESTORS);
+  const blockerScanExcludedSelector = JSON.stringify(CHATGPT_BLOCKER_SCAN_EXCLUDED_ANCESTORS);
   const generatingControlPattern = JSON.stringify(CHATGPT_GENERATING_CONTROL_PATTERN.source);
   const generatingControlFlags = JSON.stringify(CHATGPT_GENERATING_CONTROL_PATTERN.flags);
   return `(() => {
     const text = document.body?.innerText || "";
     const excludedTextSelector = ${excludedTextSelector};
+    const blockerScanExcludedSelector = ${blockerScanExcludedSelector};
     const generatingControlPattern = new RegExp(${generatingControlPattern}, ${generatingControlFlags});
-    const visibleTextOutsideMessages = () => {
+    const visibleTextOutsideMessages = (excludedSelector) => {
       if (!document.body) return "";
       const parts = [];
       const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
@@ -1859,7 +1885,7 @@ function answerExpression(): string {
         const parent = node.parentElement;
         const value = node.nodeValue?.trim();
         if (!parent || !value) continue;
-        if (parent.closest(excludedTextSelector)) continue;
+        if (parent.closest(excludedSelector)) continue;
         const style = window.getComputedStyle(parent);
         if (style.display === "none" || style.visibility === "hidden") continue;
         if (!(parent.offsetWidth || parent.offsetHeight || parent.getClientRects().length)) continue;
@@ -1889,7 +1915,8 @@ function answerExpression(): string {
       url: location.href,
       answer: answer || text.slice(-4000),
       textSample: text.slice(0, 12000),
-      blockerTextSample: visibleTextOutsideMessages().slice(0, 12000),
+      blockerTextSample: visibleTextOutsideMessages(excludedTextSelector).slice(0, 12000),
+      blockerScanTextSample: visibleTextOutsideMessages(blockerScanExcludedSelector).slice(0, 12000),
       visibleButtonLabels: buttons,
       generating: placeholder || buttons.some((label) => generatingControlPattern.test(label)),
       assistantMessageCount: assistantMessages.length,

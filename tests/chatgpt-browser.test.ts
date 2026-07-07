@@ -11,6 +11,7 @@ import {
   chatGptBlockerErrorFromAnswerState,
   chatGptBlockerFromAnswerState,
   CHATGPT_RUNTIME_BLOCKER_TEXT_EXCLUDED_ANCESTORS,
+  CHATGPT_BLOCKER_SCAN_EXCLUDED_ANCESTORS,
   CHATGPT_COMPOSER_CANDIDATE_EXCLUDED_ANCESTORS,
   PRODEX_ACTIVE_COMPOSER_ATTRIBUTE,
   chatGptPageSelectionBlocker,
@@ -158,11 +159,29 @@ describe("ChatGPT browser adapter", () => {
     expect(CHATGPT_RUNTIME_BLOCKER_TEXT_EXCLUDED_ANCESTORS).toContain('[contenteditable="true"]');
   });
 
-  it("excludes the sidebar/nav from runtime blocker scans so a chat title cannot fake a blocker", () => {
-    // A history title like "usage limit reset" or "verify human" lives inside
-    // the sidebar <nav> and must not be scanned as a page blocker.
-    expect(CHATGPT_RUNTIME_BLOCKER_TEXT_EXCLUDED_ANCESTORS).toContain("nav");
-    expect(CHATGPT_RUNTIME_BLOCKER_TEXT_EXCLUDED_ANCESTORS).toContain('[role="navigation"]');
+  it("excludes the sidebar/nav from the blocker scan but keeps it for login detection", () => {
+    // A history title like "usage limit reset" lives in the sidebar <nav> and
+    // must not be scanned as a page blocker - so the BLOCKER-SCAN selector
+    // excludes nav. But login detection needs the sidebar ("New chat",
+    // "Projects"), so the login/status selector must NOT exclude nav.
+    expect(CHATGPT_BLOCKER_SCAN_EXCLUDED_ANCESTORS).toContain("nav");
+    expect(CHATGPT_BLOCKER_SCAN_EXCLUDED_ANCESTORS).toContain('[role="navigation"]');
+    expect(CHATGPT_RUNTIME_BLOCKER_TEXT_EXCLUDED_ANCESTORS).not.toContain("nav");
+  });
+
+  it("keeps login detection working while the sidebar is excluded from blocker scans", () => {
+    // Regression: a state where the sidebar (nav) carries the logged-in signals
+    // AND a chat title 'usage limit'. The blocker scan (nav-excluded) sees
+    // neither the title nor the signals; login detection (nav-included) sees
+    // the signals. Login must be true, and no blocker must fire.
+    const state = {
+      textSample: "full body text",
+      blockerTextSample: "New chat\nProjects\nChatGPT Pro\nusage limit reset", // nav-included (login + a sidebar title)
+      blockerScanTextSample: "", // nav-excluded: sidebar title gone
+      visibleButtonLabels: ["Profile menu"]
+    };
+    expect(inferChatGptPageLoggedInLikely(state)).toBe(true);
+    expect(detectChatGptPageBlocker(state)).toBeUndefined();
   });
 
   it("detects ChatGPT browser blocker states before sending", () => {
