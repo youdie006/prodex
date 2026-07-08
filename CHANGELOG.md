@@ -4,6 +4,28 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.7] - 2026-07-08
+
+### Fixed
+- Model/reasoning selection right after `--new-chat` intermittently failed with
+  "model selector button not found": the selector lives in the composer form,
+  which has not finished rendering immediately after the new-chat navigation.
+  The selector button is now polled (up to 4s) instead of checked once
+  (verified live: `--new-chat --effort High` now selects and answers). Found
+  during live verification of this release.
+
+### Changed
+- Model/reasoning menu items are matched tolerantly - exact text OR first line -
+  so a description or badge rendered on a second line (e.g. "High\nBalanced
+  speed") no longer breaks selection. First-line (not prefix) matching still
+  refuses to cross-match "High" with "Extra High" or "Pro" with "Pro Standard".
+- `isUsableChatGptAnswer` no longer misclassifies a real answer that merely
+  starts with "Thinking" (e.g. "Thinking about it, yes.") as a reasoning
+  placeholder; only a single line that IS the reasoning header is treated as a
+  placeholder.
+- `init` reports ".bridge receipt ledger already initialized (no changes)." when
+  re-run against an existing ledger instead of always claiming it initialized.
+
 ## [0.15.6] - 2026-07-08
 
 ### Changed

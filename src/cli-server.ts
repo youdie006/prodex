@@ -35,9 +35,14 @@ export async function runInitCommand(rest: string[], io: CliIO): Promise<number>
     assertOnlyOptions(rest, "init", ["--cwd"]);
     const targetCwd = resolveCwdFlag(io.cwd, rest);
     const targetStore = new BridgeStore(targetCwd);
+    const alreadyInitialized = await targetStore.hasReadyBridgeStorageReadOnly();
     await targetStore.ensure();
     await ensureBridgeGitignore(targetCwd);
-    io.stdout("Initialized .bridge receipt ledger.");
+    io.stdout(
+      alreadyInitialized
+        ? ".bridge receipt ledger already initialized (no changes)."
+        : "Initialized .bridge receipt ledger."
+    );
     return 0;
 }
 

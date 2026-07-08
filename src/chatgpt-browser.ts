@@ -358,13 +358,19 @@ export function isUsableChatGptAnswer(answer: string): boolean {
   if (!normalized) return false;
   const stripped = normalized.replace(/\.+$/, "");
   const lineCount = normalized.split(/\r?\n/).filter(Boolean).length;
-  if (/^(생각 중|thinking|thought for|thought about)/i.test(stripped)) {
-    return lineCount > 1;
-  }
-  // Model-prefixed thinking status, e.g. "Pro 생각 중": a single short line
-  // ending in 생각 중 is the placeholder, not an answer.
-  if (lineCount <= 1 && /(^|\s)(생각 중|thinking)$/i.test(stripped)) {
-    return false;
+  const firstLine = stripped.split(/\r?\n/)[0].trim();
+  // A reasoning/thinking header ("Thinking", "Thought for 5s", "9s 동안 생각함")
+  // is a placeholder ONLY when it is the ENTIRE content (a single line that is
+  // just the header). A substantive answer that merely starts with "Thinking"
+  // (e.g. "Thinking about it, yes.") or has real text after the header (more
+  // lines) is a real answer, not a placeholder.
+  if (lineCount <= 1) {
+    const headerOnly =
+      /^(생각\s*중|thinking)$/i.test(firstLine) ||
+      /^thought (for|about)\b.*$/i.test(firstLine) ||
+      /\d+\s*s\s*동안\s*생각함$/.test(firstLine) ||
+      /(^|\s)(생각\s*중|thinking)$/i.test(firstLine);
+    if (headerOnly) return false;
   }
   return true;
 }
@@ -936,8 +942,24 @@ function toLabelCandidates(label: string | readonly string[]): string[] {
   return typeof label === "string" ? [label] : [...label];
 }
 
+// A menu item matches a candidate label when its trimmed text equals the
+// candidate OR its FIRST LINE equals it - ChatGPT can render a description/badge
+// on a second line (e.g. "High\nBalanced speed and quality"), which would break
+// an exact-text match. First-line (not startsWith) matching avoids "High"
+// falsely matching "Extra High" or "Pro" matching "Pro Standard".
+export function menuItemLabelMatches(text: string, candidates: readonly string[]): boolean {
+  const trimmed = text.trim();
+  if (candidates.includes(trimmed)) return true;
+  return candidates.includes(trimmed.split("\n")[0].trim());
+}
+
+function menuLabelMatchPredicate(label: string | readonly string[]): string {
+  const c = JSON.stringify(toLabelCandidates(label));
+  return `((r) => { const t = (r.textContent || "").trim(); return ${c}.includes(t) || ${c}.includes(t.split(String.fromCharCode(10))[0].trim()); })`;
+}
+
 export function menuItemPresentExpression(label: string | readonly string[]): string {
-  return `[...document.querySelectorAll('[role="menuitemradio"],[role="menuitem"]')].some((r) => ${JSON.stringify(toLabelCandidates(label))}.includes((r.textContent || "").trim()))`;
+  return `[...document.querySelectorAll('[role="menuitemradio"],[role="menuitem"]')].some(${menuLabelMatchPredicate(label)})`;
 }
 
 // Shared click-point resolver: scroll the target into view, tag it with a
@@ -1003,7 +1025,7 @@ export function menuItemRectExpression(label: string | readonly string[]): strin
     const m = document.querySelector('[data-testid="composer-intelligence-picker-content"]');
     if (!m) return { ok: false, reason: "reasoning/model menu did not open" };
     const items = [...m.querySelectorAll('[role="menuitemradio"],[role="menuitem"]')];
-    const it = items.find((r) => ${JSON.stringify(toLabelCandidates(label))}.includes((r.textContent || "").trim()));
+    const it = items.find(${menuLabelMatchPredicate(label)});
     if (!it) return { ok: false, reason: "menu item not found", available: items.map((r) => (r.textContent || "").trim()).slice(0, 12) };
     const point = clickPoint(it);
     if (!point.ok) return point;
@@ -1014,7 +1036,7 @@ export function menuItemRectExpression(label: string | readonly string[]): strin
 export function submenuItemRectExpression(label: string | readonly string[]): string {
   return `(() => {${CLICK_POINT_SNIPPET}
     const items = [...document.querySelectorAll('[role="menuitemradio"],[role="menuitem"]')];
-    const it = items.find((r) => ${JSON.stringify(toLabelCandidates(label))}.includes((r.textContent || "").trim()));
+    const it = items.find(${menuLabelMatchPredicate(label)});
     if (!it) return { ok: false, reason: "submenu item not found" };
     return clickPoint(it);
   })()`;
@@ -1092,7 +1114,18 @@ async function selectModelReasoning(
   options: Pick<SendChatGptPromptOptions, "model" | "proMode" | "effort">
 ): Promise<void> {
   if (!options.model && !options.proMode && !options.effort) return;
-  const button = await cdp.evaluate<RectHit>(modelButtonRectExpression());
+  // Poll for the model selector button rather than checking once: right after a
+  // new-chat navigation the composer form (and the selector inside it) has not
+  // finished rendering yet, so a single check throws "model selector button not
+  // found" even though the button appears a moment later.
+  let button: RectHit = { ok: false };
+  const buttonDeadline = Date.now() + 4_000;
+  for (;;) {
+    button = await cdp.evaluate<RectHit>(modelButtonRectExpression());
+    if (button.ok && button.x !== undefined && button.y !== undefined) break;
+    if (Date.now() >= buttonDeadline) break;
+    await sleep(200);
+  }
   if (!button.ok || button.x === undefined || button.y === undefined) {
     throw new Error(button.reason ?? "Could not open the ChatGPT model selector");
   }

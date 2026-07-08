@@ -1428,7 +1428,7 @@ try {
 
   const launcherDir = path.dirname(consumerDir);
   const init = await run(binPath, ["init", "--cwd", consumerDir], { cwd: launcherDir });
-  assertIncludes(init.stdout, "Initialized .bridge", "installed init output");
+  assertIncludes(init.stdout, ".bridge receipt ledger", "installed init output");
   assertIncludes(await readFile(path.join(consumerDir, ".bridge", ".gitignore"), "utf8"), "tasks/*.json", "installed explicit --cwd init gitignore");
   await assertMissingFile(path.join(launcherDir, ".bridge", ".gitignore"), "installed launcher cwd bridge gitignore");
 

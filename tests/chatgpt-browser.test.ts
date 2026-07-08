@@ -27,6 +27,7 @@ import {
   hasChatGptPromptAcceptance,
   hasFreshChatGptAnswer,
   isFreshChatGptPage,
+  menuItemLabelMatches,
   inferChatGptPageLoggedInLikely,
   inferLoggedInLikely,
   isLikelyChatGptGeneratingControl,
@@ -80,6 +81,17 @@ describe("ChatGPT browser adapter", () => {
   it("does not treat Korean thinking placeholders as final answers", () => {
     expect(isUsableChatGptAnswer("생각 중...")).toBe(false);
     expect(isUsableChatGptAnswer("9s 동안 생각함\n\n실제 답변입니다.")).toBe(true);
+  });
+
+  it("does not misclassify a real answer that starts with 'Thinking' as a placeholder", () => {
+    // The reasoning header is a placeholder only when it IS the whole content.
+    expect(isUsableChatGptAnswer("Thinking")).toBe(false);
+    expect(isUsableChatGptAnswer("Thinking...")).toBe(false);
+    expect(isUsableChatGptAnswer("Thought for 5 seconds")).toBe(false);
+    expect(isUsableChatGptAnswer("Pro 생각 중")).toBe(false);
+    // ...but a substantive single-line answer starting with "Thinking" is real.
+    expect(isUsableChatGptAnswer("Thinking about it, the answer is yes.")).toBe(true);
+    expect(isUsableChatGptAnswer("Thinking caps are a metaphor for focus.")).toBe(true);
   });
 
   it("waits for a newly added assistant message before accepting an answer", () => {
@@ -642,6 +654,22 @@ describe("ChatGPT browser adapter", () => {
     expect(submitted.ok).toBe(true);
     expect(typeof submitted.x).toBe("number");
     expect(typeof submitted.y).toBe("number");
+  });
+
+  it("matches menu labels tolerantly (exact or first line) without cross-matching", () => {
+    const efforts = ["High"];
+    // exact
+    expect(menuItemLabelMatches("High", efforts)).toBe(true);
+    // description on a second line
+    expect(menuItemLabelMatches("High\nBalanced speed and quality", efforts)).toBe(true);
+    // must NOT match a longer sibling label
+    expect(menuItemLabelMatches("Extra High", efforts)).toBe(false);
+    expect(menuItemLabelMatches("Extra High\ndescription", efforts)).toBe(false);
+    // "Pro" must not match "Pro Standard"
+    expect(menuItemLabelMatches("Pro Standard", ["Pro"])).toBe(false);
+    expect(menuItemLabelMatches("Pro\nsub-modes", ["Pro"])).toBe(true);
+    // candidate list
+    expect(menuItemLabelMatches("매우 높음\n최고 품질", ["매우 높음", "Extra High"])).toBe(true);
   });
 
   it("distinguishes a fresh empty chat from a lingering old thread", () => {

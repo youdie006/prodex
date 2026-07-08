@@ -1204,6 +1204,18 @@ describe("runCli", () => {
     await expect(readdir(path.join(cwd, ".bridge"))).rejects.toThrow();
   });
 
+  it("reports when init runs against an already-initialized ledger", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
+    const first: string[] = [];
+    await runCli(["init"], { cwd, stdout: (line) => first.push(line), stderr: () => {} });
+    expect(first.join("\n")).toMatch(/initialized/i);
+    expect(first.join("\n")).not.toMatch(/already/i);
+
+    const second: string[] = [];
+    await runCli(["init"], { cwd, stdout: (line) => second.push(line), stderr: () => {} });
+    expect(second.join("\n")).toMatch(/already initialized/i);
+  });
+
   it("adds missing build output ignores even when dependencies are already ignored", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     await writeFile(path.join(cwd, ".gitignore"), "node_modules/\n", "utf8");
