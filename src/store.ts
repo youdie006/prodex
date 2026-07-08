@@ -367,8 +367,22 @@ export class BridgeStore {
 
   async listFinalizedResultsReadOnly(): Promise<Result[]> {
     const results = await this.listResultsReadOnly();
+    if (results.length === 0) return results;
+    if (!(await this.hasReadyStorageDirReadOnly("receipts"))) {
+      throw untrustedResultError(this.root, results[0].task_id, "has no trusted task_completed receipt");
+    }
+    // Read receipts ONCE and index them by task_id instead of re-reading and
+    // re-parsing the whole receipts directory for every result, which was
+    // O(results x receipts) on the completion/list hot path.
+    const completionReceiptsByTask = new Map<string, Receipt[]>();
+    for (const receipt of await this.readAll("receipts", parseReceiptRecord, { cleanupTempHardLinks: false })) {
+      if (receipt.kind !== "task_completed" || !receipt.task_id) continue;
+      const existing = completionReceiptsByTask.get(receipt.task_id);
+      if (existing) existing.push(receipt);
+      else completionReceiptsByTask.set(receipt.task_id, [receipt]);
+    }
     for (const result of results) {
-      await this.assertTrustedTaskCompletionReceiptReadOnly(result.task_id, result);
+      await this.assertReceiptsTrustCompletion(result.task_id, result, completionReceiptsByTask.get(result.task_id) ?? []);
     }
     return results;
   }
@@ -632,6 +646,12 @@ export class BridgeStore {
     const receipts = (await this.readAll("receipts", parseReceiptRecord, { cleanupTempHardLinks: false })).filter(
       (receipt) => receipt.kind === "task_completed" && receipt.task_id === taskId
     );
+    await this.assertReceiptsTrustCompletion(taskId, result, receipts);
+  }
+
+  // Given the already-loaded task_completed receipts for one task, accept if any
+  // one is locally trusted and its result digest matches; otherwise throw.
+  private async assertReceiptsTrustCompletion(taskId: string, result: Result, receipts: Receipt[]): Promise<void> {
     if (receipts.length === 0) {
       throw untrustedResultError(this.root, taskId, "has no trusted task_completed receipt");
     }

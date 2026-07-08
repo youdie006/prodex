@@ -13,6 +13,31 @@ describe("BridgeStore", () => {
     vi.useRealTimers();
   });
 
+  it("lists multiple finalized results as trusted from a single receipt scan", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-store-"));
+    const store = new BridgeStore(root);
+    await store.ensure();
+    const taskIds: string[] = [];
+    for (let i = 0; i < 4; i += 1) {
+      const task = await store.createTask({
+        source: "codex",
+        title: `Task ${i}`,
+        prompt: "x",
+        repo_id: "default",
+        files: [],
+        provenance: { adapter: "cli" }
+      });
+      await store.completeTask(task.id, { status: "done", summary: `done ${i}`, artifacts: [], commands: [] });
+      taskIds.push(task.id);
+    }
+    const results = await store.listFinalizedResultsReadOnly();
+    expect(results.map((r) => r.task_id).sort()).toEqual([...taskIds].sort());
+    // A result whose completion receipt is missing must still be rejected.
+    await rm(path.join(root, ".bridge", "receipts"), { recursive: true, force: true });
+    await mkdir(path.join(root, ".bridge", "receipts"), { recursive: true, mode: 0o700 });
+    await expect(store.listFinalizedResultsReadOnly()).rejects.toThrow(/task_completed receipt/i);
+  });
+
   it("creates, claims, completes, and fetches task results", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "prodex-store-"));
     const store = new BridgeStore(root);

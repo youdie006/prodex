@@ -33,12 +33,12 @@ Ask / consult commands:
 
 Bridge ledger (durable tasks/results/receipts/sessions under .bridge/):
   prodex init [--cwd /absolute/path/to/repo]
-  prodex tasks create [--cwd /absolute/path/to/repo] --title "Title" --prompt "Prompt"
+  prodex tasks create [--cwd /absolute/path/to/repo] --title "Title" --prompt "Prompt" [--repo-id id] [--file path]
   prodex tasks list [--status new|claimed|done|blocked] [--cwd /absolute/path/to/repo] [--json]
   prodex tasks show <task-id|latest> [--cwd /absolute/path/to/repo]
   prodex tasks claim <task-id> [--cwd /absolute/path/to/repo] [--by codex]
   prodex tasks complete <task-id> [--cwd /absolute/path/to/repo] --summary "Summary" [--command "npm test"] [--artifact .bridge/artifacts/results/name.md=text]
-  prodex tasks block <task-id> [--cwd /absolute/path/to/repo] --summary "Summary" [--code code] [--next-step "Next step"] [--retryable]
+  prodex tasks block <task-id> [--cwd /absolute/path/to/repo] --summary "Summary" [--code code] [--next-step "Next step"] [--retryable] [--command "npm test"]
   prodex results show <task-id|latest> [--cwd /absolute/path/to/repo]
   prodex results artifact <task-id|latest> [artifact-path] [--cwd /absolute/path/to/repo]
   prodex results reseal <task-id|latest> --confirm-current-result [--cwd /absolute/path/to/repo]
@@ -202,12 +202,12 @@ export function printTasksHelp(stdout: (line: string) => void): void {
   stdout(`prodex tasks
 
 Commands:
-  prodex tasks create [--cwd /absolute/path/to/repo] --title "Title" --prompt "Prompt"
+  prodex tasks create [--cwd /absolute/path/to/repo] --title "Title" --prompt "Prompt" [--repo-id id] [--file path]
   prodex tasks list [--status new|claimed|done|blocked] [--cwd /absolute/path/to/repo] [--json]
   prodex tasks show <task-id|latest> [--cwd /absolute/path/to/repo]
   prodex tasks claim <task-id> [--cwd /absolute/path/to/repo] [--by codex]
   prodex tasks complete <task-id> [--cwd /absolute/path/to/repo] --summary "Summary" [--command "npm test"] [--artifact .bridge/artifacts/results/name.md=text]
-  prodex tasks block <task-id> [--cwd /absolute/path/to/repo] --summary "Summary" [--code code] [--next-step "Next step"] [--retryable]`);
+  prodex tasks block <task-id> [--cwd /absolute/path/to/repo] --summary "Summary" [--code code] [--next-step "Next step"] [--retryable] [--command "npm test"]`);
 }
 export function printResultsHelp(stdout: (line: string) => void): void {
   stdout(`prodex results
