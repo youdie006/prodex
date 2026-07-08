@@ -4503,9 +4503,16 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     const out: string[] = [];
     const previousChrome = process.env.PRODEX_CHROME;
     process.env.PRODEX_CHROME = "/definitely/not/present";
+    // Pin an unreachable port so the launch path is actually exercised (login
+    // reuses a reachable instance instead of launching), independent of whatever
+    // is listening on the default 9333.
+    const freePortServer = createServer();
+    await new Promise<void>((resolve) => freePortServer.listen(0, "127.0.0.1", resolve));
+    const unreachablePort = (freePortServer.address() as AddressInfo).port;
+    await new Promise<void>((resolve) => freePortServer.close(() => resolve()));
     try {
       await expect(
-        runCli(["pro", "browser", "login"], {
+        runCli(["pro", "browser", "login", "--port", String(unreachablePort)], {
           cwd,
           stdout: (line) => out.push(line),
           stderr: () => {}
@@ -4526,7 +4533,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     process.env.PRODEX_CHROME = tmpdir();
     try {
       await expect(
-        runCli(["pro", "browser", "login"], {
+        runCli(["pro", "browser", "login", "--port", "9"], {
           cwd,
           stdout: (line) => out.push(line),
           stderr: () => {}
@@ -4547,7 +4554,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     process.env.PRODEX_CHROME = "/bin/true";
     try {
       await expect(
-        runCli(["pro", "browser", "login"], {
+        runCli(["pro", "browser", "login", "--port", "9"], {
           cwd,
           stdout: (line) => out.push(line),
           stderr: () => {}
@@ -4690,7 +4697,10 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     }
 
     expect(out.join("\n")).toContain("ChatGPT Pro browser login");
-    expect(out.join("\n")).toContain("Opened the dedicated Chrome window");
+    // A reachable DevTools endpoint means the browser is already running, so
+    // login reuses it (no second window) rather than spawning and handing off.
+    expect(out.join("\n")).toContain("Chrome is already running for ChatGPT - reusing it (no new window opened).");
+    expect(out.join("\n")).not.toContain("Opened the dedicated Chrome window");
     expect(out.join("\n")).toContain("1. Log in manually at https://chatgpt.com/c/review-thread in the dedicated Chrome window.");
     expect(out.join("\n")).not.toContain("1. Log in manually at https://chatgpt.com/ in the dedicated Chrome window.");
     expect(out.join("\n")).toContain("You can close this Chrome window after check/smoke or when you are done. The dedicated profile is reused next time.");
@@ -4821,7 +4831,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     delete process.env.PRODEX_CHROME;
     try {
       await expect(
-        runCli(["pro", "browser", "login"], {
+        runCli(["pro", "browser", "login", "--port", "9"], {
           cwd,
           stdout: (line) => out.push(line),
           stderr: () => {}

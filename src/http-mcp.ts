@@ -52,7 +52,12 @@ export async function startHttpMcpServer(options: StartHttpMcpServerOptions): Pr
         return;
       }
       if (!isAuthorized(req, requestUrl, token, options.tokenExpiresAt)) {
-        writeJson(res, 401, { error: "unauthorized" });
+        // Same 401 for missing/wrong/expired (no oracle), but tell the caller
+        // HOW to authorize without leaking anything token-specific.
+        writeJson(res, 401, {
+          error: "unauthorized",
+          hint: "Provide a valid token via `?prodex_token=<token>` or `Authorization: Bearer <token>`. If your token expired, regenerate the profile with `prodex setup` and re-read the URL from `prodex status`."
+        });
         return;
       }
       if (req.method === "POST") {

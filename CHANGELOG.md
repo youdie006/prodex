@@ -4,6 +4,37 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.3] - 2026-07-08
+
+Fixes from a second multi-angle audit (docs, dependencies/packaging, error-UX,
+test coverage, MCP protocol, browser/CDP lifecycle).
+
+### Fixed
+- `prodex pro browser login` no longer opens a second Chrome window when the
+  dedicated browser is already running: it detects the reachable instance and
+  reuses it (Chrome's singleton otherwise honored `--new-window` and spawned a
+  duplicate, which then blocked sends as `ambiguous_chatgpt_tabs`). This is the
+  recurring "extra windows" problem.
+- The MCP stdio transport no longer tears down the whole session on a single
+  malformed frame - it reports the parse error and keeps processing the rest of
+  the buffer (matching the SDK), so a valid pipelined message after a bad one is
+  still delivered. Oversize frames remain fatal.
+- `ask` with no prompt now shows an example (and the `--stdin` pipe form)
+  instead of a bare "requires a prompt".
+- The HTTP MCP `401` now returns a `hint` explaining how to authorize (no
+  token-specific detail leaked).
+
+### Changed
+- The published package no longer ships source maps or `.d.ts` declarations
+  (the package is bin-only, so they were dead weight) - roughly halves the
+  unpacked install size.
+- Documented `sessions cancel` in the top-level `--help`.
+
+### Tests
+- Added the previously-missing security reject-path tests: a wrong HTTP token
+  (URL and bearer) returns 401, and a receipt whose signed body is tampered
+  while the key is intact is rejected as untrusted.
+
 ## [0.16.2] - 2026-07-08
 
 ### Changed

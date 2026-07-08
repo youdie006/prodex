@@ -90,6 +90,38 @@ describe("BridgeStore", () => {
     await expect(store.claimTask(task.id, "agent-b")).rejects.toThrow(/not new|already/i);
   });
 
+  it("rejects a signed receipt whose body was tampered while the key is intact", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-store-"));
+    const store = new BridgeStore(root);
+    await store.ensure();
+    await store.createTask({
+      source: "codex",
+      title: "Sealed",
+      prompt: "x",
+      repo_id: "default",
+      files: [],
+      provenance: { adapter: "cli" }
+    });
+    const receiptsDir = path.join(root, ".bridge", "receipts");
+    const [receiptFile] = (await readdir(receiptsDir)).filter((f) => f.endsWith(".json"));
+    const filePath = path.join(receiptsDir, receiptFile);
+    const receipt = JSON.parse(await readFile(filePath, "utf8"));
+
+    // Baseline: a genuine receipt displays as trusted (no integrity_status).
+    const before = await store.getReceiptForDisplayReadOnly(receipt.id);
+    expect((before.metadata as Record<string, unknown> | undefined)?.integrity_status).toBeUndefined();
+
+    // Tamper the body (metadata) while leaving the original signature and the
+    // correct key in place - the HMAC seal must cover this and reject it.
+    receipt.metadata = { ...(receipt.metadata ?? {}), injected: "evil" };
+    await writeFile(filePath, `${JSON.stringify(receipt, null, 2)}\n`, { mode: 0o600 });
+
+    const after = await store.getReceiptForDisplayReadOnly(receipt.id);
+    const status = (after.metadata as Record<string, unknown>).integrity_status as { trusted?: boolean; reason?: string } | undefined;
+    expect(status?.trusted).toBe(false);
+    expect(status?.reason).toMatch(/verification failed/i);
+  });
+
   it("adopts a concurrently-created integrity key instead of clobbering it", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "prodex-store-"));
     const keyPath = path.join(root, ".bridge", "receipt-key.local");

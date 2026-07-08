@@ -47,6 +47,7 @@ Bridge ledger (durable tasks/results/receipts/sessions under .bridge/):
   prodex receipts rotate-key [--cwd /absolute/path/to/repo]
   prodex sessions list [--status preview|running|done|blocked] [--cwd /absolute/path/to/repo] [--json]
   prodex sessions show <session-id|latest> [--cwd /absolute/path/to/repo]
+  prodex sessions cancel <session-id|latest> [--cwd /absolute/path/to/repo]
 
 Agent / MCP integration:
   prodex mcp [--cwd /absolute/path/to/repo]

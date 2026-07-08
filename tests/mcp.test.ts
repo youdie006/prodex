@@ -74,6 +74,30 @@ describe("MCP stdio transport", () => {
     await transport.close();
   });
 
+  it("recovers from a malformed frame and still delivers pipelined valid messages", async () => {
+    const input = new PassThrough();
+    const output = new PassThrough();
+    const transport = new LimitedStdioServerTransport(input, output, { maxMessageBytes: 1024 });
+    const delivered: unknown[] = [];
+    const errors: Error[] = [];
+    let closed = false;
+    transport.onmessage = (message) => delivered.push(message);
+    transport.onerror = (error) => errors.push(error);
+    transport.onclose = () => {
+      closed = true;
+    };
+
+    await transport.start();
+    // A bad frame followed, in the same chunk, by a valid pipelined message.
+    input.write(`{bad json}\n${JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" })}\n`);
+
+    await eventually(() => delivered.length > 0);
+    expect(errors.length).toBe(1); // the bad frame was reported...
+    expect(closed).toBe(false); // ...but did not tear down the session...
+    expect(delivered).toEqual([expect.objectContaining({ method: "notifications/initialized" })]); // ...and the valid one still arrived.
+    await transport.close();
+  });
+
   it("send() rejects instead of hanging when the output closes under backpressure", async () => {
     const input = new PassThrough();
     // highWaterMark 1 with no reader => write() returns false => the send path

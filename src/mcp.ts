@@ -420,7 +420,19 @@ export class LimitedStdioServerTransport implements Transport {
       }
       const line = this.buffer.toString("utf8", 0, newlineIndex).replace(/\r$/, "");
       this.buffer = this.buffer.subarray(newlineIndex + 1);
-      const message = JSONRPCMessageSchema.parse(JSON.parse(line));
+      if (line.trim().length === 0) continue;
+      let message: JSONRPCMessage;
+      try {
+        message = JSONRPCMessageSchema.parse(JSON.parse(line));
+      } catch (error) {
+        // A single malformed frame is recoverable: report it and keep
+        // processing the rest of the buffer instead of tearing down the whole
+        // session (which would also drop any valid pipelined messages after
+        // it). This matches the SDK's StdioServerTransport. Only the oversize
+        // guards above stay fatal.
+        this.onerror?.(error instanceof Error ? error : new Error(String(error)));
+        continue;
+      }
       this.onmessage?.(message);
     }
   }

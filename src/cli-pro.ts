@@ -294,16 +294,22 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
           });
           return 0;
         }
-        const opened = openChatGptBrowser({
-          port,
-          profileDir,
-          url: loginUrl
-        });
-        await assertBrowserLaunchStayedAlive(opened, launchTimeoutMs);
+        // If the dedicated Chrome is already reachable on this port, do NOT spawn
+        // again: Chrome's singleton would just open ANOTHER window (the recurring
+        // "extra windows" problem, which then blocks sends as
+        // ambiguous_chatgpt_tabs). Reuse the running instance instead.
+        const alreadyRunning = (await getChatGptBrowserStatus({ port })).reachable;
+        const opened: Pick<ChatGptBrowserLaunch, "profileDir" | "port"> = alreadyRunning
+          ? { profileDir: profileDir ?? defaultChatGptProfileDir(), port }
+          : openChatGptBrowser({ port, profileDir, url: loginUrl });
+        if (!alreadyRunning) {
+          await assertBrowserLaunchStayedAlive(opened as ChatGptBrowserLaunch, launchTimeoutMs);
+        }
         // Remember this launch so ask auto-recovery reuses the same profile.
         await recordBrowserLoginLaunch({ profile_dir: opened.profileDir, port: opened.port });
         printBrowserLoginGuide(io.stdout, {
-          opened: true,
+          opened: !alreadyRunning,
+          reused: alreadyRunning,
           loginUrl,
           profileDir: opened.profileDir,
           port: opened.port,
@@ -555,7 +561,9 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
       throw new Error("--json applies to the visible-browser send output; the dry-run preview does not support it.");
     }
     const prompt = parsedAskPro.promptParts.join(" ").trim();
-    if (!prompt) throw new Error("ask-pro requires a prompt");
+    if (!prompt) {
+      throw new Error('ask-pro requires a prompt. Example: prodex ask "Explain this stack trace" (or pipe input: git diff | prodex ask --stdin "review this diff").');
+    }
     let promptText = prompt;
     if (parsedAskPro.optionArgs.includes("--stdin")) {
       // Unix ergonomics: `git diff | prodex ask --stdin "review this"`.
@@ -1227,8 +1235,9 @@ export async function listConsultListEntries(store: BridgeStore, options: { read
 
 export function printBrowserLoginGuide(
   stdout: (line: string) => void,
-  input: { opened: boolean; loginUrl: string; profileDir: string; port: number; sourceCli?: string; commandOptions?: BrowserCommandOptions }
+  input: { opened: boolean; reused?: boolean; loginUrl: string; profileDir: string; port: number; sourceCli?: string; commandOptions?: BrowserCommandOptions }
 ): void {
+  const windowAvailable = input.opened || input.reused === true;
   const loginCommand = formatBrowserLoginCommand(input.sourceCli, input.commandOptions);
   const runtimeCommandOptions = {
     ...(input.commandOptions?.cwd ? { cwd: input.commandOptions.cwd } : {}),
@@ -1237,10 +1246,16 @@ export function printBrowserLoginGuide(
   const checkCommand = formatBrowserCheckCommand(input.sourceCli, runtimeCommandOptions);
   const smokeCommand = formatBrowserSmokeCommand(input.sourceCli, runtimeCommandOptions);
   stdout("ChatGPT Pro browser login");
-  stdout(input.opened ? "Opened the dedicated Chrome window for ChatGPT." : "Dry run: no browser was opened.");
+  stdout(
+    input.reused
+      ? "Chrome is already running for ChatGPT - reusing it (no new window opened)."
+      : input.opened
+        ? "Opened the dedicated Chrome window for ChatGPT."
+        : "Dry run: no browser was opened."
+  );
   stdout("");
   stdout("Steps:");
-  if (input.opened) {
+  if (windowAvailable) {
     stdout(`1. Log in manually at ${input.loginUrl} in the dedicated Chrome window.`);
     stdout("2. If ChatGPT asks for captcha, Cloudflare/human verification, permission, or account verification, complete it in the browser.");
     stdout("3. For usage limit, message limit, model limit, or rate limit, wait for the reset or choose an available model in the browser.");
@@ -1261,7 +1276,7 @@ export function printBrowserLoginGuide(
   stdout("");
   stdout(`Profile: ${input.profileDir}`);
   stdout(`Debug: http://127.0.0.1:${input.port}`);
-  if (input.opened) {
+  if (windowAvailable) {
     stdout("You can close this Chrome window after check/smoke or when you are done. The dedicated profile is reused next time.");
   } else {
     stdout("The dedicated profile path above will be reused by the real login command.");

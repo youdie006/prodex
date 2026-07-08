@@ -125,6 +125,28 @@ describe("HTTP MCP server", () => {
     expect(response.status).toBe(401);
   });
 
+  it("rejects a wrong token via URL and bearer (exercises the safeEqual false branch)", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-http-mcp-"));
+    running = await startHttpMcpServer({ cwd, host: "127.0.0.1", port: 0, token: "test-token" });
+
+    const viaUrl = await fetch(`${running.url}/mcp?prodex_token=wrong-token`, { method: "POST", body: "{}" });
+    expect(viaUrl.status).toBe(401);
+    const viaBearer = await fetch(`${running.url}/mcp`, {
+      method: "POST",
+      body: "{}",
+      headers: { authorization: "Bearer wrong-token" }
+    });
+    expect(viaBearer.status).toBe(401);
+    // Sanity: the CORRECT token is not rejected by auth, so 401 above is really
+    // the token comparison and not a blanket reject.
+    const correct = await fetch(`${running.url}/mcp?prodex_token=test-token`, {
+      method: "POST",
+      body: "{}",
+      headers: { accept: "application/json, text/event-stream", "content-type": "application/json" }
+    });
+    expect(correct.status).not.toBe(401);
+  });
+
   it("accepts bearer authorization tokens for MCP requests", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "prodex-http-mcp-"));
     running = await startHttpMcpServer({ cwd, host: "127.0.0.1", port: 0, token: "test-token" });
