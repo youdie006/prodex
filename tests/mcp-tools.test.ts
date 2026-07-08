@@ -142,6 +142,29 @@ describe("MCP tool handlers", () => {
     );
   });
 
+  it("redacts the ChatGPT thread URL and project from a task's provenance at the MCP boundary", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-"));
+    const store = new BridgeStore(cwd);
+    const handlers = createMcpToolHandlers({ cwd });
+    const task = await store.createTask({
+      source: "codex",
+      title: "Consult",
+      prompt: "x",
+      repo_id: "default",
+      files: [],
+      provenance: { adapter: "cli", warnings: [], thread: "https://chatgpt.com/c/secret-thread-id", project: "Secret Project" }
+    });
+    // Raw task file keeps the personal context...
+    const raw = await store.getTaskReadOnly(task.id);
+    expect(raw.provenance?.thread).toBe("https://chatgpt.com/c/secret-thread-id");
+    // ...but the MCP surface must not expose it.
+    const { task: got } = await handlers.bridge_get_task({ task_id: task.id });
+    expect(got.provenance?.thread).toBeUndefined();
+    expect(got.provenance?.project).toBeUndefined();
+    const { tasks } = await handlers.bridge_list_tasks({});
+    expect(tasks.find((t) => t.id === task.id)?.provenance?.thread).toBeUndefined();
+  });
+
   it("does not fetch raw result records without a trusted completion receipt", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-"));
     const store = new BridgeStore(cwd);

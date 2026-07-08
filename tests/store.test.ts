@@ -1,4 +1,4 @@
-import { link, lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { link, lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, stat, symlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -63,6 +63,31 @@ describe("BridgeStore", () => {
 
     await store.claimTask(task.id, "agent-a");
     await expect(store.claimTask(task.id, "agent-b")).rejects.toThrow(/not new|already/i);
+  });
+
+  it("recovers a claim after a crashed holder left a stale lock file", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-store-"));
+    const store = new BridgeStore(root);
+    await store.ensure();
+    const task = await store.createTask({
+      source: "codex",
+      title: "Stale lock",
+      prompt: "x",
+      repo_id: "default",
+      files: [],
+      provenance: { adapter: "cli" }
+    });
+
+    // Simulate a crashed claimer: a lock file with no live holder, backdated
+    // well past the staleness threshold.
+    const lockPath = path.join(root, ".bridge", "tasks", `.${task.id}.claim.lock`);
+    await writeFile(lockPath, "", "utf8");
+    const old = new Date(Date.now() - 10 * 60 * 1000);
+    await utimes(lockPath, old, old);
+
+    const claimed = await store.claimTask(task.id, "agent-after-crash");
+    expect(claimed.status).toBe("claimed");
+    expect(claimed.claimed_by).toBe("agent-after-crash");
   });
 
   it("does not double-claim a task under concurrent claims", async () => {

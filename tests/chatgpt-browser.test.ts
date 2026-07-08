@@ -38,7 +38,8 @@ import {
   composerTextStateExpression,
   sendChatGptPrompt,
   submitExpression,
-  isUsableChatGptAnswer
+  isUsableChatGptAnswer,
+  CHATGPT_THINKING_PLACEHOLDER_JS
 } from "../src/chatgpt-browser.js";
 
 describe("ChatGPT browser adapter", () => {
@@ -81,6 +82,29 @@ describe("ChatGPT browser adapter", () => {
   it("does not treat Korean thinking placeholders as final answers", () => {
     expect(isUsableChatGptAnswer("생각 중...")).toBe(false);
     expect(isUsableChatGptAnswer("9s 동안 생각함\n\n실제 답변입니다.")).toBe(true);
+  });
+
+  it("keeps the in-page placeholder test in sync with isUsableChatGptAnswer", () => {
+    // Evaluate the in-page snippet the same way the page expression does.
+    const inPagePlaceholder = (answer: string): boolean => {
+      const ansStripped = answer.trim().replace(/\.+$/, "");
+      const ansLines = ansStripped.split(/\r?\n/).filter((l) => l.trim());
+      return new Function("ansStripped", "ansLines", `return (${CHATGPT_THINKING_PLACEHOLDER_JS});`)(ansStripped, ansLines) as boolean;
+    };
+    for (const answer of [
+      "Thinking",
+      "Thinking...",
+      "Thought for 5 seconds",
+      "생각 중...",
+      "Pro 생각 중",
+      "Thinking about it, the answer is yes.",
+      "Thinking caps help focus.",
+      "9s 동안 생각함\n\n실제 답변입니다.",
+      "Here is the real answer."
+    ]) {
+      // placeholder === true must mean the answer is NOT usable, and vice versa.
+      expect(inPagePlaceholder(answer)).toBe(!isUsableChatGptAnswer(answer));
+    }
   });
 
   it("does not misclassify a real answer that starts with 'Thinking' as a placeholder", () => {

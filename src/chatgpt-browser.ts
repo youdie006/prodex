@@ -1114,6 +1114,11 @@ async function selectModelReasoning(
   options: Pick<SendChatGptPromptOptions, "model" | "proMode" | "effort">
 ): Promise<void> {
   if (!options.model && !options.proMode && !options.effort) return;
+  // --pro-mode selects a Pro sub-mode, so it is meaningless with a non-Pro
+  // --model. Fail loudly instead of silently dropping the requested sub-mode.
+  if (options.proMode && options.model && !/pro/i.test(options.model)) {
+    throw new Error(`--pro-mode applies to the Pro model, but --model is "${options.model}". Drop --model (or set --model Pro) to choose a Pro sub-mode.`);
+  }
   // Poll for the model selector button rather than checking once: right after a
   // new-chat navigation the composer form (and the selector inside it) has not
   // finished rendering yet, so a single check throws "model selector button not
@@ -1451,7 +1456,13 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
   let finalState: ChatGptAnswerState | undefined;
   while (Date.now() < acceptDeadline) {
     await sleep(500);
-    finalState = await evaluateOnPage<ChatGptAnswerState>(page, answerExpression());
+    try {
+      finalState = await evaluateOnPage<ChatGptAnswerState>(page, answerExpression());
+    } catch {
+      // Transient CDP failure (command timeout, mid-poll navigation): retry the
+      // poll rather than aborting the whole send.
+      continue;
+    }
     const runtimeBlocker = chatGptBlockerFromAnswerState(finalState);
     if (runtimeBlocker) throw new ChatGptBrowserBlockerError(runtimeBlocker);
     dbgSend(`accept-poll url=${finalState.url} user=${finalState.userMessageCount} assistant=${finalState.assistantMessageCount} generating=${finalState.generating}`);
@@ -1477,7 +1488,14 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
   const answerIsStable = createChatGptAnswerStabilityTracker();
   while (Date.now() - started < timeoutMs) {
     await sleep(1000);
-    finalState = await evaluateOnPage<ChatGptAnswerState>(page, answerExpression());
+    try {
+      finalState = await evaluateOnPage<ChatGptAnswerState>(page, answerExpression());
+    } catch {
+      // Transient CDP failure while the answer is streaming: retry. A throw here
+      // would discard an already-streamed partial answer and skip the salvage
+      // path below, so keep the last good state and poll again until timeout.
+      continue;
+    }
     const runtimeBlocker = chatGptBlockerFromAnswerState(finalState);
     if (runtimeBlocker) throw new ChatGptBrowserBlockerError(runtimeBlocker);
     emitProgress("waiting", finalState.generating ? "generating" : "stabilizing");
@@ -1768,6 +1786,17 @@ async function connectCdp(webSocketUrl: string, timeoutMs?: number): Promise<{
   return { send, evaluate, close: () => ws.close() };
 }
 
+// In-page reasoning-header placeholder test, shared by statusExpression and
+// answerExpression. MUST stay in sync with isUsableChatGptAnswer: a header
+// ("Thinking", "Thought for 5s", "9s 동안 생각함") is a placeholder ONLY when it is
+// the entire single line. A real answer that merely starts with "Thinking
+// about..." must NOT be flagged as still-generating (it previously was, because
+// the old regex matched any prefix - causing false send-refusals and false
+// timeouts). Expects in-scope vars `ansStripped` (trimmed, trailing dots
+// removed) and `ansLines` (non-empty lines).
+export const CHATGPT_THINKING_PLACEHOLDER_JS =
+  `ansLines.length <= 1 && (/^(생각\\s*중|thinking)$/i.test(ansStripped) || /^thought (for|about)\\b.*$/i.test(ansStripped) || /\\d+\\s*s\\s*동안\\s*생각함$/.test(ansStripped) || /(^|\\s)(생각\\s*중|thinking)$/i.test(ansStripped))`;
+
 export function statusExpression(): string {
   const excludedTextSelector = JSON.stringify(CHATGPT_RUNTIME_BLOCKER_TEXT_EXCLUDED_ANCESTORS);
   const blockerScanExcludedSelector = JSON.stringify(CHATGPT_BLOCKER_SCAN_EXCLUDED_ANCESTORS);
@@ -1813,7 +1842,7 @@ export function statusExpression(): string {
     const answer = assistant?.text || "";
     const ansStripped = answer.trim().replace(/\\.+$/, "");
     const ansLines = ansStripped.split(/\\r?\\n/).filter((l) => l.trim());
-    const placeholder = /^(생각 중|thinking|thought for|thought about)/i.test(ansStripped) || (ansLines.length <= 1 && /(^|\\s)(생각 중|thinking)$/i.test(ansStripped));
+    const placeholder = ${CHATGPT_THINKING_PLACEHOLDER_JS};
     const hasComposer = Boolean(findChatGptComposerCandidate());
     return {
       title: document.title,
@@ -2021,7 +2050,7 @@ function answerExpression(): string {
     const answer = assistant?.text || "";
     const ansStripped = answer.trim().replace(/\\.+$/, "");
     const ansLines = ansStripped.split(/\\r?\\n/).filter((l) => l.trim());
-    const placeholder = /^(생각 중|thinking|thought for|thought about)/i.test(ansStripped) || (ansLines.length <= 1 && /(^|\\s)(생각 중|thinking)$/i.test(ansStripped));
+    const placeholder = ${CHATGPT_THINKING_PLACEHOLDER_JS};
     return {
       title: document.title,
       url: location.href,

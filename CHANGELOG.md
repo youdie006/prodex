@@ -4,6 +4,35 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.0] - 2026-07-08
+
+Fixes from a multi-angle audit (concurrency, resource/error paths, security,
+answer-extraction, CLI).
+
+### Fixed
+- The in-page "still generating" placeholder test over-matched any answer
+  starting with "Thinking"/"Thought for"/"Thought about" (the twin of the
+  0.15.7 `isUsableChatGptAnswer` fix, left behind in the page expressions). A
+  real answer beginning with those words could cause a false "response in
+  progress" send refusal or a false timeout with a bogus truncation warning.
+  Both expressions now share one snippet kept in sync with the TS check.
+- A crashed claim holder left a `.<task>.claim.lock` that nothing cleaned up,
+  permanently wedging all future claims of that task. A lock older than the
+  claim window (60s) is now reaped and the claim retried.
+- The MCP stdio `send()` could hang forever (and leak a `drain` listener) if the
+  reader died while the ~100KB write was backpressured; it now also settles on
+  the stream's `error`/`close`.
+- The answer acceptance/stability poll loops aborted the whole send on a
+  transient CDP evaluate failure, discarding an already-streamed partial answer
+  and skipping the salvage path; transient failures now retry.
+- `--pro-mode` combined with a non-Pro `--model` was silently dropped; it now
+  fails with a clear message.
+
+### Security
+- The ChatGPT conversation URL and project name no longer cross the MCP boundary
+  via receipts (`metadata.thread`) or tasks (`provenance.thread`/`project`) -
+  they are now redacted the same way sessions already were.
+
 ## [0.15.8] - 2026-07-08
 
 ### Added

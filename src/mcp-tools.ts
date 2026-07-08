@@ -33,6 +33,25 @@ function redactSessionForMcp(session: SessionRecord): SessionRecord {
   return redacted as SessionRecord;
 }
 
+type TaskRecord = Awaited<ReturnType<BridgeStore["getTaskReadOnly"]>>;
+
+/**
+ * Drop the ChatGPT thread URL and project name from a task's provenance before
+ * it crosses the MCP boundary. A CLI browser consult finalizes its task with
+ * `provenance.thread` = the conversation URL and `provenance.project`; both are
+ * personal context, redacted here the same way sessions and receipts are. The
+ * raw task file keeps them for local CLI inspection.
+ */
+function redactTaskForMcp(task: TaskRecord): TaskRecord {
+  if (!task || typeof task !== "object" || !("provenance" in task) || !task.provenance) return task;
+  const provenance = task.provenance as Record<string, unknown>;
+  if (!Object.hasOwn(provenance, "thread") && !Object.hasOwn(provenance, "project")) return task;
+  const redactedProvenance = { ...provenance };
+  if (Object.hasOwn(redactedProvenance, "thread")) redactedProvenance.thread = undefined;
+  if (Object.hasOwn(redactedProvenance, "project")) redactedProvenance.project = undefined;
+  return { ...task, provenance: redactedProvenance } as TaskRecord;
+}
+
 export function createMcpToolHandlers(context: McpToolContext) {
   const store = new BridgeStore(context.cwd);
   const source = context.source ?? "claude";
@@ -60,12 +79,12 @@ export function createMcpToolHandlers(context: McpToolContext) {
     },
 
     async bridge_list_tasks(input: { status?: "new" | "claimed" | "done" | "blocked" }) {
-      return { tasks: await store.listTasksReadOnly(input.status) };
+      return { tasks: (await store.listTasksReadOnly(input.status)).map(redactTaskForMcp) };
     },
 
     async bridge_get_task(input: { task_id: string }) {
       assertMcpTextField(input.task_id, "task_id", MAX_MCP_SHORT_TEXT_BYTES);
-      return { task: await store.getTaskReadOnly(input.task_id) };
+      return { task: redactTaskForMcp(await store.getTaskReadOnly(input.task_id)) };
     },
 
     async bridge_claim_task(input: { task_id: string; claimed_by?: string }) {

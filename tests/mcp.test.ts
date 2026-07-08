@@ -73,6 +73,20 @@ describe("MCP stdio transport", () => {
     await expect(received).resolves.toEqual(expect.objectContaining({ method: "notifications/initialized" }));
     await transport.close();
   });
+
+  it("send() rejects instead of hanging when the output closes under backpressure", async () => {
+    const input = new PassThrough();
+    // highWaterMark 1 with no reader => write() returns false => the send path
+    // waits for "drain", which never comes because we destroy the stream.
+    const output = new PassThrough({ highWaterMark: 1 });
+    const transport = new LimitedStdioServerTransport(input, output, { maxMessageBytes: 1024 });
+    await transport.start();
+
+    const sendPromise = transport.send({ jsonrpc: "2.0", id: 1, result: {} } as never);
+    output.destroy();
+
+    await expect(sendPromise).rejects.toThrow(/closed|drain/i);
+  });
 });
 
 async function eventually(predicate: () => boolean): Promise<void> {

@@ -1,7 +1,7 @@
 import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { registerBridgeRoot } from "./registry.js";
 import { constants, existsSync } from "node:fs";
-import { link, lstat, mkdir, open, readdir, realpath, rename, rm } from "node:fs/promises";
+import { link, lstat, mkdir, open, readdir, realpath, rename, rm, stat } from "node:fs/promises";
 import type { FileHandle } from "node:fs/promises";
 import path from "node:path";
 import { assertRepoRelativePath } from "./repo.js";
@@ -46,7 +46,22 @@ const SESSION_ID_PATTERN = /^sess_\d{8}_\d{6}_[a-z0-9-]+$/;
 const RECEIPT_ID_PATTERN = /^receipt_\d{8}_\d{6}_[a-z0-9-]+$/;
 const BRIDGE_DIRECTORY_MODE = 0o700;
 const BRIDGE_FILE_MODE = 0o600;
+// A claim is a sub-second read-modify-write; a claim lock older than this
+// belongs to a crashed holder, not a live claimer, so it can be reaped.
+const CLAIM_LOCK_STALE_MS = 60_000;
 const RECEIPT_INTEGRITY_KEY_BYTES = 32;
+
+async function claimLockIsStale(lockPath: string): Promise<boolean> {
+  try {
+    const info = await stat(lockPath);
+    return Date.now() - info.mtimeMs > CLAIM_LOCK_STALE_MS;
+  } catch (error) {
+    // Vanished between the EEXIST and the stat (the holder just released it):
+    // treat as free so the retry can grab it.
+    if (isErrorCode(error, "ENOENT")) return true;
+    throw error;
+  }
+}
 const FETCHABLE_RESULT_ARTIFACT_PREFIXES = [".bridge/artifacts/pro-consults/", ".bridge/artifacts/results/"];
 export const MAX_FETCHABLE_RESULT_ARTIFACT_BYTES = 100_000;
 const MAX_BRIDGE_ARTIFACT_READ_BYTES = 1_000_000;
@@ -206,10 +221,23 @@ export class BridgeStore {
     try {
       lockHandle = await open(lockPath, "wx", BRIDGE_FILE_MODE);
     } catch (error) {
-      if (isErrorCode(error, "EEXIST")) {
+      if (!isErrorCode(error, "EEXIST")) throw error;
+      // A claim is a fast read-modify-write, so a lock older than the staleness
+      // window belongs to a crashed holder (killed before its finally removed
+      // it), not a live claimer - otherwise it would wedge this task's claims
+      // forever. Reap the stale lock and retry the exclusive create once.
+      if (!(await claimLockIsStale(lockPath))) {
         throw new Error(`Task ${taskId} is already being claimed by another process`);
       }
-      throw error;
+      await rm(lockPath, { force: true }).catch(() => undefined);
+      try {
+        lockHandle = await open(lockPath, "wx", BRIDGE_FILE_MODE);
+      } catch (retryError) {
+        if (isErrorCode(retryError, "EEXIST")) {
+          throw new Error(`Task ${taskId} is already being claimed by another process`);
+        }
+        throw retryError;
+      }
     }
     try {
       const task = await this.getTask(taskId);
@@ -1683,6 +1711,13 @@ function redactReceiptForDisplay(receipt: Receipt, integrityStatus?: ReceiptInte
     delete redactedSelection.project_new;
     redactedSelection.project_redacted = true;
     metadata.selection = redactedSelection;
+  }
+  if (Object.hasOwn(metadata, "thread")) {
+    // The ChatGPT conversation URL is personal context (like the session
+    // thread, which is stripped at the MCP boundary). Drop it from display /
+    // MCP output; the raw receipt file keeps it for local inspection.
+    delete metadata.thread;
+    metadata.thread_redacted = true;
   }
   if (integrityStatus) {
     metadata.integrity_status = integrityStatus;

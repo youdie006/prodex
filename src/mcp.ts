@@ -357,12 +357,35 @@ export class LimitedStdioServerTransport implements Transport {
 
   async send(message: JSONRPCMessage): Promise<void> {
     const json = serializeMessage(message);
-    await new Promise<void>((resolve) => {
+    await new Promise<void>((resolve, reject) => {
       if (this.stdout.write(json)) {
         resolve();
-      } else {
-        this.stdout.once("drain", resolve);
+        return;
       }
+      // Backpressure: wait for "drain", but also settle on "error"/"close" so a
+      // downstream reader that dies mid-write can never hang this promise
+      // forever (which would also leak the drain listener). All three handlers
+      // are removed on the first to fire.
+      const cleanup = (): void => {
+        this.stdout.off("drain", onDrain);
+        this.stdout.off("error", onError);
+        this.stdout.off("close", onClose);
+      };
+      const onDrain = (): void => {
+        cleanup();
+        resolve();
+      };
+      const onError = (error: Error): void => {
+        cleanup();
+        reject(error);
+      };
+      const onClose = (): void => {
+        cleanup();
+        reject(new Error("stdout closed before the message drained"));
+      };
+      this.stdout.once("drain", onDrain);
+      this.stdout.once("error", onError);
+      this.stdout.once("close", onClose);
     });
   }
 
