@@ -4,6 +4,14 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.8] - 2026-07-08
+
+### Added
+- `prodex sessions cancel <session-id|latest>` marks a session blocked - clears a
+  session left stuck in "running"/"preview" by an interrupted send (UX audit F15).
+- `--json` on `tasks list`, `receipts list`, and `sessions list` emits the full
+  records as JSON (empty list is a valid `[]`) for scripting (UX audit F6/F7).
+
 ## [0.15.7] - 2026-07-08
 
 ### Fixed

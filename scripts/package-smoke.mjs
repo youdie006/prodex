@@ -182,7 +182,7 @@ try {
   );
   assertIncludes(
     tasksHelp.stdout,
-    "prodex tasks list [--status new|claimed|done|blocked] [--cwd /absolute/path/to/repo]",
+    "prodex tasks list [--status new|claimed|done|blocked] [--cwd /absolute/path/to/repo] [--json]",
     "installed tasks help output"
   );
   assertIncludes(
@@ -212,11 +212,11 @@ try {
   assertIncludes(resultsHelp.stdout, "prodex results reseal <task-id|latest> --confirm-current-result [--cwd /absolute/path/to/repo]", "installed results help output");
   const receiptsHelp = await run(binPath, ["receipts", "--help"], { cwd: consumerDir });
   assertIncludes(receiptsHelp.stdout, "prodex receipts", "installed receipts help output");
-  assertIncludes(receiptsHelp.stdout, "prodex receipts list [--kind kind] [--task-id task-id] [--cwd /absolute/path/to/repo]", "installed receipts help output");
+  assertIncludes(receiptsHelp.stdout, "prodex receipts list [--kind kind] [--task-id task-id] [--cwd /absolute/path/to/repo] [--json]", "installed receipts help output");
   assertIncludes(receiptsHelp.stdout, "prodex receipts show <receipt-id|latest> [--cwd /absolute/path/to/repo]", "installed receipts help output");
   const sessionsHelp = await run(binPath, ["sessions", "--help"], { cwd: consumerDir });
   assertIncludes(sessionsHelp.stdout, "prodex sessions", "installed sessions help output");
-  assertIncludes(sessionsHelp.stdout, "prodex sessions list [--status preview|running|done|blocked] [--cwd /absolute/path/to/repo]", "installed sessions help output");
+  assertIncludes(sessionsHelp.stdout, "prodex sessions list [--status preview|running|done|blocked] [--cwd /absolute/path/to/repo] [--json]", "installed sessions help output");
   assertIncludes(sessionsHelp.stdout, "prodex sessions show <session-id|latest> [--cwd /absolute/path/to/repo]", "installed sessions help output");
   const advertisedSubcommandHelpCases = [
     { args: ["release", "status", "--help"], expected: "prodex release status [--cwd /absolute/path/to/repo]" },
@@ -224,7 +224,7 @@ try {
     { args: ["project", "prompt", "--help"], expected: "prodex project prompt [--cwd /absolute/path/to/repo]" },
     { args: ["claude", "config", "--help"], expected: "prodex claude config [--cwd /absolute/path/to/repo]" },
     { args: ["tasks", "create", "--help"], expected: 'prodex tasks create [--cwd /absolute/path/to/repo] --title "Title" --prompt "Prompt"' },
-    { args: ["tasks", "list", "--help"], expected: "prodex tasks list [--status new|claimed|done|blocked] [--cwd /absolute/path/to/repo]" },
+    { args: ["tasks", "list", "--help"], expected: "prodex tasks list [--status new|claimed|done|blocked] [--cwd /absolute/path/to/repo] [--json]" },
     { args: ["tasks", "show", "--help"], expected: "prodex tasks show <task-id|latest> [--cwd /absolute/path/to/repo]" },
     { args: ["tasks", "claim", "--help"], expected: "prodex tasks claim <task-id> [--cwd /absolute/path/to/repo] [--by codex]" },
     { args: ["tasks", "complete", "--help"], expected: 'prodex tasks complete <task-id> [--cwd /absolute/path/to/repo] --summary "Summary"' },
@@ -232,9 +232,9 @@ try {
     { args: ["results", "show", "--help"], expected: "prodex results show <task-id|latest> [--cwd /absolute/path/to/repo]" },
     { args: ["results", "artifact", "--help"], expected: "prodex results artifact <task-id|latest> [artifact-path] [--cwd /absolute/path/to/repo]" },
     { args: ["results", "reseal", "--help"], expected: "prodex results reseal <task-id|latest> --confirm-current-result [--cwd /absolute/path/to/repo]" },
-    { args: ["receipts", "list", "--help"], expected: "prodex receipts list [--kind kind] [--task-id task-id] [--cwd /absolute/path/to/repo]" },
+    { args: ["receipts", "list", "--help"], expected: "prodex receipts list [--kind kind] [--task-id task-id] [--cwd /absolute/path/to/repo] [--json]" },
     { args: ["receipts", "show", "--help"], expected: "prodex receipts show <receipt-id|latest> [--cwd /absolute/path/to/repo]" },
-    { args: ["sessions", "list", "--help"], expected: "prodex sessions list [--status preview|running|done|blocked] [--cwd /absolute/path/to/repo]" },
+    { args: ["sessions", "list", "--help"], expected: "prodex sessions list [--status preview|running|done|blocked] [--cwd /absolute/path/to/repo] [--json]" },
     { args: ["sessions", "show", "--help"], expected: "prodex sessions show <session-id|latest> [--cwd /absolute/path/to/repo]" },
     { args: ["pro", "ask", "--help"], expected: "prodex pro ask [--dry-run] [--cwd /absolute/path/to/repo] [--file path]" },
     { args: ["pro", "browser", "ask", "--help"], expected: "prodex pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]" },
@@ -329,7 +329,7 @@ try {
     },
     {
       args: ["sessions", "delete"],
-      expected: "Unknown sessions subcommand: delete. Expected one of: list, show. Run `prodex sessions --help`."
+      expected: "Unknown sessions subcommand: delete. Expected one of: list, show, cancel. Run `prodex sessions --help`."
     },
     {
       args: ["project", "verify"],

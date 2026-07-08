@@ -34,7 +34,7 @@ Ask / consult commands:
 Bridge ledger (durable tasks/results/receipts/sessions under .bridge/):
   prodex init [--cwd /absolute/path/to/repo]
   prodex tasks create [--cwd /absolute/path/to/repo] --title "Title" --prompt "Prompt"
-  prodex tasks list [--status new|claimed|done|blocked] [--cwd /absolute/path/to/repo]
+  prodex tasks list [--status new|claimed|done|blocked] [--cwd /absolute/path/to/repo] [--json]
   prodex tasks show <task-id|latest> [--cwd /absolute/path/to/repo]
   prodex tasks claim <task-id> [--cwd /absolute/path/to/repo] [--by codex]
   prodex tasks complete <task-id> [--cwd /absolute/path/to/repo] --summary "Summary" [--command "npm test"] [--artifact .bridge/artifacts/results/name.md=text]
@@ -42,10 +42,10 @@ Bridge ledger (durable tasks/results/receipts/sessions under .bridge/):
   prodex results show <task-id|latest> [--cwd /absolute/path/to/repo]
   prodex results artifact <task-id|latest> [artifact-path] [--cwd /absolute/path/to/repo]
   prodex results reseal <task-id|latest> --confirm-current-result [--cwd /absolute/path/to/repo]
-  prodex receipts list [--kind kind] [--task-id task-id] [--cwd /absolute/path/to/repo]
+  prodex receipts list [--kind kind] [--task-id task-id] [--cwd /absolute/path/to/repo] [--json]
   prodex receipts show <receipt-id|latest> [--cwd /absolute/path/to/repo]
   prodex receipts rotate-key [--cwd /absolute/path/to/repo]
-  prodex sessions list [--status preview|running|done|blocked] [--cwd /absolute/path/to/repo]
+  prodex sessions list [--status preview|running|done|blocked] [--cwd /absolute/path/to/repo] [--json]
   prodex sessions show <session-id|latest> [--cwd /absolute/path/to/repo]
 
 Agent / MCP integration:
@@ -203,7 +203,7 @@ export function printTasksHelp(stdout: (line: string) => void): void {
 
 Commands:
   prodex tasks create [--cwd /absolute/path/to/repo] --title "Title" --prompt "Prompt"
-  prodex tasks list [--status new|claimed|done|blocked] [--cwd /absolute/path/to/repo]
+  prodex tasks list [--status new|claimed|done|blocked] [--cwd /absolute/path/to/repo] [--json]
   prodex tasks show <task-id|latest> [--cwd /absolute/path/to/repo]
   prodex tasks claim <task-id> [--cwd /absolute/path/to/repo] [--by codex]
   prodex tasks complete <task-id> [--cwd /absolute/path/to/repo] --summary "Summary" [--command "npm test"] [--artifact .bridge/artifacts/results/name.md=text]
@@ -221,7 +221,7 @@ export function printReceiptsHelp(stdout: (line: string) => void): void {
   stdout(`prodex receipts
 
 Commands:
-  prodex receipts list [--kind kind] [--task-id task-id] [--cwd /absolute/path/to/repo]
+  prodex receipts list [--kind kind] [--task-id task-id] [--cwd /absolute/path/to/repo] [--json]
   prodex receipts show <receipt-id|latest> [--cwd /absolute/path/to/repo]
   prodex receipts rotate-key [--cwd /absolute/path/to/repo]
 
@@ -233,8 +233,9 @@ export function printSessionsHelp(stdout: (line: string) => void): void {
   stdout(`prodex sessions
 
 Commands:
-  prodex sessions list [--status preview|running|done|blocked] [--cwd /absolute/path/to/repo]
-  prodex sessions show <session-id|latest> [--cwd /absolute/path/to/repo]`);
+  prodex sessions list [--status preview|running|done|blocked] [--cwd /absolute/path/to/repo] [--json]
+  prodex sessions show <session-id|latest> [--cwd /absolute/path/to/repo]
+  prodex sessions cancel <session-id|latest> [--cwd /absolute/path/to/repo]`);
 }
 export function printProBrowserHelp(stdout: (line: string) => void, sourceCli?: string): void {
   const cli = formatCliCommand(sourceCli);

@@ -186,6 +186,23 @@ describe("runCli", () => {
     }
   });
 
+  it("emits machine-readable JSON for list commands with --json", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
+    await runCli(["init"], { cwd, stdout: () => {}, stderr: () => {} });
+    await runCli(["tasks", "create", "--title", "Review", "--prompt", "Review the plan"], { cwd, stdout: () => {}, stderr: () => {} });
+
+    const out: string[] = [];
+    await runCli(["tasks", "list", "--json"], { cwd, stdout: (line) => out.push(line), stderr: () => {} });
+    const parsed = JSON.parse(out.join("\n"));
+    expect(Array.isArray(parsed)).toBe(true);
+    expect(parsed[0].title).toBe("Review");
+
+    // empty list with --json is a valid empty array, not a prose message
+    const empty: string[] = [];
+    await runCli(["sessions", "list", "--json"], { cwd, stdout: (line) => empty.push(line), stderr: () => {} });
+    expect(JSON.parse(empty.join("\n"))).toEqual([]);
+  });
+
   it("creates and lists tasks", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     const out: string[] = [];
@@ -1352,6 +1369,19 @@ describe("runCli", () => {
         backend: "manual"
       })
     );
+  });
+
+  it("cancels a stuck running session via the CLI", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
+    const store = new BridgeStore(cwd);
+    const session = await store.writeSession({ direction: "codex_to_chatgpt", backend: "manual", status: "running" });
+
+    const out: string[] = [];
+    await runCli(["sessions", "cancel", session.id], { cwd, stdout: (line) => out.push(line), stderr: () => {} });
+    expect(out.join("\n")).toMatch(new RegExp(`${session.id}.*(cancel|blocked)`, "i"));
+
+    const reread = await new BridgeStore(cwd).getSessionReadOnly(session.id);
+    expect(reread.status).toBe("blocked");
   });
 
   it("lists and shows consult sessions", async () => {
@@ -4204,7 +4234,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
       },
       {
         args: ["sessions", "delete"],
-        expected: "Unknown sessions subcommand: delete. Expected one of: list, show. Run `prodex sessions --help`."
+        expected: "Unknown sessions subcommand: delete. Expected one of: list, show, cancel. Run `prodex sessions --help`."
       },
       {
         args: ["pro", "verify"],

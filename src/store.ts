@@ -492,6 +492,24 @@ export class BridgeStore {
     return this.parseRecord("sessions", sessionId, await this.readRecordJson("sessions", sessionId), parseSessionRecord);
   }
 
+  // Mark an existing session as blocked - used to clear a session left in
+  // "running"/"preview" by an interrupted send. Preserves the session's other
+  // fields; throws if the session does not exist.
+  async cancelSession(sessionId: string): Promise<Session> {
+    const existing = await this.getSession(sessionId);
+    return this.writeSession({
+      id: existing.id,
+      direction: existing.direction,
+      backend: existing.backend,
+      project: existing.project,
+      thread: existing.thread,
+      task_id: existing.task_id,
+      status: "blocked",
+      blocker: { code: "cancelled", message: "Session cancelled via CLI.", retryable: false },
+      warnings: existing.warnings
+    });
+  }
+
   async getSessionReadOnly(sessionId: string): Promise<Session> {
     return this.parseRecord("sessions", sessionId, await this.readRecordJson("sessions", sessionId, { cleanupTempHardLinks: false }), parseSessionRecord);
   }

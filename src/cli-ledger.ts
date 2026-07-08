@@ -45,10 +45,14 @@ export async function runTasksCommand(rest: string[], io: CliIO): Promise<number
     }
     if (subcommand === "list") {
       if (printHelpIfRequested(taskArgs, "tasks list", io.stdout, printTasksHelp, { valueFlags: ["--cwd", "--status"] })) return 0;
-      assertOnlyOptions(taskArgs, "tasks list", ["--cwd", "--status"]);
+      assertOnlyOptions(taskArgs, "tasks list", ["--cwd", "--status"], ["--json"]);
       const targetStore = new BridgeStore(resolveCwdFlag(io.cwd, taskArgs));
       const status = readTaskStatusFlag(taskArgs);
       const tasks = await listTasksForInspection(targetStore, status);
+      if (taskArgs.includes("--json")) {
+        io.stdout(JSON.stringify(tasks, null, 2));
+        return 0;
+      }
       if (tasks.length === 0) {
         io.stdout(status ? `No tasks with status ${status}.` : "No tasks yet.");
         return 0;
@@ -203,12 +207,16 @@ export async function runReceiptsCommand(rest: string[], io: CliIO): Promise<num
     }
     if (subcommand === "list") {
       if (printHelpIfRequested(receiptArgs, "receipts list", io.stdout, printReceiptsHelp, { valueFlags: ["--cwd", "--kind", "--task-id"] })) return 0;
-      assertOnlyOptions(receiptArgs, "receipts list", ["--cwd", "--kind", "--task-id"]);
+      assertOnlyOptions(receiptArgs, "receipts list", ["--cwd", "--kind", "--task-id"], ["--json"]);
       const targetStore = new BridgeStore(resolveCwdFlag(io.cwd, receiptArgs));
       const receipts = await listReceiptsForInspection(targetStore, {
         kind: readReceiptKindFlag(receiptArgs),
         task_id: readFlag(receiptArgs, "--task-id")
       });
+      if (receiptArgs.includes("--json")) {
+        io.stdout(JSON.stringify(receipts, null, 2));
+        return 0;
+      }
       if (receipts.length === 0) {
         io.stdout("No receipts yet.");
         return 0;
@@ -251,10 +259,14 @@ export async function runSessionsCommand(rest: string[], io: CliIO): Promise<num
     }
     if (subcommand === "list") {
       if (printHelpIfRequested(sessionArgs, "sessions list", io.stdout, printSessionsHelp, { valueFlags: ["--cwd", "--status"] })) return 0;
-      assertOnlyOptions(sessionArgs, "sessions list", ["--cwd", "--status"]);
+      assertOnlyOptions(sessionArgs, "sessions list", ["--cwd", "--status"], ["--json"]);
       const targetStore = new BridgeStore(resolveCwdFlag(io.cwd, sessionArgs));
       const status = readSessionStatusFlag(sessionArgs);
       const sessions = await listSessionsForInspection(targetStore, status);
+      if (sessionArgs.includes("--json")) {
+        io.stdout(JSON.stringify(sessions, null, 2));
+        return 0;
+      }
       if (sessions.length === 0) {
         io.stdout(status ? `No sessions with status ${status}.` : "No sessions yet.");
         return 0;
@@ -274,7 +286,18 @@ export async function runSessionsCommand(rest: string[], io: CliIO): Promise<num
       io.stdout(formatSession(session));
       return 0;
     }
-    throw unknownSubcommandError("sessions", subcommand, ["list", "show"]);
+    if (subcommand === "cancel") {
+      if (printHelpIfRequested(sessionArgs, "sessions cancel", io.stdout, printSessionsHelp, { valueFlags: ["--cwd"], maxPositionals: 1 })) return 0;
+      const [sessionId] = readPositionalsWithOptions(sessionArgs, "sessions cancel", 1, ["--cwd"]);
+      if (!sessionId) throw new Error("sessions cancel requires <session-id|latest>");
+      const targetStore = new BridgeStore(resolveCwdFlag(io.cwd, sessionArgs));
+      const target = sessionId === "latest" ? (await listSessionsForInspection(targetStore))[0] : undefined;
+      if (sessionId === "latest" && !target) throw new Error("No sessions found");
+      const session = await targetStore.cancelSession(target ? target.id : sessionId);
+      io.stdout(`${session.id}\t${session.status}\tcancelled`);
+      return 0;
+    }
+    throw unknownSubcommandError("sessions", subcommand, ["list", "show", "cancel"]);
 }
 
 export function formatSession(session: Awaited<ReturnType<BridgeStore["getSession"]>>): string {
