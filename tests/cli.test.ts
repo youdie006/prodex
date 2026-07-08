@@ -1291,6 +1291,20 @@ describe("runCli", () => {
     expect(out.join("\n")).toContain("## File: notes.md");
   });
 
+  it("rejects send-only flags on the dry-run `pro ask` preview instead of ignoring them", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
+    await runCli(["init"], { cwd, stdout: () => {}, stderr: () => {} });
+    for (const flag of [["--model", "Pro"], ["--effort", "높음"], ["--port", "9333"], ["--new-chat"]]) {
+      await expect(
+        runCli(["pro", "ask", ...flag, "hi"], { cwd, stdout: () => {}, stderr: () => {} })
+      ).rejects.toThrow(/only applies when sending/);
+    }
+    // A plain preview still works.
+    const out: string[] = [];
+    await runCli(["pro", "ask", "hi"], { cwd, stdout: (line) => out.push(line), stderr: () => {} });
+    expect(out.join("\n")).toContain("DRY RUN");
+  });
+
   it("rejects unknown ask-pro flags before they become prompt text", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
 

@@ -1733,6 +1733,17 @@ async function connectCdp(webSocketUrl: string, timeoutMs?: number): Promise<{
       pending.delete(messageId);
     }
   });
+  // Persistent error listener: the connect promise only registers a one-shot
+  // "error" handler, so a second post-open "error" would otherwise be an
+  // unhandled EventEmitter 'error' and crash the process. Reject any in-flight
+  // commands (a "close" normally follows and clears the rest).
+  ws.addEventListener("error", () => {
+    for (const [messageId, waiter] of pending) {
+      if (waiter.timer) clearTimeout(waiter.timer);
+      waiter.reject(new Error("Chrome DevTools websocket error"));
+      pending.delete(messageId);
+    }
+  });
   await new Promise<void>((resolve, reject) => {
     const timer = setTimeout(() => {
       ws.close();
@@ -2054,7 +2065,7 @@ function answerExpression(): string {
     return {
       title: document.title,
       url: location.href,
-      answer: answer || text.slice(-4000),
+      answer: assistant ? answer : text.slice(-4000),
       textSample: text.slice(0, 12000),
       blockerTextSample: visibleTextOutsideMessages(excludedTextSelector).slice(0, 12000),
       blockerScanTextSample: visibleTextOutsideMessages(blockerScanExcludedSelector).slice(0, 12000),

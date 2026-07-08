@@ -32,6 +32,10 @@ type BridgeRecordKind = Exclude<BridgeStorageKind, "artifacts">;
 export type BridgeStoreTestHooks = {
   beforeRecordTempCleanup?: (kind: BridgeRecordKind, filePath: string) => Promise<void> | void;
   beforeRecordRename?: (kind: BridgeRecordKind, filePath: string) => Promise<void> | void;
+  // Fires after the integrity-key read misses (ENOENT) but before this store
+  // writes its own key, so a test can simulate another process winning the
+  // create race in that exact window.
+  afterReceiptKeyReadMiss?: () => Promise<void> | void;
   disableDirectoryFdPaths?: boolean;
 };
 
@@ -864,12 +868,23 @@ export class BridgeStore {
     } catch (error) {
       if (!isErrorCode(error, "ENOENT")) throw error;
     }
+    await storeTestHooks.afterReceiptKeyReadMiss?.();
     const key = randomBytes(RECEIPT_INTEGRITY_KEY_BYTES).toString("hex");
-    await writeVerifiedUtf8File(this.receiptIntegrityKeyPath(), `${key}\n`, () => this.assertReceiptIntegrityKeyTargetSafe(), {
-      create: true,
-      mode: BRIDGE_FILE_MODE
-    });
-    return key;
+    try {
+      // Exclusive-create (not last-writer-wins rename): if two processes both
+      // read ENOENT and race to write, a rename would clobber the first key and
+      // silently untrust every receipt already signed with it. O_EXCL makes the
+      // loser observe EEXIST and adopt the winner's key instead.
+      await writeVerifiedUtf8File(this.receiptIntegrityKeyPath(), `${key}\n`, () => this.assertReceiptIntegrityKeyTargetSafe(), {
+        exclusive: true,
+        mode: BRIDGE_FILE_MODE
+      });
+      return key;
+    } catch (error) {
+      if (!isErrorCode(error, "EEXIST")) throw error;
+      const [activeKey] = await this.readReceiptIntegrityKeys();
+      return activeKey;
+    }
   }
 
   // The key file holds one 32-byte hex key per line: the first line signs new

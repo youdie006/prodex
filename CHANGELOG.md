@@ -4,6 +4,29 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.1] - 2026-07-08
+
+Second pass of the multi-angle audit backlog.
+
+### Fixed
+- An assistant message that posted with empty text (image-only reply, tool
+  card, or a render-lag frame) no longer causes the send to return page chrome
+  (sidebar + echoed prompt) as the "answer" - the page-tail fallback now applies
+  only when there is no assistant message at all.
+- Receipt integrity-key initialization is now exclusive-create: if two processes
+  race to create it, the loser adopts the winner's key instead of clobbering it
+  (a clobber would silently untrust every receipt already signed with the
+  overwritten key).
+- The CDP client now keeps a persistent websocket "error" listener, so a second
+  post-open socket error can no longer surface as an unhandled event and crash
+  the process.
+- `prodex pro ask` (a dry-run preview) now rejects send-only flags (`--model`,
+  `--effort`, `--port`, `--target-url`, `--project`, `--new-chat`, ...) with
+  guidance to `pro browser ask`, instead of silently accepting and ignoring
+  them (their values were not even validated).
+- `prodex pro debate-prompt` no longer accepts a meaningless `--cwd` (it prints
+  a prompt and never touches the ledger).
+
 ## [0.16.0] - 2026-07-08
 
 Fixes from a multi-angle audit (concurrency, resource/error paths, security,

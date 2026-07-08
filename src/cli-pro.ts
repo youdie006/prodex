@@ -212,6 +212,26 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
       if (hasAskProSendMode(proArgs)) {
         throw new Error("prodex pro ask is a dry-run preview. Use `prodex pro browser ask` for visible-browser sends.");
       }
+      // Send-only flags have no effect on the dry-run bundle (which uses only the
+      // prompt, --file, and --cwd) and their values were not even validated.
+      // Reject them with guidance instead of silently ignoring them.
+      const straySendFlag = [
+        "--port",
+        "--timeout-ms",
+        "--target-url",
+        "--confirm-target",
+        "--project",
+        "--project-new",
+        "--model",
+        "--pro-mode",
+        "--effort",
+        "--new-chat",
+        "--auto-login",
+        "--no-auto-login"
+      ].find((flag) => proArgs.includes(flag));
+      if (straySendFlag) {
+        throw new Error(`${straySendFlag} only applies when sending; \`prodex pro ask\` is a dry-run preview. Use \`prodex pro browser ask\` (or \`prodex ask\`) to send.`);
+      }
       const hasDryRun = hasAskProDryRunMode(proArgs);
       try {
         return await runCliFn(["ask-pro", ...(hasDryRun ? [] : ["--dry-run"]), ...proArgs], io);
@@ -425,12 +445,14 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
     if (subcommand === "debate-prompt") {
       if (
         printHelpIfRequested(proArgs, "pro debate-prompt", io.stdout, printProHelp, {
-          valueFlags: ["--topic", "--rounds", "--source-cli", "--cwd"]
+          valueFlags: ["--topic", "--rounds", "--source-cli"]
         })
       ) {
         return 0;
       }
-      assertOnlyOptions(proArgs, "pro debate-prompt", ["--topic", "--rounds", "--source-cli", "--cwd"]);
+      // debate-prompt only prints a prompt (no ledger access), so --cwd is
+      // meaningless here - reject it rather than silently accepting it.
+      assertOnlyOptions(proArgs, "pro debate-prompt", ["--topic", "--rounds", "--source-cli"]);
       const sourceCli = resolveOptionalFileFlag(io.cwd, proArgs, "--source-cli");
       const rounds = readPositiveIntegerFlag(proArgs, "--rounds") ?? 2;
       if (rounds > 5) {

@@ -65,6 +65,42 @@ describe("BridgeStore", () => {
     await expect(store.claimTask(task.id, "agent-b")).rejects.toThrow(/not new|already/i);
   });
 
+  it("adopts a concurrently-created integrity key instead of clobbering it", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-store-"));
+    const keyPath = path.join(root, ".bridge", "receipt-key.local");
+    const winnerKey = "a".repeat(64);
+    let injected = false;
+    try {
+      // Simulate another process winning the create race in the exact window
+      // between this store's key read-miss and its own key write.
+      setBridgeStoreTestHooks({
+        afterReceiptKeyReadMiss: async () => {
+          if (injected) return;
+          injected = true;
+          await writeFile(keyPath, `${winnerKey}\n`, { mode: 0o600 });
+        }
+      });
+      const store = new BridgeStore(root);
+      const task = await store.createTask({
+        source: "codex",
+        title: "Race key",
+        prompt: "x",
+        repo_id: "default",
+        files: [],
+        provenance: { adapter: "cli" }
+      });
+      // Exclusive-create must have observed EEXIST and adopted the winner's key,
+      // not overwritten it (which would untrust receipts signed with it).
+      expect((await readFile(keyPath, "utf8")).trim()).toBe(winnerKey);
+      // The task_created receipt must verify as trusted under the adopted key.
+      const receipts = await store.listReceiptsReadOnly({ task_id: task.id });
+      const untrusted = receipts.filter((r) => (r.metadata as Record<string, unknown> | undefined)?.integrity_status);
+      expect(untrusted).toEqual([]);
+    } finally {
+      setBridgeStoreTestHooks({});
+    }
+  });
+
   it("recovers a claim after a crashed holder left a stale lock file", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "prodex-store-"));
     const store = new BridgeStore(root);
