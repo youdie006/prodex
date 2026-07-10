@@ -336,7 +336,24 @@ async function run(command, commandArgs, cwd) {
       maxBuffer: 20 * 1024 * 1024
     });
   } catch (error) {
+    // Surface the real failure: the one-line detail used to show the FIRST
+    // stderr line, which npm noise ("npm warn ...") could occupy while the
+    // actual test failure sat in stdout and was silently dropped.
+    printCapturedOutputTail(error, commandLine);
     throw new Error(`release verification failed: ${commandLine}: ${commandFailureDetail(error)}`);
+  }
+}
+
+function printCapturedOutputTail(error, commandLine) {
+  const failed = error && typeof error === "object" ? error : {};
+  for (const [label, value] of [
+    ["stdout", failed.stdout],
+    ["stderr", failed.stderr]
+  ]) {
+    if (typeof value !== "string" || value.trim().length === 0) continue;
+    const tail = value.split(/\r?\n/).filter((line) => line.trim().length > 0).slice(-40);
+    console.error(`release_check: ${commandLine} ${label} tail:`);
+    for (const line of tail) console.error(`  ${line}`);
   }
 }
 
@@ -432,5 +449,7 @@ function firstOutputLine(value) {
   return value
     .split(/\r?\n/)
     .map((line) => line.trim())
-    .find(Boolean);
+    // npm chatter is never the failure - skip it so the one-line summary shows
+    // the real error instead of "npm warn Unknown user config ...".
+    .find((line) => Boolean(line) && !/^npm (warn|notice)\b/i.test(line));
 }
