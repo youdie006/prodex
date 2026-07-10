@@ -4,6 +4,23 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.5] - 2026-07-10
+
+More 2026-07 ChatGPT update compatibility, found by live-sweeping the
+remaining selection paths.
+
+### Fixed
+- `--project` selection: the update made the sidebar project row a plain list
+  item (no longer a link), so clicking it never navigated. Navigation now uses
+  the row's "Open project home" button (verified live from both outside and
+  inside the project), with the old row click kept as a fallback. An unchanged
+  URL is also accepted when the tab is already on the project's home instead
+  of failing with "did not navigate".
+- `--pro-mode`: the update removed the Pro sub-mode submenu from the model
+  picker entirely (verified live, including on hover) - Pro is a single mode
+  now. The flag now fails with guidance to use `--model Pro` instead of a bare
+  "expander not found".
+
 ## [0.16.4] - 2026-07-10
 
 Compatibility with the 2026-07 ChatGPT web update (measured live).

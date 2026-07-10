@@ -767,6 +767,18 @@ describe("ChatGPT browser adapter", () => {
     expect(evaluateBrowserStatusExpression<boolean>(menuItemPresentExpression("High"), doc)).toBe(false);
   });
 
+  it("prefers the row's project-home button for project navigation (2026-07 UI)", async () => {
+    const browser = await import("../src/chatgpt-browser.js");
+    const projectItemRectExpression = (browser as { projectItemRectExpression: (name: string) => string }).projectItemRectExpression;
+    const expr = projectItemRectExpression("demo-project");
+    // The project row (li) is no longer a link on the new UI; navigation is the
+    // "Open project home" button inside the row. Pin that the expression
+    // targets it (with the Korean label variant) before falling back.
+    expect(expr).toContain('project home');
+    expect(expr).toContain("프로젝트 홈");
+    expect(expr).toContain("clickPoint(home)");
+  });
+
   it("reports an open dialog's text so a blocked composer can be dismissed", async () => {
     const browser = await import("../src/chatgpt-browser.js");
     const statusExpression = (browser as { statusExpression: () => string }).statusExpression;

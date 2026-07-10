@@ -1126,6 +1126,13 @@ export function projectItemRectExpression(name: string): string {
       }
     }
     if (!target) return { ok: false, reason: "project not found in sidebar" };
+    // 2026-07 ChatGPT update: the project row (li) is no longer a link - the
+    // navigation affordance is a dedicated "Open project home" button inside
+    // the row (verified live: clicking the row does nothing, clicking the home
+    // button navigates to /g/g-p-...). Prefer it; fall back to the row click
+    // for the old UI.
+    const home = target.querySelector('[aria-label*="project home" i],[aria-label*="프로젝트 홈"]');
+    if (home) return clickPoint(home);
     return clickPoint(target, 18);
   })()`;
 }
@@ -1174,7 +1181,13 @@ async function selectModelReasoning(
       // Open the Pro sub-mode submenu via the chevron, then pick 기본/확장.
       const expander = await cdp.evaluate<RectHit>(proSubmenuExpanderRectExpression());
       if (!expander.ok || expander.x === undefined || expander.y === undefined) {
-        throw new Error(expander.reason ?? "Could not open the ChatGPT Pro sub-mode submenu");
+        // The 2026-07 ChatGPT update removed the Pro sub-mode chevron from the
+        // model picker (verified live, including on hover) - Pro is a plain
+        // radio now. Name the change and the working alternative instead of a
+        // bare "expander not found".
+        throw new Error(
+          "The ChatGPT model menu no longer offers Pro sub-modes (the 2026-07 update removed the Pro submenu; Pro is a single mode now). Use --model Pro instead of --pro-mode. If ChatGPT restores sub-modes, update prodex (npm i -g @youdie006/prodex@latest)."
+        );
       }
       await verifiedClickAt(cdp, expander.x, expander.y, "Pro sub-mode expander");
       const subLabels = PRO_MODE_SUBMENU_LABELS[options.proMode];
@@ -1353,9 +1366,18 @@ async function selectProject(
     PROJECT_NAVIGATION_TIMEOUT_MS
   );
   if (!navigated) {
-    throw new Error(
-      `Clicking project "${options.project}" did not navigate the visible tab. If the tab is already inside this project, omit --project and retry.`
+    // The href staying put is fine when the tab was ALREADY on this project's
+    // home: the click landed on the requested row's own navigation control
+    // (hover-verified above), so an unchanged project URL means "already
+    // there", not a failed click.
+    const alreadyInProject = await cdp.evaluate<boolean>(
+      `/^https:\\/\\/chatgpt\\.com\\/g\\/g-p-/.test(location.href)`
     );
+    if (!alreadyInProject) {
+      throw new Error(
+        `Clicking project "${options.project}" did not navigate the visible tab. If the tab is already inside this project, omit --project and retry.`
+      );
+    }
   }
   const composerReady = await waitForExpressionTrue(
     cdp,
