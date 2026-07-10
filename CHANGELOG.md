@@ -4,6 +4,28 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.6] - 2026-07-10
+
+### Fixed
+- A retried `repo_write_file_apply` after a successful apply now says the write
+  "was already applied" instead of the generic "File preimage changed" - a
+  client retry after a lost response can tell "already done" from a real
+  concurrent-modification conflict.
+- `pro browser models --port <custom>` failures now suggest the login command
+  with that port instead of the default-port command that would not fix the
+  setup.
+- `pro browser check` reports a failing in-page probe as a check failure with a
+  next step (like doctor) instead of crashing with an internal
+  "Runtime.evaluate failed".
+
+### Tests
+- The in-page answer extractor (`answerExpression`) is now behaviorally tested
+  against a fake DOM (message counts, last-assistant answer, thinking
+  placeholder, empty-message and no-message fallbacks) - previously the send
+  loop's only data producer had no test.
+- Added the fresh-preimage bypass test: an apply whose preimage matches the
+  concurrently-changed file but not the reviewed receipt is rejected.
+
 ## [0.16.5] - 2026-07-10
 
 More 2026-07 ChatGPT update compatibility, found by live-sweeping the

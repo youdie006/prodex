@@ -2070,7 +2070,7 @@ function composerExpressionHelpers(): string {
   `;
 }
 
-function answerExpression(): string {
+export function answerExpression(): string {
   const excludedTextSelector = JSON.stringify(CHATGPT_RUNTIME_BLOCKER_TEXT_EXCLUDED_ANCESTORS);
   const blockerScanExcludedSelector = JSON.stringify(CHATGPT_BLOCKER_SCAN_EXCLUDED_ANCESTORS);
   const streamingSelector = JSON.stringify(CHATGPT_STREAMING_SELECTOR);

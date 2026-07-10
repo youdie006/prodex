@@ -374,17 +374,30 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
       if (browserSubcommand === "models") {
         if (printProBrowserHelpIfRequested(browserArgs, "pro browser models", io, { valueFlags: ["--port", "--timeout-ms", "--source-cli"] })) return 0;
         assertOnlyOptions(browserArgs, "pro browser models", ["--port", "--timeout-ms", "--source-cli"]);
-        const listed = await listChatGptModelOptions({
-          port: readPortFlag(browserArgs, "--port"),
-          timeoutMs: readPositiveIntegerFlag(browserArgs, "--timeout-ms")
-        });
+        const modelsSourceCli = resolveOptionalFileFlag(io.cwd, browserArgs, "--source-cli");
+        const modelsPort = readPortFlag(browserArgs, "--port");
+        let listed: Awaited<ReturnType<typeof listChatGptModelOptions>>;
+        try {
+          listed = await listChatGptModelOptions({
+            port: modelsPort,
+            timeoutMs: readPositiveIntegerFlag(browserArgs, "--timeout-ms")
+          });
+        } catch (error) {
+          // Keep the next step actionable for a custom --port: the raw blocker
+          // suggests the default-port login command, which would not fix a
+          // 9444-style setup.
+          const blocker = sourceAwareBrowserBlocker(browserSendBlockerFromError(error), modelsSourceCli, {
+            ...(modelsPort !== undefined && modelsPort !== DEFAULT_CDP_PORT ? { port: modelsPort } : {})
+          });
+          throw new Error(blocker.next_step ? `${blocker.message} Next: ${blocker.next_step}` : errorMessage(error));
+        }
         io.stdout("Model menu options in the visible ChatGPT tab (read-only; nothing was selected):");
         for (const option of listed.options) {
           const marker = option.checked ? "*" : " ";
           const suffix = option.kind === "submenu" ? "  (has sub-variants; not selectable via --model yet)" : "";
           io.stdout(`${marker} ${option.label}${suffix}`);
         }
-        io.stdout("Use radio entries with `pro browser ask --model/--effort`; Pro sub-modes via --pro-mode 기본|확장.");
+        io.stdout("Use radio entries with `pro browser ask --model/--effort` (e.g. --model Pro).");
         return 0;
       }
       throw unknownSubcommandError("pro browser", browserSubcommand, ["login", "ask", "smoke", "check", "models"]);
@@ -1336,10 +1349,20 @@ export async function printProductCheck(store: BridgeStore, io: CliIO, args: str
     // config unreadable: already reported by the config line above
   }
 
-  const browserStatus = await getChatGptBrowserStatus({
-    port: resolveCdpPort(readPortFlag(args, "--port")),
-    timeoutMs: readPositiveIntegerFlag(args, "--timeout-ms") ?? 1500
-  });
+  let browserStatus: Awaited<ReturnType<typeof getChatGptBrowserStatus>>;
+  try {
+    browserStatus = await getChatGptBrowserStatus({
+      port: resolveCdpPort(readPortFlag(args, "--port")),
+      timeoutMs: readPositiveIntegerFlag(args, "--timeout-ms") ?? 1500
+    });
+  } catch (error) {
+    // A reachable-but-broken page (e.g. a failing in-page evaluate) must show
+    // as a check failure like doctor does, not crash the whole check with an
+    // internal "Runtime.evaluate failed".
+    io.stdout(`chatgpt: check failed - ${errorMessage(error)}`);
+    io.stdout("next: Reload the ChatGPT tab in the dedicated browser (or rerun `prodex pro browser login`), then retry.");
+    return false;
+  }
   const browserCommandOptions = {
     cwd: setupHintCwd,
     port: readPortFlag(args, "--port") ?? undefined

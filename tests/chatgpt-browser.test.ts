@@ -767,6 +767,45 @@ describe("ChatGPT browser adapter", () => {
     expect(evaluateBrowserStatusExpression<boolean>(menuItemPresentExpression("High"), doc)).toBe(false);
   });
 
+  it("answerExpression reads counts, the last assistant text, and generating from the DOM", async () => {
+    const browser = await import("../src/chatgpt-browser.js");
+    const answerExpression = (browser as { answerExpression: () => string }).answerExpression;
+    const message = (role: string, text: string): FakeElement => {
+      const el = new FakeElement("div");
+      el.setAttribute("data-message-author-role", role);
+      el.innerText = text;
+      return el;
+    };
+    type AnswerState = { answer: string; assistantMessageCount: number; userMessageCount: number; generating: boolean };
+
+    // Normal thread: last assistant message is the answer, counts are split by role.
+    const doc = new FakeDocument([], []);
+    doc.body.innerText = "ChatGPT\nsidebar";
+    doc.messages = [message("user", "q1"), message("assistant", "a1"), message("user", "q2"), message("assistant", "final answer")];
+    const state = evaluateBrowserStatusExpression<AnswerState>(answerExpression(), doc);
+    expect(state.assistantMessageCount).toBe(2);
+    expect(state.userMessageCount).toBe(2);
+    expect(state.answer).toBe("final answer");
+    expect(state.generating).toBe(false);
+
+    // A lone reasoning header is a placeholder: generating must be true.
+    doc.messages = [message("user", "q"), message("assistant", "Thinking")];
+    expect(evaluateBrowserStatusExpression<AnswerState>(answerExpression(), doc).generating).toBe(true);
+    // ...but a real answer that starts with "Thinking" is not.
+    doc.messages = [message("user", "q"), message("assistant", "Thinking about it, yes.")];
+    expect(evaluateBrowserStatusExpression<AnswerState>(answerExpression(), doc).generating).toBe(false);
+
+    // An assistant message with empty text must NOT fall back to page chrome.
+    doc.messages = [message("user", "q"), message("assistant", "")];
+    const empty = evaluateBrowserStatusExpression<AnswerState>(answerExpression(), doc);
+    expect(empty.answer).toBe("");
+    expect(empty.assistantMessageCount).toBe(1);
+
+    // No messages at all: the page-tail fallback applies.
+    doc.messages = [];
+    expect(evaluateBrowserStatusExpression<AnswerState>(answerExpression(), doc).answer).toContain("sidebar");
+  });
+
   it("prefers the row's project-home button for project navigation (2026-07 UI)", async () => {
     const browser = await import("../src/chatgpt-browser.js");
     const projectItemRectExpression = (browser as { projectItemRectExpression: (name: string) => string }).projectItemRectExpression;
@@ -944,6 +983,7 @@ class FakeDocument {
   visibilityState = "visible";
   menuItems: FakeElement[] = [];
   dialogs: FakeElement[] = [];
+  messages: FakeElement[] = [];
 
   constructor(
     private readonly editors: FakeTextArea[],
@@ -955,8 +995,10 @@ class FakeDocument {
   }
 
   querySelectorAll(selector: string): FakeElement[] {
-    if (selector === "button,a,[role=\"button\"]") return this.roots.flatMap((root) => root.buttons);
-    if (selector === "[data-message-author-role]") return [];
+    if (selector === "button,a,[role=\"button\"]" || selector === 'button,[role="button"]') {
+      return this.roots.flatMap((root) => root.buttons);
+    }
+    if (selector === "[data-message-author-role]") return this.messages;
     if (selector.includes("menuitemradio") || selector.includes('[role="menuitem"]')) return this.menuItems;
     if (selector.includes('[role="dialog"]')) return this.dialogs;
     if (selector.includes("textarea") || selector.includes("[contenteditable")) return this.editors;

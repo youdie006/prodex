@@ -164,6 +164,14 @@ export async function applyRepoWriteDryRun(
   const current = await readWritableExistingFile(root, metadata.path);
   const currentPreimage = sha256(current.content);
   if (currentPreimage !== input.preimage_sha256) {
+    // A retry after a successful apply sees the file already holding the new
+    // content - name that instead of the generic conflict message so the
+    // caller can tell "already done" from "someone else changed the file".
+    if (currentPreimage === metadata.new_sha256) {
+      throw new Error(
+        `Write for ${metadata.path} was already applied (the file already matches the reviewed content). Re-run repo_write_file_dry_run if you need a new change.`
+      );
+    }
     throw new Error(`File preimage changed for ${metadata.path}`);
   }
 

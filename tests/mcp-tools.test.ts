@@ -926,6 +926,58 @@ describe("MCP tool handlers", () => {
     ).rejects.toThrow(/preimage/);
   });
 
+  it("names an already-applied write on retry instead of the generic conflict error", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-"));
+    await writeFile(path.join(cwd, "notes.md"), "old\n", "utf8");
+    const head = await initGitRepo(cwd);
+    const handlers = createMcpToolHandlers({ cwd });
+    const dryRun = await handlers.repo_write_file_dry_run({
+      path: "notes.md",
+      content: "new\n",
+      expected_head: head
+    });
+    await handlers.repo_write_file_apply({
+      receipt_id: dryRun.receipt.id,
+      expected_head: head,
+      preimage_sha256: dryRun.preimage_sha256
+    });
+    // A client retry after the lost response replays the same call.
+    await expect(
+      handlers.repo_write_file_apply({
+        receipt_id: dryRun.receipt.id,
+        expected_head: head,
+        preimage_sha256: dryRun.preimage_sha256
+      })
+    ).rejects.toThrow(/already applied/);
+  });
+
+  it("rejects write apply when the caller passes a FRESH preimage that differs from the reviewed receipt", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-"));
+    await writeFile(path.join(cwd, "notes.md"), "old\n", "utf8");
+    const head = await initGitRepo(cwd);
+    const handlers = createMcpToolHandlers({ cwd });
+    const dryRun = await handlers.repo_write_file_dry_run({
+      path: "notes.md",
+      content: "new\n",
+      expected_head: head
+    });
+    // A concurrent edit lands after the review...
+    await writeFile(path.join(cwd, "notes.md"), "changed\n", "utf8");
+
+    // ...and the caller re-reads the file and passes the FRESH preimage. The
+    // current-file check alone would pass (fresh hash == current file); only
+    // the receipt comparison stops the reviewed content from clobbering the
+    // unreviewed concurrent edit.
+    await expect(
+      handlers.repo_write_file_apply({
+        receipt_id: dryRun.receipt.id,
+        expected_head: head,
+        preimage_sha256: sha256("changed\n")
+      })
+    ).rejects.toThrow(/does not match dry-run receipt/);
+    expect(await readFile(path.join(cwd, "notes.md"), "utf8")).toBe("changed\n");
+  });
+
   it("rejects write apply for forged case-folded sensitive receipt paths", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-"));
     await writeFile(path.join(cwd, "notes.md"), "old\n", "utf8");
