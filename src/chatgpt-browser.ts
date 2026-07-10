@@ -182,7 +182,7 @@ export interface SendChatGptPromptOptions {
   project?: string;
   /** Create a new project with this name before sending. */
   projectNew?: string;
-  /** Model to select in the composer picker, e.g. "Pro" or "GPT-5.5". */
+  /** Model to select in the composer picker, e.g. "Pro". */
   model?: string;
   /** Pro sub-mode, used when model is Pro. */
   proMode?: ChatGptProMode;
@@ -235,6 +235,9 @@ interface ChatGptPageStatus extends ChatGptPageTextState {
   modelHints: string[];
   url: string;
   visibilityState: string;
+  // Text of an open [role="dialog"] (e.g. a marketing/onboarding modal), which
+  // hides the composer behind aria-hidden and must be dismissed before use.
+  openDialogText?: string;
 }
 
 // Text/buttons for login and status detection: exclude message bodies and the
@@ -699,7 +702,30 @@ async function readSettledChatGptPageStatus(page: DevtoolsPage): Promise<ChatGpt
     await sleep(400);
     status = await evaluateOnPage<ChatGptPageStatus>(page, statusExpression());
   }
+  // An open modal dialog (e.g. the "ChatGPT for Work" onboarding promo shipped
+  // with the 2026-07 update) puts the app behind aria-hidden, so the composer
+  // and the logged-in signals are undetectable and every flow would report
+  // "not ready". Escape dismisses such dialogs; try it (bounded) only when the
+  // composer is actually blocked and a dialog is open.
+  for (let attempt = 0; attempt < 2 && !status.hasComposer && (status.openDialogText ?? "").length > 0; attempt += 1) {
+    await dismissOpenDialogViaEscape(page);
+    await sleep(500);
+    status = await evaluateOnPage<ChatGptPageStatus>(page, statusExpression());
+  }
   return status;
+}
+
+async function dismissOpenDialogViaEscape(page: DevtoolsPage): Promise<void> {
+  const cdp = await connectCdp(page.webSocketDebuggerUrl);
+  try {
+    await cdp.send("Runtime.enable");
+    await dispatchEscapeKey(cdp);
+  } catch {
+    // Best effort: if the Escape cannot be delivered the settle loop simply
+    // reports the original not-ready state.
+  } finally {
+    cdp.close();
+  }
 }
 
 async function ensureVisibleChatGptPage(port: number, page: DevtoolsPage, status: ChatGptPageStatus): Promise<ChatGptPageStatus> {
@@ -955,7 +981,11 @@ export function menuItemLabelMatches(text: string, candidates: readonly string[]
 
 function menuLabelMatchPredicate(label: string | readonly string[]): string {
   const c = JSON.stringify(toLabelCandidates(label));
-  return `((r) => { const t = (r.textContent || "").trim(); return ${c}.includes(t) || ${c}.includes(t.split(String.fromCharCode(10))[0].trim()); })`;
+  // Prefer innerText over textContent: a badge rendered next to the label (e.g.
+  // the "5.5" chip on "Instant") concatenates in textContent ("Instant5.5",
+  // unmatchable) but keeps a line break in innerText ("Instant\n5.5"), which the
+  // first-line match handles (measured live on the 2026-07 ChatGPT update).
+  return `((r) => { const t = ((r.innerText || r.textContent || "")).trim(); return ${c}.includes(t) || ${c}.includes(t.split(String.fromCharCode(10))[0].trim()); })`;
 }
 
 export function menuItemPresentExpression(label: string | readonly string[]): string {
@@ -1026,7 +1056,7 @@ export function menuItemRectExpression(label: string | readonly string[]): strin
     if (!m) return { ok: false, reason: "reasoning/model menu did not open" };
     const items = [...m.querySelectorAll('[role="menuitemradio"],[role="menuitem"]')];
     const it = items.find(${menuLabelMatchPredicate(label)});
-    if (!it) return { ok: false, reason: "menu item not found", available: items.map((r) => (r.textContent || "").trim()).slice(0, 12) };
+    if (!it) return { ok: false, reason: "menu item not found", available: items.map((r) => ((r.innerText || r.textContent || "").trim().split(String.fromCharCode(10))[0] || "").trim()).slice(0, 12) };
     const point = clickPoint(it);
     if (!point.ok) return point;
     return { ...point, role: it.getAttribute("role"), haspopup: it.getAttribute("aria-haspopup") };
@@ -1049,7 +1079,7 @@ export function submenuItemRectExpression(label: string | readonly string[]): st
 // or "Pro 확장"), so it must be matched by prefix, never by exact text.
 const PRO_RADIO_FINDER_SNIPPET = `
     const findProRadio = (scope) =>
-      [...scope.querySelectorAll('[role="menuitemradio"]')].find((r) => /^Pro( |$)/.test((r.textContent || "").trim()));`;
+      [...scope.querySelectorAll('[role="menuitemradio"]')].find((r) => /^Pro( |$)/.test(((r.innerText || r.textContent || "").trim().split(String.fromCharCode(10))[0] || "").trim()));`;
 
 export function proRadioRectExpression(): string {
   return `(() => {${CLICK_POINT_SNIPPET}${PRO_RADIO_FINDER_SNIPPET}
@@ -1554,7 +1584,7 @@ export function modelMenuOptionsExpression(): string {
     if (!m) return [];
     return [...m.querySelectorAll('[role="menuitemradio"],[role="menuitem"]')]
       .map((it) => ({
-        label: (it.textContent || "").trim(),
+        label: (((it.innerText || it.textContent || "").trim().split(String.fromCharCode(10))[0]) || "").trim(),
         kind: it.getAttribute("aria-haspopup") === "menu" ? "submenu" : "radio",
         checked: it.getAttribute("aria-checked") === "true"
       }))
@@ -1865,7 +1895,8 @@ export function statusExpression(): string {
       visibleButtonLabels,
       hasComposer,
       generating: placeholder || Boolean(document.querySelector(${streamingSelector})) || visibleButtonLabels.some((label) => generatingControlPattern.test(label)),
-      modelHints: lines.filter((line) => /GPT|Pro|Thinking|ChatGPT|Extra High|Auto/i.test(line)).slice(0, 30)
+      modelHints: lines.filter((line) => /GPT|Pro|Thinking|ChatGPT|Extra High|Auto/i.test(line)).slice(0, 30),
+      openDialogText: (document.querySelector('[role="dialog"]')?.innerText || "").trim().slice(0, 200)
     };
   })()`;
 }

@@ -746,6 +746,42 @@ describe("ChatGPT browser adapter", () => {
     expect(plainStatus.hasComposer).toBe(false);
     expect(chatStatus.hasComposer).toBe(true);
   });
+
+  it("matches a menu item whose badge pollutes textContent (Instant + version chip)", async () => {
+    const browser = await import("../src/chatgpt-browser.js");
+    const menuItemPresentExpression = (browser as { menuItemPresentExpression: (label: string | readonly string[]) => string })
+      .menuItemPresentExpression;
+    const doc = new FakeDocument([], []);
+    // Measured live on the 2026-07 ChatGPT update: the "5.5" chip concatenates
+    // in textContent ("Instant5.5") but stays on its own line in innerText.
+    const instant = new FakeElement("div");
+    instant.innerText = "Instant\n5.5";
+    instant.textContent = "Instant5.5";
+    const extraHigh = new FakeElement("div");
+    extraHigh.innerText = "Extra High";
+    extraHigh.textContent = "Extra High";
+    doc.menuItems = [instant, extraHigh];
+
+    expect(evaluateBrowserStatusExpression<boolean>(menuItemPresentExpression("Instant"), doc)).toBe(true);
+    // First-line matching must still refuse to cross-match High/Extra High.
+    expect(evaluateBrowserStatusExpression<boolean>(menuItemPresentExpression("High"), doc)).toBe(false);
+  });
+
+  it("reports an open dialog's text so a blocked composer can be dismissed", async () => {
+    const browser = await import("../src/chatgpt-browser.js");
+    const statusExpression = (browser as { statusExpression: () => string }).statusExpression;
+    const doc = new FakeDocument([new FakeTextArea()], []);
+    const dialog = new FakeElement("div");
+    dialog.innerText = "ChatGPT for Work onboarding\nTry ChatGPT Work\nClose";
+    doc.dialogs = [dialog];
+
+    const status = evaluateBrowserStatusExpression<{ openDialogText?: string }>(statusExpression(), doc);
+    expect(status.openDialogText).toContain("ChatGPT for Work onboarding");
+
+    doc.dialogs = [];
+    const clear = evaluateBrowserStatusExpression<{ openDialogText?: string }>(statusExpression(), doc);
+    expect(clear.openDialogText).toBe("");
+  });
 });
 
 function devtoolsPage(url: string): DevtoolsPage {
@@ -894,6 +930,8 @@ class FakeDocument {
   readonly body = new FakeElement("body");
   title = "ChatGPT";
   visibilityState = "visible";
+  menuItems: FakeElement[] = [];
+  dialogs: FakeElement[] = [];
 
   constructor(
     private readonly editors: FakeTextArea[],
@@ -907,6 +945,8 @@ class FakeDocument {
   querySelectorAll(selector: string): FakeElement[] {
     if (selector === "button,a,[role=\"button\"]") return this.roots.flatMap((root) => root.buttons);
     if (selector === "[data-message-author-role]") return [];
+    if (selector.includes("menuitemradio") || selector.includes('[role="menuitem"]')) return this.menuItems;
+    if (selector.includes('[role="dialog"]')) return this.dialogs;
     if (selector.includes("textarea") || selector.includes("[contenteditable")) return this.editors;
     if (selector.includes(PRODEX_ACTIVE_COMPOSER_ATTRIBUTE)) {
       return this.roots.filter((root) => root.getAttribute(PRODEX_ACTIVE_COMPOSER_ATTRIBUTE) === "true");

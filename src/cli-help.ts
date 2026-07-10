@@ -174,7 +174,7 @@ Commands:
 Use \`prodex pro ask\` for dry-run/manual previews.
 Use \`prodex pro browser ask\` only when you want an explicit visible-browser send.
 Model/project selection (visible-browser send):
-  --model "label"              Pick the composer model by its exact menu label (verified: Pro). Submenu models (e.g. GPT-5.5 variants) are rejected for now.
+  --model "label"              Pick the composer model by its exact menu label (verified: Pro). Submenu models (e.g. the GPT-5.6 Sol variants) are rejected for now.
   --pro-mode 기본 | 확장          Pro sub-mode (only when the model is Pro); 확장 raises the default timeout to 300000 ms
   --effort 즉시|중간|높음|매우 높음   Reasoning effort (aliases: instant/medium/high/max); picking one deselects Pro
   --project "name"             Enter an existing sidebar project first (cannot combine with --target-url)

@@ -4,6 +4,28 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.4] - 2026-07-10
+
+Compatibility with the 2026-07 ChatGPT web update (measured live).
+
+### Fixed
+- Model/effort menu matching survives label badges: the update renders a
+  version chip next to a label (e.g. "Instant" + a "5.5" chip), which
+  concatenates in textContent ("Instant5.5") and broke both exact and
+  first-line matching. Menu predicates (and the Pro radio finder, the
+  "available" error listing, and `pro browser models` output) now read
+  innerText - where the badge stays on its own line - so the existing
+  first-line tolerant match handles it. Verified live: `--effort 즉시`
+  selects Instant and answers on the new UI.
+- The update ships a "ChatGPT for Work" onboarding modal that puts the app
+  behind aria-hidden, hiding the composer and the logged-in signals, so every
+  send/models run reported "not ready". The page-settle path now detects an
+  open dialog blocking the composer and dismisses it with Escape (bounded,
+  only when the composer is actually blocked). Verified live.
+
+### Changed
+- Refreshed stale model-name examples in help text (GPT-5.5 -> GPT-5.6 Sol).
+
 ## [0.16.3] - 2026-07-08
 
 Fixes from a second multi-angle audit (docs, dependencies/packaging, error-UX,
