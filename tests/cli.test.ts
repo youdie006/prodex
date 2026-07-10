@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
-import { runCli } from "../src/cli.js";
+import { parsePackedFiles, runCli } from "../src/cli.js";
 import { setSafeFileTestHooks } from "../src/safe-file.js";
 import { BridgeStore } from "../src/store.js";
 
@@ -170,6 +170,15 @@ describe("runCli", () => {
         })
       ).rejects.toThrow(item.expected);
     }
+  });
+
+  it("parses npm pack --json output from both npm <=11 (array) and npm 12 (object)", () => {
+    const files = [{ path: "dist/cli.js", size: 10, mode: 0o755 }];
+    const arrayShape = JSON.stringify([{ id: "demo@1.0.0", filename: "demo-1.0.0.tgz", files }]);
+    const objectShape = JSON.stringify({ demo: { id: "demo@1.0.0", filename: "demo-1.0.0.tgz", files } });
+    expect(parsePackedFiles(arrayShape).map((f) => f.path)).toEqual(["dist/cli.js"]);
+    expect(parsePackedFiles(objectShape).map((f) => f.path)).toEqual(["dist/cli.js"]);
+    expect(() => parsePackedFiles("{}")).toThrow(/did not return a file list/);
   });
 
   it("prints a helpful empty-state instead of blank output for empty lists", async () => {

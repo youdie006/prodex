@@ -843,14 +843,17 @@ type PackedFile = {
   mode: number;
 };
 
-function parsePackedFiles(stdout: string): PackedFile[] {
-  let entries: Array<{ files?: unknown }>;
+export function parsePackedFiles(stdout: string): PackedFile[] {
+  let parsed: unknown;
   try {
-    entries = JSON.parse(stdout) as Array<{ files?: unknown }>;
+    parsed = JSON.parse(stdout);
   } catch {
     throw new Error("npm pack dry-run did not return valid JSON");
   }
-  const files = entries?.[0]?.files;
+  // npm <=11 prints an ARRAY of entries; npm 12 changed `pack --json` to an
+  // OBJECT keyed by package name (measured on npm 12.0.0). Accept both.
+  const first = (Array.isArray(parsed) ? parsed[0] : Object.values(parsed ?? {})[0]) as { files?: unknown } | undefined;
+  const files = first?.files;
   if (!Array.isArray(files)) {
     throw new Error("npm pack dry-run did not return a file list");
   }

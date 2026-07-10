@@ -1472,7 +1472,8 @@ async function packPackage(destination) {
     maxBuffer: 20 * 1024 * 1024
   });
   const entries = JSON.parse(stdout);
-  const entry = entries?.[0];
+  // npm <=11 prints an array; npm 12 prints an object keyed by package name.
+  const entry = Array.isArray(entries) ? entries[0] : Object.values(entries ?? {})[0];
   const filename = entry?.filename;
   if (typeof filename !== "string" || !filename.endsWith(".tgz")) {
     throw new Error(`Could not determine npm pack tarball from output: ${stdout}`);

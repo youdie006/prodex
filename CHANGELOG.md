@@ -23,6 +23,13 @@ Compatibility with the 2026-07 ChatGPT web update (measured live).
   open dialog blocking the composer and dismisses it with Escape (bounded,
   only when the composer is actually blocked). Verified live.
 
+### Fixed (release tooling)
+- npm 12 changed `npm pack --json` from an array to an object keyed by package
+  name, which broke `release pack`/`release status` (and the publish
+  workflow's verification, which installs npm@latest). All pack-output parsing
+  now accepts both shapes. Release verification failures also print a tail of
+  the captured output instead of hiding the real error behind npm warnings.
+
 ### Changed
 - Refreshed stale model-name examples in help text (GPT-5.5 -> GPT-5.6 Sol).
 

@@ -133,7 +133,9 @@ async function readPackedFiles(root) {
   } catch {
     throw new Error("npm pack dry-run did not return valid JSON");
   }
-  const files = entries?.[0]?.files;
+  // npm <=11 prints an array; npm 12 prints an object keyed by package name.
+  const first = Array.isArray(entries) ? entries[0] : Object.values(entries ?? {})[0];
+  const files = first?.files;
   if (!Array.isArray(files)) {
     throw new Error("npm pack dry-run did not return a file list");
   }
@@ -170,7 +172,8 @@ function resolvePackedTarball(destination, stdout) {
   } catch {
     throw new Error("npm pack did not return valid JSON");
   }
-  const filename = entries?.[0]?.filename;
+  const firstEntry = Array.isArray(entries) ? entries[0] : Object.values(entries ?? {})[0];
+  const filename = firstEntry?.filename;
   if (typeof filename !== "string" || !filename.endsWith(".tgz")) {
     throw new Error(`could not determine npm pack tarball from output: ${stdout}`);
   }

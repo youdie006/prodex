@@ -198,7 +198,9 @@ async function readPackedFiles(rootDir) {
   }
   try {
     const entries = JSON.parse(stdout);
-    const files = entries?.[0]?.files;
+    // npm <=11 prints an array; npm 12 prints an object keyed by package name.
+    const firstEntry = Array.isArray(entries) ? entries[0] : Object.values(entries ?? {})[0];
+    const files = firstEntry?.files;
     if (!Array.isArray(files)) {
       throw new Error("release metadata failed: npm pack dry-run did not return a file list");
     }
