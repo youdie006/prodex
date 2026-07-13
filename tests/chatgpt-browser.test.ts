@@ -816,6 +816,9 @@ describe("ChatGPT browser adapter", () => {
     expect(expr).toContain('project home');
     expect(expr).toContain("프로젝트 홈");
     expect(expr).toContain("clickPoint(home)");
+    // Case-insensitive fallback (unique match only) with a loud ambiguity error.
+    expect(expr).toContain("toLowerCase().includes(wanted.toLowerCase())");
+    expect(expr).toContain("matches multiple sidebar projects");
   });
 
   it("reports an open dialog's text so a blocked composer can be dismissed", async () => {

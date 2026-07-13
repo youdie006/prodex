@@ -1135,16 +1135,28 @@ export function proSubmenuExpanderRectExpression(): string {
 export function projectItemRectExpression(name: string): string {
   return `(() => {${CLICK_POINT_SNIPPET}
     // Korean: "<name> 프로젝트 옵션 열기"; English: "Open project options for <name>".
-    const opt = [...document.querySelectorAll('[aria-label*="프로젝트 옵션"],[aria-label*="project options" i]')].find((b) => (b.getAttribute("aria-label") || "").includes(${JSON.stringify(name)}));
+    const wanted = ${JSON.stringify(name)};
+    const optionButtons = [...document.querySelectorAll('[aria-label*="프로젝트 옵션"],[aria-label*="project options" i]')];
+    let opt = optionButtons.find((b) => (b.getAttribute("aria-label") || "").includes(wanted));
+    if (!opt) {
+      // Case-insensitive fallback: sidebar names are user-typed ("Codex") and
+      // an agent asking for "codex" should still resolve when unambiguous.
+      // Ambiguity fails loudly rather than guessing.
+      const ci = optionButtons.filter((b) => (b.getAttribute("aria-label") || "").toLowerCase().includes(wanted.toLowerCase()));
+      if (ci.length === 1) opt = ci[0];
+      else if (ci.length > 1) return { ok: false, reason: "project name matches multiple sidebar projects case-insensitively; use the exact name" };
+    }
     let target = opt ? (opt.closest('a,[role="link"],li') || opt.parentElement) : null;
     if (!target) {
       const icons = [...document.querySelectorAll('[data-testid="project-folder-icon"]')];
       for (const ic of icons) {
         const row = ic.closest('a,li,[role="link"]') || ic.parentElement?.parentElement;
-        if (row && (row.textContent || "").includes(${JSON.stringify(name)})) { target = row; break; }
+        if (row && (row.textContent || "").includes(wanted)) { target = row; break; }
       }
     }
-    if (!target) return { ok: false, reason: "project not found in sidebar" };
+    if (!target) {
+      return { ok: false, reason: "project not found in sidebar (" + optionButtons.length + " projects visible; names are matched exactly first, then case-insensitively - check the exact sidebar spelling)" };
+    }
     // 2026-07 ChatGPT update: the project row (li) is no longer a link - the
     // navigation affordance is a dedicated "Open project home" button inside
     // the row (verified live: clicking the row does nothing, clicking the home

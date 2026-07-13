@@ -4,6 +4,16 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.9] - 2026-07-13
+
+### Fixed
+- `--project` matching now falls back to a case-insensitive match when the
+  exact name is not in the sidebar (an agent asking for "codex" resolves the
+  sidebar's "Codex" when unambiguous; multiple case-insensitive matches fail
+  loudly instead of guessing). The not-found error also says how matching
+  works and how many projects were visible, without listing their names
+  (sidebar project names are personal context and error text is persisted).
+
 ## [0.16.8] - 2026-07-13
 
 Field report: a harness consult meant for GPT Pro silently ran on the
