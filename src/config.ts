@@ -104,9 +104,14 @@ export async function writeLocalConfig(cwd: string, input: WriteLocalConfigInput
   const now = new Date().toISOString();
   const host = normalizeLoopbackHttpHost(input.host ?? "127.0.0.1");
   const port = input.port ?? 8787;
-  const token = input.token ?? randomBytes(24).toString("hex");
-  const tokenExpiresAt = computeTokenExpiresAt(input.tokenTtlHours, now);
   const existing = await readExistingConfig(cwd);
+  // A setup re-run that only adjusts defaults/host/port must NOT rotate the
+  // token - that would silently 401 every client holding the old MCP URL.
+  // Rotation happens only when the caller explicitly asks for a token
+  // (--token) or a fresh expiry (--token-ttl-hours).
+  const tokenExplicitlyRequested = input.token !== undefined || input.tokenTtlHours !== undefined;
+  const token = input.token ?? (tokenExplicitlyRequested ? undefined : existing?.token) ?? randomBytes(24).toString("hex");
+  const tokenExpiresAt = tokenExplicitlyRequested || !existing ? computeTokenExpiresAt(input.tokenTtlHours, now) : existing.token_expires_at;
   const browserDefaults = mergeBrowserDefaults(existing?.browser_defaults, input.browserDefaults);
   const config = LocalConfigSchema.parse({
     schema_version: SCHEMA_VERSION,

@@ -5689,6 +5689,27 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     ).rejects.toThrow(`status requires local MCP setup. Run \`${setupCommand}\` first.`);
   });
 
+  it("preserves the existing token when setup re-runs only to change browser defaults", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
+    await runCli(["setup"], { cwd, stdout: () => {}, stderr: () => {} });
+    const before = JSON.parse(await readFile(path.join(cwd, ".bridge", "config.local.json"), "utf8"));
+
+    await runCli(["setup", "--model", "Pro"], { cwd, stdout: () => {}, stderr: () => {} });
+    const after = JSON.parse(await readFile(path.join(cwd, ".bridge", "config.local.json"), "utf8"));
+
+    // Adding a send default must not rotate the token (that would silently
+    // break every client holding the old MCP URL).
+    expect(after.token).toBe(before.token);
+    expect(after.server_url).toBe(before.server_url);
+    expect(after.browser_defaults?.model).toBe("Pro");
+
+    // An explicit token request still rotates.
+    await runCli(["setup", "--token-ttl-hours", "1"], { cwd, stdout: () => {}, stderr: () => {} });
+    const rotated = JSON.parse(await readFile(path.join(cwd, ".bridge", "config.local.json"), "utf8"));
+    expect(rotated.token).not.toBe(after.token);
+    expect(rotated.browser_defaults?.model).toBe("Pro");
+  });
+
   it("prints source-checkout token rotation hints before revealing local MCP URLs", async () => {
     const launcherCwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-launcher-"));
     const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-target-"));

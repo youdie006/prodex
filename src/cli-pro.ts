@@ -778,10 +778,19 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
       }
       const answerArtifactText = formatProConsultArtifact(consult);
       const persistenceWarnings = [...consult.warnings];
+      // A send with no model selection at all (no per-ask flag, no saved
+      // default) silently uses whatever the ChatGPT UI last had selected -
+      // after the 2026-07 update reset that to Medium, consults meant for Pro
+      // quietly ran on a mid-tier model. Warn loudly and record it.
+      if (!selectionModel && !selectionProMode && !selectionEffort) {
+        persistenceWarnings.push(
+          "model_selection_warning: no model/effort was selected for this send (no per-ask flag, no saved default), so it used whatever the ChatGPT UI last had selected. Pin one with `prodex setup --model Pro` or pass --model/--effort."
+        );
+      }
       // Truncation and other send warnings must be visible at runtime, not
       // only inside the persisted receipt: a caller who never opens .bridge
       // would otherwise treat a cut-off answer as complete.
-      for (const warning of consult.warnings) io.stderr(warning);
+      for (const warning of persistenceWarnings) io.stderr(warning);
       let answerArtifactPath: string | undefined;
       const answerArtifactBytes = Buffer.byteLength(answerArtifactText, "utf8");
       if (answerArtifactBytes > MAX_FETCHABLE_RESULT_ARTIFACT_BYTES) {

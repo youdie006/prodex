@@ -500,6 +500,39 @@ describe("pro browser ask persistence", () => {
     expect(latestNextLine).not.toContain("prodex pro browser login");
   });
 
+  it("warns when a send has no model selection (no flag, no saved default)", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-send-"));
+    sendChatGptPromptMock.mockResolvedValue({
+      url: "https://chatgpt.com/c/x",
+      title: "ChatGPT",
+      answer: "answer",
+      modelHints: [],
+      warnings: []
+    });
+    const stderrLines: string[] = [];
+    await runCli(["pro", "browser", "ask", "Review this"], {
+      cwd,
+      stdout: () => {},
+      stderr: (line) => stderrLines.push(line)
+    });
+    // Runtime nudge...
+    expect(stderrLines.join("\n")).toMatch(/model_selection_warning/);
+    expect(stderrLines.join("\n")).toContain("prodex setup --model Pro");
+    // ...and the persisted consult records it for MCP/agent consumers.
+    const latest: string[] = [];
+    await runCli(["pro", "latest"], { cwd, stdout: (line) => latest.push(line), stderr: () => {} });
+    expect(latest.join("\n")).toMatch(/model_selection_warning/);
+
+    // An explicit selection silences it.
+    const quiet: string[] = [];
+    await runCli(["pro", "browser", "ask", "--effort", "높음", "Review this"], {
+      cwd,
+      stdout: () => {},
+      stderr: (line) => quiet.push(line)
+    });
+    expect(quiet.join("\n")).not.toMatch(/model_selection_warning/);
+  });
+
   it("records a blocked consult when the visible browser send fails", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-send-"));
     sendChatGptPromptMock.mockRejectedValueOnce(new Error("ChatGPT is asking you to log in."));
@@ -831,7 +864,9 @@ describe("pro browser ask persistence", () => {
         status: "done",
         task_id: taskId,
         thread: "https://chatgpt.com/c/abc",
-        warnings: ["model hint observed"]
+        // The send passed no model flag and this repo has no saved default, so
+        // the model-selection nudge is recorded alongside the send warning.
+        warnings: ["model hint observed", expect.stringContaining("model_selection_warning")]
       })
     );
     const result = JSON.parse(await readFile(path.join(cwd, ".bridge", "results", `${taskId}.json`), "utf8")) as {
@@ -2007,7 +2042,7 @@ describe("pro browser ask model/project selection", () => {
     expect(payload.task_id).toMatch(/^task_/);
     expect(payload.thread).toBe("https://chatgpt.com/c/json");
     expect(payload.answer).toBe("json answer");
-    expect(payload.warnings).toEqual([]);
+    expect(payload.warnings).toEqual([expect.stringContaining("model_selection_warning")]);
   });
 
   it("emits blocked-consult JSON on stdout when --json is set", async () => {

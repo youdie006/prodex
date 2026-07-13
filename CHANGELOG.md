@@ -4,6 +4,22 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.8] - 2026-07-13
+
+Field report: a harness consult meant for GPT Pro silently ran on the
+medium-effort thinking model, because the 2026-07 ChatGPT update reset the
+UI's selected model and nothing pinned one.
+
+### Fixed
+- A send with NO model selection at all (no per-ask flag, no saved default)
+  now emits and records `model_selection_warning`, naming the fix
+  (`prodex setup --model Pro` or --model/--effort) - it previously used
+  whatever the ChatGPT UI last had selected without any indication.
+- Re-running `prodex setup` only to change browser-send defaults (e.g.
+  `setup --model Pro`) no longer rotates the MCP token - rotation would
+  silently 401 every client holding the old URL. The token now rotates only
+  when explicitly requested via `--token` or `--token-ttl-hours`.
+
 ## [0.16.7] - 2026-07-13
 
 Fixes from an xhigh multi-agent review of the 0.16.4-0.16.6 firefight range
