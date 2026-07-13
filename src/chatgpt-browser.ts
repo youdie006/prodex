@@ -1474,12 +1474,20 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
     assertChatGptPageAvailable();
   }
   const page = pageResult.page;
-  if (options.newChat) {
+  if (options.newChat && !options.project && !options.projectNew) {
     // Long accumulated threads eventually break acceptance detection, so
     // start from a clean chat. Wait for the tab to actually reach the fresh
     // empty chat (root URL, zero messages) rather than a fixed sleep: a slow
     // SPA navigation could otherwise leave the old thread rendered, poisoning
     // the answer-count baseline captured below and causing a false timeout.
+    //
+    // Skipped when a project is requested: the project home the selection step
+    // navigates to IS the fresh composer for "a new chat in this project".
+    // Navigating to the root new chat first leaves the SPA composer bound to
+    // the ROOT conversation target even after entering the project, so the
+    // thread silently lands outside the project (measured live: --new-chat
+    // --project threads appeared in the root chat list, --project-only
+    // threads appeared inside the project).
     await evaluateOnPage(page, `location.assign("https://chatgpt.com/")`);
     await waitForFreshChatGptPage(page, 8_000);
   }

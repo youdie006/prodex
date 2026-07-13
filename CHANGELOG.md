@@ -4,6 +4,18 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.11] - 2026-07-13
+
+### Fixed
+- `--new-chat --project` silently created the thread at ROOT instead of inside
+  the project: the root new-chat navigation left the SPA composer bound to the
+  root conversation target even after entering the project. When a project is
+  requested, the root navigation is now skipped - the project home the
+  selection step opens IS the fresh composer for "a new chat in this project".
+  Verified live: the thread URL now carries the project slug
+  (`/g/g-p-<project>/c/<thread>`), where broken runs produced a bare
+  `/c/<thread>` root URL. Plain `--new-chat` (no project) is unchanged.
+
 ## [0.16.10] - 2026-07-13
 
 ### Fixed
