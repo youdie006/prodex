@@ -1390,7 +1390,19 @@ async function selectProject(
   }
   if (!options.project) return;
   const hrefBefore = await cdp.evaluate<string>("location.href");
-  const hit = await cdp.evaluate<RectHit>(projectItemRectExpression(options.project));
+  // Poll for the project row instead of a single check: right after a
+  // --new-chat navigation the sidebar's Projects section has not hydrated yet
+  // (measured live: "0 projects visible" on the first read, rows appear
+  // moments later) - the same class of race as the model-selector button
+  // after new-chat (0.15.7).
+  let hit: RectHit = { ok: false };
+  const projectDeadline = Date.now() + 6_000;
+  for (;;) {
+    hit = await cdp.evaluate<RectHit>(projectItemRectExpression(options.project));
+    if (hit.ok && hit.x !== undefined && hit.y !== undefined) break;
+    if (Date.now() >= projectDeadline) break;
+    await sleep(300);
+  }
   if (!hit.ok || hit.x === undefined || hit.y === undefined) {
     const detail = hit.reason && hit.reason !== "project not found in sidebar" ? ` (${hit.reason})` : "";
     throw new Error(`ChatGPT project not found in sidebar: ${options.project}${detail}`);

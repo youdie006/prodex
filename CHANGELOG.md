@@ -4,6 +4,16 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.10] - 2026-07-13
+
+### Fixed
+- `--new-chat --project` failed with "project not found in sidebar (0 projects
+  visible)": right after the new-chat navigation the sidebar's Projects section
+  has not hydrated yet, and project selection checked it exactly once. The
+  project row is now polled (up to 6s) - the same race class as the
+  model-selector button after new-chat (0.15.7). Reproduced and verified live
+  with the failing combination.
+
 ## [0.16.9] - 2026-07-13
 
 ### Fixed
