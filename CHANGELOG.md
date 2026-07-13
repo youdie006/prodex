@@ -4,6 +4,23 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.12] - 2026-07-13
+
+Project management usability: stop guessing names, notice wrong landings.
+
+### Added
+- `prodex pro browser projects` - read-only list of the sidebar project names
+  exactly as ChatGPT renders them, so `--project` / `setup --project` never
+  have to guess spelling or case. Polls briefly for sidebar hydration; failures
+  carry port-aware guidance like `models`.
+- `project_landing_warning`: when a project was requested but the answered
+  thread's URL is a root `/c/` thread (in-project threads carry
+  `/g/g-p-<project>/c/`), the send now warns on stderr and in the recorded
+  result instead of leaving the mis-landing to a manual sidebar audit.
+
+### Changed
+- The `--project` not-found error now points at `prodex pro browser projects`.
+
 ## [0.16.11] - 2026-07-13
 
 ### Fixed

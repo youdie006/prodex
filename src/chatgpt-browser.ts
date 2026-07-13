@@ -1405,7 +1405,9 @@ async function selectProject(
   }
   if (!hit.ok || hit.x === undefined || hit.y === undefined) {
     const detail = hit.reason && hit.reason !== "project not found in sidebar" ? ` (${hit.reason})` : "";
-    throw new Error(`ChatGPT project not found in sidebar: ${options.project}${detail}`);
+    throw new Error(
+      `ChatGPT project not found in sidebar: ${options.project}${detail} List the visible names with \`prodex pro browser projects\`.`
+    );
   }
   await verifiedClickAt(cdp, hit.x, hit.y, `project ${options.project}`);
   const navigated = await waitForExpressionTrue(
@@ -1679,6 +1681,50 @@ export function modelMenuOptionsExpression(): string {
 // Read-only discovery: open the composer model menu, read the option labels,
 // and press Escape. Nothing is clicked inside the menu, so the user's model
 // selection is never changed.
+// Sidebar project names, extracted from the per-row options-button aria-labels
+// (English "Open project options for <name>", Korean "<name> 프로젝트 옵션 열기").
+export function sidebarProjectNamesExpression(): string {
+  return `(() => {
+    const names = [...document.querySelectorAll('[aria-label*="프로젝트 옵션"],[aria-label*="project options" i]')]
+      .map((b) => (b.getAttribute("aria-label") || "").replace(/^open project options for /i, "").replace(/\\s*프로젝트 옵션 열기$/, "").trim())
+      .filter(Boolean);
+    return [...new Set(names)];
+  })()`;
+}
+
+export interface ListChatGptSidebarProjectsResult {
+  url: string;
+  projects: string[];
+}
+
+// Read-only discovery for --project/setup --project: list the sidebar project
+// names exactly as ChatGPT renders them, so nobody has to guess spelling or
+// case. Polls briefly because the Projects section hydrates after navigation.
+export async function listChatGptSidebarProjects(input: { port?: number; timeoutMs?: number } = {}): Promise<ListChatGptSidebarProjectsResult> {
+  const port = resolveCdpPort(input.port);
+  const timeoutMs = input.timeoutMs ?? 15_000;
+  const pageResult = await findChatGptPage(port, computePageDiscoveryTimeout(timeoutMs), undefined);
+  if (!pageResult.ok) {
+    throwBlockerOrError(pageResult.blocker, "ChatGPT browser page is not available");
+  }
+  if (!pageResult.page) {
+    if (pageResult.blocker) throw new ChatGptBrowserBlockerError(pageResult.blocker);
+    assertChatGptPageAvailable();
+  }
+  const page = pageResult.page;
+  const status = await readSettledChatGptPageStatus(page);
+  const blocker = detectChatGptPageBlocker(status);
+  if (blocker) throw new ChatGptBrowserBlockerError(blocker);
+  let projects: string[] = [];
+  const deadline = Date.now() + 6_000;
+  for (;;) {
+    projects = await evaluateOnPage<string[]>(page, sidebarProjectNamesExpression());
+    if (projects.length > 0 || Date.now() >= deadline) break;
+    await sleep(300);
+  }
+  return { url: status.url, projects };
+}
+
 export async function listChatGptModelOptions(input: { port?: number; timeoutMs?: number } = {}): Promise<ListChatGptModelOptionsResult> {
   const port = resolveCdpPort(input.port);
   const timeoutMs = input.timeoutMs ?? 15_000;

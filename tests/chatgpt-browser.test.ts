@@ -821,6 +821,22 @@ describe("ChatGPT browser adapter", () => {
     expect(expr).toContain("matches multiple sidebar projects");
   });
 
+  it("lists sidebar project names from both locales' option-button labels", async () => {
+    const browser = await import("../src/chatgpt-browser.js");
+    const sidebarProjectNamesExpression = (browser as { sidebarProjectNamesExpression: () => string }).sidebarProjectNamesExpression;
+    const doc = new FakeDocument([], []);
+    const en = new FakeElement("button");
+    en.setAttribute("aria-label", "Open project options for Codex");
+    const ko = new FakeElement("button");
+    ko.setAttribute("aria-label", "prodex-smoke-project 프로젝트 옵션 열기");
+    const dupe = new FakeElement("button");
+    dupe.setAttribute("aria-label", "Open project options for Codex");
+    doc.projectOptionButtons = [en, ko, dupe];
+
+    const names = evaluateBrowserStatusExpression<string[]>(sidebarProjectNamesExpression(), doc);
+    expect(names).toEqual(["Codex", "prodex-smoke-project"]);
+  });
+
   it("reports an open dialog's text so a blocked composer can be dismissed", async () => {
     const browser = await import("../src/chatgpt-browser.js");
     const statusExpression = (browser as { statusExpression: () => string }).statusExpression;
@@ -987,6 +1003,7 @@ class FakeDocument {
   menuItems: FakeElement[] = [];
   dialogs: FakeElement[] = [];
   messages: FakeElement[] = [];
+  projectOptionButtons: FakeElement[] = [];
 
   constructor(
     private readonly editors: FakeTextArea[],
@@ -1003,6 +1020,7 @@ class FakeDocument {
     }
     if (selector === "[data-message-author-role]") return this.messages;
     if (selector.includes("menuitemradio") || selector.includes('[role="menuitem"]')) return this.menuItems;
+    if (selector.includes("프로젝트 옵션") || selector.includes("project options")) return this.projectOptionButtons;
     if (selector.includes('[role="dialog"]')) return this.dialogs;
     if (selector.includes("textarea") || selector.includes("[contenteditable")) return this.editors;
     if (selector.includes(PRODEX_ACTIVE_COMPOSER_ATTRIBUTE)) {

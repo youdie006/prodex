@@ -10,6 +10,7 @@ import {
   defaultChatGptProfileDir,
   getChatGptBrowserStatus,
   listChatGptModelOptions,
+  listChatGptSidebarProjects,
   normalizeChatGptTargetUrl,
   openChatGptBrowser,
   parseProMode,
@@ -406,7 +407,33 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
         io.stdout("Use radio entries with `pro browser ask --model/--effort` (e.g. --model Pro).");
         return 0;
       }
-      throw unknownSubcommandError("pro browser", browserSubcommand, ["login", "ask", "smoke", "check", "models"]);
+      if (browserSubcommand === "projects") {
+        if (printProBrowserHelpIfRequested(browserArgs, "pro browser projects", io, { valueFlags: ["--port", "--timeout-ms", "--source-cli"] })) return 0;
+        assertOnlyOptions(browserArgs, "pro browser projects", ["--port", "--timeout-ms", "--source-cli"]);
+        const projectsSourceCli = resolveOptionalFileFlag(io.cwd, browserArgs, "--source-cli");
+        const projectsPort = readPortFlag(browserArgs, "--port");
+        const projectsTimeoutMs = readPositiveIntegerFlag(browserArgs, "--timeout-ms");
+        const projectsResolvedPort = resolveCdpPort(projectsPort);
+        let listed: Awaited<ReturnType<typeof listChatGptSidebarProjects>>;
+        try {
+          listed = await listChatGptSidebarProjects({ port: projectsPort, timeoutMs: projectsTimeoutMs });
+        } catch (error) {
+          const blocker = sourceAwareBrowserBlocker(browserSendBlockerFromError(error), projectsSourceCli, {
+            ...(projectsResolvedPort !== DEFAULT_CDP_PORT ? { port: projectsResolvedPort } : {})
+          });
+          throw new Error(blocker.next_step ? `${blocker.message} Next: ${blocker.next_step}` : errorMessage(error));
+        }
+        if (listed.projects.length === 0) {
+          io.stdout("No projects visible in the ChatGPT sidebar (read-only check).");
+          io.stdout("If you expect projects, open the sidebar's Projects section once in the visible browser, then retry.");
+          return 0;
+        }
+        io.stdout("ChatGPT sidebar projects (read-only; exact names as rendered):");
+        for (const name of listed.projects) io.stdout(`  ${name}`);
+        io.stdout("Use with `pro browser ask --project \"<name>\"` or pin one with `prodex setup --project \"<name>\"`.");
+        return 0;
+      }
+      throw unknownSubcommandError("pro browser", browserSubcommand, ["login", "ask", "smoke", "check", "models", "projects"]);
     }
     if (subcommand === "open" || subcommand === "status" || subcommand === "smoke" || subcommand === "check" || subcommand === "doctor") {
       throw new Error(`Use \`prodex pro browser ${subcommand === "doctor" ? "check" : subcommand}\` for explicit browser automation.`);
@@ -785,6 +812,15 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
       if (!selectionModel && !selectionProMode && !selectionEffort) {
         persistenceWarnings.push(
           "model_selection_warning: no model/effort was selected for this send (no per-ask flag, no saved default), so it used whatever the ChatGPT UI last had selected. Pin one with `prodex setup --model Pro` or pass --model/--effort."
+        );
+      }
+      // In-project threads carry the project slug in their URL
+      // (/g/g-p-<project>/c/<id>); a bare /c/<id> after requesting a project
+      // means the thread landed at root - say so instead of leaving it to a
+      // sidebar audit (field-verified failure mode).
+      if ((selectionMetadata.project || selectionMetadata.project_new) && !/\/g\/g-p-/.test(consult.url ?? "")) {
+        persistenceWarnings.push(
+          "project_landing_warning: a project was requested but the answered thread URL is a root /c/ thread, so it likely landed OUTSIDE the project. Move it via the thread menu (Move to project) or re-run; list projects with `prodex pro browser projects`."
         );
       }
       // Truncation and other send warnings must be visible at runtime, not

@@ -533,6 +533,39 @@ describe("pro browser ask persistence", () => {
     expect(quiet.join("\n")).not.toMatch(/model_selection_warning/);
   });
 
+  it("warns when a requested project send lands on a root /c/ thread, and not when in-project", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-send-"));
+    sendChatGptPromptMock.mockResolvedValueOnce({
+      url: "https://chatgpt.com/c/root-thread",
+      title: "ChatGPT",
+      answer: "answer",
+      modelHints: [],
+      warnings: []
+    });
+    const rootErr: string[] = [];
+    await runCli(["pro", "browser", "ask", "--model", "Pro", "--project", "sandbox-demo", "Review this"], {
+      cwd,
+      stdout: () => {},
+      stderr: (line) => rootErr.push(line)
+    });
+    expect(rootErr.join("\n")).toMatch(/project_landing_warning/);
+
+    sendChatGptPromptMock.mockResolvedValueOnce({
+      url: "https://chatgpt.com/g/g-p-abc123-sandbox-demo/c/in-project-thread",
+      title: "ChatGPT",
+      answer: "answer",
+      modelHints: [],
+      warnings: []
+    });
+    const okErr: string[] = [];
+    await runCli(["pro", "browser", "ask", "--model", "Pro", "--project", "sandbox-demo", "Review this"], {
+      cwd,
+      stdout: () => {},
+      stderr: (line) => okErr.push(line)
+    });
+    expect(okErr.join("\n")).not.toMatch(/project_landing_warning/);
+  });
+
   it("records a blocked consult when the visible browser send fails", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-send-"));
     sendChatGptPromptMock.mockRejectedValueOnce(new Error("ChatGPT is asking you to log in."));
