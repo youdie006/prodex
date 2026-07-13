@@ -708,6 +708,11 @@ async function readSettledChatGptPageStatus(page: DevtoolsPage): Promise<ChatGpt
   // "not ready". Escape dismisses such dialogs; try it (bounded) only when the
   // composer is actually blocked and a dialog is open.
   for (let attempt = 0; attempt < 2 && !status.hasComposer && (status.openDialogText ?? "").length > 0; attempt += 1) {
+    // Never Escape a dialog that IS the evidence of a real blocker (usage
+    // limit, verification, captcha): dismissing it would destroy the precise
+    // diagnosis and let the send proceed into a generic failure. The blocker
+    // scan sample includes the dialog text, so detection sees it.
+    if (detectChatGptPageBlocker(status)) break;
     await dismissOpenDialogViaEscape(page);
     await sleep(500);
     status = await evaluateOnPage<ChatGptPageStatus>(page, statusExpression());
@@ -716,15 +721,18 @@ async function readSettledChatGptPageStatus(page: DevtoolsPage): Promise<ChatGpt
 }
 
 async function dismissOpenDialogViaEscape(page: DevtoolsPage): Promise<void> {
-  const cdp = await connectCdp(page.webSocketDebuggerUrl);
+  // Best effort throughout - including the connect itself: a browser that quit
+  // between the status read and this dismiss must not abort the settle loop
+  // with a raw websocket error (the loop just reports the not-ready state).
+  let cdp: Awaited<ReturnType<typeof connectCdp>> | undefined;
   try {
+    cdp = await connectCdp(page.webSocketDebuggerUrl);
     await cdp.send("Runtime.enable");
     await dispatchEscapeKey(cdp);
   } catch {
-    // Best effort: if the Escape cannot be delivered the settle loop simply
-    // reports the original not-ready state.
+    // reported by the settle loop as the original not-ready state
   } finally {
-    cdp.close();
+    cdp?.close();
   }
 }
 
@@ -774,12 +782,23 @@ function chatGptPageMissingBlocker(): NonNullable<ChatGptBrowserStatus["blocker"
   };
 }
 
-export function assertChatGptReadyForPrompt(loggedInLikely: boolean, hasComposer: boolean): void {
+export function assertChatGptReadyForPrompt(loggedInLikely: boolean, hasComposer: boolean, openDialogText?: string): void {
   if (loggedInLikely && hasComposer) return;
   const missing = [
     loggedInLikely ? undefined : "a clear logged-in ChatGPT session",
     hasComposer ? undefined : "a visible prompt composer"
   ].filter(Boolean);
+  // A dialog that survived the Escape auto-dismiss is the actual cause - name
+  // it so the user closes the modal instead of chasing the login advice.
+  const dialogHead = (openDialogText ?? "").trim().split("\n")[0]?.slice(0, 80);
+  if (!hasComposer && dialogHead) {
+    throw new ChatGptBrowserBlockerError({
+      code: "chatgpt_not_ready",
+      message: `ChatGPT browser is reachable, but an open dialog ("${dialogHead}") is blocking the prompt composer.`,
+      retryable: true,
+      next_step: "Close the dialog in the visible browser (it did not respond to Escape), then retry."
+    });
+  }
   throw new ChatGptBrowserBlockerError({
     code: "chatgpt_not_ready",
     message: `ChatGPT browser is reachable, but it is missing ${missing.join(" and ")}.`,
@@ -1181,12 +1200,17 @@ async function selectModelReasoning(
       // Open the Pro sub-mode submenu via the chevron, then pick 기본/확장.
       const expander = await cdp.evaluate<RectHit>(proSubmenuExpanderRectExpression());
       if (!expander.ok || expander.x === undefined || expander.y === undefined) {
-        // The 2026-07 ChatGPT update removed the Pro sub-mode chevron from the
-        // model picker (verified live, including on hover) - Pro is a plain
-        // radio now. Name the change and the working alternative instead of a
-        // bare "expander not found".
+        // Only the expander-specific miss means "the 2026-07 update removed the
+        // submenu"; other reasons (no Pro entry on a Plus plan, menu not open)
+        // must surface verbatim or the guidance sends users to a --model Pro
+        // that fails the same way.
+        if (expander.reason && expander.reason !== "Pro sub-mode expander not found next to Pro") {
+          throw new Error(expander.reason);
+        }
+        // The saved setup default injects pro_mode into plain asks, so the user
+        // may never have typed --pro-mode - name the clear command too.
         throw new Error(
-          "The ChatGPT model menu no longer offers Pro sub-modes (the 2026-07 update removed the Pro submenu; Pro is a single mode now). Use --model Pro instead of --pro-mode. If ChatGPT restores sub-modes, update prodex (npm i -g @youdie006/prodex@latest)."
+          "The ChatGPT model menu no longer offers Pro sub-modes (the 2026-07 update removed the Pro submenu; Pro is a single mode now). Use --model Pro instead of --pro-mode - and if this ask did not pass --pro-mode, a saved default is injecting it: run `prodex setup --clear-pro-mode`. If ChatGPT restores sub-modes, update prodex (npm i -g @youdie006/prodex@latest)."
         );
       }
       await verifiedClickAt(cdp, expander.x, expander.y, "Pro sub-mode expander");
@@ -1229,7 +1253,7 @@ async function selectModelReasoning(
     }
     if (primary.role === "menuitem" && primary.haspopup === "menu") {
       throw new Error(
-        `ChatGPT model "${primaryLabel}" opens a submenu of variants instead of committing; selecting it is not supported yet. Supported today: reasoning efforts (--effort) and Pro via --pro-mode.`
+        `ChatGPT model "${primaryLabel}" opens a submenu of variants instead of committing; selecting it is not supported yet. Supported today: reasoning efforts (--effort) and --model Pro.`
       );
     }
     await verifiedClickAt(cdp, primary.x, primary.y, primaryLabel);
@@ -1366,14 +1390,20 @@ async function selectProject(
     PROJECT_NAVIGATION_TIMEOUT_MS
   );
   if (!navigated) {
-    // The href staying put is fine when the tab was ALREADY on this project's
-    // home: the click landed on the requested row's own navigation control
-    // (hover-verified above), so an unchanged project URL means "already
-    // there", not a failed click.
-    const alreadyInProject = await cdp.evaluate<boolean>(
-      `/^https:\\/\\/chatgpt\\.com\\/g\\/g-p-/.test(location.href)`
+    // The href staying put is fine ONLY when the tab was already on THIS
+    // project's home. Requiring the requested project's name in the page title
+    // or heading (both carry it, measured live) prevents a stalled cross-
+    // project navigation from being accepted while still inside the OLD
+    // project - which would silently send the prompt into the wrong project.
+    const alreadyInRequestedProject = await cdp.evaluate<boolean>(
+      `(() => {
+        if (!/^https:\\/\\/chatgpt\\.com\\/g\\/g-p-/.test(location.href)) return false;
+        const name = ${JSON.stringify(options.project)};
+        if ((document.title || "").includes(name)) return true;
+        return [...document.querySelectorAll('h1,[role="heading"]')].some((h) => (h.innerText || "").includes(name));
+      })()`
     );
-    if (!alreadyInProject) {
+    if (!alreadyInRequestedProject) {
       throw new Error(
         `Clicking project "${options.project}" did not navigate the visible tab. If the tab is already inside this project, omit --project and retry.`
       );
@@ -1435,7 +1465,7 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
   if (blocker) {
     throw new ChatGptBrowserBlockerError(blocker);
   }
-  assertChatGptReadyForPrompt(inferChatGptPageLoggedInLikely(status), status.hasComposer);
+  assertChatGptReadyForPrompt(inferChatGptPageLoggedInLikely(status), status.hasComposer, status.openDialogText);
   if (normalizedTargetUrl) assertChatGptTargetUrlMatches(status.url, normalizedTargetUrl);
   assertVisibleChatGptTab(status.visibilityState, status.url, normalizedTargetUrl);
   const busyBlocker = chatGptBusyBlocker(status.generating);
@@ -1633,7 +1663,7 @@ export async function listChatGptModelOptions(input: { port?: number; timeoutMs?
   status = await ensureVisibleChatGptPage(port, page, status);
   const blocker = detectChatGptPageBlocker(status);
   if (blocker) throw new ChatGptBrowserBlockerError(blocker);
-  assertChatGptReadyForPrompt(inferChatGptPageLoggedInLikely(status), status.hasComposer);
+  assertChatGptReadyForPrompt(inferChatGptPageLoggedInLikely(status), status.hasComposer, status.openDialogText);
   assertVisibleChatGptTab(status.visibilityState, status.url, undefined);
   const cdp = await connectCdp(page.webSocketDebuggerUrl);
   try {
@@ -1918,7 +1948,7 @@ export function statusExpression(): string {
       hasComposer,
       generating: placeholder || Boolean(document.querySelector(${streamingSelector})) || visibleButtonLabels.some((label) => generatingControlPattern.test(label)),
       modelHints: lines.filter((line) => /GPT|Pro|Thinking|ChatGPT|Extra High|Auto/i.test(line)).slice(0, 30),
-      openDialogText: (document.querySelector('[role="dialog"]')?.innerText || "").trim().slice(0, 200)
+      openDialogText: (([...document.querySelectorAll('[role="dialog"]')].find((d) => d.offsetWidth || d.offsetHeight || d.getClientRects().length)?.innerText) || "").trim().slice(0, 200)
     };
   })()`;
 }

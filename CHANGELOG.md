@@ -4,6 +4,38 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.7] - 2026-07-13
+
+Fixes from an xhigh multi-agent review of the 0.16.4-0.16.6 firefight range
+(15 verified findings).
+
+### Fixed
+- `--project`: a stalled cross-project navigation could be silently accepted
+  while the tab was still inside the OLD project (any `/g/g-p-` URL passed the
+  already-inside check), sending the prompt into the wrong project. The
+  unchanged-URL acceptance now also requires the REQUESTED project's name in
+  the page title or heading (both carry it, measured live).
+- Dialog auto-dismiss safety: Escape is no longer sent when the open dialog is
+  itself the evidence of a real blocker (usage limit, verification, captcha) -
+  the precise blocker is reported instead; a websocket failure during the
+  dismiss no longer aborts the flow (connect is inside the best-effort guard);
+  only a VISIBLE dialog is sampled; and when Escape cannot close the dialog,
+  the not-ready error now names the dialog instead of suggesting a re-login.
+- `--pro-mode` guidance: no longer swallows the real reason (a Plus plan with
+  no Pro entry now says "Pro option not found" instead of claiming the UI
+  removed sub-modes), and names `prodex setup --clear-pro-mode` for users whose
+  saved default injects pro_mode into every plain ask. The submenu-model
+  rejection text also stopped recommending the removed --pro-mode.
+- `pro browser models`: a flag-validation error (e.g. `--timeout-ms abc`) is a
+  plain usage error again instead of being dressed as a browser blocker, and
+  port-aware guidance now reflects the resolved port (PRODEX_CDP_PORT
+  included), not just the raw --port flag.
+- `pro browser check`: an invalid PRODEX_CDP_PORT/--port/--timeout-ms is
+  reported as the config/usage error it is (not "check failed"); a probe
+  failure no longer skips the independent latest_pro section; and the
+  check-failed next step is rewritten port/source-cli-aware like every other
+  next step.
+
 ## [0.16.6] - 2026-07-10
 
 ### Fixed

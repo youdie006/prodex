@@ -375,19 +375,25 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
         if (printProBrowserHelpIfRequested(browserArgs, "pro browser models", io, { valueFlags: ["--port", "--timeout-ms", "--source-cli"] })) return 0;
         assertOnlyOptions(browserArgs, "pro browser models", ["--port", "--timeout-ms", "--source-cli"]);
         const modelsSourceCli = resolveOptionalFileFlag(io.cwd, browserArgs, "--source-cli");
+        // Parse flags OUTSIDE the browser-error adapter: a flag-validation
+        // error is a usage error, not a browser blocker.
         const modelsPort = readPortFlag(browserArgs, "--port");
+        const modelsTimeoutMs = readPositiveIntegerFlag(browserArgs, "--timeout-ms");
+        // Port-awareness must reflect the RESOLVED port (PRODEX_CDP_PORT env
+        // included), not just the raw --port flag.
+        const modelsResolvedPort = resolveCdpPort(modelsPort);
         let listed: Awaited<ReturnType<typeof listChatGptModelOptions>>;
         try {
           listed = await listChatGptModelOptions({
             port: modelsPort,
-            timeoutMs: readPositiveIntegerFlag(browserArgs, "--timeout-ms")
+            timeoutMs: modelsTimeoutMs
           });
         } catch (error) {
-          // Keep the next step actionable for a custom --port: the raw blocker
+          // Keep the next step actionable for a custom port: the raw blocker
           // suggests the default-port login command, which would not fix a
           // 9444-style setup.
           const blocker = sourceAwareBrowserBlocker(browserSendBlockerFromError(error), modelsSourceCli, {
-            ...(modelsPort !== undefined && modelsPort !== DEFAULT_CDP_PORT ? { port: modelsPort } : {})
+            ...(modelsResolvedPort !== DEFAULT_CDP_PORT ? { port: modelsResolvedPort } : {})
           });
           throw new Error(blocker.next_step ? `${blocker.message} Next: ${blocker.next_step}` : errorMessage(error));
         }
@@ -1349,25 +1355,31 @@ export async function printProductCheck(store: BridgeStore, io: CliIO, args: str
     // config unreadable: already reported by the config line above
   }
 
-  let browserStatus: Awaited<ReturnType<typeof getChatGptBrowserStatus>>;
+  // Parse flags OUTSIDE the probe guard: an invalid --port / PRODEX_CDP_PORT /
+  // --timeout-ms is a usage or config error, not a browser-check failure.
+  const checkPort = resolveCdpPort(readPortFlag(args, "--port"));
+  const checkTimeoutMs = readPositiveIntegerFlag(args, "--timeout-ms") ?? 1500;
+  const browserCommandOptions = {
+    cwd: setupHintCwd,
+    port: checkPort !== DEFAULT_CDP_PORT ? checkPort : undefined
+  };
+  let browserStatus: Awaited<ReturnType<typeof getChatGptBrowserStatus>> | undefined;
   try {
-    browserStatus = await getChatGptBrowserStatus({
-      port: resolveCdpPort(readPortFlag(args, "--port")),
-      timeoutMs: readPositiveIntegerFlag(args, "--timeout-ms") ?? 1500
-    });
+    browserStatus = await getChatGptBrowserStatus({ port: checkPort, timeoutMs: checkTimeoutMs });
   } catch (error) {
     // A reachable-but-broken page (e.g. a failing in-page evaluate) must show
     // as a check failure like doctor does, not crash the whole check with an
-    // internal "Runtime.evaluate failed".
+    // internal error - and the rest of the check (latest_pro) still runs.
     io.stdout(`chatgpt: check failed - ${errorMessage(error)}`);
-    io.stdout("next: Reload the ChatGPT tab in the dedicated browser (or rerun `prodex pro browser login`), then retry.");
-    return false;
+    const failedNext = productCheckBrowserNextStep(
+      "Reload the ChatGPT tab in the dedicated browser (or rerun `prodex pro browser login`), then retry.",
+      sourceCli,
+      browserCommandOptions
+    );
+    if (failedNext) io.stdout(`next: ${failedNext}`);
   }
-  const browserCommandOptions = {
-    cwd: setupHintCwd,
-    port: readPortFlag(args, "--port") ?? undefined
-  };
   let chatgptReady = false;
+  if (browserStatus) {
   const visibilityBlocker = chatGptVisibilityBlocker(browserStatus.visibilityState, browserStatus.url);
   if (!browserStatus.reachable) {
     io.stdout(`chatgpt: ${browserStatus.blocker?.code ?? "unreachable"} - ${browserStatus.blocker?.message ?? "browser is not reachable"}`);
@@ -1393,6 +1405,7 @@ export async function printProductCheck(store: BridgeStore, io: CliIO, args: str
   }
   const modelHints = formatBrowserModelHints(browserStatus.modelHints);
   if (modelHints) io.stdout(`model_hints: ${modelHints}`);
+  }
 
   if (bridgeReady) {
     try {
