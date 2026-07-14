@@ -4,6 +4,18 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.18] - 2026-07-14
+
+### Changed
+- `--pro-mode` is forward-compatible with OpenAI's staged rollout of the new
+  picker: per the July release notes Pro Standard/Extended still exist, but
+  some browsers (including the dedicated one here) receive a picker that
+  renders Pro as a single row. Selection now first tries the keyboard path
+  (focus the Pro row, ArrowRight - how Radix submenus open) with the
+  documented labels (Pro Standard/Extended, 기본/확장), then the legacy hover
+  chevron, and only then fails - with a message that correctly describes the
+  staged rollout instead of claiming the feature was removed.
+
 ## [0.16.17] - 2026-07-14
 
 ### Fixed

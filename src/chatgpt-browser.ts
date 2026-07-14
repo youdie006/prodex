@@ -77,8 +77,8 @@ const EFFORT_MENU_LABELS: Record<ChatGptReasoningEffort, readonly string[]> = {
 };
 
 const PRO_MODE_SUBMENU_LABELS: Record<ChatGptProMode, readonly string[]> = {
-  "기본": ["Pro 기본", "Pro Standard"],
-  "확장": ["Pro 확장", "Pro Extended"]
+  "기본": ["Pro 기본", "Pro Standard", "Standard", "기본"],
+  "확장": ["Pro 확장", "Pro Extended", "Extended", "확장"]
 };
 
 const PRO_MODE_ALIASES: Record<string, ChatGptProMode> = {
@@ -1261,6 +1261,27 @@ async function selectModelReasoning(
     const wantsProMode = Boolean(options.proMode) && (!options.model || /pro/i.test(options.model));
     if (wantsProMode && options.proMode) {
       // Open the Pro sub-mode submenu via the chevron, then pick 기본/확장.
+      // Forward-compat first: docs say Pro Standard/Extended persist, but this
+      // browser's picker may not render the affordance yet (staged rollout).
+      // Radix submenus open on ArrowRight from the focused row - keyboard is
+      // sturdier than a hover-revealed chevron when the flag lands.
+      const subLabelsForProbe = PRO_MODE_SUBMENU_LABELS[options.proMode];
+      const proRow = await cdp.evaluate<RectHit>(proRadioRectExpression());
+      if (proRow.ok && proRow.x !== undefined && proRow.y !== undefined) {
+        await cdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: proRow.x, y: proRow.y });
+        await sleep(200);
+        await cdp.send("Input.dispatchKeyEvent", { type: "keyDown", key: "ArrowRight", code: "ArrowRight", windowsVirtualKeyCode: 39 });
+        await cdp.send("Input.dispatchKeyEvent", { type: "keyUp", key: "ArrowRight", code: "ArrowRight", windowsVirtualKeyCode: 39 });
+        const subViaKeyboard = await waitForExpressionTrue(cdp, menuItemPresentExpression(subLabelsForProbe), 1_500);
+        if (subViaKeyboard) {
+          const subHit = await cdp.evaluate<RectHit>(submenuItemRectExpression(subLabelsForProbe));
+          if (subHit.ok && subHit.x !== undefined && subHit.y !== undefined) {
+            await verifiedClickWithRetry(cdp, () => cdp.evaluate<RectHit>(submenuItemRectExpression(subLabelsForProbe)), subLabelsForProbe[0]);
+            await assertSelectionCommitted(cdp, subLabelsForProbe[0]);
+            return;
+          }
+        }
+      }
       const expander = await cdp.evaluate<RectHit>(proSubmenuExpanderRectExpression());
       if (!expander.ok || expander.x === undefined || expander.y === undefined) {
         // Only the expander-specific miss means "the 2026-07 update removed the
@@ -1273,7 +1294,7 @@ async function selectModelReasoning(
         // The saved setup default injects pro_mode into plain asks, so the user
         // may never have typed --pro-mode - name the clear command too.
         throw new Error(
-          "The ChatGPT model menu no longer offers Pro sub-modes (the 2026-07 update removed the Pro submenu; Pro is a single mode now). Use --model Pro instead of --pro-mode - and if this ask did not pass --pro-mode, a saved default is injecting it: run `prodex setup --clear-pro-mode`. If ChatGPT restores sub-modes, update prodex (npm i -g @youdie006/prodex@latest)."
+          "This ChatGPT UI does not expose Pro sub-modes yet (staged rollout: Pro Standard/Extended exist per OpenAI docs and may already show in another browser, but this picker renders Pro as a single row - keyboard and hover probes both came up empty). Use --model Pro here for now and retry --pro-mode after the UI updates. If this ask did not pass --pro-mode, a saved default is injecting it: run `prodex setup --clear-pro-mode`."
         );
       }
       await verifiedClickWithRetry(cdp, () => cdp.evaluate<RectHit>(proSubmenuExpanderRectExpression()), "Pro sub-mode expander");
