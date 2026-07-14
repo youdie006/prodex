@@ -4,6 +4,15 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.16] - 2026-07-14
+
+### Fixed
+- `--model Pro` sends now default to a 15-minute timeout. The elevated default
+  (previously 5 minutes) was keyed to the removed `--pro-mode`, so Pro sends
+  fell back to the 90-second default and chronically timed out mid-reasoning
+  (field failure; a real Pro consult measured ~13 minutes). An explicit
+  `--timeout-ms` still wins; non-Pro sends keep the fast default.
+
 ## [0.16.15] - 2026-07-14
 
 ### Changed

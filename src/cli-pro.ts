@@ -680,7 +680,12 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
     const busyWaitMs = readPositiveIntegerFlag(parsedAskPro.optionArgs, "--busy-wait-ms");
     // Pro extended can legitimately think for minutes, so its default timeout is
     // higher; an explicit --timeout-ms always wins.
-    const defaultBrowserTimeoutMs = selectionProMode === "확장" ? 300_000 : 90_000;
+    // Pro reasoning routinely runs for many minutes (a real consult measured
+    // ~13 minutes). The elevated default used to be keyed to the removed
+    // --pro-mode, so --model Pro sends fell back to 90s and chronically timed
+    // out. Any effective Pro selection now defaults to 15 minutes.
+    const effectiveProSelection = selectionProMode !== undefined || (selectionModel !== undefined && /pro/i.test(selectionModel));
+    const defaultBrowserTimeoutMs = effectiveProSelection ? 900_000 : 90_000;
     const browserTimeoutMs = hasSendMode
       ? (readPositiveIntegerFlag(parsedAskPro.optionArgs, "--timeout-ms") ?? defaultBrowserTimeoutMs)
       : undefined;
