@@ -4,6 +4,19 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.14] - 2026-07-14
+
+### Fixed
+- Concurrent prodex clients no longer corrupt each other's sends. Two sessions
+  sharing the one dedicated browser tab interleaved composer input and
+  navigation - measured live: one client's test prompt landed inside the other
+  client's consult thread, and a 15-minute consult never actually posted (its
+  acceptance signal came from the other client's activity). Visible-browser
+  sends now hold a machine-global lock (~/.local/share/prodex/browser-send.lock,
+  pid-liveness stale reaping): a second send queues behind the holder within
+  its --busy-wait-ms budget, or fails fast naming the holder pid. Applies to
+  ask and smoke.
+
 ## [0.16.13] - 2026-07-14
 
 Shared-tab contention and post-creation transients, from a live sweep of the

@@ -533,6 +533,67 @@ describe("pro browser ask persistence", () => {
     expect(quiet.join("\n")).not.toMatch(/model_selection_warning/);
   });
 
+  it("serializes concurrent browser sends via the machine-global lock", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-send-"));
+    const lockFile = path.join(cwd, "send.lock");
+    process.env.PRODEX_SEND_LOCK_FILE = lockFile;
+    try {
+      const order: string[] = [];
+      sendChatGptPromptMock.mockImplementation(async ({ prompt }: { prompt: string }) => {
+        order.push(`start:${prompt.includes("first") ? "first" : "second"}`);
+        await new Promise((resolve) => setTimeout(resolve, 800));
+        order.push(`end:${prompt.includes("first") ? "first" : "second"}`);
+        return { url: "https://chatgpt.com/c/x", title: "ChatGPT", answer: "ok", modelHints: [], warnings: [] };
+      });
+      const second: string[] = [];
+      await Promise.all([
+        runCli(["pro", "browser", "ask", "--model", "Pro", "first prompt"], { cwd, stdout: () => {}, stderr: () => {} }),
+        (async () => {
+          await new Promise((resolve) => setTimeout(resolve, 150));
+          await runCli(["pro", "browser", "ask", "--model", "Pro", "--busy-wait-ms", "10000", "second prompt"], {
+            cwd,
+            stdout: () => {},
+            stderr: (line) => second.push(line)
+          });
+        })()
+      ]);
+      // The second send must not start until the first finished.
+      expect(order).toEqual(["start:first", "end:first", "start:second", "end:second"]);
+      expect(second.join("\n")).toMatch(/another prodex send holds the browser/);
+    } finally {
+      delete process.env.PRODEX_SEND_LOCK_FILE;
+      sendChatGptPromptMock.mockReset();
+    }
+  });
+
+  it("fails fast on a held send lock without --busy-wait-ms, and reaps a dead holder", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-send-"));
+    const lockFile = path.join(cwd, "send.lock");
+    process.env.PRODEX_SEND_LOCK_FILE = lockFile;
+    try {
+      // Held by THIS live process -> fail fast without a wait budget.
+      await writeFile(lockFile, JSON.stringify({ pid: process.pid }), "utf8");
+      await expect(
+        runCli(["pro", "browser", "ask", "--model", "Pro", "prompt"], { cwd, stdout: () => {}, stderr: () => {} })
+      ).rejects.toThrow(/[Aa]nother prodex browser send is in progress/);
+
+      // Held by a dead pid -> reaped, send proceeds.
+      await writeFile(lockFile, JSON.stringify({ pid: 999999 }), "utf8");
+      sendChatGptPromptMock.mockResolvedValueOnce({
+        url: "https://chatgpt.com/c/x",
+        title: "ChatGPT",
+        answer: "ok",
+        modelHints: [],
+        warnings: []
+      });
+      const out: string[] = [];
+      await runCli(["pro", "browser", "ask", "--model", "Pro", "prompt"], { cwd, stdout: (l) => out.push(l), stderr: () => {} });
+      expect(out.join("\n")).toContain("ok");
+    } finally {
+      delete process.env.PRODEX_SEND_LOCK_FILE;
+    }
+  });
+
   it("warns when a requested project send lands on a root /c/ thread, and not when in-project", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-send-"));
     sendChatGptPromptMock.mockResolvedValueOnce({

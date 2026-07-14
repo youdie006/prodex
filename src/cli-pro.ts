@@ -70,6 +70,7 @@ import {
   sourceAwareSetupMessage
 } from "./cli-shared.js";
 import { getTokenExpiryStatus, loadBrowserDefaults, loadLocalConfig } from "./config.js";
+import { withBrowserSendLock } from "./browser-send-lock.js";
 import { BridgeStore, MAX_FETCHABLE_RESULT_ARTIFACT_BYTES } from "./store.js";
 import type { CliIO } from "./cli.js";
 
@@ -154,12 +155,14 @@ export async function runChatgptCommand(rest: string[], io: CliIO): Promise<numb
       };
       let result: Awaited<ReturnType<typeof sendChatGptPrompt>>;
       try {
-        result = await sendChatGptPrompt({
-          port,
-          prompt: smokePrompt,
-          timeoutMs,
-          onProgress: createBrowserSendProgressPrinter(io.stderr)
-        });
+        result = await withBrowserSendLock(0, (detail) => io.stderr(`progress: ${detail}`), () =>
+          sendChatGptPrompt({
+            port,
+            prompt: smokePrompt,
+            timeoutMs,
+            onProgress: createBrowserSendProgressPrinter(io.stderr)
+          })
+        );
       } catch (error) {
         const blocker = sourceAwareBrowserBlocker(browserSendBlockerFromError(error), sourceCli, commandOptions);
         const message = blocker.next_step ? `${blocker.message} Next: ${blocker.next_step}` : errorMessage(error);
@@ -733,6 +736,7 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
         throw new Error(formatBlockedConsultRecordedMessage(blocker.message, task.id, sourceCli, { cwd: targetCwd }));
       }
       const sendOnce = () =>
+        withBrowserSendLock(busyWaitMs ?? 0, (detail) => io.stderr(`progress: ${detail}`), () =>
         sendChatGptPrompt({
           port: browserPort,
           prompt: bundle.text,
@@ -746,7 +750,7 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
           proMode: selectionProMode,
           effort: selectionEffort,
           onProgress: createBrowserSendProgressPrinter(io.stderr)
-        });
+        }));
       // One-command recovery: interactive terminals (or explicit --auto-login)
       // launch the dedicated browser and retry once when no browser runs.
       // Scripts and agents keep the plain blocker unless they opt in.
