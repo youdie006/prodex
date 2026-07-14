@@ -958,6 +958,38 @@ async function dispatchMouseClickAt(cdp: CdpConnection, x: number, y: number): P
   await cdp.send("Input.dispatchMouseEvent", { type: "mouseReleased", x, y, button: "left", clickCount: 1 });
 }
 
+// Retry a hover-verified click whose point is transiently covered (menu/modal
+// open-close animations, project navigation settling): re-locate FRESH
+// coordinates each attempt. Persistent covers still fail with the refusal.
+async function verifiedClickWithRetry(
+  cdp: CdpConnection,
+  locate: () => Promise<RectHit>,
+  label: string,
+  deadlineMs = 5_000
+): Promise<void> {
+  const deadline = Date.now() + deadlineMs;
+  let hit = await locate();
+  for (;;) {
+    if (!hit.ok || hit.x === undefined || hit.y === undefined) {
+      if (Date.now() >= deadline) {
+        throw new Error(hit.reason ?? `${label} not found`);
+      }
+      await sleep(300);
+      hit = await locate();
+      continue;
+    }
+    try {
+      await verifiedClickAt(cdp, hit.x, hit.y, label);
+      return;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (Date.now() >= deadline || !/Refusing to click/.test(message)) throw error;
+      await sleep(500);
+      hit = await locate();
+    }
+  }
+}
+
 async function dispatchEscapeKey(cdp: CdpConnection): Promise<void> {
   await cdp.send("Input.dispatchKeyEvent", { type: "keyDown", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
   await cdp.send("Input.dispatchKeyEvent", { type: "keyUp", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
@@ -1244,7 +1276,7 @@ async function selectModelReasoning(
           "The ChatGPT model menu no longer offers Pro sub-modes (the 2026-07 update removed the Pro submenu; Pro is a single mode now). Use --model Pro instead of --pro-mode - and if this ask did not pass --pro-mode, a saved default is injecting it: run `prodex setup --clear-pro-mode`. If ChatGPT restores sub-modes, update prodex (npm i -g @youdie006/prodex@latest)."
         );
       }
-      await verifiedClickAt(cdp, expander.x, expander.y, "Pro sub-mode expander");
+      await verifiedClickWithRetry(cdp, () => cdp.evaluate<RectHit>(proSubmenuExpanderRectExpression()), "Pro sub-mode expander");
       const subLabels = PRO_MODE_SUBMENU_LABELS[options.proMode];
       const subVisible = await waitForExpressionTrue(cdp, menuItemPresentExpression(subLabels), MENU_OPEN_TIMEOUT_MS);
       if (!subVisible) throw new Error(`ChatGPT Pro sub-mode not found: ${subLabels.join(" / ")}`);
@@ -1252,7 +1284,7 @@ async function selectModelReasoning(
       if (!sub.ok || sub.x === undefined || sub.y === undefined) {
         throw new Error(sub.reason ?? `ChatGPT Pro sub-mode not clickable: ${subLabels.join(" / ")}`);
       }
-      await verifiedClickAt(cdp, sub.x, sub.y, subLabels[0]);
+      await verifiedClickWithRetry(cdp, () => cdp.evaluate<RectHit>(submenuItemRectExpression(subLabels)), subLabels[0]);
       await assertSelectionCommitted(cdp, subLabels[0]);
       return;
     }
@@ -1270,7 +1302,7 @@ async function selectModelReasoning(
       if (!proRadio.ok || proRadio.x === undefined || proRadio.y === undefined) {
         throw new Error(proRadio.reason ?? "Pro option not found in the model menu");
       }
-      await verifiedClickAt(cdp, proRadio.x, proRadio.y, "Pro");
+      await verifiedClickWithRetry(cdp, () => cdp.evaluate<RectHit>(proRadioRectExpression()), "Pro");
       await assertSelectionCommitted(cdp, "Pro");
       return;
     }
@@ -1287,7 +1319,7 @@ async function selectModelReasoning(
         `ChatGPT model "${primaryLabel}" opens a submenu of variants instead of committing; selecting it is not supported yet. Supported today: reasoning efforts (--effort) and --model Pro.`
       );
     }
-    await verifiedClickAt(cdp, primary.x, primary.y, primaryLabel);
+    await verifiedClickWithRetry(cdp, () => cdp.evaluate<RectHit>(menuItemRectExpression(primaryCandidates)), primaryLabel);
     await assertSelectionCommitted(cdp, primaryLabel);
   } catch (error) {
     // Leave the user's screen clean: back out of any open menu before rethrowing.
@@ -1428,7 +1460,7 @@ async function selectProject(
       `ChatGPT project not found in sidebar: ${options.project}${detail} List the visible names with \`prodex pro browser projects\`.`
     );
   }
-  await verifiedClickAt(cdp, hit.x, hit.y, `project ${options.project}`);
+  await verifiedClickWithRetry(cdp, () => cdp.evaluate<RectHit>(projectItemRectExpression(options.project!)), `project ${options.project}`);
   const navigated = await waitForExpressionTrue(
     cdp,
     `location.href !== ${JSON.stringify(hrefBefore)}`,

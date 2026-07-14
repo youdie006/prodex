@@ -4,6 +4,16 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.17] - 2026-07-14
+
+### Fixed
+- Transiently-covered clicks now retry with fresh coordinates everywhere in
+  the selection flow (menu items, the Pro radio, the sub-mode expander,
+  project rows) - not just the model-selector button. A hover-verified click
+  refused during a menu/modal animation or right after project navigation
+  aborted the whole send (field failure: the Pro menu item refused once
+  mid-animation). Persistent covers still fail with the refusal message.
+
 ## [0.16.16] - 2026-07-14
 
 ### Fixed
