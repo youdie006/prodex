@@ -4,6 +4,17 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.20] - 2026-07-14
+
+### Fixed
+- README no longer tells new users to pass `--pro-mode 확장` in the quickstart
+  (that errors under the GPT-5.6 picker) and no longer claims the old 90s/300s
+  timeout defaults. The flags reference now explains that Pro sub-modes belong
+  to the GPT-5.5 generation picker, and that any Pro selection defaults to a
+  15-minute timeout. Quickstart teaches defaults-first
+  (`setup --model Pro --project`), project-name discovery, and
+  `--busy-wait-ms` for shared browsers.
+
 ## [0.16.19] - 2026-07-14
 
 ### Changed

@@ -35,7 +35,7 @@ prodex ask --file src/auth.ts "Review this for security holes"
 
 `prodex ask` is the short form of `prodex pro browser ask`; the full form and every flag work identically. In an interactive terminal, `login` keeps watching the opened window and tells you exactly which manual step is still missing (log in, clear a check, open a chat) until it reports READY. If you skip `login` and the browser is not running, an interactive `ask` recovers on its own: it launches the dedicated browser, waits for your saved session to be READY, and retries the send once (disable with `--no-auto-login`; scripts opt in with `--auto-login`). While ChatGPT thinks, `prodex` prints progress to stderr (connecting, prompt sent, elapsed seconds while generating), so a multi-minute Pro answer never looks frozen.
 
-The answer prints to your terminal and is saved under `.bridge/` for later (`prodex pro latest` re-prints it). Add `--new-chat` to send into a fresh chat (recommended for repeated consults - long threads eventually confuse send detection). For a structured second-opinion debate between your coding agent and GPT Pro, `prodex pro debate-prompt --topic "..."` prints a ready-to-paste orchestration prompt. `prodex` drives the picker you can see and deliberately will not send into a window you cannot watch — but a dedicated Chrome window left non-minimized (even behind your editor) counts as watchable, so it sends quietly in the background without stealing focus. Just don't minimize it or switch that window to another tab. Add `--pro-mode 확장` for extended reasoning, or `--file` more than once to attach several files. See [First Pro Login](#first-pro-login) for the full flow, and the [FAQ](#faq) if a send stops.
+The answer prints to your terminal and is saved under `.bridge/` for later (`prodex pro latest` re-prints it). Add `--new-chat` to send into a fresh chat (recommended for repeated consults - long threads eventually confuse send detection). For a structured second-opinion debate between your coding agent and GPT Pro, `prodex pro debate-prompt --topic "..."` prints a ready-to-paste orchestration prompt. `prodex` drives the picker you can see and deliberately will not send into a window you cannot watch — but a dedicated Chrome window left non-minimized (even behind your editor) counts as watchable, so it sends quietly in the background without stealing focus. Just don't minimize it or switch that window to another tab. Pin per-repo defaults once - `prodex setup --model Pro --project "your-project"` - so every ask runs Pro (15-minute timeout) inside that project instead of whatever the ChatGPT UI last had selected; list exact sidebar project names with `prodex pro browser projects`. Pass `--file` more than once to attach several files, and `--busy-wait-ms 600000` to queue behind an in-flight response when several agents share the browser. See [First Pro Login](#first-pro-login) for the full flow, and the [FAQ](#faq) if a send stops.
 
 ## Core Shape
 
@@ -225,7 +225,7 @@ The visible-browser send drives the same composer picker you use by hand, so you
 
 ```bash
 # Pro extended sub-mode, inside an existing sidebar project
-prodex pro browser ask --model Pro --pro-mode 확장 --project "my-project" "Review the migration plan"
+prodex pro browser ask --model Pro --project "my-project" "Review the migration plan"
 
 # A non-Pro model at a specific reasoning effort
 prodex pro browser ask --effort "매우 높음" "Draft the release notes"
@@ -240,7 +240,7 @@ prodex pro browser models
 ```
 
 - `--model` picks the composer model by its exact menu label. `Pro` is verified end-to-end. Models whose menu entry opens a submenu of variants (for example GPT-5.5) are rejected with a clear error instead of silently keeping the previous model; direct variant selection is planned.
-- `--pro-mode 기본|확장` selects the Pro sub-mode; it applies only when the model is Pro. `확장` can think for minutes, so it raises the default `--timeout-ms` from 90000 to 300000 (an explicit `--timeout-ms` always wins).
+- `--pro-mode 기본|확장` selects the Pro sub-mode where the ChatGPT picker exposes one: sub-modes belong to the GPT-5.5 generation ("Pro Standard/Extended use GPT-5.5 Pro" per OpenAI docs), so with the GPT-5.6 generation selected the picker shows a single Pro and this flag fails with guidance. Any effective Pro selection (`--model Pro` or a sub-mode) raises the default `--timeout-ms` to 900000 - Pro reasoning routinely runs for many minutes (an explicit `--timeout-ms` always wins).
 - `--effort 즉시|중간|높음|"매우 높음"` sets the reasoning effort. English aliases `instant`/`medium`/`high`/`max` are accepted. The effort options and Pro share one radio group in ChatGPT, so picking an effort switches the composer to the standard reasoning model and deselects Pro; for the same reason `--pro-mode` and `--effort` cannot be combined.
 - `--project "name"` enters an existing sidebar project before sending. `--project-new "name"` creates a new project (sidebar 새 프로젝트 popover, committed with Enter) and sends inside it. Neither can be combined with `--target-url` (the project step would navigate away from the confirmed tab), and `--project-new` never comes from saved defaults — creating a project is always an explicit per-ask choice.
 
@@ -249,7 +249,7 @@ Selection clicks are guarded: prodex refuses to click a control that is covered 
 Persist defaults so you can omit these flags on routine asks; a per-ask flag always overrides the saved default. View saved defaults with `prodex status`, clear one with the matching `--clear-*` flag, or answer a short wizard instead of remembering flags:
 
 ```bash
-prodex setup --model Pro --pro-mode 확장 --project "my-project"
+prodex setup --model Pro --project "my-project"
 prodex setup --clear-project
 prodex setup --interactive   # asks model / Pro sub-mode or effort / project
 ```
@@ -402,7 +402,7 @@ npm run dev -- tasks list
 
 **The browser was closed — do I have to run `login` again?** Not in a terminal: an interactive `ask` notices `browser_unreachable`, relaunches the dedicated browser, waits for your saved session to report READY, and retries the send once. Scripts opt in with `--auto-login`; `--no-auto-login` disables it. Only a missing browser triggers this — login/captcha/limit blockers still stop and report.
 
-**The answer timed out.** Pro extended reasoning can take minutes. `--pro-mode 확장` already raises the default budget to 300s; the `send_timeout` blocker suggests a paste-ready rerun command with a doubled `--timeout-ms`. If the answer was mid-stream when time ran out, prodex salvages the partial text and records an `answer_incomplete` warning instead of discarding it.
+**The answer timed out.** Pro reasoning can take many minutes. A Pro selection already raises the default budget to 900s; the `send_timeout` blocker suggests a paste-ready rerun command with a doubled `--timeout-ms`. If the answer was mid-stream when time ran out, prodex salvages the partial text and records an `answer_incomplete` warning instead of discarding it.
 
 **Sends started failing after many consults in one chat.** Long accumulated threads eventually confuse prompt-acceptance detection (measured live around ten-plus messages). Send repeated consults into fresh chats with `--new-chat` (`new_chat: true` on the MCP tool) — the answer still lands in your account and in `.bridge/` receipts either way.
 
