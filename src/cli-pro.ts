@@ -377,8 +377,11 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
         return healthy ? 0 : 1;
       }
       if (browserSubcommand === "models") {
-        if (printProBrowserHelpIfRequested(browserArgs, "pro browser models", io, { valueFlags: ["--port", "--timeout-ms", "--source-cli"] })) return 0;
-        assertOnlyOptions(browserArgs, "pro browser models", ["--port", "--timeout-ms", "--source-cli"]);
+        // --cwd is accepted (and ignored) for uniformity with the other pro
+        // browser subcommands: an agent that passes --cwd on every prodex call
+        // should not get "Unknown option" on a repo-independent sidebar read.
+        if (printProBrowserHelpIfRequested(browserArgs, "pro browser models", io, { valueFlags: ["--cwd", "--port", "--timeout-ms", "--source-cli"] })) return 0;
+        assertOnlyOptions(browserArgs, "pro browser models", ["--cwd", "--port", "--timeout-ms", "--source-cli"]);
         const modelsSourceCli = resolveOptionalFileFlag(io.cwd, browserArgs, "--source-cli");
         // Parse flags OUTSIDE the browser-error adapter: a flag-validation
         // error is a usage error, not a browser blocker.
@@ -412,8 +415,10 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
         return 0;
       }
       if (browserSubcommand === "projects") {
-        if (printProBrowserHelpIfRequested(browserArgs, "pro browser projects", io, { valueFlags: ["--port", "--timeout-ms", "--source-cli"] })) return 0;
-        assertOnlyOptions(browserArgs, "pro browser projects", ["--port", "--timeout-ms", "--source-cli"]);
+        // --cwd is accepted (and ignored) for uniformity with the other pro
+        // browser subcommands (see models above).
+        if (printProBrowserHelpIfRequested(browserArgs, "pro browser projects", io, { valueFlags: ["--cwd", "--port", "--timeout-ms", "--source-cli"] })) return 0;
+        assertOnlyOptions(browserArgs, "pro browser projects", ["--cwd", "--port", "--timeout-ms", "--source-cli"]);
         const projectsSourceCli = resolveOptionalFileFlag(io.cwd, browserArgs, "--source-cli");
         const projectsPort = readPortFlag(browserArgs, "--port");
         const projectsTimeoutMs = readPositiveIntegerFlag(browserArgs, "--timeout-ms");

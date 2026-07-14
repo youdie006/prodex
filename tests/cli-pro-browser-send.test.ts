@@ -1916,6 +1916,33 @@ describe("pro browser ask model/project selection", () => {
     expect(sendChatGptPromptMock).not.toHaveBeenCalled();
   });
 
+  it("accepts --cwd on read-only pro browser models/projects (uniform with sibling commands)", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-select-"));
+    listChatGptModelOptionsMock.mockResolvedValueOnce({
+      url: "https://chatgpt.com/",
+      options: [{ label: "Pro", kind: "radio", checked: true }]
+    });
+    // --cwd must not be rejected as an unknown option; an agent that passes
+    // --cwd on every prodex call should not break on a repo-independent read.
+    await runCli(["pro", "browser", "models", "--cwd", cwd], { cwd, stdout: () => {}, stderr: () => {} });
+    expect(listChatGptModelOptionsMock).toHaveBeenCalled();
+
+    // projects is not mocked here: with --cwd accepted it reaches the browser
+    // (unreachable port) and fails with a browser error, NOT "Unknown option".
+    let thrown: Error | undefined;
+    try {
+      await runCli(["pro", "browser", "projects", "--cwd", cwd, "--port", "65534", "--timeout-ms", "50"], {
+        cwd,
+        stdout: () => {},
+        stderr: () => {}
+      });
+    } catch (error) {
+      thrown = error as Error;
+    }
+    expect(thrown).toBeDefined();
+    expect(thrown?.message).not.toMatch(/Unknown option/);
+  });
+
   it("stamps a send marker and throttles the next send at human pace", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-select-"));
     await mkdir(path.join(cwd, ".bridge"), { recursive: true });
