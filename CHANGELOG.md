@@ -4,6 +4,16 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.19] - 2026-07-14
+
+### Changed
+- Onboarding now teaches the three lessons a week of real usage surfaced:
+  pin per-repo defaults first (`prodex setup --model Pro --project "..."` -
+  otherwise sends silently use whatever the ChatGPT UI last had selected),
+  discover exact project names with `pro browser projects`, and use
+  `--busy-wait-ms` when multiple agents share the browser. Also notes that
+  saved defaults apply to agent consults.
+
 ## [0.16.18] - 2026-07-14
 
 ### Changed

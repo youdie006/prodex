@@ -479,6 +479,9 @@ repo: ${cwd}
    ${cli} pro browser login${sourceCliOption}  # opens visible browser
    ${cli} pro browser login --dry-run${sourceCliOption}  # preview, no browser opens
    In an interactive terminal, login waits and narrates until your ChatGPT session is READY.
+   Pin per-repo defaults first - otherwise sends silently use whatever the ChatGPT UI last had selected:
+   ${cli} pro browser projects${sourceCliOption}  # read-only: exact sidebar project names
+   ${cli} setup --cwd ${quotedCwd} --model Pro --project "your-project"  # every ask: Pro (15-minute timeout) inside that project
    cd ${quotedCwd}
    ${cli} ask --new-chat "Review this repo"${sourceCliOption}  # short form of pro browser ask
    ${proAskCommand}  # dry-run/manual preview
@@ -487,11 +490,13 @@ repo: ${cwd}
    ${cli} pro browser help${sourceCliOption}
    ${cli} pro browser check${sourceCliOption} --cwd ${quotedCwd}
    ${cli} pro browser smoke${sourceCliOption} --cwd ${quotedCwd}
+   Sharing the browser with other agents? Add --busy-wait-ms 600000 to queue behind an in-flight response instead of failing.
 
 2. Let coding agents consult ChatGPT (stdio MCP: Claude, Codex, Cursor, ...):
    ${cli} claude config --cwd ${quotedCwd}${sourceCliOption}
    ${cli} claude prompt --cwd ${quotedCwd}${sourceCliOption}
    Agents get the bridge/ledger tools plus pro_consult (ask ChatGPT Pro directly; see docs/clients.md for Codex timeout and approval notes).
+   Saved setup defaults (--model/--project) apply to agent consults too - pin them once per repo so consults stop landing in the general chat list.
    ${cli} pro debate-prompt --topic "your question"${sourceCliOption}  # structured GPT Pro debate prompt for your agent
 
 3. Local bridge health and records:
