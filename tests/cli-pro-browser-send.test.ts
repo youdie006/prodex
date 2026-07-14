@@ -2164,21 +2164,23 @@ describe("pro browser ask model/project selection", () => {
     expect(payload.blocker.code).toBe("captcha_required");
   });
 
-  it("suppresses a persisted default project under --new-chat", async () => {
+  it("applies a persisted default project under --new-chat (fresh thread IN the project)", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-send-"));
     await writeLocalConfig(cwd, { token: "test-token", browserDefaults: { project: "sandbox-default" } });
     sendChatGptPromptMock.mockResolvedValueOnce({
-      url: "https://chatgpt.com/c/fresh-noproj",
+      url: "https://chatgpt.com/g/g-p-abc-sandbox-default/c/fresh-proj",
       title: "ChatGPT",
       answer: "ok",
       modelHints: [],
       warnings: []
     });
 
+    // The whole point of a pinned default project is that consults stop
+    // landing in the general chat list - including fresh --new-chat threads.
     await runCli(["ask", "--new-chat", "Fresh question"], { cwd, stdout: () => {}, stderr: () => {} });
 
     expect(sendChatGptPromptMock).toHaveBeenCalledWith(
-      expect.objectContaining({ newChat: true, project: undefined })
+      expect.objectContaining({ newChat: true, project: "sandbox-default" })
     );
   });
 

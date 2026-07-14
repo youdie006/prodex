@@ -4,6 +4,16 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.15] - 2026-07-14
+
+### Changed
+- A persisted default project (prodex setup --project "X") now APPLIES under
+  --new-chat, producing a fresh thread INSIDE the project. It used to be
+  suppressed (old semantics: new-chat = root chat), which sent every
+  default-projected consult to the general chat list - the opposite of why a
+  default project is pinned. --target-url and --project-new still suppress it;
+  an explicit --project still wins.
+
 ## [0.16.14] - 2026-07-14
 
 ### Fixed

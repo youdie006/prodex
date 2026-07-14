@@ -658,11 +658,14 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
     // from the confirmed tab).
     const selectionModel = explicitModel ?? browserDefaults?.model;
     const selectionProjectNew = explicitProjectNew;
-    // A persisted default project is suppressed under --new-chat (the point
-    // is a fresh root chat); an explicit --project still wins.
+    // A persisted default project APPLIES under --new-chat: since 0.16.11 a
+    // fresh chat inside the project is exactly what "--new-chat + project"
+    // produces, and the whole point of pinning a default project is that
+    // consults stop landing in the general chat list. Only --target-url
+    // (pinned tab) and --project-new suppress it.
     const selectionProject =
       explicitProject ??
-      (normalizedTargetUrl || selectionProjectNew !== undefined || newChat ? undefined : browserDefaults?.project);
+      (normalizedTargetUrl || selectionProjectNew !== undefined ? undefined : browserDefaults?.project);
     const reasoningAxisChosen = explicitProMode !== undefined || explicitEffort !== undefined;
     const selectionProMode = explicitProMode ?? (reasoningAxisChosen ? undefined : browserDefaults?.pro_mode);
     const selectionEffort = explicitEffort ?? (reasoningAxisChosen ? undefined : browserDefaults?.effort);
