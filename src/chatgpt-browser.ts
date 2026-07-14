@@ -1167,17 +1167,47 @@ export function proSubmenuExpanderRectExpression(): string {
   })()`;
 }
 
+// The sidebar project option button's aria-label wraps the project name:
+// English "Open project options for <name>", Korean "<name> 프로젝트 옵션 열기".
+export function projectOptionButtonName(ariaLabel: string): string {
+  return (ariaLabel || "").replace(/^open project options for /i, "").replace(/\s*프로젝트 옵션 열기$/, "").trim();
+}
+
+// Resolve which sidebar project button matches `wanted`, mirroring the in-page
+// logic in projectItemRectExpression: exact name match first, then a unique
+// case-insensitive match; ambiguity refuses rather than guessing. Matching by
+// EQUALITY (not substring) is what keeps "Codex" from selecting "Codex Review".
+// Returns the matched index, -1 when not found, or "ambiguous".
+export function matchProjectOptionName(ariaLabels: readonly string[], wanted: string): number | "ambiguous" {
+  const names = ariaLabels.map(projectOptionButtonName);
+  const exact = names.flatMap((n, i) => (n === wanted ? [i] : []));
+  if (exact.length === 1) return exact[0];
+  if (exact.length > 1) return "ambiguous";
+  const ci = names.flatMap((n, i) => (n.toLowerCase() === wanted.toLowerCase() ? [i] : []));
+  if (ci.length === 1) return ci[0];
+  if (ci.length > 1) return "ambiguous";
+  return -1;
+}
+
 export function projectItemRectExpression(name: string): string {
   return `(() => {${CLICK_POINT_SNIPPET}
     // Korean: "<name> 프로젝트 옵션 열기"; English: "Open project options for <name>".
     const wanted = ${JSON.stringify(name)};
+    // Extract the project name from the aria-label wrapper, then match by
+    // EQUALITY (mirror of matchProjectOptionName). A bare .includes() let
+    // "Codex" select "Codex Review" (substring) and silently sent the prompt
+    // into the wrong project.
+    const projName = (b) => (b.getAttribute("aria-label") || "").replace(/^open project options for /i, "").replace(/\\s*프로젝트 옵션 열기$/, "").trim();
     const optionButtons = [...document.querySelectorAll('[aria-label*="프로젝트 옵션"],[aria-label*="project options" i]')];
-    let opt = optionButtons.find((b) => (b.getAttribute("aria-label") || "").includes(wanted));
-    if (!opt) {
+    let opt = null;
+    const exact = optionButtons.filter((b) => projName(b) === wanted);
+    if (exact.length === 1) opt = exact[0];
+    else if (exact.length > 1) return { ok: false, reason: "project name matches multiple sidebar projects; rename one to disambiguate" };
+    else {
       // Case-insensitive fallback: sidebar names are user-typed ("Codex") and
       // an agent asking for "codex" should still resolve when unambiguous.
       // Ambiguity fails loudly rather than guessing.
-      const ci = optionButtons.filter((b) => (b.getAttribute("aria-label") || "").toLowerCase().includes(wanted.toLowerCase()));
+      const ci = optionButtons.filter((b) => projName(b).toLowerCase() === wanted.toLowerCase());
       if (ci.length === 1) opt = ci[0];
       else if (ci.length > 1) return { ok: false, reason: "project name matches multiple sidebar projects case-insensitively; use the exact name" };
     }
@@ -1497,8 +1527,12 @@ async function selectProject(
       `(() => {
         if (!/^https:\\/\\/chatgpt\\.com\\/g\\/g-p-/.test(location.href)) return false;
         const name = ${JSON.stringify(options.project)};
-        if ((document.title || "").includes(name)) return true;
-        return [...document.querySelectorAll('h1,[role="heading"]')].some((h) => (h.innerText || "").includes(name));
+        // Equality, not substring: a stalled cross-project navigation must not
+        // be accepted just because the current project's name CONTAINS the
+        // requested one (e.g. sitting on "Research Lab" while "Research" was
+        // requested), which would silently send into the wrong project.
+        if ((document.title || "").trim() === name) return true;
+        return [...document.querySelectorAll('h1,[role="heading"]')].some((h) => (h.innerText || "").trim() === name);
       })()`
     );
     if (!alreadyInRequestedProject) {

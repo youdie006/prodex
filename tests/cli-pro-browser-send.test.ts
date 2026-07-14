@@ -559,6 +559,7 @@ describe("pro browser ask persistence", () => {
   it("serializes concurrent browser sends via the machine-global lock", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-send-"));
     const lockFile = path.join(cwd, "send.lock");
+    const priorLock = process.env.PRODEX_SEND_LOCK_FILE;
     process.env.PRODEX_SEND_LOCK_FILE = lockFile;
     try {
       const order: string[] = [];
@@ -584,7 +585,11 @@ describe("pro browser ask persistence", () => {
       expect(order).toEqual(["start:first", "end:first", "start:second", "end:second"]);
       expect(second.join("\n")).toMatch(/another prodex send holds the browser/);
     } finally {
-      delete process.env.PRODEX_SEND_LOCK_FILE;
+      // Restore the per-worker isolated lock path (setup-registry-isolation),
+      // never delete it - a bare delete leaks later tests onto the real
+      // ~/.local/share/prodex machine lock.
+      if (priorLock === undefined) delete process.env.PRODEX_SEND_LOCK_FILE;
+      else process.env.PRODEX_SEND_LOCK_FILE = priorLock;
       sendChatGptPromptMock.mockReset();
     }
   });
@@ -592,6 +597,7 @@ describe("pro browser ask persistence", () => {
   it("fails fast on a held send lock without --busy-wait-ms, and reaps a dead holder", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-send-"));
     const lockFile = path.join(cwd, "send.lock");
+    const priorLock = process.env.PRODEX_SEND_LOCK_FILE;
     process.env.PRODEX_SEND_LOCK_FILE = lockFile;
     try {
       // Held by THIS live process -> fail fast without a wait budget.
@@ -613,7 +619,8 @@ describe("pro browser ask persistence", () => {
       await runCli(["pro", "browser", "ask", "--model", "Pro", "prompt"], { cwd, stdout: (l) => out.push(l), stderr: () => {} });
       expect(out.join("\n")).toContain("ok");
     } finally {
-      delete process.env.PRODEX_SEND_LOCK_FILE;
+      if (priorLock === undefined) delete process.env.PRODEX_SEND_LOCK_FILE;
+      else process.env.PRODEX_SEND_LOCK_FILE = priorLock;
     }
   });
 
@@ -648,6 +655,84 @@ describe("pro browser ask persistence", () => {
       stderr: (line) => okErr.push(line)
     });
     expect(okErr.join("\n")).not.toMatch(/project_landing_warning/);
+  });
+
+  it("redacts the project name in the persisted blocked consult but keeps it in the local error", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-send-"));
+    const projectName = "S2-SECRET-PROJECT";
+    sendChatGptPromptMock.mockRejectedValueOnce(
+      new Error(`ChatGPT project not found in sidebar: ${projectName} (2 projects visible)`)
+    );
+
+    let thrown: Error | undefined;
+    try {
+      await runCli(["pro", "browser", "ask", "--model", "Pro", "--project", projectName, "hi"], {
+        cwd,
+        stdout: () => {},
+        stderr: () => {}
+      });
+    } catch (error) {
+      thrown = error as Error;
+    }
+    // Local error keeps the name (useful to the operator running the CLI).
+    expect(thrown?.message).toContain(projectName);
+
+    // Persisted task/result/session cross the MCP boundary -> project redacted.
+    const tasksDir = path.join(cwd, ".bridge", "tasks");
+    const taskFiles = (await readdir(tasksDir)).filter((f) => f.endsWith(".json"));
+    expect(taskFiles).toHaveLength(1);
+    const taskId = taskFiles[0].replace(/\.json$/, "");
+    const task = JSON.parse(await readFile(path.join(tasksDir, taskFiles[0]), "utf8")) as {
+      blocker?: { message?: string };
+      provenance: { session_id: string };
+    };
+    // The blocker on the task crosses MCP via bridge_get_task.
+    expect(task.blocker?.message ?? "").not.toContain(projectName);
+    expect(task.blocker?.message ?? "").toContain("<project>");
+    // The summary lives in the result record, read over MCP via bridge_fetch_result.
+    const result = JSON.parse(await readFile(path.join(cwd, ".bridge", "results", `${taskId}.json`), "utf8")) as {
+      summary?: string;
+      blocker?: { message?: string };
+    };
+    expect(result.summary ?? "").not.toContain(projectName);
+    expect(result.summary ?? "").toContain("<project>");
+    const session = JSON.parse(
+      await readFile(path.join(cwd, ".bridge", "sessions", `${task.provenance.session_id}.json`), "utf8")
+    ) as { blocker?: { message?: string } };
+    expect(session.blocker?.message ?? "").not.toContain(projectName);
+  });
+
+  it("reaps a live-but-stale holder so a wedged send cannot block the machine forever", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-send-"));
+    const lockFile = path.join(cwd, "send.lock");
+    const priorLock = process.env.PRODEX_SEND_LOCK_FILE;
+    const priorStale = process.env.PRODEX_SEND_LOCK_STALE_MS;
+    process.env.PRODEX_SEND_LOCK_FILE = lockFile;
+    process.env.PRODEX_SEND_LOCK_STALE_MS = "1";
+    try {
+      // Held by THIS live process, but the timestamp is old -> wedged -> reapable
+      // even though the pid is alive (a live pid alone must not block forever).
+      await writeFile(
+        lockFile,
+        JSON.stringify({ pid: process.pid, started_at: new Date(Date.now() - 60_000).toISOString() }),
+        "utf8"
+      );
+      sendChatGptPromptMock.mockResolvedValueOnce({
+        url: "https://chatgpt.com/c/x",
+        title: "ChatGPT",
+        answer: "ok",
+        modelHints: [],
+        warnings: []
+      });
+      const out: string[] = [];
+      await runCli(["pro", "browser", "ask", "--model", "Pro", "hi"], { cwd, stdout: (l) => out.push(l), stderr: () => {} });
+      expect(out.join("\n")).toContain("ok");
+    } finally {
+      if (priorLock === undefined) delete process.env.PRODEX_SEND_LOCK_FILE;
+      else process.env.PRODEX_SEND_LOCK_FILE = priorLock;
+      if (priorStale === undefined) delete process.env.PRODEX_SEND_LOCK_STALE_MS;
+      else process.env.PRODEX_SEND_LOCK_STALE_MS = priorStale;
+    }
   });
 
   it("records a blocked consult when the visible browser send fails", async () => {

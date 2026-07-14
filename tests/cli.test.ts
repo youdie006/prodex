@@ -1303,7 +1303,7 @@ describe("runCli", () => {
   it("rejects send-only flags on the dry-run `pro ask` preview instead of ignoring them", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     await runCli(["init"], { cwd, stdout: () => {}, stderr: () => {} });
-    for (const flag of [["--model", "Pro"], ["--effort", "높음"], ["--port", "9333"], ["--new-chat"]]) {
+    for (const flag of [["--model", "Pro"], ["--effort", "높음"], ["--port", "9333"], ["--new-chat"], ["--busy-wait-ms", "600000"]]) {
       await expect(
         runCli(["pro", "ask", ...flag, "hi"], { cwd, stdout: () => {}, stderr: () => {} })
       ).rejects.toThrow(/only applies when sending/);

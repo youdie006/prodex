@@ -4,6 +4,41 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.21] - 2026-07-14
+
+Firefighting-code review batch (findings from a parallel review of v0.16.3..HEAD,
+each verified in the code before fixing).
+
+### Fixed
+- Concurrency: the machine-global browser send lock could let two clients send at
+  once. It created the lock file and wrote the pid in two separate steps, and a
+  concurrent waiter reaped the momentarily-empty file as a dead lock - so both
+  clients proceeded. The lock now publishes atomically (write a temp file, then
+  hard-link it into place) so it is never observed empty; reaping re-verifies the
+  same holder still owns the file before removing it; release removes only our own
+  lock; and EPERM (a live process owned by another user) is treated as alive, not
+  dead.
+- A live-but-wedged holder is now reaped after a generous stale timeout (default
+  60 min, override PRODEX_SEND_LOCK_STALE_MS) so a hung browser cannot block every
+  send on the machine forever.
+- Project selection matched sidebar projects by substring: `--project "Codex"`
+  could select "Codex Review" and silently send into the wrong project. Both the
+  sidebar-row match and the already-in-project (navigation-stall) acceptance now
+  match by name equality, with a unique case-insensitive fallback and a loud error
+  on ambiguity.
+- A "project not found" (or other) blocked send recorded the requested/default
+  project name into the persisted task summary and blocker, which cross the MCP
+  boundary unredacted. The persisted records now redact the project name; local
+  stdout/stderr still show it.
+- `pro ask --busy-wait-ms` reported "Unknown option" instead of the intended
+  "only applies when sending" guidance.
+- Help text still described the pre-July 300000 ms pro-mode timeout; corrected to
+  900000 ms (a Pro selection raises the default timeout).
+
+### Internal
+- Send-lock tests restore the isolated PRODEX_SEND_LOCK_FILE instead of deleting
+  it; a bare delete leaked later tests onto the real machine lock.
+
 ## [0.16.20] - 2026-07-14
 
 ### Fixed

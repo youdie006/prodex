@@ -176,7 +176,7 @@ Use \`prodex pro ask\` for dry-run/manual previews.
 Use \`prodex pro browser ask\` only when you want an explicit visible-browser send.
 Model/project selection (visible-browser send):
   --model "label"              Pick the composer model by its exact menu label (verified: Pro). Submenu models (e.g. the GPT-5.6 Sol variants) are rejected for now.
-  --pro-mode 기본 | 확장          Pro sub-mode (only when the model is Pro); 확장 raises the default timeout to 300000 ms
+  --pro-mode 기본 | 확장          Pro sub-mode (only when the model is Pro); a Pro selection raises the default timeout to 900000 ms
   --effort 즉시|중간|높음|매우 높음   Reasoning effort (aliases: instant/medium/high/max); picking one deselects Pro
   --project "name"             Enter an existing sidebar project first (cannot combine with --target-url)
 Labels are matched in both the Korean and English (US) UI; run \`prodex pro browser models\` to list what your account shows.
@@ -270,7 +270,7 @@ Commands:
 Visible-browser sends require a manual browser session and stop on login, captcha, Cloudflare, permission, rate-limit, or usage-limit blockers.
 Model/project selection (ask):
   --model      Composer model to pick by its exact menu label (verified: Pro). Models whose menu entry opens a submenu of variants are rejected with a clear error for now.
-  --pro-mode   Pro sub-mode: 기본 (standard) or 확장 (extended), used when the model is Pro. 확장 raises the default --timeout-ms to 300000.
+  --pro-mode   Pro sub-mode: 기본 (standard) or 확장 (extended), used when the model is Pro. A Pro selection raises the default --timeout-ms to 900000.
   --effort     Reasoning effort: 즉시 / 중간 / 높음 / 매우 높음 (aliases: instant/medium/high/max). Picking an effort switches the composer to the standard reasoning model, deselecting Pro.
   --project    Enter an existing sidebar project before sending. Cannot be combined with --target-url.
 --pro-mode and --effort cannot be combined. Labels are matched in both the Korean and English (US) ChatGPT UI (e.g. 높음/High, Pro 확장/Pro Extended).

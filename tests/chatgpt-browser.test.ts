@@ -816,9 +816,28 @@ describe("ChatGPT browser adapter", () => {
     expect(expr).toContain('project home');
     expect(expr).toContain("프로젝트 홈");
     expect(expr).toContain("clickPoint(home)");
-    // Case-insensitive fallback (unique match only) with a loud ambiguity error.
-    expect(expr).toContain("toLowerCase().includes(wanted.toLowerCase())");
+    // Exact name match by EQUALITY (not substring), with a case-insensitive
+    // unique fallback and a loud ambiguity error.
+    expect(expr).toContain("projName(b) === wanted");
+    expect(expr).toContain("projName(b).toLowerCase() === wanted.toLowerCase()");
     expect(expr).toContain("matches multiple sidebar projects");
+  });
+
+  it("matches a project by exact name, never a substring superset", async () => {
+    const browser = await import("../src/chatgpt-browser.js");
+    const matchProjectOptionName = (
+      browser as { matchProjectOptionName: (labels: readonly string[], wanted: string) => number | "ambiguous" }
+    ).matchProjectOptionName;
+    const labels = ["Open project options for Codex Review", "Open project options for Codex"];
+    // "Codex" must resolve to the exact "Codex" row (index 1), never the
+    // substring superset "Codex Review" (index 0) that .includes() picked.
+    expect(matchProjectOptionName(labels, "Codex")).toBe(1);
+    // Korean label + case-insensitive unique fallback.
+    expect(matchProjectOptionName(["prodex-smoke-project 프로젝트 옵션 열기"], "PRODEX-SMOKE-PROJECT")).toBe(0);
+    // Duplicate exact names -> ambiguous, refuse to guess.
+    expect(matchProjectOptionName(["Open project options for dup", "Open project options for dup"], "dup")).toBe("ambiguous");
+    // No match.
+    expect(matchProjectOptionName(labels, "Nonexistent")).toBe(-1);
   });
 
   it("keeps the in-page menu match predicate in parity with menuItemLabelMatches", async () => {

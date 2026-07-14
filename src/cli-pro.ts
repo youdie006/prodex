@@ -781,12 +781,25 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
       } catch (error) {
         const blocker = sourceAwareBrowserBlocker(browserSendBlockerFromError(error), sourceCli, browserCommandOptions);
         const message = blocker.next_step ? `${blocker.message} Next: ${blocker.next_step}` : errorMessage(error);
+        // The blocker text can quote the requested/default project name (e.g. a
+        // "project not found" error). Local stdout/stderr keep it (useful to the
+        // operator), but the persisted task/session cross the MCP boundary, so
+        // scrub the project name there the same way provenance.project is redacted.
+        const redactProject = (text: string): string => {
+          const name = selectionMetadata.project;
+          return name ? text.split(name).join("<project>") : text;
+        };
+        const persistedBlocker = {
+          ...blocker,
+          message: redactProject(blocker.message),
+          ...(blocker.next_step ? { next_step: redactProject(blocker.next_step) } : {})
+        };
         try {
           await targetStore.completeTask(task.id, {
             status: "blocked",
-            summary: message,
+            summary: redactProject(message),
             commands: ["visible ChatGPT browser consult"],
-            blocker
+            blocker: persistedBlocker
           });
           await writeSessionBestEffort(
             targetStore,
@@ -797,7 +810,7 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
               task_id: task.id,
               thread: normalizedTargetUrl,
               status: "blocked",
-              blocker,
+              blocker: persistedBlocker,
               warnings: []
             },
             io
