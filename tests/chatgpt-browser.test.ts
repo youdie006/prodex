@@ -821,6 +821,26 @@ describe("ChatGPT browser adapter", () => {
     expect(expr).toContain("matches multiple sidebar projects");
   });
 
+  it("keeps the in-page menu match predicate in parity with menuItemLabelMatches", async () => {
+    const browser = await import("../src/chatgpt-browser.js");
+    const menuItemPresentExpression = (browser as { menuItemPresentExpression: (label: string | readonly string[]) => string })
+      .menuItemPresentExpression;
+    const texts = ["High", "Extra High", "High\nBalanced speed", "Instant\n5.5", "Pro", "Pro Standard", "매우 높음\n최고 품질"];
+    const candidateSets: (string | string[])[] = ["High", "Extra High", "Instant", "Pro", ["매우 높음", "Extra High"]];
+    for (const candidates of candidateSets) {
+      const list = Array.isArray(candidates) ? candidates : [candidates];
+      for (const text of texts) {
+        const doc = new FakeDocument([], []);
+        const el = new FakeElement("div");
+        el.innerText = text;
+        el.textContent = text.replace(/\n/g, "");
+        doc.menuItems = [el];
+        const inPage = evaluateBrowserStatusExpression<boolean>(menuItemPresentExpression(candidates), doc);
+        expect(inPage, `candidates=${JSON.stringify(list)} text=${JSON.stringify(text)}`).toBe(menuItemLabelMatches(text, list));
+      }
+    }
+  });
+
   it("lists sidebar project names from both locales' option-button labels", async () => {
     const browser = await import("../src/chatgpt-browser.js");
     const sidebarProjectNamesExpression = (browser as { sidebarProjectNamesExpression: () => string }).sidebarProjectNamesExpression;

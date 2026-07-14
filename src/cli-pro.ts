@@ -219,6 +219,7 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
       const straySendFlag = [
         "--port",
         "--timeout-ms",
+        "--busy-wait-ms",
         "--target-url",
         "--confirm-target",
         "--project",
@@ -670,6 +671,7 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
       ...(selectionEffort ? { effort: selectionEffort } : {})
     };
     const browserPort = hasSendMode ? resolveCdpPort(readPortFlag(parsedAskPro.optionArgs, "--port")) : undefined;
+    const busyWaitMs = readPositiveIntegerFlag(parsedAskPro.optionArgs, "--busy-wait-ms");
     // Pro extended can legitimately think for minutes, so its default timeout is
     // higher; an explicit --timeout-ms always wins.
     const defaultBrowserTimeoutMs = selectionProMode === "확장" ? 300_000 : 90_000;
@@ -737,6 +739,7 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
           targetUrl: normalizedTargetUrl,
           timeoutMs: browserTimeoutMs,
           ...(newChat ? { newChat: true } : {}),
+          ...(busyWaitMs !== undefined ? { busyWaitMs } : {}),
           project: selectionProject,
           projectNew: selectionProjectNew,
           model: selectionModel,

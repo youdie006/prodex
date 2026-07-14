@@ -195,6 +195,9 @@ export interface SendChatGptPromptOptions {
    * into a fresh chat. Incompatible with targetUrl.
    */
   newChat?: boolean;
+  /** When the tab is busy with another response, wait up to this long for it
+   * to finish instead of failing immediately (0/omitted = fail fast). */
+  busyWaitMs?: number;
   /** Progress callback so long sends can report phase + elapsed instead of staying silent. */
   onProgress?: (event: SendChatGptProgressEvent) => void;
 }
@@ -1203,7 +1206,23 @@ async function selectModelReasoning(
     throw new Error(button.reason ?? "Could not open the ChatGPT model selector");
   }
   try {
-    await verifiedClickAt(cdp, button.x, button.y, "model selector");
+    // The hover-verified click can be transiently refused right after a page
+    // transition (measured live: the just-closed create-project modal's
+    // overlay still covered the selector for a beat, and one refusal aborted
+    // the whole send). Retry briefly with FRESH coordinates; a persistent
+    // cover still fails with the refusal message.
+    const clickDeadline = Date.now() + 5_000;
+    for (;;) {
+      try {
+        await verifiedClickAt(cdp, button.x!, button.y!, "model selector");
+        break;
+      } catch (error) {
+        if (Date.now() >= clickDeadline || !/Refusing to click/.test(error instanceof Error ? error.message : String(error))) throw error;
+        await sleep(700);
+        const fresh = await cdp.evaluate<RectHit>(modelButtonRectExpression());
+        if (fresh.ok && fresh.x !== undefined && fresh.y !== undefined) button = fresh;
+      }
+    }
     const opened = await waitForExpressionTrue(cdp, menuOpenExpression(), MENU_OPEN_TIMEOUT_MS);
     if (!opened) throw new Error("ChatGPT model menu did not open after clicking the selector");
 
@@ -1502,7 +1521,22 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
   assertChatGptReadyForPrompt(inferChatGptPageLoggedInLikely(status), status.hasComposer, status.openDialogText);
   if (normalizedTargetUrl) assertChatGptTargetUrlMatches(status.url, normalizedTargetUrl);
   assertVisibleChatGptTab(status.visibilityState, status.url, normalizedTargetUrl);
-  const busyBlocker = chatGptBusyBlocker(status.generating);
+  let busyBlocker = chatGptBusyBlocker(status.generating);
+  if (busyBlocker && (options.busyWaitMs ?? 0) > 0) {
+    // Queue behind the in-flight response instead of failing: shared-tab
+    // contention (another agent or the user mid-generation) is a when, not an
+    // if. Bounded, and a mid-wait page blocker (usage limit etc.) still throws.
+    const busyDeadline = Date.now() + (options.busyWaitMs ?? 0);
+    emitProgress("waiting", "tab busy with another response; waiting");
+    while (busyBlocker && Date.now() < busyDeadline) {
+      await sleep(3_000);
+      status = await evaluateOnPage<ChatGptPageStatus>(page, statusExpression());
+      const midBlocker = detectChatGptPageBlocker(status);
+      if (midBlocker) throw new ChatGptBrowserBlockerError(midBlocker);
+      busyBlocker = chatGptBusyBlocker(status.generating);
+      if (busyBlocker) emitProgress("waiting", "tab busy with another response; waiting");
+    }
+  }
   if (busyBlocker) {
     throw new ChatGptBrowserBlockerError(busyBlocker);
   }

@@ -90,6 +90,34 @@ describe("BridgeStore", () => {
     await expect(store.claimTask(task.id, "agent-b")).rejects.toThrow(/not new|already/i);
   });
 
+  it("signs new receipts with the freshly rotated key (true rotation)", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-store-"));
+    const store = new BridgeStore(root);
+    await store.ensure();
+    const mkTask = (t: string) =>
+      store.createTask({ source: "codex", title: t, prompt: "x", repo_id: "default", files: [], provenance: { adapter: "cli" } });
+    await mkTask("Before rotation");
+    const receiptsBefore = await store.listReceiptsReadOnly({});
+
+    await store.rotateReceiptIntegrityKey();
+    await mkTask("After rotation");
+
+    // Retire the old key: keep ONLY the new active key (first line).
+    const keyPath = path.join(root, ".bridge", "receipt-key.local");
+    const keys = (await readFile(keyPath, "utf8")).split("\n").filter(Boolean);
+    expect(keys.length).toBeGreaterThanOrEqual(2);
+    await writeFile(keyPath, `${keys[0]}\n`, { mode: 0o600 });
+
+    const after = await store.listReceiptsReadOnly({});
+    const untrusted = after.filter((r) => (r.metadata as Record<string, unknown> | undefined)?.integrity_status);
+    const trusted = after.filter((r) => !(r.metadata as Record<string, unknown> | undefined)?.integrity_status);
+    // Post-rotation receipts verify under the new key alone; pre-rotation ones
+    // no longer do - proving new receipts are signed with the NEW key, not the
+    // retired one.
+    expect(trusted.length).toBeGreaterThan(0);
+    expect(untrusted.length).toBe(receiptsBefore.length);
+  });
+
   it("rejects a signed receipt whose body was tampered while the key is intact", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "prodex-store-"));
     const store = new BridgeStore(root);

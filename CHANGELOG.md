@@ -4,6 +4,32 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.13] - 2026-07-14
+
+Shared-tab contention and post-creation transients, from a live sweep of the
+remaining real-usage flows.
+
+### Added
+- `--busy-wait-ms <ms>` on visible-browser asks: when the tab is busy with
+  another response (another agent or the user mid-generation), wait up to the
+  given bound for it to finish instead of failing immediately. Progress shows
+  the wait; a mid-wait page blocker (usage limit etc.) still fails fast.
+  Verified against a genuine in-flight generation.
+
+### Fixed
+- `--project-new` aborted right after creating the project: the create-modal's
+  closing overlay transiently covered the model selector, and a single
+  hover-verify refusal failed the whole send. The selector click now retries
+  briefly with fresh coordinates on a transient refusal (persistent covers
+  still fail). Verified live end to end: create, select, send, and the thread
+  URL carries the new project's slug.
+
+### Tests
+- In-page menu match predicate pinned in parity with menuItemLabelMatches
+  across the full label matrix (badges, cross-match refusals, Korean labels).
+- True key rotation pinned: receipts written after rotate verify under the new
+  key alone; pre-rotation receipts do not.
+
 ## [0.16.12] - 2026-07-13
 
 Project management usability: stop guessing names, notice wrong landings.

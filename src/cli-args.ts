@@ -259,6 +259,7 @@ export const ASK_PRO_VALUE_FLAGS = new Set([
   "--file",
   "--port",
   "--timeout-ms",
+  "--busy-wait-ms",
   "--target-url",
   "--source-cli",
   ...ASK_PRO_SELECTION_VALUE_FLAGS
