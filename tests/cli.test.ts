@@ -1718,6 +1718,13 @@ describe("runCli", () => {
     expect(out.join("\n")).toContain(task.id);
     expect(out.join("\n")).toContain("task_id:");
     expect(out.join("\n")).toContain("Use receipt-gated writes next.");
+
+    // `pro list --json` is the structured mirror for agents (parity with the
+    // human tab output and with tasks/receipts/sessions list --json).
+    const jsonOut: string[] = [];
+    await runCli(["pro", "list", "--json"], { cwd, stdout: (line) => jsonOut.push(line), stderr: () => {} });
+    const parsed = JSON.parse(jsonOut.join("\n")) as Array<{ task_id: string; status: string; summary: string }>;
+    expect(parsed.some((entry) => entry.task_id === task.id && entry.status === "done")).toBe(true);
   });
 
   it("surfaces corrupt GPT Pro result records instead of hiding them as not found", async () => {

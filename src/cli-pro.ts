@@ -449,12 +449,30 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
     }
     if (subcommand === "list") {
       if (printHelpIfRequested(proArgs, "pro list", io.stdout, printProHelp, { valueFlags: ["--cwd", "--source-cli"] })) return 0;
-      assertOnlyOptions(proArgs, "pro list", ["--cwd", "--source-cli"]);
+      assertOnlyOptions(proArgs, "pro list", ["--cwd", "--source-cli"], ["--json"]);
       const targetCwd = resolveCwdFlag(io.cwd, proArgs);
       const targetStore = new BridgeStore(targetCwd);
       const sourceCli = resolveOptionalFileFlag(io.cwd, proArgs, "--source-cli");
       const answerOptions = { cwd: readFlag(proArgs, "--cwd") ? targetCwd : undefined };
       const consults = await listConsultListEntries(targetStore);
+      if (proArgs.includes("--json")) {
+        // Structured mirror of the human tab output, for agents (empty = valid []).
+        const items = consults.map((entry) =>
+          entry.kind === "untrusted"
+            ? {
+                task_id: entry.task.id,
+                status: "untrusted",
+                summary: sourceAwareResultMessage(errorMessage(entry.error), sourceCli, answerOptions)
+              }
+            : {
+                task_id: entry.consult.task.id,
+                status: entry.consult.result.status,
+                summary: formatProListSummary(entry.consult, sourceCli, answerOptions)
+              }
+        );
+        io.stdout(JSON.stringify(items, null, 2));
+        return 0;
+      }
       if (consults.length === 0) {
         io.stdout("No GPT Pro consults yet. Run `prodex ask \"...\"` to create one.");
         return 0;
