@@ -1541,6 +1541,24 @@ async function selectProject(
       );
     }
   }
+  if (navigated) {
+    // A sidebar SPA navigation moves the URL to the target project while the
+    // composer can stay bound to the PREVIOUS project's conversation target, so
+    // the send silently creates the thread in the OLD project (reproduced live
+    // via PRODEX_DEBUG_SEND: baseline URL on the requested project, yet the
+    // prompt posted into the project the tab came from). A hard reload of the
+    // project home rebinds the composer to THIS project before we send.
+    const projectHome = await cdp.evaluate<string>("location.href");
+    await cdp.evaluate("location.reload()");
+    const rebound = await waitForExpressionTrue(
+      cdp,
+      `location.href === ${JSON.stringify(projectHome)} && Boolean(document.querySelector('#prompt-textarea,[contenteditable="true"],textarea'))`,
+      PROJECT_NAVIGATION_TIMEOUT_MS
+    );
+    if (!rebound) {
+      throw new Error(`ChatGPT composer did not rebind after entering project "${options.project}"`);
+    }
+  }
   const composerReady = await waitForExpressionTrue(
     cdp,
     `Boolean(document.querySelector('#prompt-textarea,[contenteditable="true"],textarea'))`,

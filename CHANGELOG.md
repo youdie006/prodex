@@ -4,6 +4,19 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.25] - 2026-07-15
+
+### Fixed
+- Switching from one project to another could send into the WRONG project. The
+  sidebar SPA navigation moved the URL to the requested project, but ChatGPT's
+  composer stayed bound to the previous project's conversation target, so the
+  prompt silently created its thread in the project the tab came from
+  (reproduced live via PRODEX_DEBUG_SEND: baseline URL on the requested project,
+  yet the prompt posted into the old one). After actually switching projects,
+  `selectProject` now hard-reloads the project home so the composer rebinds to
+  the target project before sending. Verified live: a codex -> prodex-smoke
+  cross-project send now lands in prodex-smoke.
+
 ## [0.16.24] - 2026-07-15
 
 ### Fixed
