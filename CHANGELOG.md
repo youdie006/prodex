@@ -4,6 +4,21 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.24] - 2026-07-15
+
+### Fixed
+- An acceptance timeout on a slow or undetected answer was misreported as
+  "ChatGPT web UI may have changed... update prodex" (send_ui_changed), even
+  though the send button was fine. Root cause: `submitButtonFound` was only set
+  true inside the fallback click loop, which is skipped whenever the Enter-key
+  submit succeeds - so a normal send followed by a slow answer left it false and
+  tripped the UI-changed diagnosis. prodex now polls `submitExpression` right
+  after typing to record whether the send control actually exists (verified live:
+  the current button is still `data-testid="send-button"` / `aria-label="Send
+  prompt"`), so a slow answer now correctly says "Raise --timeout-ms". The poll
+  also waits for the composer to be submit-ready before pressing Enter, reducing
+  the new-chat/project-home submit race.
+
 ## [0.16.23] - 2026-07-15
 
 ### Added

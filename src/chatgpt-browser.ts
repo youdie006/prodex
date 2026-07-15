@@ -1657,6 +1657,15 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
     beforeSubmit = await evaluateOnPage<ChatGptAnswerState>(page, answerExpression());
     dbgSend(`baseline url=${beforeSubmit.url} user=${beforeSubmit.userMessageCount} assistant=${beforeSubmit.assistantMessageCount}`);
     await insertComposerTextViaCdp(cdp, options.prompt);
+    // The send button renders asynchronously after the prompt lands. Poll for it
+    // BEFORE submitting so (a) submitButtonFound reflects whether the control
+    // actually EXISTS - otherwise a successful Enter-key submit skips the fallback
+    // loop below, leaves submitButtonFound false, and a slow/undetected answer
+    // gets mislabeled "ChatGPT web UI may have changed, update prodex" (measured
+    // live: submitExpression finds data-testid="send-button" fine, yet the
+    // timeout error blamed a UI change) - and (b) we never press Enter before the
+    // composer is submit-ready.
+    submitButtonFound = await waitForExpressionTrue(cdp, `(${submitExpression()}).ok === true`, 3_000);
     // Submit. Prefer the Enter key: it goes to the focused composer and does
     // not depend on coordinates, whereas the send button moves ~100px as the
     // composer grows after the prompt lands, so a click at captured coordinates
