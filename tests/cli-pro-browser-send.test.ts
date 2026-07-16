@@ -546,7 +546,7 @@ describe("pro browser ask persistence", () => {
     // was keyed to the removed --pro-mode, so --model Pro sends fell back to
     // 90s and chronically timed out (field failure).
     await runCli(["pro", "browser", "ask", "--model", "Pro", "p"], { cwd, stdout: () => {}, stderr: () => {} });
-    expect(sendChatGptPromptMock).toHaveBeenLastCalledWith(expect.objectContaining({ timeoutMs: 900_000 }));
+    expect(sendChatGptPromptMock).toHaveBeenLastCalledWith(expect.objectContaining({ timeoutMs: 1_200_000 }));
 
     await runCli(["pro", "browser", "ask", "p"], { cwd, stdout: () => {}, stderr: () => {} });
     expect(sendChatGptPromptMock).toHaveBeenLastCalledWith(expect.objectContaining({ timeoutMs: 90_000 }));
@@ -1634,7 +1634,7 @@ describe("pro browser ask model/project selection", () => {
 
     await runCli(["pro", "browser", "ask", "--pro-mode", "확장", "Review this"], { cwd, stdout: () => {}, stderr: () => {} });
 
-    expect(sendChatGptPromptMock).toHaveBeenCalledWith(expect.objectContaining({ proMode: "확장", timeoutMs: 900000 }));
+    expect(sendChatGptPromptMock).toHaveBeenCalledWith(expect.objectContaining({ proMode: "확장", timeoutMs: 1_200_000 }));
   });
 
   it("keeps an explicit --timeout-ms even for Pro extended sends", async () => {
@@ -2512,7 +2512,7 @@ describe("pro browser ask model/project selection", () => {
     });
 
     expect(sendChatGptPromptMock).toHaveBeenCalledWith(
-      expect.objectContaining({ model: "Pro", proMode: "확장", timeoutMs: 900_000 })
+      expect.objectContaining({ model: "Pro", proMode: "확장", timeoutMs: 1_200_000 })
     );
   });
 });

@@ -1737,6 +1737,24 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
     emitProgress("waiting", "prompt posting");
   }
   if (!accepted) {
+    // The session can expire mid-send (logged out during a long Pro wait), which
+    // otherwise surfaces as a cryptic "raise --timeout-ms" failure. Re-check the
+    // login state first and, if the session is gone, say so clearly so the user
+    // re-logs in instead of chasing a timeout.
+    try {
+      const status = await evaluateOnPage<ChatGptPageStatus>(page, statusExpression());
+      if (!inferChatGptPageLoggedInLikely(status)) {
+        throw new ChatGptBrowserBlockerError({
+          code: "session_expired",
+          message: "The ChatGPT session is no longer logged in - it likely expired during the send.",
+          retryable: true,
+          next_step: "Run `prodex pro browser login`, log in, then retry."
+        });
+      }
+    } catch (error) {
+      if (error instanceof ChatGptBrowserBlockerError) throw error;
+      // best effort: a CDP eval failure here falls through to the generic timeout
+    }
     // A successful submit clears the composer, so text still sitting there means
     // the send control did not register the prompt — the UI-changed signature.
     let composerStillHasText = false;

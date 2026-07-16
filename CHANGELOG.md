@@ -4,6 +4,21 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.26] - 2026-07-16
+
+### Changed
+- A Pro selection now defaults `--timeout-ms` to 20 minutes (was 15). Pro
+  reasoning routinely runs 6-20 minutes, and 15 minutes was still cutting long
+  answers off with a `send_timeout` (field report), forcing a manual
+  `--timeout-ms 1200000` on every consult. An explicit `--timeout-ms` still wins.
+
+### Fixed
+- A ChatGPT session that expires mid-send used to surface as a cryptic
+  acceptance timeout ("raise --timeout-ms"), hiding that a re-login was needed.
+  On an acceptance timeout, prodex now re-checks the login state and, if the
+  session is gone, fails with `session_expired` and "Run `prodex pro browser
+  login`, log in, then retry." instead.
+
 ## [0.16.25] - 2026-07-15
 
 ### Fixed

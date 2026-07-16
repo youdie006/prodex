@@ -708,7 +708,9 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
     // --pro-mode, so --model Pro sends fell back to 90s and chronically timed
     // out. Any effective Pro selection now defaults to 15 minutes.
     const effectiveProSelection = selectionProMode !== undefined || (selectionModel !== undefined && /pro/i.test(selectionModel));
-    const defaultBrowserTimeoutMs = effectiveProSelection ? 900_000 : 90_000;
+    // Pro reasoning routinely runs 6-20 minutes; 15 min was still cutting long
+    // answers off (field report), so a Pro selection defaults to 20 minutes.
+    const defaultBrowserTimeoutMs = effectiveProSelection ? 1_200_000 : 90_000;
     const browserTimeoutMs = hasSendMode
       ? (readPositiveIntegerFlag(parsedAskPro.optionArgs, "--timeout-ms") ?? defaultBrowserTimeoutMs)
       : undefined;
