@@ -406,8 +406,21 @@ export interface AcceptanceTimeoutContext {
 // changed ChatGPT UI (moved/renamed composer or send control). Distinguish that
 // from a genuinely clean-but-slow submit and point the user at an update/report
 // instead of a misleading "raise --timeout-ms".
+// Render a millisecond duration as a human-readable span for timeout guidance:
+// 45000 -> "45s", 90000 -> "1m 30s", 1200000 -> "20 min". Messages keep the raw
+// ms alongside ("20 min (1200000ms)") so the send_timeout blocker can still
+// parse a budget to double.
+export function formatDurationMs(ms: number): string {
+  const totalSeconds = Math.max(0, Math.round(ms / 1000));
+  if (totalSeconds < 60) return `${totalSeconds}s`;
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return seconds ? `${minutes}m ${seconds}s` : `${minutes} min`;
+}
+
 export function acceptanceTimeoutError(ctx: AcceptanceTimeoutContext): Error {
   const uiLikelyChanged = ctx.composerStillHasText || !ctx.submitButtonFound;
+  const took = `${formatDurationMs(ctx.timeoutMs)} (${ctx.timeoutMs}ms)`;
   if (uiLikelyChanged) {
     const detail = [
       ctx.composerStillHasText ? "the composer still holds the prompt" : undefined,
@@ -416,14 +429,15 @@ export function acceptanceTimeoutError(ctx: AcceptanceTimeoutContext): Error {
       .filter(Boolean)
       .join(" and ");
     return new Error(
-      `Timed out after ${ctx.timeoutMs}ms and ChatGPT never registered the prompt (${detail}). ` +
+      `Timed out after ${took} and ChatGPT never registered the prompt (${detail}). ` +
         "The ChatGPT web UI may have changed, so prodex could not submit. Update prodex " +
         "(npm i -g @youdie006/prodex@latest); if it persists, report it at " +
         "https://github.com/youdie006/prodex/issues. You can also paste the prompt manually in the visible browser."
     );
   }
   return new Error(
-    `Timed out after ${ctx.timeoutMs}ms waiting for ChatGPT to accept the prompt. Raise --timeout-ms and retry (Pro extended already uses a higher default).`
+    `Timed out after ${took} waiting for ChatGPT to accept the prompt. ` +
+      "Pro reasoning can run many minutes. Raise --timeout-ms and retry."
   );
 }
 
@@ -1712,7 +1726,7 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
   } finally {
     cdp.close();
   }
-  emitProgress("sent", `timeout ${Math.round(timeoutMs / 1000)}s`);
+  emitProgress("sent", `budget ${formatDurationMs(timeoutMs)}`);
 
   const started = Date.now();
   const acceptDeadline = computePromptAcceptanceDeadline(timeoutMs, started);
@@ -1810,12 +1824,13 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
       answer: completed.answer.trim(),
       modelHints: completed.modelHints,
       warnings: [
-        `answer_incomplete: ChatGPT was still generating after ${timeoutMs}ms, so the answer below may be truncated. Raise --timeout-ms and retry for the full response.`
+        `answer_incomplete: ChatGPT was still generating after ${formatDurationMs(timeoutMs)} (${timeoutMs}ms), so the answer below may be truncated. Raise --timeout-ms and retry for the full response.`
       ]
     };
   }
   throw new Error(
-    `Timed out after ${timeoutMs}ms waiting for ChatGPT to respond. Raise --timeout-ms and retry (Pro extended already uses a higher default).`
+    `Timed out after ${formatDurationMs(timeoutMs)} (${timeoutMs}ms) waiting for ChatGPT to respond. ` +
+      "Pro reasoning can run many minutes. Raise --timeout-ms and retry."
   );
 }
 

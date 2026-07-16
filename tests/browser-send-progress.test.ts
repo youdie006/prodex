@@ -11,13 +11,13 @@ describe("createBrowserSendProgressPrinter", () => {
     print({ phase: "connecting", elapsedMs: 0, detail: "port 9333" });
     print({ phase: "tab_ready", elapsedMs: 350 });
     print({ phase: "selecting", elapsedMs: 900, detail: "model=Pro" });
-    print({ phase: "sent", elapsedMs: 2_100, detail: "timeout 300s" });
+    print({ phase: "sent", elapsedMs: 2_100, detail: "budget 5 min" });
 
     expect(lines).toEqual([
       "progress: connecting to browser (port 9333)",
       "progress: chatgpt tab ready",
       "progress: applying selection (model=Pro)",
-      "progress: prompt sent, waiting for answer (timeout 300s)"
+      "progress: prompt sent, waiting for answer (budget 5 min)"
     ]);
   });
 
@@ -30,11 +30,13 @@ describe("createBrowserSendProgressPrinter", () => {
     print({ phase: "waiting", elapsedMs: 11_000, detail: "generating" });
     print({ phase: "waiting", elapsedMs: 12_000, detail: "generating" });
     print({ phase: "waiting", elapsedMs: 21_500, detail: "generating" });
+    print({ phase: "waiting", elapsedMs: 90_000, detail: "generating" });
 
     expect(lines).toEqual([
       "progress: waiting 1s (generating)",
       "progress: waiting 11s (generating)",
-      "progress: waiting 22s (generating)"
+      "progress: waiting 22s (generating)",
+      "progress: waiting 1m 30s (generating)"
     ]);
   });
 
@@ -44,7 +46,7 @@ describe("createBrowserSendProgressPrinter", () => {
 
     print({ phase: "answered", elapsedMs: 123_400 });
 
-    expect(lines).toEqual(["progress: answer received after 123s"]);
+    expect(lines).toEqual(["progress: answer received after 2m 3s"]);
   });
 });
 

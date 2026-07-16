@@ -8,6 +8,7 @@ import {
   resolveCdpPort,
   chatGptVisibilityBlocker,
   defaultChatGptProfileDir,
+  formatDurationMs,
   getChatGptBrowserStatus,
   listChatGptModelOptions,
   listChatGptSidebarProjects,
@@ -594,11 +595,11 @@ export function createBrowserSendProgressPrinter(
     if (event.phase === "waiting") {
       if (lastWaitingElapsedMs !== undefined && event.elapsedMs - lastWaitingElapsedMs < heartbeatMs) return;
       lastWaitingElapsedMs = event.elapsedMs;
-      write(`progress: waiting ${Math.round(event.elapsedMs / 1000)}s${event.detail ? ` (${event.detail})` : ""}`);
+      write(`progress: waiting ${formatDurationMs(event.elapsedMs)}${event.detail ? ` (${event.detail})` : ""}`);
       return;
     }
     if (event.phase === "answered") {
-      write(`progress: answer received after ${Math.round(event.elapsedMs / 1000)}s${event.detail ? ` (${event.detail})` : ""}`);
+      write(`progress: answer received after ${formatDurationMs(event.elapsedMs)}${event.detail ? ` (${event.detail})` : ""}`);
       return;
     }
     write(`progress: ${PROGRESS_PHASE_LABELS[event.phase]}${event.detail ? ` (${event.detail})` : ""}`);
@@ -1223,7 +1224,9 @@ export function browserSendBlockerFromError(error: unknown): { code: string; mes
       next_step: "Update prodex (npm i -g @youdie006/prodex@latest); if it persists, report it at https://github.com/youdie006/prodex/issues or paste the prompt manually in the visible browser."
     };
   }
-  const timedOut = message.match(/^Timed out after (\d+)ms/);
+  // Match the raw ms whether the message uses the old "after 90000ms" form or
+  // the newer human-readable "after 20 min (1200000ms)" form.
+  const timedOut = message.match(/Timed out after [\s\S]*?(\d+)\s*ms/);
   if (timedOut) {
     // Suggest a concrete doubled budget so the user can paste a rerun command
     // instead of guessing what "raise --timeout-ms" means in milliseconds.
@@ -1233,7 +1236,7 @@ export function browserSendBlockerFromError(error: unknown): { code: string; mes
       code: "send_timeout",
       message,
       retryable: true,
-      next_step: `Rerun with a bigger budget: \`prodex pro browser ask --timeout-ms ${suggestedMs} "<same prompt>"\`.`
+      next_step: `Rerun with a bigger budget (${formatDurationMs(suggestedMs)}): \`prodex pro browser ask --timeout-ms ${suggestedMs} "<same prompt>"\`.`
     };
   }
   return {

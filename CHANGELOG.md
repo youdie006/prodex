@@ -4,6 +4,17 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.27] - 2026-07-16
+
+### Changed
+- Timeout guidance is now human-readable. Timeout messages and progress lines
+  render durations as "20 min" / "1m 30s" instead of raw milliseconds (the raw
+  ms is kept in parentheses so the send_timeout blocker can still parse a budget
+  to double). A send announces its budget ("prompt sent, waiting for answer
+  (budget 20 min)"), long waits show elapsed as "waiting 3m 20s (generating)",
+  and a send_timeout suggests "Rerun with a bigger budget (40 min): `prodex pro
+  browser ask --timeout-ms 2400000 ...`".
+
 ## [0.16.26] - 2026-07-16
 
 ### Changed

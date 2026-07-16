@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 
 import {
   acceptanceTimeoutError,
+  formatDurationMs,
   hasPartialChatGptAnswer,
   isTabActivationEnabled,
   isUsableChatGptAnswer,
@@ -10,7 +11,23 @@ import {
   resolveCdpTimeoutMs
 } from "../src/chatgpt-browser.js";
 
+describe("formatDurationMs", () => {
+  it("renders human-readable spans for timeout guidance", () => {
+    expect(formatDurationMs(45_000)).toBe("45s");
+    expect(formatDurationMs(90_000)).toBe("1m 30s");
+    expect(formatDurationMs(1_200_000)).toBe("20 min");
+    expect(formatDurationMs(2_400_000)).toBe("40 min");
+    expect(formatDurationMs(0)).toBe("0s");
+  });
+});
+
 describe("acceptanceTimeoutError", () => {
+  it("keeps the raw ms alongside the human-readable span so it stays parseable", () => {
+    const e = acceptanceTimeoutError({ timeoutMs: 1_200_000, composerStillHasText: false, submitButtonFound: true });
+    expect(e.message).toContain("20 min");
+    expect(e.message).toContain("(1200000ms)");
+  });
+
   it("flags a likely ChatGPT UI change when the prompt was not consumed", () => {
     const e = acceptanceTimeoutError({ timeoutMs: 90_000, composerStillHasText: true, submitButtonFound: true });
     expect(e.message).toMatch(/ChatGPT web UI may have changed/);
