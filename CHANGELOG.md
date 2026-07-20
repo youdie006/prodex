@@ -4,6 +4,15 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.29] - 2026-07-16
+
+### Documentation
+- onboard and README now document the `PRODEX_DEFAULT_PROJECT` /
+  `PRODEX_DEFAULT_MODEL` / `PRODEX_DEFAULT_PRO_MODE` / `PRODEX_DEFAULT_EFFORT`
+  global env defaults (added in 0.16.28): why an agent's `prodex mcp` (no --cwd)
+  misses a per-repo default, how to set a directory-independent default to your
+  own project, and that with no project set consults just go to the general chat.
+
 ## [0.16.28] - 2026-07-16
 
 ### Added

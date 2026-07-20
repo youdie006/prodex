@@ -497,6 +497,7 @@ repo: ${cwd}
    ${cli} claude prompt --cwd ${quotedCwd}${sourceCliOption}
    Agents get the bridge/ledger tools plus pro_consult (ask ChatGPT Pro directly; see docs/clients.md for Codex timeout and approval notes).
    Saved setup defaults (--model/--project) apply to agent consults too - pin them once per repo so consults stop landing in the general chat list.
+   Agents often run the MCP as \`prodex mcp\` with no --cwd, which misses a per-repo default. For a default that applies from ANY directory, set PRODEX_DEFAULT_PROJECT and PRODEX_DEFAULT_MODEL (in the agent's MCP env block, or your shell) to YOUR project/model. No project? Consults just go to the general chat. List your exact project names with \`${cli} pro browser projects\`.
    ${cli} pro debate-prompt --topic "your question"${sourceCliOption}  # structured GPT Pro debate prompt for your agent
 
 3. Local bridge health and records:

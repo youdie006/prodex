@@ -254,6 +254,8 @@ prodex setup --clear-project
 prodex setup --interactive   # asks model / Pro sub-mode or effort / project
 ```
 
+The saved default above lives in the repo's `.bridge/config.local.json`, so it only applies when `prodex` runs from that repo. A coding agent often starts the MCP as `prodex mcp` with no `--cwd` (it reads whatever directory the agent launched in), so a per-repo default is missed and consults land in the general chat. For a default that applies from **any** directory, set environment variables instead — `PRODEX_DEFAULT_PROJECT` and `PRODEX_DEFAULT_MODEL` (also `PRODEX_DEFAULT_PRO_MODE`, `PRODEX_DEFAULT_EFFORT`) — in the agent's MCP `env` block or your shell. Use your own project name (list them with `prodex pro browser projects`); with no project set, consults simply go to the general chat. A per-repo config still wins field-by-field over the env fallback.
+
 Whatever selection is applied is recorded on the consult receipt (`metadata.selection`); receipt display output redacts the project name, keeping only the model axes visible. `prodex` only clicks the picker you can see; it never selects a model, effort, or project silently outside the visible browser.
 
 For a source checkout, keep the explicit send and inspection commands source-aware too:
