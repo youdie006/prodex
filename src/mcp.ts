@@ -266,7 +266,7 @@ export function createServer(cwd = process.cwd(), options: CreateMcpServerOption
       "pro_consult",
       {
         description:
-          "Ask the user's logged-in ChatGPT (Pro) in the visible browser and wait for the full answer. This drives a real browser send: it can take minutes (Pro extended reasoning), is human-paced, and records a durable receipt under .bridge/. Requires a running `prodex pro browser login` session. Returns task_id, thread URL, and the answer text.",
+          "Ask the user's logged-in ChatGPT (Pro) in the visible browser and wait for the full answer. This drives a real browser send: it can take minutes (Pro extended reasoning), is human-paced, and records a durable receipt under .bridge/. Requires a running `prodex pro browser login` session. By DEFAULT the consult continues in the currently-open thread, so consecutive follow-ups on the same topic stay in one conversation (keeps context, avoids sidebar clutter). Pass new_chat:true ONLY to start a fresh thread for a genuinely new topic. `project` and `model` come from saved defaults (per-repo config, or PRODEX_DEFAULT_PROJECT / PRODEX_DEFAULT_MODEL env vars) when omitted - do NOT pass them per-call unless deliberately overriding. Returns task_id, thread URL, and the answer text.",
         inputSchema: {
           prompt: McpBridgeTextSchema.min(1),
           model: McpShortTextSchema.optional(),
@@ -275,7 +275,10 @@ export function createServer(cwd = process.cwd(), options: CreateMcpServerOption
           project: McpShortTextSchema.optional(),
           timeout_ms: z.number().int().positive().max(3_600_000).optional(),
           files: z.array(McpShortTextSchema).max(20).optional(),
-          new_chat: z.boolean().optional()
+          new_chat: z
+            .boolean()
+            .optional()
+            .describe("Start a fresh thread. Omit to continue the current thread (preferred for follow-ups).")
         }
       },
       async (input, extra) => {

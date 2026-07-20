@@ -4,6 +4,25 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.28] - 2026-07-16
+
+### Added
+- Global browser-selection defaults via `PRODEX_DEFAULT_PROJECT`,
+  `PRODEX_DEFAULT_MODEL`, `PRODEX_DEFAULT_PRO_MODE`, `PRODEX_DEFAULT_EFFORT` env
+  vars. The MCP server (pro_consult) usually runs as `prodex mcp` with no
+  `--cwd`, so it reads whatever directory the agent launched in - a per-repo
+  default project set elsewhere was missed and consults landed in the general
+  chat. These env vars are a global fallback applied from any cwd; a per-repo
+  config still wins field-by-field.
+
+### Changed
+- pro_consult now documents that it CONTINUES the currently-open thread by
+  default and that `new_chat:true` should be passed only to start a fresh thread
+  for a genuinely new topic. Consecutive follow-ups on one topic stay in a single
+  conversation instead of spawning a new thread each time (less sidebar clutter,
+  kept context). `project`/`model` should be left to saved/global defaults rather
+  than passed per-call.
+
 ## [0.16.27] - 2026-07-16
 
 ### Changed

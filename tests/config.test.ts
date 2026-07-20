@@ -286,4 +286,30 @@ describe("browser selection defaults", () => {
     await writeLocalConfig(cwd, { token: "test-token", browserDefaults: { effort: "매우 높음" } });
     expect(await loadBrowserDefaults(cwd)).toEqual({ effort: "매우 높음" });
   });
+
+  it("falls back to PRODEX_DEFAULT_* env vars from any cwd (repo wins per-field)", async () => {
+    const priorProject = process.env.PRODEX_DEFAULT_PROJECT;
+    const priorModel = process.env.PRODEX_DEFAULT_MODEL;
+    const priorEffort = process.env.PRODEX_DEFAULT_EFFORT;
+    process.env.PRODEX_DEFAULT_PROJECT = "Codex";
+    process.env.PRODEX_DEFAULT_MODEL = "Pro";
+    process.env.PRODEX_DEFAULT_EFFORT = "not-a-real-effort";
+    try {
+      // A repo with no config picks up the env default (Codex + Pro; bad enum dropped).
+      const empty = await mkdtemp(path.join(tmpdir(), "prodex-config-"));
+      expect(await loadBrowserDefaults(empty)).toEqual({ project: "Codex", model: "Pro" });
+
+      // A per-repo default wins its field; env fills the rest.
+      const pinned = await mkdtemp(path.join(tmpdir(), "prodex-config-"));
+      await writeLocalConfig(pinned, { token: "t", browserDefaults: { project: "prodex-smoke-project" } });
+      expect(await loadBrowserDefaults(pinned)).toEqual({ project: "prodex-smoke-project", model: "Pro" });
+    } finally {
+      if (priorProject === undefined) delete process.env.PRODEX_DEFAULT_PROJECT;
+      else process.env.PRODEX_DEFAULT_PROJECT = priorProject;
+      if (priorModel === undefined) delete process.env.PRODEX_DEFAULT_MODEL;
+      else process.env.PRODEX_DEFAULT_MODEL = priorModel;
+      if (priorEffort === undefined) delete process.env.PRODEX_DEFAULT_EFFORT;
+      else process.env.PRODEX_DEFAULT_EFFORT = priorEffort;
+    }
+  });
 });

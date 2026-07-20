@@ -156,15 +156,47 @@ export async function loadLocalConfig(cwd: string): Promise<LocalConfig> {
   return config;
 }
 
+// Global browser-selection defaults from the environment, used when a repo has
+// no per-repo default for a field. The MCP server (pro_consult) frequently runs
+// as `prodex mcp` with no --cwd, so it reads whatever directory the agent
+// launched in - a per-repo default set elsewhere is then missed. Setting e.g.
+// PRODEX_DEFAULT_PROJECT=Codex PRODEX_DEFAULT_MODEL=Pro pins a default that
+// applies from ANY cwd so consults stop landing in the general chat.
+export function envBrowserDefaults(): BrowserDefaults | undefined {
+  const model = process.env.PRODEX_DEFAULT_MODEL?.trim() || undefined;
+  const project = process.env.PRODEX_DEFAULT_PROJECT?.trim() || undefined;
+  const raw: Record<string, string> = {};
+  if (model) raw.model = model;
+  if (project) raw.project = project;
+  const proMode = process.env.PRODEX_DEFAULT_PRO_MODE?.trim();
+  if (proMode) raw.pro_mode = proMode;
+  const effort = process.env.PRODEX_DEFAULT_EFFORT?.trim();
+  if (effort) raw.effort = effort;
+  if (Object.keys(raw).length === 0) return undefined;
+  const parsed = BrowserDefaultsSchema.safeParse(raw);
+  if (parsed.success) return parsed.data;
+  // A bad enum in pro_mode/effort must not drop a valid model/project.
+  const freeText = BrowserDefaultsSchema.safeParse({
+    ...(model ? { model } : {}),
+    ...(project ? { project } : {})
+  });
+  return (model || project) && freeText.success ? freeText.data : undefined;
+}
+
 // Read persisted browser-selection defaults without failing when the local
 // config is absent or unrelated to this cwd (defaults are optional convenience).
+// Per-repo config wins field-by-field; PRODEX_DEFAULT_* env vars are the global
+// fallback so a pinned default project/model applies from any cwd.
 export async function loadBrowserDefaults(cwd: string): Promise<BrowserDefaults | undefined> {
+  const env = envBrowserDefaults();
+  let repo: BrowserDefaults | undefined;
   try {
-    const config = await loadLocalConfig(cwd);
-    return config.browser_defaults;
+    repo = (await loadLocalConfig(cwd)).browser_defaults;
   } catch {
-    return undefined;
+    repo = undefined;
   }
+  if (!repo && !env) return undefined;
+  return { ...(env ?? {}), ...(repo ?? {}) };
 }
 
 export function getTokenExpiryStatus(config: Pick<LocalConfig, "token_expires_at">, now: Date = new Date()): TokenExpiryStatus {
