@@ -7,6 +7,7 @@ const sendChatGptPromptMock = vi.hoisted(() => vi.fn());
 const listChatGptModelOptionsMock = vi.hoisted(() => vi.fn());
 const openChatGptBrowserMock = vi.hoisted(() => vi.fn());
 const getChatGptBrowserStatusMock = vi.hoisted(() => vi.fn());
+const recoverChatGptAnswerFromThreadMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../src/chatgpt-browser.js", async () => {
   const actual = await vi.importActual<typeof import("../src/chatgpt-browser.js")>("../src/chatgpt-browser.js");
@@ -15,7 +16,8 @@ vi.mock("../src/chatgpt-browser.js", async () => {
     sendChatGptPrompt: sendChatGptPromptMock,
     listChatGptModelOptions: listChatGptModelOptionsMock,
     openChatGptBrowser: openChatGptBrowserMock,
-    getChatGptBrowserStatus: getChatGptBrowserStatusMock
+    getChatGptBrowserStatus: getChatGptBrowserStatusMock,
+    recoverChatGptAnswerFromThread: recoverChatGptAnswerFromThreadMock
   };
 });
 
@@ -733,6 +735,39 @@ describe("pro browser ask persistence", () => {
       if (priorStale === undefined) delete process.env.PRODEX_SEND_LOCK_STALE_MS;
       else process.env.PRODEX_SEND_LOCK_STALE_MS = priorStale;
     }
+  });
+
+  it("pro browser recover requires --target-url and records the recovered answer", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-recover-"));
+
+    // Missing --target-url -> clear guidance, no browser touched.
+    await expect(
+      runCli(["pro", "browser", "recover"], { cwd, stdout: () => {}, stderr: () => {} })
+    ).rejects.toThrow(/requires --target-url/);
+    expect(recoverChatGptAnswerFromThreadMock).not.toHaveBeenCalled();
+
+    // With --target-url -> reads the finished answer from the thread and records
+    // a done consult (recovers a send that timed out but whose answer finished).
+    recoverChatGptAnswerFromThreadMock.mockResolvedValueOnce({
+      url: "https://chatgpt.com/c/recovered-thread",
+      title: "ChatGPT",
+      answer: "the recovered verdict",
+      modelHints: [],
+      warnings: []
+    });
+    const out: string[] = [];
+    await runCli(
+      ["pro", "browser", "recover", "--target-url", "https://chatgpt.com/c/recovered-thread", "--cwd", cwd],
+      { cwd, stdout: (line) => out.push(line), stderr: () => {} }
+    );
+    const text = out.join("\n");
+    expect(text).toContain("\tdone\t");
+    expect(text).toContain("the recovered verdict");
+
+    // Recorded durably: `pro latest` re-prints it.
+    const latest: string[] = [];
+    await runCli(["pro", "latest", "--cwd", cwd], { cwd, stdout: (line) => latest.push(line), stderr: () => {} });
+    expect(latest.join("\n")).toContain("the recovered verdict");
   });
 
   it("records a blocked consult when the visible browser send fails", async () => {

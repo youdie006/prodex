@@ -1585,6 +1585,93 @@ async function selectProject(
   }
 }
 
+export interface RecoverChatGptAnswerOptions {
+  port?: number;
+  targetUrl: string;
+  timeoutMs?: number;
+}
+
+// Read the finished answer from an existing ChatGPT thread WITHOUT sending a new
+// prompt. Recovers a consult whose send timed out but whose answer ChatGPT
+// completed afterwards: the durable receipt is "blocked", yet the full answer
+// sits in the thread the operator can see. Navigates the visible tab to the
+// thread and waits for a stable, non-generating answer.
+export async function recoverChatGptAnswerFromThread(
+  options: RecoverChatGptAnswerOptions
+): Promise<SendChatGptPromptResult> {
+  const port = resolveCdpPort(options.port);
+  const timeoutMs = Math.max(1_000, options.timeoutMs ?? 60_000);
+  const url = normalizeChatGptTargetUrl(options.targetUrl);
+  const page = await findChatGptPage(port, 3_000);
+  if (!page.ok || !page.page) {
+    throw new ChatGptBrowserBlockerError(
+      page.blocker ?? {
+        code: "browser_unreachable",
+        message: `No Chrome DevTools endpoint is reachable on 127.0.0.1:${port}.`,
+        retryable: true,
+        next_step: "Run `prodex pro browser login`, log in, then retry."
+      }
+    );
+  }
+  const cdp = await connectCdp(page.page.webSocketDebuggerUrl);
+  let state: ChatGptAnswerState | undefined;
+  let generating = false;
+  let stableRuns = 0;
+  let lastAnswer = "";
+  try {
+    await cdp.send("Runtime.enable");
+    // In-tab navigation (location.assign, not Page.navigate which has crashed the
+    // instance) so we read the requested thread, not whatever was open.
+    await cdp.evaluate(`location.assign(${JSON.stringify(url)})`);
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      await sleep(500);
+      try {
+        state = await evaluateOnPage<ChatGptAnswerState>(page.page, answerExpression());
+      } catch {
+        continue;
+      }
+      generating = state.generating;
+      const runtimeBlocker = chatGptBlockerFromAnswerState(state);
+      if (runtimeBlocker) throw new ChatGptBrowserBlockerError(runtimeBlocker);
+      // Require a REAL assistant message, not answerExpression's page-chrome
+      // fallback (empty assistant returns sidebar/nav text): the thread's
+      // conversation loads asynchronously after navigation, so keep polling.
+      if (state.assistantMessageCount > 0 && isUsableChatGptAnswer(state.answer) && !state.generating) {
+        // Two identical settled reads: a just-finished streaming caret artifact
+        // must not sneak into the recovered text.
+        stableRuns = state.answer === lastAnswer ? stableRuns + 1 : 0;
+        lastAnswer = state.answer;
+        if (stableRuns >= 1) break;
+      } else {
+        stableRuns = 0;
+        lastAnswer = "";
+      }
+    }
+  } finally {
+    cdp.close();
+  }
+  if (!state || state.assistantMessageCount < 1 || !isUsableChatGptAnswer(state.answer)) {
+    throw new ChatGptBrowserBlockerError({
+      code: generating ? "still_generating" : "no_recoverable_answer",
+      message: generating
+        ? "That thread is still generating - the answer is not complete yet."
+        : "No finished assistant answer loaded from that thread (the conversation may not have rendered, or the URL is not the consult thread).",
+      retryable: true,
+      next_step: generating
+        ? "Wait for ChatGPT to finish, then rerun `prodex pro browser recover --target-url <url>`."
+        : "Confirm the URL is the consult thread that shows a finished answer, raise --timeout-ms if the page loads slowly, or send a fresh consult."
+    });
+  }
+  return {
+    url: state.url,
+    title: state.title,
+    answer: state.answer.trim(),
+    modelHints: state.modelHints,
+    warnings: []
+  };
+}
+
 export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Promise<SendChatGptPromptResult> {
   const port = resolveCdpPort(options.port);
   const timeoutMs = options.timeoutMs ?? 90_000;

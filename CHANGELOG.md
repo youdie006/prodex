@@ -4,6 +4,19 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.31] - 2026-07-22
+
+### Added
+- `pro browser recover --target-url <thread-url>` recovers a FINISHED answer from
+  a ChatGPT thread whose send timed out. Field bug: when a consult's send times
+  out (send_timeout) but ChatGPT completes the answer afterwards, the task is
+  stuck "blocked", a re-send is refused as "still generating", and the completed
+  answer sits unreachable in the thread the operator can see. recover navigates
+  the visible tab to the thread, waits for a stable finished assistant answer (a
+  real message, not answerExpression's page-chrome fallback), prints it, and
+  records it as a done consult so `prodex pro latest` re-prints it. Verified live
+  by recovering a real 9.9 KB answer from a timed-out consult thread.
+
 ## [0.16.30] - 2026-07-22
 
 ### Fixed

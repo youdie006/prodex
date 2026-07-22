@@ -27,6 +27,7 @@ Ask / consult commands:
   prodex pro browser smoke [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 90000]
   prodex pro browser models [--source-cli /absolute/path/to/dist/cli.js] [--port 9333] [--timeout-ms 15000]  # read-only list of model menu options
   prodex pro browser projects [--source-cli /absolute/path/to/dist/cli.js] [--port 9333] [--timeout-ms 15000]  # read-only list of sidebar project names (for --project)
+  prodex pro browser recover [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] --target-url <thread-url> [--timeout-ms 60000]  # recover a finished answer from a thread whose send timed out
   prodex pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 90000] [--busy-wait-ms 600000] [--target-url url --confirm-target] [--new-chat] [--stdin] [--json] [--auto-login|--no-auto-login] [--file path] [--model Pro] [--pro-mode 기본|확장] [--effort 즉시|중간|높음|"매우 높음"] [--project "name" | --project-new "name"] "prompt"  # explicit visible-browser send
   prodex pro latest [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]
   prodex pro list [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--json]

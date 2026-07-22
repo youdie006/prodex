@@ -18,6 +18,7 @@ import {
   parseReasoningEffort,
   readLastBrowserLoginLaunch,
   recordBrowserLoginLaunch,
+  recoverChatGptAnswerFromThread,
   sendChatGptPrompt
 } from "./chatgpt-browser.js";
 import {
@@ -443,7 +444,66 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
         io.stdout("Use with `pro browser ask --project \"<name>\"` or pin one with `prodex setup --project \"<name>\"`.");
         return 0;
       }
-      throw unknownSubcommandError("pro browser", browserSubcommand, ["login", "ask", "smoke", "check", "models", "projects"]);
+      if (browserSubcommand === "recover") {
+        if (printProBrowserHelpIfRequested(browserArgs, "pro browser recover", io, { valueFlags: ["--cwd", "--port", "--timeout-ms", "--target-url", "--source-cli"] })) return 0;
+        assertOnlyOptions(browserArgs, "pro browser recover", ["--cwd", "--port", "--timeout-ms", "--target-url", "--source-cli"]);
+        const recoverCwd = resolveCwdFlag(io.cwd, browserArgs);
+        const recoverSourceCli = resolveOptionalFileFlag(io.cwd, browserArgs, "--source-cli");
+        const targetUrl = readFlag(browserArgs, "--target-url");
+        if (!targetUrl) {
+          throw new Error(
+            "pro browser recover requires --target-url <thread-url> - the ChatGPT conversation URL whose finished answer to recover (e.g. the thread from a send_timeout blocker)."
+          );
+        }
+        const recoverPort = readPortFlag(browserArgs, "--port");
+        const recoverTimeoutMs = readPositiveIntegerFlag(browserArgs, "--timeout-ms");
+        const recoverResolvedPort = resolveCdpPort(recoverPort);
+        let consult: Awaited<ReturnType<typeof recoverChatGptAnswerFromThread>>;
+        try {
+          consult = await recoverChatGptAnswerFromThread({ port: recoverPort, targetUrl, timeoutMs: recoverTimeoutMs });
+        } catch (error) {
+          const blocker = sourceAwareBrowserBlocker(browserSendBlockerFromError(error), recoverSourceCli, {
+            ...(recoverResolvedPort !== DEFAULT_CDP_PORT ? { port: recoverResolvedPort } : {})
+          });
+          throw new Error(blocker.next_step ? `${blocker.message} Next: ${blocker.next_step}` : errorMessage(error));
+        }
+        // Record the recovered answer as a done consult so `pro latest` re-prints it.
+        const recoverStore = new BridgeStore(recoverCwd);
+        const recoveredTask = await recoverStore.createTask({
+          source: "codex",
+          title: "GPT Pro consult (recovered)",
+          prompt: `Recovered answer from ${consult.url}`,
+          repo_id: "default",
+          files: [],
+          provenance: { adapter: "chatgpt-control", thread: consult.url, warnings: [] }
+        });
+        const recoveredArtifactText = formatProConsultArtifact(consult);
+        let recoveredArtifactPath: string | undefined;
+        try {
+          recoveredArtifactPath = await recoverStore.writeArtifactText(
+            `.bridge/artifacts/pro-consults/${recoveredTask.id}.md`,
+            recoveredArtifactText
+          );
+        } catch (error) {
+          io.stderr(`answer_artifact_warning: ${errorMessage(error)}`);
+        }
+        await recoverStore.completeTask(recoveredTask.id, {
+          status: "done",
+          summary: consult.answer,
+          artifacts: recoveredArtifactPath
+            ? [{ path: recoveredArtifactPath, role: "result", bytes: Buffer.byteLength(recoveredArtifactText, "utf8") }]
+            : [],
+          commands: ["recovered ChatGPT answer from thread"],
+          warnings: [],
+          provenance: { thread: consult.url, warnings: [] }
+        });
+        io.stdout(`${recoveredTask.id}\tdone\t${consult.url}`);
+        io.stdout("");
+        io.stdout(consult.answer);
+        io.stderr(`recovered: answer saved to .bridge; re-print with \`prodex pro latest --cwd ${recoverCwd}\``);
+        return 0;
+      }
+      throw unknownSubcommandError("pro browser", browserSubcommand, ["login", "ask", "smoke", "check", "models", "projects", "recover"]);
     }
     if (subcommand === "open" || subcommand === "status" || subcommand === "smoke" || subcommand === "check" || subcommand === "doctor") {
       throw new Error(`Use \`prodex pro browser ${subcommand === "doctor" ? "check" : subcommand}\` for explicit browser automation.`);
