@@ -4,6 +4,26 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.30] - 2026-07-22
+
+### Fixed
+Agent-ergonomics batch: four separate points where a reasonable consult
+invocation bounced (each observed live as an agent retried different flags).
+prodex is now liberal in what it accepts:
+- `--file` accepts an absolute path that points inside the repo (converted to the
+  repo-relative path the reader needs); an absolute path OUTSIDE the repo now
+  gives a clear "outside the repo root" error instead of the generic
+  "must be repo-relative, not absolute". Agents naturally pass absolute paths.
+- `--stdin` no longer requires a positional prompt: `git diff | prodex ask
+  --stdin` uses the piped text as the whole prompt (a positional instruction, if
+  given, still goes above the piped data).
+- `--project` acceptance when already inside the project is now case-insensitive,
+  matching the case-insensitive sidebar-row lookup - `--project codex` while
+  sitting on "Codex" no longer fails with "did not navigate the visible tab".
+- `--pro-mode` on a ChatGPT UI that does not expose Pro sub-modes yet (staged
+  rollout) now degrades to a plain Pro send with a `pro_mode_unavailable` warning
+  instead of hard-failing the whole consult (Pro itself is already selected).
+
 ## [0.16.29] - 2026-07-16
 
 ### Documentation

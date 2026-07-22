@@ -1540,13 +1540,15 @@ async function selectProject(
     const alreadyInRequestedProject = await cdp.evaluate<boolean>(
       `(() => {
         if (!/^https:\\/\\/chatgpt\\.com\\/g\\/g-p-/.test(location.href)) return false;
-        const name = ${JSON.stringify(options.project)};
-        // Equality, not substring: a stalled cross-project navigation must not
-        // be accepted just because the current project's name CONTAINS the
-        // requested one (e.g. sitting on "Research Lab" while "Research" was
-        // requested), which would silently send into the wrong project.
-        if ((document.title || "").trim() === name) return true;
-        return [...document.querySelectorAll('h1,[role="heading"]')].some((h) => (h.innerText || "").trim() === name);
+        const name = ${JSON.stringify(options.project)}.toLowerCase();
+        // Case-insensitive EQUALITY (not substring): matches the case-insensitive
+        // sidebar-row lookup (so "codex" is accepted while sitting on "Codex"),
+        // but a stalled cross-project navigation must NOT be accepted just because
+        // the current project's name CONTAINS the requested one (e.g. "Research
+        // Lab" while "Research" was requested) - that would send into the wrong
+        // project.
+        if ((document.title || "").trim().toLowerCase() === name) return true;
+        return [...document.querySelectorAll('h1,[role="heading"]')].some((h) => (h.innerText || "").trim().toLowerCase() === name);
       })()`
     );
     if (!alreadyInRequestedProject) {
@@ -1678,11 +1680,27 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
   };
   let beforeSubmit!: ChatGptAnswerState;
   let submitButtonFound = false;
+  const sendWarnings: string[] = [];
   const cdp = await connectCdp(page.webSocketDebuggerUrl);
   try {
     await cdp.send("Runtime.enable");
     await selectProject(cdp, options);
-    await selectModelReasoning(cdp, options);
+    try {
+      await selectModelReasoning(cdp, options);
+    } catch (modelError) {
+      // Pro sub-mode isn't exposed in this UI yet (staged rollout). Pro itself is
+      // already selected by this point, so degrade to plain Pro with a warning
+      // instead of failing the whole consult - an agent's --pro-mode 확장 becomes
+      // a successful plain-Pro send rather than a hard block it has to retry past.
+      const modelMsg = modelError instanceof Error ? modelError.message : String(modelError);
+      if (options.proMode && /does not expose Pro sub-modes/.test(modelMsg)) {
+        sendWarnings.push(
+          "pro_mode_unavailable: this ChatGPT UI does not expose Pro sub-modes yet, so the consult was sent as plain Pro. Drop --pro-mode (or run `prodex setup --clear-pro-mode`)."
+        );
+      } else {
+        throw modelError;
+      }
+    }
     // Capture the answer baseline AFTER any project navigation or model switch
     // so assistant-message counts compare within the thread we actually send
     // into; a --project/--project-new hop lands on a page with its own counts.
@@ -1810,7 +1828,7 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
       title: completed.title,
       answer: completed.answer.trim(),
       modelHints: completed.modelHints,
-      warnings: []
+      warnings: [...sendWarnings]
     };
   }
   // Timed out while the answer was still streaming: salvage the partial text
@@ -1824,6 +1842,7 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
       answer: completed.answer.trim(),
       modelHints: completed.modelHints,
       warnings: [
+        ...sendWarnings,
         `answer_incomplete: ChatGPT was still generating after ${formatDurationMs(timeoutMs)} (${timeoutMs}ms), so the answer below may be truncated. Raise --timeout-ms and retry for the full response.`
       ]
     };

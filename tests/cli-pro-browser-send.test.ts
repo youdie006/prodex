@@ -2375,6 +2375,53 @@ describe("pro browser ask model/project selection", () => {
     expect(sentPrompt).toContain("+added line");
   });
 
+  it("uses piped stdin as the whole prompt when --stdin has no positional prompt", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-send-"));
+    sendChatGptPromptMock.mockResolvedValueOnce({
+      url: "https://chatgpt.com/c/stdin2",
+      title: "ChatGPT",
+      answer: "ok",
+      modelHints: [],
+      warnings: []
+    });
+
+    // `git diff | prodex ask --stdin` - no positional instruction; the piped
+    // text IS the prompt (previously this errored with "requires a prompt").
+    await runCli(["ask", "--stdin"], {
+      cwd,
+      stdout: () => {},
+      stderr: () => {},
+      readStdin: async () => "review this on its own"
+    });
+
+    const sentPrompt = (sendChatGptPromptMock.mock.calls[0][0] as { prompt: string }).prompt;
+    expect(sentPrompt).toContain("review this on its own");
+    expect(sentPrompt).not.toContain("--- piped input (stdin) ---");
+  });
+
+  it("accepts an absolute --file inside the repo and rejects one outside it", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-send-"));
+    await writeFile(path.join(cwd, "note.txt"), "note body", "utf8");
+    sendChatGptPromptMock.mockResolvedValueOnce({
+      url: "https://chatgpt.com/c/file",
+      title: "ChatGPT",
+      answer: "ok",
+      modelHints: [],
+      warnings: []
+    });
+
+    // Absolute path INSIDE the repo -> accepted (converted to repo-relative).
+    await runCli(["ask", "--file", path.join(cwd, "note.txt"), "summarize"], { cwd, stdout: () => {}, stderr: () => {} });
+    expect(sendChatGptPromptMock).toHaveBeenCalledTimes(1);
+
+    // Absolute path OUTSIDE the repo -> clear rejection, not the generic
+    // "must be repo-relative".
+    await expect(
+      runCli(["ask", "--file", "/etc/hostname", "x"], { cwd, stdout: () => {}, stderr: () => {} })
+    ).rejects.toThrow(/outside the repo root/);
+    expect(sendChatGptPromptMock).toHaveBeenCalledTimes(1);
+  });
+
   it("rejects --stdin when no piped input arrives", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-send-"));
 

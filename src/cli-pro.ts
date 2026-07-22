@@ -621,7 +621,20 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
     }
     const targetCwd = resolveCwdFlag(io.cwd, parsedAskPro.optionArgs);
     const targetStore = new BridgeStore(targetCwd);
-    const files = readRepeatedFlag(parsedAskPro.optionArgs, "--file");
+    const files = readRepeatedFlag(parsedAskPro.optionArgs, "--file").map((file) => {
+      if (!path.isAbsolute(file)) return file;
+      // Accept an absolute --file that points INSIDE the repo by converting it to
+      // the repo-relative path the reader requires (agents naturally pass absolute
+      // paths); reject one that escapes the repo so a file outside the project
+      // (secrets, ~/.ssh, ...) is not attached to a consult by mistake.
+      const rel = path.relative(targetCwd, path.resolve(file));
+      if (rel === "" || rel.startsWith("..") || path.isAbsolute(rel)) {
+        throw new Error(
+          `--file "${file}" is outside the repo root (${targetCwd}). Pass a path inside the repo (absolute or relative), or point --cwd at that repo.`
+        );
+      }
+      return rel;
+    });
     const targetUrl = readFlag(parsedAskPro.optionArgs, "--target-url");
     const normalizedTargetUrl = targetUrl ? normalizeChatGptTargetUrl(targetUrl) : undefined;
     if (!normalizedTargetUrl && parsedAskPro.optionArgs.includes("--confirm-target")) {
@@ -635,12 +648,15 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
       throw new Error("--json applies to the visible-browser send output; the dry-run preview does not support it.");
     }
     const prompt = parsedAskPro.promptParts.join(" ").trim();
-    if (!prompt) {
+    const usingStdin = parsedAskPro.optionArgs.includes("--stdin");
+    // A prompt is required UNLESS --stdin supplies one: `git diff | prodex ask
+    // --stdin` (piped text is the whole prompt) is as valid as `... --stdin
+    // "review this"` (positional instruction + piped data below it).
+    if (!prompt && !usingStdin) {
       throw new Error('ask-pro requires a prompt. Example: prodex ask "Explain this stack trace" (or pipe input: git diff | prodex ask --stdin "review this diff").');
     }
     let promptText = prompt;
-    if (parsedAskPro.optionArgs.includes("--stdin")) {
-      // Unix ergonomics: `git diff | prodex ask --stdin "review this"`.
+    if (usingStdin) {
       const piped = ((await io.readStdin?.()) ?? "").trim();
       if (!piped) {
         throw new Error("--stdin was set but no piped input was received on stdin (pipe something in, e.g. `git diff | prodex ask --stdin \"review\"`).");
@@ -649,7 +665,7 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
       if (piped.length > MAX_STDIN_CHARS) {
         throw new Error(`--stdin input is too large (${piped.length} chars > ${MAX_STDIN_CHARS}); attach a file with --file instead.`);
       }
-      promptText = `${prompt}\n\n--- piped input (stdin) ---\n${piped}`;
+      promptText = prompt ? `${prompt}\n\n--- piped input (stdin) ---\n${piped}` : piped;
     }
     const browserDefaults = await loadBrowserDefaults(targetCwd);
     const explicitProject = readFlag(parsedAskPro.optionArgs, "--project");
