@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { readPositiveIntegerFlag, readPositiveNumberFlag } from "../src/cli-args.js";
+import { readNonNegativeIntegerFlag, readPositiveIntegerFlag, readPositiveNumberFlag } from "../src/cli-args.js";
 
 describe("readPositiveIntegerFlag", () => {
   it("accepts positive integers", () => {
@@ -22,6 +22,22 @@ describe("readPositiveIntegerFlag", () => {
     expect(() => readPositiveIntegerFlag(["--wait-timeout-ms", "1.5"], "--wait-timeout-ms")).toThrow(
       /--wait-timeout-ms must be a positive integer/
     );
+  });
+});
+
+describe("readNonNegativeIntegerFlag", () => {
+  it("accepts zero as an explicit opt-out (e.g. --busy-wait-ms 0 = fail fast)", () => {
+    expect(readNonNegativeIntegerFlag(["--busy-wait-ms", "0"], "--busy-wait-ms")).toBe(0);
+    expect(readNonNegativeIntegerFlag(["--busy-wait-ms", "600000"], "--busy-wait-ms")).toBe(600_000);
+  });
+
+  it("returns undefined when the flag is absent", () => {
+    expect(readNonNegativeIntegerFlag([], "--busy-wait-ms")).toBeUndefined();
+  });
+
+  it("rejects negatives and fractions", () => {
+    expect(() => readNonNegativeIntegerFlag(["--busy-wait-ms", "-5"], "--busy-wait-ms")).toThrow(/--busy-wait-ms/);
+    expect(() => readNonNegativeIntegerFlag(["--busy-wait-ms", "1.5"], "--busy-wait-ms")).toThrow(/--busy-wait-ms/);
   });
 });
 

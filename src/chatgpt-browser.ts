@@ -492,9 +492,12 @@ export function chatGptBusyBlocker(generating: boolean): ChatGptBrowserStatus["b
   if (!generating) return undefined;
   return {
     code: "response_in_progress",
-    message: "ChatGPT is still generating a previous response.",
+    message: "ChatGPT is still generating a previous response in this thread.",
     retryable: true,
-    next_step: "Wait for the visible response to finish, or stop it manually in the browser, then retry."
+    next_step:
+      "Wait for it to finish and retry (pass --busy-wait-ms to queue behind it longer). " +
+      "If that in-flight answer is the one you need, fetch it once it settles: `prodex pro browser recover --target-url <thread-url>`. " +
+      "A new topic can go to a new chat instead."
   };
 }
 
@@ -797,6 +800,20 @@ function chatGptPageMissingBlocker(): NonNullable<ChatGptBrowserStatus["blocker"
     retryable: true,
     next_step: "Open https://chatgpt.com/ in the dedicated Chrome profile, or run `prodex pro browser login` to reopen it."
   };
+}
+
+// Pre-send gate over a settled page status. Order matters: while ChatGPT
+// streams a response the composer locks (hasComposer reads false), so a busy
+// thread must be diagnosed as response_in_progress BEFORE the composer
+// readiness assert - otherwise it is misreported as "missing a visible prompt
+// composer" (measured live: continue-by-default consults landing on a thread
+// still generating the previous prodex answer).
+export function assertChatGptIdleAndReadyForPrompt(
+  status: ChatGptPageTextState & { generating: boolean; hasComposer: boolean; openDialogText?: string }
+): void {
+  const busyBlocker = chatGptBusyBlocker(status.generating);
+  if (busyBlocker) throw new ChatGptBrowserBlockerError(busyBlocker);
+  assertChatGptReadyForPrompt(inferChatGptPageLoggedInLikely(status), status.hasComposer, status.openDialogText);
 }
 
 export function assertChatGptReadyForPrompt(loggedInLikely: boolean, hasComposer: boolean, openDialogText?: string): void {
@@ -1726,15 +1743,20 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
   if (blocker) {
     throw new ChatGptBrowserBlockerError(blocker);
   }
-  assertChatGptReadyForPrompt(inferChatGptPageLoggedInLikely(status), status.hasComposer, status.openDialogText);
-  if (normalizedTargetUrl) assertChatGptTargetUrlMatches(status.url, normalizedTargetUrl);
-  assertVisibleChatGptTab(status.visibilityState, status.url, normalizedTargetUrl);
+  // Busy handling must run BEFORE the composer readiness assert: a thread
+  // still generating locks the composer, and asserting composer presence
+  // first misreports that as "missing a visible prompt composer" (see
+  // assertChatGptIdleAndReadyForPrompt). Default the queue budget to the send
+  // timeout: consults continue threads by default, so landing on a thread
+  // whose previous (often timed-out Pro) answer is still streaming is a when,
+  // not an if - queueing behind it beats failing.
   let busyBlocker = chatGptBusyBlocker(status.generating);
-  if (busyBlocker && (options.busyWaitMs ?? 0) > 0) {
+  const busyWaitBudgetMs = options.busyWaitMs ?? timeoutMs;
+  if (busyBlocker && busyWaitBudgetMs > 0) {
     // Queue behind the in-flight response instead of failing: shared-tab
     // contention (another agent or the user mid-generation) is a when, not an
     // if. Bounded, and a mid-wait page blocker (usage limit etc.) still throws.
-    const busyDeadline = Date.now() + (options.busyWaitMs ?? 0);
+    const busyDeadline = Date.now() + busyWaitBudgetMs;
     emitProgress("waiting", "tab busy with another response; waiting");
     while (busyBlocker && Date.now() < busyDeadline) {
       await sleep(3_000);
@@ -1744,10 +1766,15 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
       busyBlocker = chatGptBusyBlocker(status.generating);
       if (busyBlocker) emitProgress("waiting", "tab busy with another response; waiting");
     }
+    if (!busyBlocker) {
+      // The composer takes a moment to unlock after generation ends; settle
+      // again so the readiness assert below sees the reopened composer.
+      status = await readSettledChatGptPageStatus(page);
+    }
   }
-  if (busyBlocker) {
-    throw new ChatGptBrowserBlockerError(busyBlocker);
-  }
+  assertChatGptIdleAndReadyForPrompt(status);
+  if (normalizedTargetUrl) assertChatGptTargetUrlMatches(status.url, normalizedTargetUrl);
+  assertVisibleChatGptTab(status.visibilityState, status.url, normalizedTargetUrl);
   emitProgress("tab_ready");
   // Progress details deliberately avoid project names (receipts redact them too).
   const selectionSummary = [

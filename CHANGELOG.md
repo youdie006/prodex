@@ -4,6 +4,22 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.32] - 2026-07-23
+
+### Fixed
+- A thread still generating a previous answer is now diagnosed as
+  `response_in_progress` instead of "missing a visible prompt composer".
+  Field bug: consults continue the current thread by default, so a follow-up
+  landing while the previous (often timed-out Pro) answer was still streaming
+  hit the composer-readiness assert BEFORE the busy check - the composer locks
+  during generation, so the send failed with a misleading not-ready error and
+  agents had to diagnose the busy thread themselves.
+- Busy threads now queue by default: the send waits for the in-flight response
+  to finish (up to the send timeout budget, with "tab busy" progress) and then
+  proceeds. `--busy-wait-ms` tunes the budget and now accepts `0` to fail fast
+  with the `response_in_progress` blocker, whose guidance now points at
+  `--busy-wait-ms`, `pro browser recover`, and starting a new chat.
+
 ## [0.16.31] - 2026-07-22
 
 ### Added

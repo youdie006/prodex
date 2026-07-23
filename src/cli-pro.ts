@@ -40,6 +40,7 @@ import {
   readFlag,
   readPortFlag,
   readPositionalsWithOptions,
+  readNonNegativeIntegerFlag,
   readPositiveIntegerFlag,
   readRepeatedFlag,
   resolveCwdFlag,
@@ -777,7 +778,7 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
       ...(selectionEffort ? { effort: selectionEffort } : {})
     };
     const browserPort = hasSendMode ? resolveCdpPort(readPortFlag(parsedAskPro.optionArgs, "--port")) : undefined;
-    const busyWaitMs = readPositiveIntegerFlag(parsedAskPro.optionArgs, "--busy-wait-ms");
+    const busyWaitMs = readNonNegativeIntegerFlag(parsedAskPro.optionArgs, "--busy-wait-ms");
     // Pro extended can legitimately think for minutes, so its default timeout is
     // higher; an explicit --timeout-ms always wins.
     // Pro reasoning routinely runs for many minutes (a real consult measured

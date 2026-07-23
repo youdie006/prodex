@@ -28,6 +28,7 @@ import {
   hasFreshChatGptAnswer,
   isFreshChatGptPage,
   menuItemLabelMatches,
+  assertChatGptIdleAndReadyForPrompt,
   inferChatGptPageLoggedInLikely,
   inferLoggedInLikely,
   isLikelyChatGptGeneratingControl,
@@ -145,7 +146,40 @@ describe("ChatGPT browser adapter", () => {
       })
     );
     expect(blocker?.message).toContain("still generating");
-    expect(blocker?.next_step).toContain("visible");
+    expect(blocker?.next_step).toContain("--busy-wait-ms");
+    expect(blocker?.next_step).toContain("recover");
+  });
+
+  it("diagnoses a generating thread with a locked composer as busy, not as a missing composer", () => {
+    // While ChatGPT streams a response the composer locks (hasComposer=false),
+    // so the busy diagnosis must win over the composer-readiness one.
+    const generatingStatus = {
+      textSample: "New chat\nProjects",
+      visibleButtonLabels: [],
+      hasComposer: false,
+      generating: true
+    };
+
+    let thrown: unknown;
+    try {
+      assertChatGptIdleAndReadyForPrompt(generatingStatus);
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBeInstanceOf(ChatGptBrowserBlockerError);
+    expect((thrown as ChatGptBrowserBlockerError).blocker.code).toBe("response_in_progress");
+
+    expect(() =>
+      assertChatGptIdleAndReadyForPrompt({ ...generatingStatus, generating: false, hasComposer: true })
+    ).not.toThrow();
+
+    let idleThrown: unknown;
+    try {
+      assertChatGptIdleAndReadyForPrompt({ ...generatingStatus, generating: false });
+    } catch (error) {
+      idleThrown = error;
+    }
+    expect((idleThrown as ChatGptBrowserBlockerError).blocker.code).toBe("chatgpt_not_ready");
   });
 
   it("does not treat pre-existing generation as prompt acceptance", () => {

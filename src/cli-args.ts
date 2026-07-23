@@ -141,6 +141,14 @@ export function readPositiveIntegerFlag(args: string[], flag: string): number | 
   if (!Number.isInteger(value) || value <= 0) throw new Error(`${flag} must be a positive integer`);
   return value;
 }
+export function readNonNegativeIntegerFlag(args: string[], flag: string): number | undefined {
+  // Like readPositiveIntegerFlag, but 0 is a meaningful opt-out (e.g.
+  // --busy-wait-ms 0 = fail fast instead of queueing behind a busy thread).
+  const value = readNumberFlag(args, flag);
+  if (value === undefined) return undefined;
+  if (!Number.isInteger(value) || value < 0) throw new Error(`${flag} must be a non-negative integer`);
+  return value;
+}
 export function readPortFlag(args: string[], flag: string): number | undefined {
   const value = readNumberFlag(args, flag);
   if (value === undefined) return undefined;
