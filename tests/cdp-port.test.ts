@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, it } from "vitest";
 
-import { DEFAULT_CDP_PORT, chromeCommandCandidates, resolveCdpPort } from "../src/chatgpt-browser.js";
+import {
+  DEFAULT_CDP_PORT,
+  chromeCommandCandidates,
+  isWindowsBrowserExecutablePath,
+  resolveCdpPort
+} from "../src/chatgpt-browser.js";
 
 describe("resolveCdpPort", () => {
   afterEach(() => {
@@ -73,24 +78,37 @@ describe("chromeCommandCandidates", () => {
     expect(candidates).toContain("C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe");
   });
 
-  it("adds Windows-host browser paths when running under WSL", () => {
-    const candidates = chromeCommandCandidates("linux", { WSL_DISTRO_NAME: "Ubuntu" });
-    expect(candidates).toContain("/mnt/c/Program Files/Google/Chrome/Application/chrome.exe");
-    expect(candidates).toContain("google-chrome");
+  it("classifies every Windows browser candidate as exec-unsafe (--version opens a visible window)", () => {
+    // Windows chrome.exe/msedge.exe do not implement a console --version: they
+    // open a blank browser window instead (measured live - this was the source
+    // of the recurring transient Edge+Chrome window pairs). Every .exe
+    // candidate must be validated by file existence only, never by exec.
+    const win = chromeCommandCandidates("win32", { LOCALAPPDATA: "C:\\Users\\me\\AppData\\Local" });
+    const exeCandidates = win.filter((c) => /\.exe$/i.test(c));
+    expect(exeCandidates.length).toBeGreaterThan(0);
+    for (const candidate of exeCandidates) {
+      expect(isWindowsBrowserExecutablePath(candidate)).toBe(true);
+    }
+    expect(isWindowsBrowserExecutablePath("google-chrome")).toBe(false);
+    expect(isWindowsBrowserExecutablePath("/usr/bin/google-chrome")).toBe(false);
+    expect(isWindowsBrowserExecutablePath("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")).toBe(false);
   });
 
-  it("detects WSL via WSL_INTEROP when WSL_DISTRO_NAME is unset (non-login shells)", () => {
-    const candidates = chromeCommandCandidates("linux", { WSL_INTEROP: "/run/WSL/1_interop" });
-    expect(candidates).toContain("/mnt/c/Program Files/Google/Chrome/Application/chrome.exe");
-  });
-
-  it("detects WSL via the injected kernel probe when no WSL env vars survive", () => {
-    const candidates = chromeCommandCandidates("linux", {}, () => true);
-    expect(candidates).toContain("/mnt/c/Program Files/Google/Chrome/Application/chrome.exe");
+  it("never auto-selects Windows-host browsers under WSL", () => {
+    // Auto-selecting a /mnt/c chrome.exe/msedge.exe from WSL either opened a
+    // blank window (the old --version probe) or launched the user's Windows
+    // browser with a Linux profile path (measured live). The dedicated browser
+    // under WSL is a Linux chrome; a Windows browser is opt-in via
+    // PRODEX_CHROME only.
+    for (const env of [{ WSL_DISTRO_NAME: "Ubuntu" }, { WSL_INTEROP: "/run/WSL/1_interop" }, {}]) {
+      const candidates = chromeCommandCandidates("linux", env);
+      expect(candidates.some((candidate) => /\.exe$/i.test(candidate) || candidate.startsWith("/mnt/"))).toBe(false);
+      expect(candidates).toContain("google-chrome");
+    }
   });
 
   it("does not add Windows paths on plain linux", () => {
-    const candidates = chromeCommandCandidates("linux", {}, () => false);
+    const candidates = chromeCommandCandidates("linux", {});
     expect(candidates.every((candidate) => !candidate.startsWith("/mnt/c/"))).toBe(true);
   });
 });

@@ -19,6 +19,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   proceeds. `--busy-wait-ms` tunes the budget and now accepts `0` to fail fast
   with the `response_in_progress` blocker, whose guidance now points at
   `--busy-wait-ms`, `pro browser recover`, and starting a new chat.
+- Browser auto-detection no longer opens blank Windows Edge/Chrome windows.
+  Root cause (trap-logged live): Windows chrome.exe/msedge.exe do not implement
+  a console `--version` - they open a blank window - and the candidate walk
+  probed the /mnt/c install paths by exec whenever the earlier PATH probes
+  failed (e.g. `google-chrome --version` stalling past its old 3s timeout on a
+  loaded machine, or a test PATH without a real chrome). Windows-host browsers
+  are no longer auto-candidates under WSL at all (opt-in via PRODEX_CHROME
+  only), `.exe` paths are validated by file existence instead of exec
+  everywhere (also fixes the same blank-window probe for native Windows), and
+  the version probe timeout is 10s.
 
 ## [0.16.31] - 2026-07-22
 

@@ -2576,40 +2576,24 @@ function win32ChromePaths(env: Record<string, string | undefined>): string[] {
   ];
 }
 
-const WSL_WINDOWS_CHROME_PATHS = [
-  "/mnt/c/Program Files/Google/Chrome/Application/chrome.exe",
-  "/mnt/c/Program Files (x86)/Google/Chrome/Application/chrome.exe",
-  "/mnt/c/Program Files/Microsoft/Edge/Application/msedge.exe",
-  "/mnt/c/Program Files (x86)/Microsoft/Edge/Application/msedge.exe"
-] as const;
-
-function kernelLooksLikeWsl(): boolean {
-  try {
-    return /microsoft/i.test(readFileSync("/proc/version", "utf8"));
-  } catch {
-    return false;
-  }
-}
-
 /**
  * Ordered browser candidates for the current platform: PATH binary names
  * first, then well-known absolute install locations (macOS app bundles,
- * Windows Program Files/LOCALAPPDATA, and Windows-host browsers under WSL).
- * WSL detection cannot rely on WSL_DISTRO_NAME alone: non-login shells
- * (measured live) may not carry it, so WSL_INTEROP and the kernel string are
- * probed too.
+ * Windows Program Files/LOCALAPPDATA). Windows-host browsers are deliberately
+ * NOT candidates under WSL: auto-selecting a /mnt/c chrome.exe/msedge.exe
+ * either opened a blank window (the old --version probe - Windows browsers
+ * treat --version as a launch) or launched the user's Windows browser with a
+ * Linux profile path, both measured live as the recurring transient
+ * Edge+Chrome window spam. Under WSL the dedicated browser is a Linux chrome;
+ * a Windows browser is opt-in via PRODEX_CHROME only.
  */
 export function chromeCommandCandidates(
   platform: NodeJS.Platform = process.platform,
-  env: Record<string, string | undefined> = process.env,
-  isWsl: () => boolean = kernelLooksLikeWsl
+  env: Record<string, string | undefined> = process.env
 ): string[] {
   const candidates: string[] = [...CHROME_PATH_BINARY_NAMES];
   if (platform === "darwin") candidates.push(...DARWIN_CHROME_PATHS);
   if (platform === "win32") candidates.push(...win32ChromePaths(env));
-  if (platform === "linux" && (env.WSL_DISTRO_NAME || env.WSL_INTEROP || isWsl())) {
-    candidates.push(...WSL_WINDOWS_CHROME_PATHS);
-  }
   return candidates;
 }
 
@@ -2666,10 +2650,26 @@ function assertChromeLikeVersion(command: string, label: string): void {
   }
 }
 
+// Windows chrome.exe/msedge.exe do not implement a console --version: they
+// treat it as a normal launch and open a visible blank window. Execing them to
+// probe was the source of the recurring transient Edge+Chrome window pairs on
+// WSL (trap-logged live: `cmd=msedge.exe --version parent=wslhost.exe`): under
+// system load the `google-chrome --version` probe exceeded its old 3s timeout,
+// the candidate walk fell through to the /mnt/c .exe paths, and each probe
+// spawned a blank window. The .exe candidates are fixed known install paths,
+// so file existence (checked by every caller) is the validation - never exec.
+export function isWindowsBrowserExecutablePath(command: string): boolean {
+  return /\.exe$/i.test(command);
+}
+
 function hasChromeLikeVersion(command: string): boolean {
+  if (isWindowsBrowserExecutablePath(command)) return true;
+  // 10s, not 3s: a loaded machine (e.g. a parallel test suite) can stall a
+  // cold `google-chrome --version` past 3s, and a false negative here used to
+  // cascade into the Windows .exe candidates above.
   const result = spawnSync(command, ["--version"], {
     encoding: "utf8",
-    timeout: 3000,
+    timeout: 10_000,
     maxBuffer: 1024 * 1024
   });
   const output = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
