@@ -15,6 +15,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Headless requires a profile that is already signed in (the login verifies
   the session and says so if it is missing), and refuses to switch modes while
   an instance of the other mode is running on the same profile.
+  Measured caveat, documented in the README: against ChatGPT today, headless
+  draws a Cloudflare "Just a moment..." challenge that does not clear (>60s)
+  even with a real signed-in profile, so the flag ships as available but
+  unproven for ChatGPT rather than as the recommended mode.
 - MCP consults recover a closed browser by themselves. The auto-recovery gate
   only fired for interactive terminals, and an MCP caller has none - so a
   closed browser made every `pro_consult` fail with a step the agent had to

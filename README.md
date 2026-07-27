@@ -263,7 +263,7 @@ The saved default above lives in the repo's `.bridge/config.local.json`, so it o
 - **Sign in headed first.** Nobody can log in to a window that does not exist, so headless reuses a profile you already signed into. The headless login verifies the saved session and tells you to run the headed login once if it is not there.
 - **One mode at a time.** A single Chrome profile cannot serve a headed and a headless instance simultaneously; close the running one before switching (prodex refuses the switch instead of silently reusing the wrong mode).
 
-Cloudflare treats a fresh headless profile as suspicious ("Just a moment..." interstitial). A profile with an established logged-in session normally passes; if yours gets challenged, run headed for that session — `prodex pro browser check` reports it as a blocker rather than hanging.
+**Cloudflare is the catch, and it is not theoretical.** Measured on a real signed-in profile: headless Chrome lands on the "Just a moment..." interstitial and stays there past 60 seconds, so ChatGPT never loads. A signed-in profile does not buy a pass — the challenge keys on the headless browser itself. Treat `--headless` as available-but-unproven against ChatGPT: try it, and if `prodex pro browser check` reports the challenge, run headed. Only the window is optional; the login is not.
 
 If a consult finds the browser closed, prodex now relaunches it in the same mode you last used and retries once — including from the MCP server, which has no terminal to prompt in. `PRODEX_NO_AUTO_LOGIN=1` turns that off.
 
