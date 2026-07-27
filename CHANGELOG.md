@@ -4,6 +4,19 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.1] - 2026-07-28
+
+### Fixed
+- Onboarding taught superseded behavior. It still told users to pass
+  `--busy-wait-ms 600000` to queue behind a busy browser (automatic since
+  0.16.33), still called the Pro default a 15-minute timeout (it is 20), and
+  said nothing about the no-window modes that landed in 0.18.0 - the login
+  step is exactly where that choice belongs. It now offers
+  `--virtual-display` and `--minimized` right after the first headed login,
+  and says plainly that `--headless` is not an option for ChatGPT.
+- The README's "just don't minimize it" rule is gone: minimizing is now a
+  supported mode, and the Pro default timeout there said 15 minutes too.
+
 ## [0.18.0] - 2026-07-27
 
 ### Added

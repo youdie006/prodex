@@ -3134,6 +3134,14 @@ describe("runCli", () => {
     expect(text).toContain(`cd ${targetCwd}`);
     expect(text).toContain(`prodex pro ask --cwd ${targetCwd} "Review this repo"  # dry-run/manual preview`);
     expect(text).not.toContain("--file README.md");
+    // Onboarding is the first thing a user reads, so it must not teach
+    // superseded behavior: sends queue behind a busy browser by default now
+    // (0.16.33), the Pro timeout default is 20 minutes (not 15), and the
+    // no-window modes shipped in 0.18.0 belong next to the login step.
+    expect(text).toContain("--virtual-display");
+    expect(text).not.toContain("15-minute timeout");
+    expect(text).toContain("20-minute timeout");
+    expect(text).not.toContain("Add --busy-wait-ms 600000 to queue behind an in-flight response instead of failing");
     expect(text).toContain("prodex pro browser login --dry-run  # preview, no browser opens");
     expect(text).toContain("prodex pro browser login  # opens visible browser");
     expect(text).toContain("prodex pro browser help");

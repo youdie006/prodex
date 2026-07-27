@@ -479,9 +479,13 @@ repo: ${cwd}
    ${cli} pro browser login${sourceCliOption}  # opens visible browser
    ${cli} pro browser login --dry-run${sourceCliOption}  # preview, no browser opens
    In an interactive terminal, login waits and narrates until your ChatGPT session is READY.
+   Sign in once, then keep the browser off your screen for good:
+   ${cli} pro browser login --virtual-display${sourceCliOption}  # no window anywhere (needs Xvfb: sudo apt install -y xvfb x11-xkb-utils xauth)
+   ${cli} pro browser login --minimized${sourceCliOption}  # no install; keeps the window minimized
+   Not --headless: Cloudflare rejects headless browsers, so ChatGPT never loads in one.
    Pin per-repo defaults first - otherwise sends silently use whatever the ChatGPT UI last had selected:
    ${cli} pro browser projects${sourceCliOption}  # read-only: exact sidebar project names
-   ${cli} setup --cwd ${quotedCwd} --model Pro --project "your-project"  # every ask: Pro (15-minute timeout) inside that project
+   ${cli} setup --cwd ${quotedCwd} --model Pro --project "your-project"  # every ask: Pro (20-minute timeout) inside that project
    cd ${quotedCwd}
    ${cli} ask --new-chat "Review this repo"${sourceCliOption}  # short form of pro browser ask
    ${proAskCommand}  # dry-run/manual preview
@@ -490,7 +494,7 @@ repo: ${cwd}
    ${cli} pro browser help${sourceCliOption}
    ${cli} pro browser check${sourceCliOption} --cwd ${quotedCwd}
    ${cli} pro browser smoke${sourceCliOption} --cwd ${quotedCwd}
-   Sharing the browser with other agents? Add --busy-wait-ms 600000 to queue behind an in-flight response instead of failing.
+   Sharing the browser with other agents? Sends queue behind an in-flight response automatically; pass --busy-wait-ms 0 to fail fast instead.
 
 2. Let coding agents consult ChatGPT (stdio MCP: Claude, Codex, Cursor, ...):
    ${cli} claude config --cwd ${quotedCwd}${sourceCliOption}
