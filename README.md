@@ -256,7 +256,22 @@ prodex setup --interactive   # asks model / Pro sub-mode or effort / project
 
 The saved default above lives in the repo's `.bridge/config.local.json`, so it only applies when `prodex` runs from that repo. A coding agent often starts the MCP as `prodex mcp` with no `--cwd` (it reads whatever directory the agent launched in), so a per-repo default is missed and consults land in the general chat. For a default that applies from **any** directory, set environment variables instead — `PRODEX_DEFAULT_PROJECT` and `PRODEX_DEFAULT_MODEL` (also `PRODEX_DEFAULT_PRO_MODE`, `PRODEX_DEFAULT_EFFORT`) — in the agent's MCP `env` block or your shell. Use your own project name (list them with `prodex pro browser projects`); with no project set, consults simply go to the general chat. A per-repo config still wins field-by-field over the env fallback.
 
-### No window on your desktop
+### No window at all: virtual display (recommended)
+
+Log in once, then never see the browser again:
+
+```bash
+prodex pro browser login                    # once, headed - sign in
+prodex pro browser login --virtual-display  # from now on: no window anywhere
+```
+
+`--virtual-display` (or `PRODEX_VIRTUAL_DISPLAY=1`, which also covers the MCP server and its auto-recovery) starts an X virtual framebuffer and runs the dedicated Chrome on it. It is a **real headed browser**, so Cloudflare treats it as an ordinary one — measured end to end: the signed-in profile loaded chatgpt.com with no challenge and a real Pro send returned in 31 seconds, with nothing on the desktop and nothing in the taskbar. Headless, by contrast, never gets past Cloudflare at all (see below).
+
+Requires `Xvfb` and `xauth` (`sudo apt install -y xvfb x11-xkb-utils xauth`); prodex names the package if they are missing. Linux and WSL only. The display is served over loopback TCP because WSLg mounts `/tmp/.X11-unix` read-only, and it is protected by a per-display xauth cookie under `~/.local/share/prodex/xvfb/` — never `-ac`, so no other process can watch your signed-in window. The X server outlives the CLI on purpose (the browser runs on it) and is reused by later commands; `PRODEX_VIRTUAL_DISPLAY_NUM` picks the display number if `:99` is taken.
+
+A browser already running on your desktop cannot be moved onto a virtual display by reusing it, so prodex refuses the switch and tells you to close it first (`pkill -f "remote-debugging-port=9333"`).
+
+### Keeping the window, just out of the way
 
 `prodex pro browser login --minimized` (or `PRODEX_MINIMIZE_WINDOW=1`) launches the dedicated browser and then minimizes it. It stays a **real headed Chrome** — which is the point, because Cloudflare admits headed browsers and rejects headless ones — but nothing sits on your desktop.
 

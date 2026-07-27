@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.18.0] - 2026-07-27
 
 ### Added
+- `pro browser login --virtual-display` (or `PRODEX_VIRTUAL_DISPLAY=1`, which
+  also covers the MCP server and its auto-recovery) runs the dedicated browser
+  on an X virtual framebuffer: log in headed once, and after that no window
+  appears anywhere - not on the desktop, not in the taskbar. It stays a REAL
+  headed Chrome, which is the whole point, because Cloudflare rejects headless
+  browsers and accepts headed ones. Verified end to end: the signed-in profile
+  loaded chatgpt.com with no challenge and a real Pro send returned in 31s with
+  no window. Needs Xvfb and xauth (prodex names the package when they are
+  missing); Linux and WSL only. The display is served over loopback TCP
+  (WSLg mounts /tmp/.X11-unix read-only) and protected by a per-display xauth
+  cookie under ~/.local/share/prodex/xvfb - never -ac, so no other local
+  process can watch the signed-in window. A browser already running on your
+  desktop cannot be moved onto a virtual display by reuse, so prodex refuses
+  the switch instead of silently leaving the window where it was.
 - `pro browser login --minimized` (or `PRODEX_MINIMIZE_WINDOW=1`) launches the
   dedicated browser and minimizes it, so nothing sits on your desktop while it
   stays a REAL headed Chrome - which is the point, because Cloudflare admits

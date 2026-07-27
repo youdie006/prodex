@@ -1,5 +1,7 @@
 import { spawn, spawnSync } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { accessSync, constants, readFileSync, statSync } from "node:fs";
+import net from "node:net";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
@@ -12,8 +14,15 @@ export interface ChatGptBrowserOptions {
    * Run the dedicated browser with no visible window. Requires a profile that
    * is ALREADY logged in (sign-in itself needs a real window), and the same
    * profile cannot be driven by a headed instance at the same time.
+   *
+   * Rejected by Cloudflare on chatgpt.com - prefer virtualDisplay.
    */
   headless?: boolean;
+  /**
+   * Run a REAL headed browser on a virtual X display, so no window appears
+   * anywhere while Cloudflare still sees an ordinary browser.
+   */
+  virtualDisplay?: { displayNumber: number; xauthority: string };
 }
 
 export interface ChatGptBrowserLaunch {
@@ -306,6 +315,8 @@ export interface BrowserLoginLaunchRecord {
   headless?: boolean;
   /** Whether the window was minimized out of the way after launching. */
   minimized?: boolean;
+  /** X display number when the browser runs on a prodex virtual display. */
+  virtual_display?: number;
 }
 
 function lastBrowserLoginPath(): string {
@@ -337,7 +348,10 @@ export async function readLastBrowserLoginLaunch(): Promise<Partial<BrowserLogin
       ...(typeof parsed.profile_dir === "string" && parsed.profile_dir.length > 0 ? { profile_dir: parsed.profile_dir } : {}),
       ...(typeof parsed.port === "number" && Number.isInteger(parsed.port) ? { port: parsed.port } : {}),
       ...(typeof parsed.headless === "boolean" ? { headless: parsed.headless } : {}),
-      ...(typeof parsed.minimized === "boolean" ? { minimized: parsed.minimized } : {})
+      ...(typeof parsed.minimized === "boolean" ? { minimized: parsed.minimized } : {}),
+      ...(typeof parsed.virtual_display === "number" && Number.isInteger(parsed.virtual_display)
+        ? { virtual_display: parsed.virtual_display }
+        : {})
     };
   } catch {
     return undefined;
@@ -350,7 +364,12 @@ export async function readLastBrowserLoginLaunch(): Promise<Partial<BrowserLogin
 // headless session is not misread as logged out.
 const HEADLESS_WINDOW_SIZE = "1440,900";
 
-export function buildChromeLaunchArgs(options: Omit<Required<ChatGptBrowserOptions>, "headless"> & { headless?: boolean }): string[] {
+export function buildChromeLaunchArgs(options: {
+  port: number;
+  profileDir: string;
+  url: string;
+  headless?: boolean;
+}): string[] {
   return [
     "--remote-debugging-address=127.0.0.1",
     `--remote-debugging-port=${options.port}`,
@@ -408,6 +427,143 @@ export async function minimizeChatGptWindow(options: { port?: number; timeoutMs?
   } finally {
     cdp.close();
   }
+}
+
+// ---------------------------------------------------------------------------
+// Virtual display (Xvfb)
+//
+// The way to run with NO window that ChatGPT actually accepts. Headless Chrome
+// is rejected by Cloudflare by design (their docs list it as unsupported, and
+// a live test sat on "Just a moment..." past 60s even with a signed-in
+// profile). A real headed Chrome on a virtual display is an ordinary browser
+// to Cloudflare - verified live: a cookie-less profile loaded chatgpt.com with
+// no challenge - while nothing appears on the desktop.
+// ---------------------------------------------------------------------------
+
+const VIRTUAL_DISPLAY_SCREEN = "1440x900x24";
+
+/**
+ * X server arguments. The display is served over loopback TCP because WSLg
+ * mounts /tmp/.X11-unix read-only, so the usual unix socket cannot be created;
+ * an xauth cookie (never -ac) keeps other local processes off a display that
+ * shows a signed-in ChatGPT window.
+ */
+export function virtualDisplayServerArgs(displayNumber: number, xauthority: string): string[] {
+  return [
+    `:${displayNumber}`,
+    "-screen",
+    "0",
+    VIRTUAL_DISPLAY_SCREEN,
+    "-listen",
+    "tcp",
+    "-nolisten",
+    "unix",
+    "-auth",
+    xauthority
+  ];
+}
+
+export function virtualDisplayEnv(
+  displayNumber: number,
+  xauthority: string,
+  env: Record<string, string | undefined> = process.env
+): Record<string, string | undefined> {
+  return { ...env, DISPLAY: `127.0.0.1:${displayNumber}`, XAUTHORITY: xauthority };
+}
+
+export function resolveVirtualDisplayPreference(
+  explicit?: boolean,
+  env: Record<string, string | undefined> = process.env
+): boolean {
+  if (typeof explicit === "boolean") return explicit;
+  const raw = (env.PRODEX_VIRTUAL_DISPLAY ?? "").trim().toLowerCase();
+  return raw === "1" || raw === "true" || raw === "yes";
+}
+
+export function assertVirtualDisplayToolingAvailable(hasCommand: (command: string) => boolean = isCommandOnPath): void {
+  const missing = ["Xvfb", "xauth"].filter((command) => !hasCommand(command));
+  if (missing.length === 0) return;
+  throw new Error(
+    `Virtual display needs ${missing.join(" and ")}, which ${missing.length > 1 ? "are" : "is"} not installed. Install with \`sudo apt install -y xvfb x11-xkb-utils xauth\` (or your distro's equivalent), then retry. Without it, use --minimized to keep the window off your screen.`
+  );
+}
+
+export interface VirtualDisplayHandle {
+  displayNumber: number;
+  xauthority: string;
+  startedNow: boolean;
+}
+
+function virtualDisplayStateDir(): string {
+  return path.join(os.homedir(), ".local", "share", "prodex", "xvfb");
+}
+
+async function tcpPortAccepts(port: number, timeoutMs = 500): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = net.connect({ host: "127.0.0.1", port });
+    const done = (result: boolean) => {
+      socket.destroy();
+      resolve(result);
+    };
+    socket.setTimeout(timeoutMs);
+    socket.once("connect", () => done(true));
+    socket.once("timeout", () => done(false));
+    socket.once("error", () => done(false));
+  });
+}
+
+/**
+ * Start (or reuse) the prodex virtual display and return how to reach it.
+ * The X server outlives the CLI process on purpose: the dedicated browser runs
+ * on it, so tearing it down at exit would kill the browser.
+ */
+export async function ensureVirtualDisplay(options: { displayNumber?: number } = {}): Promise<VirtualDisplayHandle> {
+  assertVirtualDisplayToolingAvailable();
+  const stateDir = virtualDisplayStateDir();
+  await mkdir(stateDir, { recursive: true, mode: 0o700 });
+  const requested = options.displayNumber ?? Number(process.env.PRODEX_VIRTUAL_DISPLAY_NUM ?? 99);
+  const first = Number.isInteger(requested) && requested > 0 && requested < 1000 ? requested : 99;
+  // Walk display numbers: a listening display is only reusable when OUR cookie
+  // for it exists, otherwise it belongs to something else (another tool, or a
+  // stale server started with a different key) and we could not authenticate
+  // to it - that produced "Authorization required" and a browser that died on
+  // launch. A free number gets a fresh server.
+  for (let displayNumber = first; displayNumber < first + 10; displayNumber += 1) {
+    const xauthority = path.join(stateDir, `Xauthority-${displayNumber}`);
+    const listening = await tcpPortAccepts(6000 + displayNumber);
+    if (listening) {
+      let ours = false;
+      try {
+        ours = (await readFile(xauthority)).length > 0;
+      } catch {
+        ours = false;
+      }
+      if (ours) return { displayNumber, xauthority, startedNow: false };
+      continue;
+    }
+    const cookie = randomBytes(16).toString("hex");
+    await writeFile(xauthority, "", { mode: 0o600 });
+    const auth = spawnSync("xauth", ["-f", xauthority, "add", `127.0.0.1:${displayNumber}`, ".", cookie], {
+      encoding: "utf8",
+      timeout: 10_000
+    });
+    if (auth.status !== 0) {
+      throw new Error(`Could not create the X authority cookie: ${(auth.stderr || auth.stdout || "xauth failed").trim()}`);
+    }
+    const child = spawn("Xvfb", virtualDisplayServerArgs(displayNumber, xauthority), {
+      detached: true,
+      stdio: "ignore",
+      env: process.env
+    });
+    child.unref();
+    const deadline = Date.now() + 10_000;
+    while (Date.now() < deadline) {
+      if (await tcpPortAccepts(6000 + displayNumber)) return { displayNumber, xauthority, startedNow: true };
+      await sleep(250);
+    }
+    throw new Error(`Xvfb did not start listening for display :${displayNumber} within 10s.`);
+  }
+  throw new Error(`No free X display between :${first} and :${first + 9}. Set PRODEX_VIRTUAL_DISPLAY_NUM to a free number.`);
 }
 
 export function resolveHeadlessPreference(
@@ -972,7 +1128,10 @@ export function openChatGptBrowser(options: ChatGptBrowserOptions = {}): ChatGpt
     url: options.url ?? "https://chatgpt.com/",
     ...(headless ? { headless } : {})
   });
-  const child = spawn(command, args, { detached: true, stdio: "ignore", env: browserLaunchEnv() });
+  const launchEnv = options.virtualDisplay
+    ? virtualDisplayEnv(options.virtualDisplay.displayNumber, options.virtualDisplay.xauthority)
+    : browserLaunchEnv();
+  const child = spawn(command, args, { detached: true, stdio: "ignore", env: launchEnv });
   let earlyExit: ChatGptBrowserEarlyExit | undefined;
   const earlyExitWaiters = new Set<(exit: ChatGptBrowserEarlyExit) => void>();
   const recordEarlyExit = (exit: ChatGptBrowserEarlyExit) => {

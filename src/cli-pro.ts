@@ -16,8 +16,10 @@ import {
   openChatGptBrowser,
   parseProMode,
   parseReasoningEffort,
+  ensureVirtualDisplay,
   minimizeChatGptWindow,
   readLastBrowserLoginLaunch,
+  resolveVirtualDisplayPreference,
   resolveHeadlessPreference,
   recordBrowserLoginLaunch,
   recoverChatGptAnswerFromThread,
@@ -266,7 +268,7 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
         if (
           printProBrowserHelpIfRequested(browserArgs, "pro browser login", io, {
             valueFlags: ["--cwd", "--profile-dir", "--port", "--url", "--source-cli", "--launch-timeout-ms", "--wait-timeout-ms"],
-            booleanFlags: ["--dry-run", "--wait", "--no-wait", "--headless", "--minimized"]
+            booleanFlags: ["--dry-run", "--wait", "--no-wait", "--headless", "--minimized", "--virtual-display"]
           })
         ) {
           return 0;
@@ -275,7 +277,7 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
           browserArgs,
           "pro browser login",
           ["--cwd", "--profile-dir", "--port", "--url", "--source-cli", "--launch-timeout-ms", "--wait-timeout-ms"],
-          ["--dry-run", "--wait", "--no-wait", "--headless", "--minimized"]
+          ["--dry-run", "--wait", "--no-wait", "--headless", "--minimized", "--virtual-display"]
         );
         if (browserArgs.includes("--wait") && browserArgs.includes("--no-wait")) {
           throw new Error("pro browser login cannot combine --wait and --no-wait");
@@ -309,6 +311,15 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
         // "extra windows" problem, which then blocks sends as
         // ambiguous_chatgpt_tabs). Reuse the running instance instead.
         const headless = resolveHeadlessPreference(browserArgs.includes("--headless") ? true : undefined);
+        // A real browser on a virtual X display: no window anywhere, and
+        // Cloudflare sees an ordinary headed Chrome (headless it rejects).
+        const wantsVirtualDisplay = resolveVirtualDisplayPreference(
+          browserArgs.includes("--virtual-display") ? true : undefined
+        );
+        if (wantsVirtualDisplay && headless) {
+          throw new Error("pro browser login cannot combine --headless and --virtual-display (a virtual display already hides the window).");
+        }
+        const virtualDisplay = wantsVirtualDisplay ? await ensureVirtualDisplay() : undefined;
         const alreadyRunning = (await getChatGptBrowserStatus({ port })).reachable;
         if (alreadyRunning) {
           // One Chrome profile cannot serve a headed and a headless instance at
@@ -321,10 +332,25 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
               `A ${runningHeadless ? "headless" : "headed"} ChatGPT browser is already running on port ${port}, but ${headless ? "headless" : "headed"} was requested. Close it first (\`pkill -f "remote-debugging-port=${port}"\`), then rerun.`
             );
           }
+          // Same for the display: a browser already on your desktop cannot be
+          // moved onto a virtual display by reusing it, and silently reusing
+          // it would leave the window exactly where the user asked it not to be.
+          const runningVirtual = previous?.port === port ? previous.virtual_display !== undefined : undefined;
+          if (runningVirtual !== undefined && runningVirtual !== wantsVirtualDisplay) {
+            throw new Error(
+              `A ChatGPT browser is already running on port ${port} on ${runningVirtual ? "a virtual display" : "your desktop"}, but ${wantsVirtualDisplay ? "a virtual display" : "your desktop"} was requested. Close it first (\`pkill -f "remote-debugging-port=${port}"\`), then rerun.`
+            );
+          }
         }
         const opened: Pick<ChatGptBrowserLaunch, "profileDir" | "port"> = alreadyRunning
           ? { profileDir: profileDir ?? defaultChatGptProfileDir(), port }
-          : openChatGptBrowser({ port, profileDir, url: loginUrl, ...(headless ? { headless } : {}) });
+          : openChatGptBrowser({
+              port,
+              profileDir,
+              url: loginUrl,
+              ...(headless ? { headless } : {}),
+              ...(virtualDisplay ? { virtualDisplay: { displayNumber: virtualDisplay.displayNumber, xauthority: virtualDisplay.xauthority } } : {})
+            });
         if (!alreadyRunning) {
           await assertBrowserLaunchStayedAlive(opened as ChatGptBrowserLaunch, launchTimeoutMs);
         }
@@ -347,7 +373,18 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
             minimizeNote = `window: could not minimize (${errorMessage(error)}); leaving it as it is.`;
           }
         }
-        await recordBrowserLoginLaunch({ profile_dir: opened.profileDir, port: opened.port, headless, minimized });
+        await recordBrowserLoginLaunch({
+          profile_dir: opened.profileDir,
+          port: opened.port,
+          headless,
+          minimized,
+          ...(virtualDisplay ? { virtual_display: virtualDisplay.displayNumber } : {})
+        });
+        if (virtualDisplay) {
+          io.stdout(
+            `window: none - running on virtual display :${virtualDisplay.displayNumber}${virtualDisplay.startedNow ? " (started now)" : " (reused)"}.`
+          );
+        }
         printBrowserLoginGuide(io.stdout, {
           opened: !alreadyRunning,
           reused: alreadyRunning,
@@ -1297,10 +1334,19 @@ export async function attemptBrowserAutoRecovery(stderr: (line: string) => void,
     // visible window for someone running headless would be exactly the
     // surprise window they turned headless to avoid.
     const headless = resolveHeadlessPreference(lastLogin?.headless);
+    // Rejoin the same virtual display the user set up, so recovery does not
+    // put a window back on a desktop they deliberately keep empty.
+    const virtualDisplay =
+      lastLogin?.virtual_display !== undefined || resolveVirtualDisplayPreference()
+        ? await ensureVirtualDisplay(
+            lastLogin?.virtual_display !== undefined ? { displayNumber: lastLogin.virtual_display } : {}
+          ).catch(() => undefined)
+        : undefined;
     const opened = openChatGptBrowser({
       ...(options.port !== undefined ? { port: options.port } : {}),
       ...(lastLogin?.profile_dir ? { profileDir: lastLogin.profile_dir } : {}),
-      ...(headless ? { headless } : {})
+      ...(headless ? { headless } : {}),
+      ...(virtualDisplay ? { virtualDisplay: { displayNumber: virtualDisplay.displayNumber, xauthority: virtualDisplay.xauthority } } : {})
     });
     await assertBrowserLaunchStayedAlive(opened);
     const ready = await waitForChatGptLoginReady(stderr, { port: opened.port, timeoutMs: 120_000 });

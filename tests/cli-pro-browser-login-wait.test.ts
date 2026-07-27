@@ -253,6 +253,13 @@ describe("pro browser login --wait", () => {
     }
   });
 
+  it("refuses --headless together with --virtual-display", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-login-wait-"));
+    await expect(
+      runCli(["pro", "browser", "login", "--headless", "--virtual-display"], { cwd, stdout: () => {}, stderr: () => {} })
+    ).rejects.toThrow(/cannot combine --headless and --virtual-display/);
+  });
+
   it("does not wait in non-interactive runs unless --wait is passed", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "prodex-login-wait-"));
     openChatGptBrowserMock.mockReturnValueOnce({

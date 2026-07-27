@@ -31,6 +31,10 @@ import {
   chunkComposerText,
   COMPOSER_INSERT_CHUNK_CHARS,
   resolveHeadlessPreference,
+  resolveVirtualDisplayPreference,
+  virtualDisplayServerArgs,
+  virtualDisplayEnv,
+  assertVirtualDisplayToolingAvailable,
   assertChatGptIdleAndReadyForPrompt,
   inferChatGptPageLoggedInLikely,
   inferLoggedInLikely,
@@ -134,6 +138,39 @@ describe("ChatGPT browser adapter", () => {
     // Multi-byte text must not be split mid-character.
     const korean = "가나다라마바사".repeat(2_000);
     expect(chunkComposerText(korean).join("")).toBe(korean);
+  });
+
+  it("builds a virtual-display X server command that is authenticated, not world-open", () => {
+    // WSLg mounts /tmp/.X11-unix read-only, so the X server has to serve over
+    // loopback TCP - and a TCP X display with access control off would let any
+    // process on the box watch the signed-in ChatGPT window. Require -auth.
+    const args = virtualDisplayServerArgs(99, "/home/u/.local/share/prodex/xvfb/Xauthority");
+    expect(args[0]).toBe(":99");
+    expect(args).toContain("-auth");
+    expect(args).toContain("/home/u/.local/share/prodex/xvfb/Xauthority");
+    expect(args).toContain("-listen");
+    expect(args).not.toContain("-ac");
+    expect(args.join(" ")).toMatch(/-screen 0 \d{3,}x\d{3,}x24/);
+  });
+
+  it("points the browser at the virtual display without disturbing the real one", () => {
+    const env = virtualDisplayEnv(99, "/tmp/Xauthority", { DISPLAY: ":0", PATH: "/usr/bin" });
+    expect(env.DISPLAY).toBe("127.0.0.1:99");
+    expect(env.XAUTHORITY).toBe("/tmp/Xauthority");
+    expect(env.PATH).toBe("/usr/bin");
+  });
+
+  it("resolves the virtual-display preference from PRODEX_VIRTUAL_DISPLAY", () => {
+    expect(resolveVirtualDisplayPreference(undefined, {})).toBe(false);
+    expect(resolveVirtualDisplayPreference(undefined, { PRODEX_VIRTUAL_DISPLAY: "1" })).toBe(true);
+    expect(resolveVirtualDisplayPreference(false, { PRODEX_VIRTUAL_DISPLAY: "1" })).toBe(false);
+    expect(resolveVirtualDisplayPreference(true, {})).toBe(true);
+  });
+
+  it("names the package to install when Xvfb is missing", () => {
+    expect(() => assertVirtualDisplayToolingAvailable(() => false)).toThrow(/apt install/);
+    expect(() => assertVirtualDisplayToolingAvailable(() => false)).toThrow(/xvfb/);
+    expect(() => assertVirtualDisplayToolingAvailable(() => true)).not.toThrow();
   });
 
   it("resolves the headless preference from PRODEX_HEADLESS, with the explicit option winning", () => {
