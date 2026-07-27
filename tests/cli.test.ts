@@ -2360,6 +2360,20 @@ describe("runCli", () => {
     expect(await readdir(cwd)).not.toContain(".bridge");
   });
 
+  it("points legacy status/doctor/open subcommands at a subcommand that exists", async () => {
+    // Field failure: `prodex pro status` said "Use `prodex pro browser
+    // status`", which itself errors - a two-hop dead end that made an agent
+    // abandon the diagnosis.
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
+    const run = (args: string[]) => runCli(args, { cwd, stdout: () => {}, stderr: () => {} });
+
+    await expect(run(["pro", "status"])).rejects.toThrow(/prodex pro browser check/);
+    await expect(run(["pro", "doctor"])).rejects.toThrow(/prodex pro browser check/);
+    await expect(run(["pro", "browser", "status"])).rejects.toThrow(/prodex pro browser check/);
+    await expect(run(["pro", "open"])).rejects.toThrow(/prodex pro browser login/);
+    await expect(run(["pro", "browser", "open"])).rejects.toThrow(/prodex pro browser login/);
+  });
+
   it("labels pro ask as a dry-run preview in help", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     const out: string[] = [];
@@ -2382,7 +2396,7 @@ describe("runCli", () => {
       "prodex pro browser smoke [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 90000]"
     );
     expect(text).toContain(
-      'prodex pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 90000] [--busy-wait-ms 600000] [--target-url url --confirm-target] [--new-chat] [--stdin] [--json] [--auto-login|--no-auto-login] [--file path] [--model Pro] [--pro-mode 기본|확장] [--effort 즉시|중간|높음|"매우 높음"] [--project "name" | --project-new "name"] "prompt"  # explicit visible-browser send'
+      'prodex pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 300000] [--busy-wait-ms 600000] [--target-url url --confirm-target] [--new-chat] [--stdin] [--json] [--auto-login|--no-auto-login] [--file path] [--model Pro] [--pro-mode 기본|확장] [--effort 즉시|중간|높음|"매우 높음"] [--project "name" | --project-new "name"] "prompt"  # explicit visible-browser send'
     );
     expect(text).toContain("prodex pro latest [--source-cli /absolute/path/to/dist/cli.js]");
     expect(text).toContain("prodex pro list [--source-cli /absolute/path/to/dist/cli.js]");
@@ -4435,7 +4449,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     expect(text).toContain("prodex pro browser check [--source-cli /absolute/path/to/dist/cli.js]");
     expect(text).toContain("prodex pro browser smoke [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]");
     expect(text).toContain(
-      'prodex pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 90000] [--busy-wait-ms 600000] [--target-url url --confirm-target] [--new-chat] [--stdin] [--json] [--auto-login|--no-auto-login] [--file path] [--model Pro] [--pro-mode 기본|확장] [--effort 즉시|중간|높음|"매우 높음"] [--project "name" | --project-new "name"] "prompt"'
+      'prodex pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 300000] [--busy-wait-ms 600000] [--target-url url --confirm-target] [--new-chat] [--stdin] [--json] [--auto-login|--no-auto-login] [--file path] [--model Pro] [--pro-mode 기본|확장] [--effort 즉시|중간|높음|"매우 높음"] [--project "name" | --project-new "name"] "prompt"'
     );
     expect(text).toContain("Use `prodex pro ask` for dry-run/manual previews.");
     expect(text).toContain("`prodex pro browser ask` always attempts an explicit visible-browser send.");
@@ -4460,7 +4474,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     expect(text).toContain(`${sourcePrefix} pro browser check --source-cli ${sourceCli}`);
     expect(text).toContain(`${sourcePrefix} pro browser smoke --source-cli ${sourceCli} [--cwd /absolute/path/to/repo]`);
     expect(text).toContain(
-      `${sourcePrefix} pro browser ask --source-cli ${sourceCli} [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 90000] [--busy-wait-ms 600000] [--target-url url --confirm-target] [--new-chat] [--stdin] [--json] [--auto-login|--no-auto-login] [--file path] [--model Pro] [--pro-mode 기본|확장] [--effort 즉시|중간|높음|"매우 높음"] [--project "name" | --project-new "name"] "prompt"`
+      `${sourcePrefix} pro browser ask --source-cli ${sourceCli} [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 300000] [--busy-wait-ms 600000] [--target-url url --confirm-target] [--new-chat] [--stdin] [--json] [--auto-login|--no-auto-login] [--file path] [--model Pro] [--pro-mode 기본|확장] [--effort 즉시|중간|높음|"매우 높음"] [--project "name" | --project-new "name"] "prompt"`
     );
     expect(text).toContain(`Use \`${sourcePrefix} pro ask\` for dry-run/manual previews.`);
     expect(text).toContain(`\`${sourcePrefix} pro browser ask --source-cli ${sourceCli}\` always attempts an explicit visible-browser send.`);
@@ -4919,7 +4933,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     const text = out.join("\n");
     expect(text).toContain(`bridge: missing (.bridge) - run \`node ${sourceCli} init\``);
     expect(text).toContain(`config: missing - run \`node ${sourceCli} setup\``);
-    expect(text).toContain(`next: Run \`node ${sourceCli} pro browser login --source-cli ${sourceCli} --port 65534\`, log in, then retry.`);
+    expect(text).toContain(`next: Run \`node ${sourceCli} pro browser login --source-cli ${sourceCli} --port 65534\` to reopen`);
     expect(text).not.toContain("prodex pro browser login");
     expect(await readdir(cwd)).not.toContain(".bridge");
   });

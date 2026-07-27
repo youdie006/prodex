@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -550,8 +550,12 @@ describe("pro browser ask persistence", () => {
     await runCli(["pro", "browser", "ask", "--model", "Pro", "p"], { cwd, stdout: () => {}, stderr: () => {} });
     expect(sendChatGptPromptMock).toHaveBeenLastCalledWith(expect.objectContaining({ timeoutMs: 1_200_000 }));
 
+    // No model flag and no saved default: the UI's current model is unknown
+    // and may well be Pro, so the budget is 5 minutes rather than 90s. Field
+    // failure: repos without saved defaults chronically hit "Timed out after
+    // 90000ms" on ordinary consults.
     await runCli(["pro", "browser", "ask", "p"], { cwd, stdout: () => {}, stderr: () => {} });
-    expect(sendChatGptPromptMock).toHaveBeenLastCalledWith(expect.objectContaining({ timeoutMs: 90_000 }));
+    expect(sendChatGptPromptMock).toHaveBeenLastCalledWith(expect.objectContaining({ timeoutMs: 300_000 }));
 
     await runCli(["pro", "browser", "ask", "--model", "Pro", "--timeout-ms", "1234", "p"], { cwd, stdout: () => {}, stderr: () => {} });
     expect(sendChatGptPromptMock).toHaveBeenLastCalledWith(expect.objectContaining({ timeoutMs: 1234 }));
@@ -596,16 +600,21 @@ describe("pro browser ask persistence", () => {
     }
   });
 
-  it("fails fast on a held send lock without --busy-wait-ms, and reaps a dead holder", async () => {
+  it("fails fast on a held send lock with --busy-wait-ms 0, and reaps a dead holder", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-send-"));
     const lockFile = path.join(cwd, "send.lock");
     const priorLock = process.env.PRODEX_SEND_LOCK_FILE;
     process.env.PRODEX_SEND_LOCK_FILE = lockFile;
     try {
-      // Held by THIS live process -> fail fast without a wait budget.
+      // Held by THIS live process -> fail fast only when the wait budget is
+      // explicitly zero (the default queues behind the holder).
       await writeFile(lockFile, JSON.stringify({ pid: process.pid }), "utf8");
       await expect(
-        runCli(["pro", "browser", "ask", "--model", "Pro", "prompt"], { cwd, stdout: () => {}, stderr: () => {} })
+        runCli(["pro", "browser", "ask", "--model", "Pro", "--busy-wait-ms", "0", "prompt"], {
+          cwd,
+          stdout: () => {},
+          stderr: () => {}
+        })
       ).rejects.toThrow(/[Aa]nother prodex browser send is in progress/);
 
       // Held by a dead pid -> reaped, send proceeds.
@@ -623,6 +632,41 @@ describe("pro browser ask persistence", () => {
     } finally {
       if (priorLock === undefined) delete process.env.PRODEX_SEND_LOCK_FILE;
       else process.env.PRODEX_SEND_LOCK_FILE = priorLock;
+    }
+  });
+
+  it("queues behind a live lock holder by default, with no --busy-wait-ms passed", async () => {
+    // Field failure: MCP consults cannot pass --busy-wait-ms at all, so a
+    // live holder made pro_consult fail instantly with advice the caller had
+    // no way to follow (observed twice back-to-back in one session).
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-send-"));
+    const lockFile = path.join(cwd, "send.lock");
+    const priorLock = process.env.PRODEX_SEND_LOCK_FILE;
+    process.env.PRODEX_SEND_LOCK_FILE = lockFile;
+    try {
+      await writeFile(lockFile, JSON.stringify({ pid: process.pid }), "utf8");
+      const err: string[] = [];
+      const send = runCli(["pro", "browser", "ask", "--model", "Pro", "--timeout-ms", "60000", "prompt"], {
+        cwd,
+        stdout: () => {},
+        stderr: (line) => err.push(line)
+      });
+      // Release the lock while the send is queued; it must then proceed.
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      expect(err.join("\n")).toMatch(/another prodex send holds the browser/);
+      sendChatGptPromptMock.mockResolvedValueOnce({
+        url: "https://chatgpt.com/c/x",
+        title: "ChatGPT",
+        answer: "queued ok",
+        modelHints: [],
+        warnings: []
+      });
+      await rm(lockFile, { force: true });
+      await expect(send).resolves.toBeDefined();
+    } finally {
+      if (priorLock === undefined) delete process.env.PRODEX_SEND_LOCK_FILE;
+      else process.env.PRODEX_SEND_LOCK_FILE = priorLock;
+      sendChatGptPromptMock.mockReset();
     }
   });
 

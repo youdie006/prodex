@@ -1165,7 +1165,12 @@ async function runDoctor(store: BridgeStore, io: CliIO, sourceCli?: string, setu
     }
   } catch (error) {
     if (isMissingFileError(error)) {
-      io.stdout(`config: missing - run \`${formatSetupCommand(sourceCli, { cwd: setupHintCwd })}\``);
+      // Name it optional: browser consults need no config at all, but agents
+      // reading "config: missing" in an otherwise healthy check concluded
+      // prodex was unconfigured and went chasing `setup` (field sessions).
+      io.stdout(
+        `config: missing - run \`${formatSetupCommand(sourceCli, { cwd: setupHintCwd })}\` (optional - only the HTTP MCP surface needs it; browser consults work without it)`
+      );
     } else {
       ok = false;
       io.stdout(`config: failed ${sourceAwareSetupMessage(errorMessage(error), sourceCli, { cwd: setupHintCwd })}`);

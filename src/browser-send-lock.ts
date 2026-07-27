@@ -121,7 +121,7 @@ export async function withBrowserSendLock<T>(waitMs: number, onWait: (detail: st
     }
     if (Date.now() >= deadline) {
       throw new Error(
-        `Another prodex browser send is in progress (pid ${holder.pid}). Wait for it to finish, or pass --busy-wait-ms to queue behind it.`
+        `Another prodex browser send is in progress (pid ${holder.pid}) and did not finish within the wait budget. Retry once it finishes, or raise --timeout-ms (which is also the queue budget).`
       );
     }
     if (!waited) {

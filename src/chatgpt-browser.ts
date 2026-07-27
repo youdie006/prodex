@@ -1626,7 +1626,8 @@ export async function recoverChatGptAnswerFromThread(
         code: "browser_unreachable",
         message: `No Chrome DevTools endpoint is reachable on 127.0.0.1:${port}.`,
         retryable: true,
-        next_step: "Run `prodex pro browser login`, log in, then retry."
+        next_step:
+          "Run `prodex pro browser login` to reopen the dedicated window - it reuses the saved session (no manual login unless it expired) and returns immediately when run non-interactively - then retry."
       }
     );
   }
@@ -2104,7 +2105,8 @@ async function findChatGptPage(
         code: "browser_unreachable",
         message: `No Chrome DevTools endpoint is reachable on 127.0.0.1:${port}.`,
         retryable: true,
-        next_step: "Run `prodex pro browser login`, log in, then retry.",
+        next_step:
+          "Run `prodex pro browser login` to reopen the dedicated window - it reuses the saved session (no manual login unless it expired) and returns immediately when run non-interactively - then retry.",
         ...(error instanceof Error ? { detail: error.message } : {})
       } as ChatGptBrowserStatus["blocker"]
     };

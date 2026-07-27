@@ -270,7 +270,10 @@ export function createServer(cwd = process.cwd(), options: CreateMcpServerOption
         inputSchema: {
           prompt: McpBridgeTextSchema.min(1),
           model: McpShortTextSchema.optional(),
-          pro_mode: McpShortTextSchema.optional(),
+          // pro_mode is deliberately NOT advertised: ChatGPT's 2026-07 update
+          // removed Pro sub-modes, and agents that saw the field passed
+          // nonsense ("true") and got a hard validation error instead of an
+          // answer. Unknown keys are stripped, so a stale caller still works.
           effort: McpShortTextSchema.optional(),
           project: McpShortTextSchema.optional(),
           timeout_ms: z.number().int().positive().max(3_600_000).optional(),

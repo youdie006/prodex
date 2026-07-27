@@ -363,8 +363,9 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
         }
       }
       if (browserSubcommand === "open" || browserSubcommand === "status" || browserSubcommand === "doctor") {
-        const replacement = browserSubcommand === "open" ? "login" : "check";
-        throw new Error(`Use \`prodex pro browser ${replacement}\` for explicit browser automation.`);
+        throw new Error(
+          `Use \`prodex pro browser ${legacyBrowserSubcommandReplacement(browserSubcommand)}\` for explicit browser automation.`
+        );
       }
       if (browserSubcommand === "smoke") {
         if (printProBrowserHelpIfRequested(browserArgs, "pro browser smoke", io, { valueFlags: ["--cwd", "--port", "--timeout-ms", "--source-cli"] })) return 0;
@@ -507,7 +508,10 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
       throw unknownSubcommandError("pro browser", browserSubcommand, ["login", "ask", "smoke", "check", "models", "projects", "recover"]);
     }
     if (subcommand === "open" || subcommand === "status" || subcommand === "smoke" || subcommand === "check" || subcommand === "doctor") {
-      throw new Error(`Use \`prodex pro browser ${subcommand === "doctor" ? "check" : subcommand}\` for explicit browser automation.`);
+      // Point at a subcommand that EXISTS: `pro status` used to say "use `pro
+      // browser status`", which itself errors with "use `pro browser check`" -
+      // a two-hop dead end that made an agent abandon the diagnosis.
+      throw new Error(`Use \`prodex pro browser ${legacyBrowserSubcommandReplacement(subcommand)}\` for explicit browser automation.`);
     }
     if (subcommand === "list") {
       if (printHelpIfRequested(proArgs, "pro list", io.stdout, printProHelp, { valueFlags: ["--cwd", "--source-cli"] })) return 0;
@@ -607,6 +611,15 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
 
 export async function runConsultsCommand(rest: string[], io: CliIO): Promise<number> {
     throw new Error("The legacy `consults` alias is retired. Use `prodex pro list`, `prodex pro latest`, or `prodex pro show <task-id|latest>`.");
+}
+
+// Retired browser subcommands map to the one that replaced them. Every value
+// here must be a subcommand that actually exists, so the error is a single hop
+// to a runnable command.
+function legacyBrowserSubcommandReplacement(subcommand: string): string {
+  if (subcommand === "open") return "login";
+  if (subcommand === "smoke") return "smoke";
+  return "check";
 }
 
 // File marker + human-pacing gate for visible-browser sends. Reads the previous
@@ -788,7 +801,11 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
     const effectiveProSelection = selectionProMode !== undefined || (selectionModel !== undefined && /pro/i.test(selectionModel));
     // Pro reasoning routinely runs 6-20 minutes; 15 min was still cutting long
     // answers off (field report), so a Pro selection defaults to 20 minutes.
-    const defaultBrowserTimeoutMs = effectiveProSelection ? 1_200_000 : 90_000;
+    // With NO model selection at all (no flag, no saved default) the UI's
+    // current model is unknown and may be Pro, so the floor is 5 minutes: the
+    // old 90s guess made repos without saved defaults time out on ordinary
+    // consults (observed in several field sessions).
+    const defaultBrowserTimeoutMs = effectiveProSelection ? 1_200_000 : 300_000;
     const browserTimeoutMs = hasSendMode
       ? (readPositiveIntegerFlag(parsedAskPro.optionArgs, "--timeout-ms") ?? defaultBrowserTimeoutMs)
       : undefined;
@@ -846,8 +863,13 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
         }
         throw new Error(formatBlockedConsultRecordedMessage(blocker.message, task.id, sourceCli, { cwd: targetCwd }));
       }
+      // Queue behind another prodex send by default (same budget as the send
+      // itself). MCP consults cannot pass --busy-wait-ms at all, so the old
+      // fail-fast default made pro_consult die instantly with advice the
+      // caller had no way to follow; --busy-wait-ms 0 opts back into failing
+      // fast. A dead holder is still reaped immediately.
       const sendOnce = () =>
-        withBrowserSendLock(busyWaitMs ?? 0, (detail) => io.stderr(`progress: ${detail}`), () =>
+        withBrowserSendLock(busyWaitMs ?? browserTimeoutMs ?? 0, (detail) => io.stderr(`progress: ${detail}`), () =>
         sendChatGptPrompt({
           port: browserPort,
           prompt: bundle.text,
@@ -1518,7 +1540,12 @@ export async function printProductCheck(store: BridgeStore, io: CliIO, args: str
     }
   } catch (error) {
     if (isMissingFileError(error)) {
-      io.stdout(`config: missing - run \`${formatSetupCommand(sourceCli, { cwd: setupHintCwd })}\``);
+      // Name it optional: browser consults need no config at all, but agents
+      // reading "config: missing" in an otherwise healthy check concluded
+      // prodex was unconfigured and went chasing `setup` (field sessions).
+      io.stdout(
+        `config: missing - run \`${formatSetupCommand(sourceCli, { cwd: setupHintCwd })}\` (optional - only the HTTP MCP surface needs it; browser consults work without it)`
+      );
     } else {
       io.stdout(`config: failed ${sourceAwareSetupMessage(errorMessage(error), sourceCli, { cwd: setupHintCwd })}`);
     }
@@ -1563,6 +1590,14 @@ export async function printProductCheck(store: BridgeStore, io: CliIO, args: str
     io.stdout(`chatgpt: ${browserStatus.blocker?.code ?? "unreachable"} - ${browserStatus.blocker?.message ?? "browser is not reachable"}`);
     const nextStep = productCheckBrowserNextStep(browserStatus.blocker?.next_step, sourceCli, browserCommandOptions);
     if (nextStep) io.stdout(`next: ${nextStep}`);
+  } else if (browserStatus.blocker?.code === "response_in_progress") {
+    // Busy is not broken: the session is healthy and answering, and sends
+    // queue behind it automatically. Reporting it as "blocked" made agents
+    // conclude the browser was down and start relaunching/logging in (field
+    // failure, observed across several repos).
+    io.stdout(`chatgpt: busy ${browserStatus.blocker.code} - ${browserStatus.blocker.message}`);
+    io.stdout("next: No action needed - a send queues behind it automatically (--busy-wait-ms 0 fails fast instead).");
+    chatgptReady = true;
   } else if (browserStatus.blocker) {
     const visibilityText =
       browserStatus.blocker.code === "tab_not_visible" ? ` visibility=${browserStatus.visibilityState ?? "unknown"}` : "";

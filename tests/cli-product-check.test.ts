@@ -78,6 +78,36 @@ describe("browser product check", () => {
     expect(out.join("\n")).toContain("browser_defaults: model=Pro, pro-mode=확장");
   });
 
+  it("reports an in-flight response as busy, not as a blocked browser", async () => {
+    // Field failure: agents ran `pro browser check`, saw "blocked
+    // response_in_progress", concluded the browser was broken, and started
+    // relaunching/logging in - when the only true statement was "ChatGPT is
+    // answering right now" and sends queue behind it automatically.
+    const prior = browserStatusFixture.status;
+    browserStatusFixture.status = {
+      ...prior,
+      blocker: {
+        code: "response_in_progress",
+        message: "ChatGPT is still generating a previous response in this thread.",
+        retryable: true,
+        next_step: "Wait for it to finish and retry."
+      }
+    };
+    try {
+      const busy = await runBrowserCheckResult();
+      expect(busy.text).toContain("chatgpt: busy response_in_progress");
+      expect(busy.text).not.toContain("chatgpt: blocked");
+      expect(busy.text).toMatch(/next: .*queue/i);
+
+      // Busy must not degrade browser health: same exit code as a clean tab.
+      browserStatusFixture.status = { ...prior, blocker: undefined };
+      const healthy = await runBrowserCheckResult();
+      expect(busy.code).toBe(healthy.code);
+    } finally {
+      browserStatusFixture.status = prior;
+    }
+  });
+
   it("reports blockers even when ChatGPT is logged in with a composer", async () => {
     const { code, text } = await runBrowserCheckResult();
     expect(code).toBe(1);

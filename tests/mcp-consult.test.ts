@@ -85,6 +85,40 @@ describe("pro_consult MCP tool registration", () => {
     expect(progressMessages).toContain("progress: waiting 15s (generating)");
   });
 
+  it("no longer advertises pro_mode, and ignores it when an agent passes one anyway", async () => {
+    // Field failure: ChatGPT removed Pro sub-modes, but the tool still
+    // advertised pro_mode - so agents passed pro_mode:"true" and got a hard
+    // "must be one of 기본, 확장" error instead of an answer.
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-consult-"));
+    sendChatGptPromptMock.mockResolvedValueOnce({
+      url: "https://chatgpt.com/c/mcp-no-pro-mode",
+      title: "ChatGPT",
+      answer: "answered anyway",
+      modelHints: [],
+      warnings: []
+    });
+    const server = createServer(cwd, {
+      browserConsult: (input) => performBrowserConsultForMcp(cwd, input)
+    });
+    const client = await connectClient(server);
+    const tools = await client.listTools();
+    const consult = tools.tools.find((tool) => tool.name === "pro_consult");
+    expect(Object.keys((consult?.inputSchema as { properties?: Record<string, unknown> })?.properties ?? {})).not.toContain(
+      "pro_mode"
+    );
+    expect(JSON.stringify(consult?.description ?? "")).not.toContain("pro_mode");
+
+    const result = (await client.callTool({
+      name: "pro_consult",
+      arguments: { prompt: "MCP question", pro_mode: "true" }
+    })) as { content: Array<{ type: string; text: string }>; isError?: boolean };
+    await client.close();
+
+    expect(result.isError ?? false).toBe(false);
+    expect(result.content[0].text).toContain("answered anyway");
+    expect(sendChatGptPromptMock).toHaveBeenLastCalledWith(expect.not.objectContaining({ proMode: expect.anything() }));
+  });
+
   it("is registered and answers when a browser-consult callback is wired", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-consult-"));
     sendChatGptPromptMock.mockResolvedValueOnce({

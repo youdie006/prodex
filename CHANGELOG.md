@@ -4,6 +4,37 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.33] - 2026-07-23
+
+### Fixed
+Agent-misuse batch, derived from auditing 177 real prodex invocations across
+other repos' sessions (41 failed). Each item is a failure an AI caller could
+not recover from on its own:
+- `pro browser check` reports an in-flight response as `chatgpt: busy` with
+  "no action needed" instead of `chatgpt: blocked`, and stops counting it as a
+  browser fault. Agents read "blocked" as "the browser is broken" and went off
+  relaunching or re-logging in when ChatGPT was simply mid-answer.
+- A held machine-global send lock now queues by default (budget = the send
+  timeout) instead of failing instantly. `pro_consult` cannot pass
+  `--busy-wait-ms`, so the old advice to "pass --busy-wait-ms" was
+  un-followable from MCP; `--busy-wait-ms 0` opts back into failing fast.
+- `pro_consult` no longer advertises `pro_mode` (ChatGPT removed Pro
+  sub-modes). Agents that saw the field passed `pro_mode: "true"` and got a
+  hard "must be one of 기본, 확장" error instead of an answer; a stale caller
+  that still sends it is now ignored rather than rejected.
+- Retired subcommands point at a command that exists: `pro status` said "use
+  `pro browser status`", which itself errored with "use `pro browser check`" -
+  a two-hop dead end.
+- The default send timeout with NO model selection is 5 minutes instead of 90
+  seconds. Repos with no saved defaults chronically hit "Timed out after
+  90000ms" because the UI's current model is unknown and may be Pro.
+- `browser_unreachable` guidance states that `pro browser login` reopens the
+  window with the saved session and returns immediately for non-interactive
+  callers, so agents stop treating it as a blocking human login step.
+- `config: missing` is labelled optional (only the HTTP MCP surface needs it),
+  since it appeared in nearly every healthy browser-only check and sent agents
+  chasing `prodex setup`.
+
 ## [0.16.32] - 2026-07-23
 
 ### Fixed
