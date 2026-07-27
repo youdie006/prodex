@@ -76,6 +76,21 @@ describe("ChatGPT browser adapter", () => {
     expect(args.join(" ")).not.toMatch(/cookie|token|password/i);
   });
 
+  it("disables renderer backgrounding so an out-of-the-way window keeps streaming", () => {
+    // Chrome backgrounds the renderer of an occluded or minimized window, and
+    // the README tells users to keep the dedicated window behind their editor
+    // - exactly the occluded case. A throttled renderer makes ChatGPT stream
+    // slowly or stall, which surfaces as a send timeout.
+    for (const args of [
+      buildChromeLaunchArgs({ port: 9333, profileDir: "/tmp/p", url: "https://chatgpt.com/" }),
+      buildChromeLaunchArgs({ port: 9333, profileDir: "/tmp/p", url: "https://chatgpt.com/", headless: true })
+    ]) {
+      expect(args).toContain("--disable-backgrounding-occluded-windows");
+      expect(args).toContain("--disable-renderer-backgrounding");
+      expect(args).toContain("--disable-background-timer-throttling");
+    }
+  });
+
   it("builds a headless launch that still renders the desktop sidebar layout", () => {
     // Headless defaults to an 800x600 viewport, at which ChatGPT collapses the
     // sidebar - and the sidebar IS the logged-in signal (inferLoggedInLikely

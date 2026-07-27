@@ -16,6 +16,7 @@ import {
   openChatGptBrowser,
   parseProMode,
   parseReasoningEffort,
+  minimizeChatGptWindow,
   readLastBrowserLoginLaunch,
   resolveHeadlessPreference,
   recordBrowserLoginLaunch,
@@ -265,7 +266,7 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
         if (
           printProBrowserHelpIfRequested(browserArgs, "pro browser login", io, {
             valueFlags: ["--cwd", "--profile-dir", "--port", "--url", "--source-cli", "--launch-timeout-ms", "--wait-timeout-ms"],
-            booleanFlags: ["--dry-run", "--wait", "--no-wait", "--headless"]
+            booleanFlags: ["--dry-run", "--wait", "--no-wait", "--headless", "--minimized"]
           })
         ) {
           return 0;
@@ -274,7 +275,7 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
           browserArgs,
           "pro browser login",
           ["--cwd", "--profile-dir", "--port", "--url", "--source-cli", "--launch-timeout-ms", "--wait-timeout-ms"],
-          ["--dry-run", "--wait", "--no-wait", "--headless"]
+          ["--dry-run", "--wait", "--no-wait", "--headless", "--minimized"]
         );
         if (browserArgs.includes("--wait") && browserArgs.includes("--no-wait")) {
           throw new Error("pro browser login cannot combine --wait and --no-wait");
@@ -329,7 +330,24 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
         }
         // Remember this launch so ask auto-recovery reuses the same profile
         // AND the same window mode.
-        await recordBrowserLoginLaunch({ profile_dir: opened.profileDir, port: opened.port, headless });
+        // Minimize BEFORE recording, so the record reflects what actually
+        // happened (a desktop that hides minimized windows gets restored and
+        // recorded as a normal window).
+        const wantsMinimized = browserArgs.includes("--minimized") || resolveMinimizeWindowPreference();
+        let minimized = false;
+        let minimizeNote: string | undefined;
+        if (wantsMinimized && !headless) {
+          try {
+            const outcome = await minimizeChatGptWindow({ port: opened.port });
+            minimized = outcome.minimized;
+            minimizeNote = outcome.minimized
+              ? "window: minimized out of the way - the tab still reads visible, so consults keep working."
+              : `window: this desktop reports a minimized window as ${outcome.visibilityState}, and prodex will not send into a tab it cannot read - the window was restored. Keep it open behind your editor instead.`;
+          } catch (error) {
+            minimizeNote = `window: could not minimize (${errorMessage(error)}); leaving it as it is.`;
+          }
+        }
+        await recordBrowserLoginLaunch({ profile_dir: opened.profileDir, port: opened.port, headless, minimized });
         printBrowserLoginGuide(io.stdout, {
           opened: !alreadyRunning,
           reused: alreadyRunning,
@@ -340,6 +358,7 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
           sourceCli,
           commandOptions
         });
+        if (minimizeNote) io.stdout(minimizeNote);
         if (headless) {
           // Nobody can sign in to a window that does not exist, so a headless
           // launch is only useful when the profile is already logged in.
@@ -653,6 +672,13 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
 
 export async function runConsultsCommand(rest: string[], io: CliIO): Promise<number> {
     throw new Error("The legacy `consults` alias is retired. Use `prodex pro list`, `prodex pro latest`, or `prodex pro show <task-id|latest>`.");
+}
+
+// PRODEX_MINIMIZE_WINDOW=1 gives the no-window setup to every entry point,
+// including the MCP server's auto-recovery, without a CLI flag.
+export function resolveMinimizeWindowPreference(env: Record<string, string | undefined> = process.env): boolean {
+  const raw = (env.PRODEX_MINIMIZE_WINDOW ?? "").trim().toLowerCase();
+  return raw === "1" || raw === "true" || raw === "yes";
 }
 
 function autoLoginDisabledByEnv(env: Record<string, string | undefined> = process.env): boolean {
@@ -1278,8 +1304,15 @@ export async function attemptBrowserAutoRecovery(stderr: (line: string) => void,
     });
     await assertBrowserLaunchStayedAlive(opened);
     const ready = await waitForChatGptLoginReady(stderr, { port: opened.port, timeoutMs: 120_000 });
-    if (ready) stderr("recover: browser READY - retrying the send...");
-    return ready;
+    if (!ready) return false;
+    // Restore the no-window setup too: someone who runs minimized does not
+    // want recovery to leave a window sitting on their desktop.
+    if (!headless && (lastLogin?.minimized === true || resolveMinimizeWindowPreference())) {
+      const outcome = await minimizeChatGptWindow({ port: opened.port }).catch(() => undefined);
+      if (outcome?.minimized) stderr("recover: window minimized again");
+    }
+    stderr("recover: browser READY - retrying the send...");
+    return true;
   } catch (error) {
     stderr(`recover: failed - ${errorMessage(error)}`);
     return false;

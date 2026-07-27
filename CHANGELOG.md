@@ -4,9 +4,25 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.17.1] - 2026-07-27
+## [0.18.0] - 2026-07-27
+
+### Added
+- `pro browser login --minimized` (or `PRODEX_MINIMIZE_WINDOW=1`) launches the
+  dedicated browser and minimizes it, so nothing sits on your desktop while it
+  stays a REAL headed Chrome - which is the point, because Cloudflare admits
+  headed browsers and rejects headless ones. Verified live under WSLg: a
+  minimized Chrome still reports visibilityState "visible" and a real Pro send
+  completed in 26 seconds with no window on screen. On a desktop that marks
+  minimized windows hidden, prodex restores the window and says so instead of
+  leaving a browser it cannot send into. MCP auto-recovery re-applies the mode.
 
 ### Fixed
+- The dedicated browser launches with renderer backgrounding disabled
+  (`--disable-backgrounding-occluded-windows`, `--disable-renderer-backgrounding`,
+  `--disable-background-timer-throttling`). Chrome throttles the renderer of an
+  occluded window, and prodex's own advice is to keep that window behind your
+  editor - a throttled renderer makes ChatGPT stream slowly or stall, which
+  reaches the user as an unexplained send timeout.
 - A headless login that Cloudflare blocks now says so. It reported "the
   profile is not signed in", sending users to re-login over and over, when
   the real cause is that Cloudflare rejects headless browsers by design. The

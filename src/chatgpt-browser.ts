@@ -304,6 +304,8 @@ export interface BrowserLoginLaunchRecord {
   port: number;
   /** Whether that launch was headless; absent means headed (older records). */
   headless?: boolean;
+  /** Whether the window was minimized out of the way after launching. */
+  minimized?: boolean;
 }
 
 function lastBrowserLoginPath(): string {
@@ -334,7 +336,8 @@ export async function readLastBrowserLoginLaunch(): Promise<Partial<BrowserLogin
     return {
       ...(typeof parsed.profile_dir === "string" && parsed.profile_dir.length > 0 ? { profile_dir: parsed.profile_dir } : {}),
       ...(typeof parsed.port === "number" && Number.isInteger(parsed.port) ? { port: parsed.port } : {}),
-      ...(typeof parsed.headless === "boolean" ? { headless: parsed.headless } : {})
+      ...(typeof parsed.headless === "boolean" ? { headless: parsed.headless } : {}),
+      ...(typeof parsed.minimized === "boolean" ? { minimized: parsed.minimized } : {})
     };
   } catch {
     return undefined;
@@ -354,6 +357,14 @@ export function buildChromeLaunchArgs(options: Omit<Required<ChatGptBrowserOptio
     `--user-data-dir=${options.profileDir}`,
     "--no-first-run",
     "--no-default-browser-check",
+    // Keep the renderer running at full speed when the window is not on top.
+    // Chrome backgrounds occluded and minimized windows, and prodex's own
+    // advice is to leave the dedicated window behind your editor (or
+    // minimized) - a throttled renderer makes ChatGPT stream slowly or stall,
+    // which reaches the user as an unexplained send timeout.
+    "--disable-backgrounding-occluded-windows",
+    "--disable-renderer-backgrounding",
+    "--disable-background-timer-throttling",
     ...(options.headless ? ["--headless=new", `--window-size=${HEADLESS_WINDOW_SIZE}`] : ["--new-window"]),
     options.url
   ];
@@ -364,6 +375,41 @@ export function buildChromeLaunchArgs(options: Omit<Required<ChatGptBrowserOptio
  * (1/true/yes) decides. The env var is the practical switch because the MCP
  * server and its auto-recovery launch the browser with no CLI flags.
  */
+/**
+ * Minimize the dedicated browser window and report whether the tab is still
+ * readable afterwards.
+ *
+ * Measured live under WSLg: a minimized Chrome keeps reporting
+ * visibilityState "visible", so the window can be out of the way while the
+ * send path (which refuses hidden tabs) still works - and unlike headless,
+ * it is a real headed browser, which is what Cloudflare admits. A normal
+ * Linux desktop instead marks minimized windows hidden; the caller restores
+ * the window in that case rather than leaving a browser prodex cannot use.
+ */
+export async function minimizeChatGptWindow(options: { port?: number; timeoutMs?: number } = {}): Promise<{
+  minimized: boolean;
+  visibilityState: string;
+}> {
+  const port = resolveCdpPort(options.port);
+  const found = await findChatGptPage(port, options.timeoutMs ?? 5_000);
+  if (!found.ok || !found.page) throw new ChatGptBrowserBlockerError(found.blocker ?? chatGptPageMissingBlocker());
+  const cdp = await connectCdp(found.page.webSocketDebuggerUrl, options.timeoutMs);
+  try {
+    const window = await cdp.send("Browser.getWindowForTarget");
+    const windowId = (window.result as { windowId?: number } | undefined)?.windowId;
+    if (windowId === undefined) return { minimized: false, visibilityState: "unknown" };
+    await cdp.send("Browser.setWindowBounds", { windowId, bounds: { windowState: "minimized" } });
+    await sleep(1_500);
+    const state = await cdp.evaluate<string>("document.visibilityState");
+    if (state === "visible") return { minimized: true, visibilityState: state };
+    // Hidden means the send path would refuse this browser - undo it.
+    await cdp.send("Browser.setWindowBounds", { windowId, bounds: { windowState: "normal" } });
+    return { minimized: false, visibilityState: state ?? "unknown" };
+  } finally {
+    cdp.close();
+  }
+}
+
 export function resolveHeadlessPreference(
   explicit?: boolean,
   env: Record<string, string | undefined> = process.env

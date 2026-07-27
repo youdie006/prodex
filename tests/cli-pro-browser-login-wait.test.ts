@@ -1,17 +1,19 @@
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
 const openChatGptBrowserMock = vi.hoisted(() => vi.fn());
 const getChatGptBrowserStatusMock = vi.hoisted(() => vi.fn());
+const minimizeChatGptWindowMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../src/chatgpt-browser.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/chatgpt-browser.js")>();
   return {
     ...actual,
     openChatGptBrowser: openChatGptBrowserMock,
-    getChatGptBrowserStatus: getChatGptBrowserStatusMock
+    getChatGptBrowserStatus: getChatGptBrowserStatusMock,
+    minimizeChatGptWindow: minimizeChatGptWindowMock
   };
 });
 
@@ -175,6 +177,78 @@ describe("pro browser login --wait", () => {
     } finally {
       if (priorLastLogin === undefined) delete process.env.PRODEX_LAST_LOGIN_FILE;
       else process.env.PRODEX_LAST_LOGIN_FILE = priorLastLogin;
+      getChatGptBrowserStatusMock.mockReset();
+    }
+  });
+
+  it("minimizes the window on --minimized and confirms the tab still reads visible", async () => {
+    // Measured live under WSLg: a minimized Chrome still reports
+    // visibilityState "visible", so a real headed browser (which Cloudflare
+    // accepts) can run with no window on the desktop.
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-login-wait-"));
+    const priorLastLogin = process.env.PRODEX_LAST_LOGIN_FILE;
+    process.env.PRODEX_LAST_LOGIN_FILE = path.join(cwd, "last-login.json");
+    openChatGptBrowserMock.mockReturnValueOnce({
+      port: 9333,
+      profileDir: "/tmp/fake-profile",
+      waitForEarlyExit: async () => undefined
+    });
+    getChatGptBrowserStatusMock.mockResolvedValue(status({ reachable: true, loggedInLikely: true, hasComposer: true }));
+    minimizeChatGptWindowMock.mockResolvedValue({ minimized: true, visibilityState: "visible" });
+    const out: string[] = [];
+
+    try {
+      const code = await runCli(["pro", "browser", "login", "--minimized"], {
+        cwd,
+        stdout: (line) => out.push(line),
+        stderr: () => {}
+      });
+
+      expect(code).toBe(0);
+      expect(minimizeChatGptWindowMock).toHaveBeenCalledTimes(1);
+      expect(out.join("\n")).toMatch(/minimized/i);
+      const record = JSON.parse(await readFile(process.env.PRODEX_LAST_LOGIN_FILE!, "utf8")) as { minimized?: boolean };
+      expect(record.minimized).toBe(true);
+    } finally {
+      if (priorLastLogin === undefined) delete process.env.PRODEX_LAST_LOGIN_FILE;
+      else process.env.PRODEX_LAST_LOGIN_FILE = priorLastLogin;
+      minimizeChatGptWindowMock.mockReset();
+      getChatGptBrowserStatusMock.mockReset();
+    }
+  });
+
+  it("restores the window when minimizing would hide the tab from prodex", async () => {
+    // On a normal Linux desktop a minimized window reports "hidden", and a
+    // hidden tab is exactly what the send path refuses. Leaving the user with
+    // a minimized-but-unusable browser would be the silent-breakage pattern.
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-login-wait-"));
+    const priorLastLogin = process.env.PRODEX_LAST_LOGIN_FILE;
+    process.env.PRODEX_LAST_LOGIN_FILE = path.join(cwd, "last-login.json");
+    openChatGptBrowserMock.mockReturnValueOnce({
+      port: 9333,
+      profileDir: "/tmp/fake-profile",
+      waitForEarlyExit: async () => undefined
+    });
+    getChatGptBrowserStatusMock.mockResolvedValue(status({ reachable: true, loggedInLikely: true, hasComposer: true }));
+    minimizeChatGptWindowMock.mockResolvedValue({ minimized: false, visibilityState: "hidden" });
+    const out: string[] = [];
+
+    try {
+      await runCli(["pro", "browser", "login", "--minimized"], {
+        cwd,
+        stdout: (line) => out.push(line),
+        stderr: () => {}
+      });
+
+      const text = out.join("\n");
+      expect(text).toMatch(/hidden/i);
+      expect(text).toMatch(/restored/i);
+      const record = JSON.parse(await readFile(process.env.PRODEX_LAST_LOGIN_FILE!, "utf8")) as { minimized?: boolean };
+      expect(record.minimized).not.toBe(true);
+    } finally {
+      if (priorLastLogin === undefined) delete process.env.PRODEX_LAST_LOGIN_FILE;
+      else process.env.PRODEX_LAST_LOGIN_FILE = priorLastLogin;
+      minimizeChatGptWindowMock.mockReset();
       getChatGptBrowserStatusMock.mockReset();
     }
   });

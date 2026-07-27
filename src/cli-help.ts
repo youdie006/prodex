@@ -21,7 +21,7 @@ Ask / consult commands:
   prodex ask [same flags as pro browser ask] "prompt"  # top-level shortcut for pro browser ask
   prodex pro ask [--dry-run] [--cwd /absolute/path/to/repo] [--file path] "prompt"  # dry-run preview
   prodex pro debate-prompt [--topic "..."] [--rounds 2] [--source-cli /absolute/path/to/dist/cli.js]  # print an agent prompt for a structured GPT Pro debate
-  prodex pro browser login [--cwd /absolute/path/to/repo] [--dry-run] [--source-cli /absolute/path/to/dist/cli.js] [--profile-dir path] [--port 9333] [--url https://chatgpt.com/...] [--launch-timeout-ms 5000] [--wait|--no-wait] [--headless] [--wait-timeout-ms 300000]  # preview/open visible browser login
+  prodex pro browser login [--cwd /absolute/path/to/repo] [--dry-run] [--source-cli /absolute/path/to/dist/cli.js] [--profile-dir path] [--port 9333] [--url https://chatgpt.com/...] [--launch-timeout-ms 5000] [--wait|--no-wait] [--headless|--minimized] [--wait-timeout-ms 300000]  # preview/open visible browser login
   prodex pro browser help [--source-cli /absolute/path/to/dist/cli.js]
   prodex pro browser check [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 1500]
   prodex pro browser smoke [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 90000]
@@ -164,7 +164,7 @@ Commands:
   prodex pro ask [--dry-run] [--cwd /absolute/path/to/repo] [--file path] "prompt"
   prodex pro debate-prompt [--topic "..."] [--rounds 2] [--source-cli /absolute/path/to/dist/cli.js]
   prodex pro browser help [--source-cli /absolute/path/to/dist/cli.js]
-  prodex pro browser login [--cwd /absolute/path/to/repo] [--dry-run] [--source-cli /absolute/path/to/dist/cli.js] [--launch-timeout-ms 5000] [--wait|--no-wait] [--headless] [--wait-timeout-ms 300000]
+  prodex pro browser login [--cwd /absolute/path/to/repo] [--dry-run] [--source-cli /absolute/path/to/dist/cli.js] [--launch-timeout-ms 5000] [--wait|--no-wait] [--headless|--minimized] [--wait-timeout-ms 300000]
   prodex pro browser check [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]
   prodex pro browser smoke [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]
   prodex pro browser models [--source-cli /absolute/path/to/dist/cli.js]
@@ -244,8 +244,8 @@ export function printProBrowserHelp(stdout: (line: string) => void, sourceCli?: 
   const cli = formatCliCommand(sourceCli);
   const sourceCliOption = formatSourceCliOption(sourceCli);
   const loginUsage = sourceCli
-    ? `${cli} pro browser login${sourceCliOption} [--cwd /absolute/path/to/repo] [--dry-run] [--profile-dir path] [--port 9333] [--url https://chatgpt.com/...] [--launch-timeout-ms 5000] [--wait|--no-wait] [--headless] [--wait-timeout-ms 300000]`
-    : "prodex pro browser login [--cwd /absolute/path/to/repo] [--dry-run] [--source-cli /absolute/path/to/dist/cli.js] [--profile-dir path] [--port 9333] [--url https://chatgpt.com/...] [--launch-timeout-ms 5000] [--wait|--no-wait] [--headless] [--wait-timeout-ms 300000]";
+    ? `${cli} pro browser login${sourceCliOption} [--cwd /absolute/path/to/repo] [--dry-run] [--profile-dir path] [--port 9333] [--url https://chatgpt.com/...] [--launch-timeout-ms 5000] [--wait|--no-wait] [--headless|--minimized] [--wait-timeout-ms 300000]`
+    : "prodex pro browser login [--cwd /absolute/path/to/repo] [--dry-run] [--source-cli /absolute/path/to/dist/cli.js] [--profile-dir path] [--port 9333] [--url https://chatgpt.com/...] [--launch-timeout-ms 5000] [--wait|--no-wait] [--headless|--minimized] [--wait-timeout-ms 300000]";
   const checkUsage = sourceCli
     ? `${cli} pro browser check${sourceCliOption} [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 1500]`
     : "prodex pro browser check [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 1500]";
