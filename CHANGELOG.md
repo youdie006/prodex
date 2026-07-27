@@ -4,6 +4,35 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.0] - 2026-07-27
+
+### Added
+- Headless mode: `pro browser login --headless`, or `PRODEX_HEADLESS=1` for
+  every entry point including the MCP server. The dedicated browser runs with
+  no visible window, pinned to a 1440x900 window because headless Chrome's
+  800x600 default collapses the ChatGPT sidebar - and the sidebar carries the
+  logged-in signals, so a narrow headless session would read as logged out.
+  Headless requires a profile that is already signed in (the login verifies
+  the session and says so if it is missing), and refuses to switch modes while
+  an instance of the other mode is running on the same profile.
+- MCP consults recover a closed browser by themselves. The auto-recovery gate
+  only fired for interactive terminals, and an MCP caller has none - so a
+  closed browser made every `pro_consult` fail with a step the agent had to
+  shell out for (tied for the most common field failure). Recovery reuses the
+  saved profile AND the saved window mode; `PRODEX_NO_AUTO_LOGIN=1` disables it.
+
+### Fixed
+- Long prompts no longer freeze the send. The whole prompt went to ChatGPT in
+  one `Input.insertText`, whose single huge ProseMirror transaction stalls a
+  heavy thread past the 20s CDP command timeout - the send then died with
+  "Chrome DevTools command timed out: Input.insertText" (observed twice in one
+  field session on long inputs). Text is inserted in 4,000-character chunks,
+  split on code points so an emoji or other astral character is never cut in
+  half.
+- A CDP command timeout reports as `browser_cdp_timeout` with a usable next
+  step (retry with `--new-chat`, or reload the tab) instead of the generic
+  "resolve the visible browser issue manually".
+
 ## [0.16.33] - 2026-07-23
 
 ### Fixed

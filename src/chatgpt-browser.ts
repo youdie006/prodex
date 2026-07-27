@@ -8,6 +8,12 @@ export interface ChatGptBrowserOptions {
   port?: number;
   profileDir?: string;
   url?: string;
+  /**
+   * Run the dedicated browser with no visible window. Requires a profile that
+   * is ALREADY logged in (sign-in itself needs a real window), and the same
+   * profile cannot be driven by a headed instance at the same time.
+   */
+  headless?: boolean;
 }
 
 export interface ChatGptBrowserLaunch {
@@ -296,6 +302,8 @@ export function defaultChatGptProfileDir(): string {
 export interface BrowserLoginLaunchRecord {
   profile_dir: string;
   port: number;
+  /** Whether that launch was headless; absent means headed (older records). */
+  headless?: boolean;
 }
 
 function lastBrowserLoginPath(): string {
@@ -325,23 +333,44 @@ export async function readLastBrowserLoginLaunch(): Promise<Partial<BrowserLogin
     const parsed = JSON.parse(await readFile(lastBrowserLoginPath(), "utf8")) as Partial<BrowserLoginLaunchRecord>;
     return {
       ...(typeof parsed.profile_dir === "string" && parsed.profile_dir.length > 0 ? { profile_dir: parsed.profile_dir } : {}),
-      ...(typeof parsed.port === "number" && Number.isInteger(parsed.port) ? { port: parsed.port } : {})
+      ...(typeof parsed.port === "number" && Number.isInteger(parsed.port) ? { port: parsed.port } : {}),
+      ...(typeof parsed.headless === "boolean" ? { headless: parsed.headless } : {})
     };
   } catch {
     return undefined;
   }
 }
 
-export function buildChromeLaunchArgs(options: Required<ChatGptBrowserOptions>): string[] {
+// Headless Chrome defaults to an 800x600 viewport, at which ChatGPT collapses
+// the sidebar - and the sidebar carries the logged-in signals that
+// inferLoggedInLikely reads ("New chat"/"Projects"). Pin a desktop width so a
+// headless session is not misread as logged out.
+const HEADLESS_WINDOW_SIZE = "1440,900";
+
+export function buildChromeLaunchArgs(options: Omit<Required<ChatGptBrowserOptions>, "headless"> & { headless?: boolean }): string[] {
   return [
     "--remote-debugging-address=127.0.0.1",
     `--remote-debugging-port=${options.port}`,
     `--user-data-dir=${options.profileDir}`,
     "--no-first-run",
     "--no-default-browser-check",
-    "--new-window",
+    ...(options.headless ? ["--headless=new", `--window-size=${HEADLESS_WINDOW_SIZE}`] : ["--new-window"]),
     options.url
   ];
+}
+
+/**
+ * Headless is opt-in: an explicit option wins, otherwise PRODEX_HEADLESS
+ * (1/true/yes) decides. The env var is the practical switch because the MCP
+ * server and its auto-recovery launch the browser with no CLI flags.
+ */
+export function resolveHeadlessPreference(
+  explicit?: boolean,
+  env: Record<string, string | undefined> = process.env
+): boolean {
+  if (typeof explicit === "boolean") return explicit;
+  const raw = (env.PRODEX_HEADLESS ?? "").trim().toLowerCase();
+  return raw === "1" || raw === "true" || raw === "yes";
 }
 
 export function inferLoggedInLikely(text: string, visibleButtonLabels: string[] = []): boolean {
@@ -883,10 +912,12 @@ export function openChatGptBrowser(options: ChatGptBrowserOptions = {}): ChatGpt
   const command = resolveChromeCommand();
   const port = resolveCdpPort(options.port);
   const profileDir = options.profileDir ?? defaultChatGptProfileDir();
+  const headless = resolveHeadlessPreference(options.headless);
   const args = buildChromeLaunchArgs({
     port,
     profileDir,
-    url: options.url ?? "https://chatgpt.com/"
+    url: options.url ?? "https://chatgpt.com/",
+    ...(headless ? { headless } : {})
   });
   const child = spawn(command, args, { detached: true, stdio: "ignore", env: browserLaunchEnv() });
   let earlyExit: ChatGptBrowserEarlyExit | undefined;
@@ -2418,10 +2449,40 @@ async function insertComposerTextViaCdp(cdp: CdpConnection, text: string): Promi
     await cdp.send("Input.dispatchKeyEvent", { type: "keyUp", key: "Backspace", code: "Backspace", windowsVirtualKeyCode: 8 });
     await sleep(100);
   }
-  await cdp.send("Input.insertText", { text });
+  // Insert in bounded chunks: a single multi-KB Input.insertText makes
+  // ProseMirror do one huge transaction, which on a heavy thread stalls past
+  // the 20s CDP command timeout and kills the send with "Chrome DevTools
+  // command timed out: Input.insertText" (field failure on long prompts,
+  // twice in one session). Each chunk gets its own command budget.
+  for (const chunk of chunkComposerText(text)) {
+    await cdp.send("Input.insertText", { text: chunk });
+  }
   await sleep(200);
   const state = await cdp.evaluate<{ ok: boolean; reason?: string }>(composerTextStateExpression(text));
   if (!state.ok) throw new Error(state.reason ?? "Composer stayed empty after text insertion");
+}
+
+export const COMPOSER_INSERT_CHUNK_CHARS = 4_000;
+
+/**
+ * Split composer text into insertText-sized pieces. Splits on code points (not
+ * UTF-16 units) so a surrogate pair - an emoji, or any astral character - can
+ * never be cut in half and arrive as two replacement characters.
+ */
+export function chunkComposerText(text: string, size: number = COMPOSER_INSERT_CHUNK_CHARS): string[] {
+  if (text.length === 0) return [];
+  if (text.length <= size) return [text];
+  const chunks: string[] = [];
+  let current = "";
+  for (const character of text) {
+    if (current.length + character.length > size) {
+      chunks.push(current);
+      current = "";
+    }
+    current += character;
+  }
+  if (current.length > 0) chunks.push(current);
+  return chunks;
 }
 
 export function submitExpression(): string {

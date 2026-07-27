@@ -17,6 +17,7 @@ import {
   parseProMode,
   parseReasoningEffort,
   readLastBrowserLoginLaunch,
+  resolveHeadlessPreference,
   recordBrowserLoginLaunch,
   recoverChatGptAnswerFromThread,
   sendChatGptPrompt
@@ -264,7 +265,7 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
         if (
           printProBrowserHelpIfRequested(browserArgs, "pro browser login", io, {
             valueFlags: ["--cwd", "--profile-dir", "--port", "--url", "--source-cli", "--launch-timeout-ms", "--wait-timeout-ms"],
-            booleanFlags: ["--dry-run", "--wait", "--no-wait"]
+            booleanFlags: ["--dry-run", "--wait", "--no-wait", "--headless"]
           })
         ) {
           return 0;
@@ -273,7 +274,7 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
           browserArgs,
           "pro browser login",
           ["--cwd", "--profile-dir", "--port", "--url", "--source-cli", "--launch-timeout-ms", "--wait-timeout-ms"],
-          ["--dry-run", "--wait", "--no-wait"]
+          ["--dry-run", "--wait", "--no-wait", "--headless"]
         );
         if (browserArgs.includes("--wait") && browserArgs.includes("--no-wait")) {
           throw new Error("pro browser login cannot combine --wait and --no-wait");
@@ -306,24 +307,55 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
         // again: Chrome's singleton would just open ANOTHER window (the recurring
         // "extra windows" problem, which then blocks sends as
         // ambiguous_chatgpt_tabs). Reuse the running instance instead.
+        const headless = resolveHeadlessPreference(browserArgs.includes("--headless") ? true : undefined);
         const alreadyRunning = (await getChatGptBrowserStatus({ port })).reachable;
+        if (alreadyRunning) {
+          // One Chrome profile cannot serve a headed and a headless instance at
+          // once, and reusing the running one would silently ignore the
+          // requested mode. Say so instead of pretending the switch took.
+          const previous = await readLastBrowserLoginLaunch();
+          const runningHeadless = previous?.port === port ? previous.headless === true : undefined;
+          if (runningHeadless !== undefined && runningHeadless !== headless) {
+            throw new Error(
+              `A ${runningHeadless ? "headless" : "headed"} ChatGPT browser is already running on port ${port}, but ${headless ? "headless" : "headed"} was requested. Close it first (\`pkill -f "remote-debugging-port=${port}"\`), then rerun.`
+            );
+          }
+        }
         const opened: Pick<ChatGptBrowserLaunch, "profileDir" | "port"> = alreadyRunning
           ? { profileDir: profileDir ?? defaultChatGptProfileDir(), port }
-          : openChatGptBrowser({ port, profileDir, url: loginUrl });
+          : openChatGptBrowser({ port, profileDir, url: loginUrl, ...(headless ? { headless } : {}) });
         if (!alreadyRunning) {
           await assertBrowserLaunchStayedAlive(opened as ChatGptBrowserLaunch, launchTimeoutMs);
         }
-        // Remember this launch so ask auto-recovery reuses the same profile.
-        await recordBrowserLoginLaunch({ profile_dir: opened.profileDir, port: opened.port });
+        // Remember this launch so ask auto-recovery reuses the same profile
+        // AND the same window mode.
+        await recordBrowserLoginLaunch({ profile_dir: opened.profileDir, port: opened.port, headless });
         printBrowserLoginGuide(io.stdout, {
           opened: !alreadyRunning,
           reused: alreadyRunning,
+          headless,
           loginUrl,
           profileDir: opened.profileDir,
           port: opened.port,
           sourceCli,
           commandOptions
         });
+        if (headless) {
+          // Nobody can sign in to a window that does not exist, so a headless
+          // launch is only useful when the profile is already logged in.
+          // Verify it here (bounded, no human to wait for) instead of letting
+          // the first consult fail with a confusing not-logged-in blocker.
+          const headlessReady = await waitForChatGptLoginReady(io.stderr, { port: opened.port, timeoutMs: 30_000 });
+          if (!headlessReady) {
+            io.stdout("");
+            io.stdout(
+              `headless: the profile is not signed in. Run \`${formatBrowserLoginCommand(sourceCli, commandOptions)}\` WITHOUT --headless once, sign in, close that window, then rerun with --headless.`
+            );
+            return 1;
+          }
+          io.stdout("headless: signed-in session confirmed - consults will run with no visible window.");
+          return 0;
+        }
         // Guided wait: interactive terminals walk the user to a verified READY
         // state instead of returning while login is still unfinished. Scripts
         // and agents (non-TTY) keep the immediate return unless --wait is
@@ -611,6 +643,11 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
 
 export async function runConsultsCommand(rest: string[], io: CliIO): Promise<number> {
     throw new Error("The legacy `consults` alias is retired. Use `prodex pro list`, `prodex pro latest`, or `prodex pro show <task-id|latest>`.");
+}
+
+function autoLoginDisabledByEnv(env: Record<string, string | undefined> = process.env): boolean {
+  const raw = (env.PRODEX_NO_AUTO_LOGIN ?? "").trim().toLowerCase();
+  return raw === "1" || raw === "true" || raw === "yes";
 }
 
 // Retired browser subcommands map to the one that replaced them. Every value
@@ -1170,6 +1207,12 @@ export async function performBrowserConsultForMcp(
   const stderrLines: string[] = [];
   const argv = [
     "--send",
+    // MCP callers have no terminal, so the interactive auto-recovery gate
+    // never fired for them: a closed browser made every pro_consult fail with
+    // a step the agent had to shell out for (the single most common field
+    // failure). Recovery reuses the saved profile and window mode, and
+    // PRODEX_NO_AUTO_LOGIN=1 turns it off.
+    ...(autoLoginDisabledByEnv() ? ["--no-auto-login"] : ["--auto-login"]),
     ...(input.model !== undefined ? ["--model", input.model] : []),
     ...(input.pro_mode !== undefined ? ["--pro-mode", input.pro_mode] : []),
     ...(input.effort !== undefined ? ["--effort", input.effort] : []),
@@ -1214,9 +1257,14 @@ export async function attemptBrowserAutoRecovery(stderr: (line: string) => void,
     // profile for a custom-profile user would wait on the wrong (logged-out)
     // profile or, worse, silently send to a different account.
     const lastLogin = await readLastBrowserLoginLaunch();
+    // Relaunch in the SAME window mode the user chose: silently reopening a
+    // visible window for someone running headless would be exactly the
+    // surprise window they turned headless to avoid.
+    const headless = resolveHeadlessPreference(lastLogin?.headless);
     const opened = openChatGptBrowser({
       ...(options.port !== undefined ? { port: options.port } : {}),
-      ...(lastLogin?.profile_dir ? { profileDir: lastLogin.profile_dir } : {})
+      ...(lastLogin?.profile_dir ? { profileDir: lastLogin.profile_dir } : {}),
+      ...(headless ? { headless } : {})
     });
     await assertBrowserLaunchStayedAlive(opened);
     const ready = await waitForChatGptLoginReady(stderr, { port: opened.port, timeoutMs: 120_000 });
@@ -1338,6 +1386,19 @@ export function browserSendBlockerFromError(error: unknown): { code: string; mes
       next_step: `Rerun with a bigger budget (${formatDurationMs(suggestedMs)}): \`prodex pro browser ask --timeout-ms ${suggestedMs} "<same prompt>"\`.`
     };
   }
+  // A CDP command timeout means the page's renderer stalled, which in the
+  // field means a very long thread (or a long prompt landing on one). Generic
+  // "resolve the browser issue manually" advice gave the caller nothing to do.
+  const cdpTimeout = message.match(/Chrome DevTools command timed out: (\S+)/);
+  if (cdpTimeout) {
+    return {
+      code: "browser_cdp_timeout",
+      message,
+      retryable: true,
+      next_step:
+        "The ChatGPT tab stopped responding (usually a very long thread). Retry with `--new-chat` for a fresh, light thread, or reload the tab in the browser first."
+    };
+  }
   return {
     code: "browser_send_failed",
     message,
@@ -1454,9 +1515,18 @@ export async function listConsultListEntries(store: BridgeStore, options: { read
 
 export function printBrowserLoginGuide(
   stdout: (line: string) => void,
-  input: { opened: boolean; reused?: boolean; loginUrl: string; profileDir: string; port: number; sourceCli?: string; commandOptions?: BrowserCommandOptions }
+  input: {
+    opened: boolean;
+    reused?: boolean;
+    headless?: boolean;
+    loginUrl: string;
+    profileDir: string;
+    port: number;
+    sourceCli?: string;
+    commandOptions?: BrowserCommandOptions;
+  }
 ): void {
-  const windowAvailable = input.opened || input.reused === true;
+  const windowAvailable = (input.opened || input.reused === true) && input.headless !== true;
   const loginCommand = formatBrowserLoginCommand(input.sourceCli, input.commandOptions);
   const runtimeCommandOptions = {
     ...(input.commandOptions?.cwd ? { cwd: input.commandOptions.cwd } : {}),
@@ -1466,12 +1536,21 @@ export function printBrowserLoginGuide(
   const smokeCommand = formatBrowserSmokeCommand(input.sourceCli, runtimeCommandOptions);
   stdout("ChatGPT Pro browser login");
   stdout(
-    input.reused
-      ? "Chrome is already running for ChatGPT - reusing it (no new window opened)."
-      : input.opened
-        ? "Opened the dedicated Chrome window for ChatGPT."
-        : "Dry run: no browser was opened."
+    input.headless && (input.opened || input.reused)
+      ? input.reused
+        ? "Headless ChatGPT browser is already running - reusing it (no window)."
+        : "Started the dedicated ChatGPT browser headless (no window). It reuses the profile you signed in with."
+      : input.reused
+        ? "Chrome is already running for ChatGPT - reusing it (no new window opened)."
+        : input.opened
+          ? "Opened the dedicated Chrome window for ChatGPT."
+          : "Dry run: no browser was opened."
   );
+  if (input.headless && (input.opened || input.reused)) {
+    stdout("");
+    stdout(`Next: run \`${checkCommand}\` to confirm the session, then consult as usual.`);
+    return;
+  }
   stdout("");
   stdout("Steps:");
   if (windowAvailable) {

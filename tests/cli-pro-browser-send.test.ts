@@ -2195,6 +2195,71 @@ describe("pro browser ask model/project selection", () => {
     }
   });
 
+  it("auto-recovers an MCP consult with no terminal, in the recorded window mode", async () => {
+    // Field failure: a closed browser made every pro_consult fail, because the
+    // auto-recovery gate only fired for interactive terminals - an MCP caller
+    // has none, and no MCP tool can start the browser.
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-send-"));
+    const lastLoginFile = path.join(cwd, "last-login.json");
+    await writeFile(lastLoginFile, JSON.stringify({ profile_dir: "/custom/chrome-profile", port: 9333, headless: true }), "utf8");
+    process.env.PRODEX_LAST_LOGIN_FILE = lastLoginFile;
+    const { performBrowserConsultForMcp } = await import("../src/cli-pro.js");
+    try {
+      const blocker = {
+        code: "browser_unreachable",
+        message: "No Chrome DevTools endpoint is reachable on 127.0.0.1:9333.",
+        retryable: true,
+        next_step: "Run `prodex pro browser login` to reopen the dedicated window."
+      };
+      sendChatGptPromptMock
+        .mockRejectedValueOnce(Object.assign(new Error(blocker.message), { blocker }))
+        .mockResolvedValueOnce({
+          url: "https://chatgpt.com/c/mcp-recovered",
+          title: "ChatGPT",
+          answer: "mcp recovered answer",
+          modelHints: [],
+          warnings: []
+        });
+      openChatGptBrowserMock.mockReturnValueOnce({
+        port: 9333,
+        profileDir: "/custom/chrome-profile",
+        waitForEarlyExit: async () => undefined
+      });
+      getChatGptBrowserStatusMock.mockResolvedValue({ reachable: true, loggedInLikely: true, hasComposer: true, modelHints: [] });
+
+      const outcome = await performBrowserConsultForMcp(cwd, { prompt: "consult after the browser died" });
+
+      expect(openChatGptBrowserMock).toHaveBeenCalledWith(expect.objectContaining({ headless: true }));
+      expect(outcome.answer).toContain("mcp recovered answer");
+    } finally {
+      delete process.env.PRODEX_LAST_LOGIN_FILE;
+    }
+  });
+
+  it("honors PRODEX_NO_AUTO_LOGIN for MCP consults", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-send-"));
+    const priorOptOut = process.env.PRODEX_NO_AUTO_LOGIN;
+    process.env.PRODEX_NO_AUTO_LOGIN = "1";
+    const { performBrowserConsultForMcp } = await import("../src/cli-pro.js");
+    try {
+      const blocker = {
+        code: "browser_unreachable",
+        message: "No Chrome DevTools endpoint is reachable on 127.0.0.1:9333.",
+        retryable: true,
+        next_step: "Run `prodex pro browser login` to reopen the dedicated window."
+      };
+      sendChatGptPromptMock.mockRejectedValueOnce(Object.assign(new Error(blocker.message), { blocker }));
+
+      await expect(performBrowserConsultForMcp(cwd, { prompt: "no auto login please" })).rejects.toThrow(
+        /No Chrome DevTools endpoint/
+      );
+      expect(openChatGptBrowserMock).not.toHaveBeenCalled();
+    } finally {
+      if (priorOptOut === undefined) delete process.env.PRODEX_NO_AUTO_LOGIN;
+      else process.env.PRODEX_NO_AUTO_LOGIN = priorOptOut;
+    }
+  });
+
   it("records the login launch so recovery can reuse the profile", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-send-"));
     const lastLoginFile = path.join(cwd, "last-login.json");

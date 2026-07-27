@@ -28,6 +28,9 @@ import {
   hasFreshChatGptAnswer,
   isFreshChatGptPage,
   menuItemLabelMatches,
+  chunkComposerText,
+  COMPOSER_INSERT_CHUNK_CHARS,
+  resolveHeadlessPreference,
   assertChatGptIdleAndReadyForPrompt,
   inferChatGptPageLoggedInLikely,
   inferLoggedInLikely,
@@ -71,6 +74,61 @@ describe("ChatGPT browser adapter", () => {
     expect(args).toContain("--remote-debugging-port=9333");
     expect(args).toContain("--user-data-dir=/tmp/prodex-profile");
     expect(args.join(" ")).not.toMatch(/cookie|token|password/i);
+  });
+
+  it("builds a headless launch that still renders the desktop sidebar layout", () => {
+    // Headless defaults to an 800x600 viewport, at which ChatGPT collapses the
+    // sidebar - and the sidebar IS the logged-in signal (inferLoggedInLikely
+    // keys on "New chat"/"Projects"), so a narrow headless window would report
+    // a logged-in Pro session as logged out. Pin a desktop-width window.
+    const args = buildChromeLaunchArgs({
+      port: 9333,
+      profileDir: "/tmp/prodex-profile",
+      url: "https://chatgpt.com/",
+      headless: true
+    });
+
+    expect(args).toContain("--headless=new");
+    expect(args).not.toContain("--new-window");
+    const windowSize = args.find((arg) => arg.startsWith("--window-size="));
+    expect(windowSize).toBeDefined();
+    const width = Number(windowSize?.split("=")[1]?.split(",")[0]);
+    expect(width).toBeGreaterThanOrEqual(1280);
+
+    const headed = buildChromeLaunchArgs({ port: 9333, profileDir: "/tmp/prodex-profile", url: "https://chatgpt.com/" });
+    expect(headed).not.toContain("--headless=new");
+    expect(headed).toContain("--new-window");
+  });
+
+  it("splits a long prompt into bounded composer chunks that rebuild the original exactly", () => {
+    // Field failure: one Input.insertText carrying a whole multi-KB prompt
+    // stalls the ProseMirror composer past the 20s CDP command timeout, and
+    // the send dies with "Chrome DevTools command timed out: Input.insertText"
+    // (observed twice in one session on long inputs). Each chunk gets its own
+    // command budget instead.
+    const long = "a".repeat(9_500);
+    const chunks = chunkComposerText(long);
+    expect(chunks.length).toBeGreaterThan(1);
+    expect(chunks.every((chunk) => chunk.length <= COMPOSER_INSERT_CHUNK_CHARS)).toBe(true);
+    expect(chunks.join("")).toBe(long);
+
+    const short = "one short prompt";
+    expect(chunkComposerText(short)).toEqual([short]);
+    expect(chunkComposerText("")).toEqual([]);
+
+    // Multi-byte text must not be split mid-character.
+    const korean = "가나다라마바사".repeat(2_000);
+    expect(chunkComposerText(korean).join("")).toBe(korean);
+  });
+
+  it("resolves the headless preference from PRODEX_HEADLESS, with the explicit option winning", () => {
+    expect(resolveHeadlessPreference(undefined, {})).toBe(false);
+    expect(resolveHeadlessPreference(undefined, { PRODEX_HEADLESS: "1" })).toBe(true);
+    expect(resolveHeadlessPreference(undefined, { PRODEX_HEADLESS: "true" })).toBe(true);
+    expect(resolveHeadlessPreference(undefined, { PRODEX_HEADLESS: "yes" })).toBe(true);
+    expect(resolveHeadlessPreference(undefined, { PRODEX_HEADLESS: "0" })).toBe(false);
+    expect(resolveHeadlessPreference(false, { PRODEX_HEADLESS: "1" })).toBe(false);
+    expect(resolveHeadlessPreference(true, {})).toBe(true);
   });
 
   it("recognizes a logged-in Korean ChatGPT UI snapshot", () => {
