@@ -645,22 +645,27 @@ describe("pro browser ask persistence", () => {
     process.env.PRODEX_SEND_LOCK_FILE = lockFile;
     try {
       await writeFile(lockFile, JSON.stringify({ pid: process.pid }), "utf8");
-      const err: string[] = [];
-      const send = runCli(["pro", "browser", "ask", "--model", "Pro", "--timeout-ms", "60000", "prompt"], {
-        cwd,
-        stdout: () => {},
-        stderr: (line) => err.push(line)
-      });
-      // Release the lock while the send is queued; it must then proceed.
-      await new Promise((resolve) => setTimeout(resolve, 300));
-      expect(err.join("\n")).toMatch(/another prodex send holds the browser/);
-      sendChatGptPromptMock.mockResolvedValueOnce({
+      sendChatGptPromptMock.mockResolvedValue({
         url: "https://chatgpt.com/c/x",
         title: "ChatGPT",
         answer: "queued ok",
         modelHints: [],
         warnings: []
       });
+      const err: string[] = [];
+      const send = runCli(["pro", "browser", "ask", "--model", "Pro", "--timeout-ms", "60000", "prompt"], {
+        cwd,
+        stdout: () => {},
+        stderr: (line) => err.push(line)
+      });
+      // Wait for the queue notice by polling, not by a fixed sleep: a loaded
+      // CI box needs longer than a dev box to reach the lock.
+      const queuedBy = Date.now() + 20_000;
+      while (!err.some((line) => /another prodex send holds the browser/.test(line)) && Date.now() < queuedBy) {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      expect(err.join("\n")).toMatch(/another prodex send holds the browser/);
+      // Release the lock while the send is queued; it must then proceed.
       await rm(lockFile, { force: true });
       await expect(send).resolves.toBeDefined();
     } finally {
