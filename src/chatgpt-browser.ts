@@ -983,7 +983,14 @@ export async function getChatGptBrowserStatus(options: { port?: number; timeoutM
       blocker: chatGptPageMissingBlocker()
     };
   }
-  const state = await evaluateOnPage<ChatGptPageStatus>(page.page, statusExpression());
+  // Bound the status read by the CALLER's budget, not the 20s default CDP
+  // command timeout: a very heavy ChatGPT thread answers slowly, and
+  // `pro browser check --timeout-ms 5000` measured 65 seconds because every
+  // evaluate silently used the default. Agents read that silence as a hung
+  // bridge and start "recovering" a browser that is merely busy.
+  const state = await evaluateOnPage<ChatGptPageStatus>(page.page, statusExpression(), {
+    ...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {})
+  });
   const loggedInLikely = inferChatGptPageLoggedInLikely(state);
   const blocker = chatGptVisibilityBlocker(state.visibilityState, state.url) ?? detectChatGptPageBlocker(state) ?? chatGptBusyBlocker(state.generating);
   return {

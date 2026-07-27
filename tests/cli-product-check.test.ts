@@ -78,6 +78,39 @@ describe("browser product check", () => {
     expect(out.join("\n")).toContain("browser_defaults: model=Pro, pro-mode=확장");
   });
 
+  it("verifies only as many consults as it needs to find the latest trusted one", async () => {
+    // Field failure: `pro browser check` spent 42 of its 46 seconds on
+    // latest_pro, because it verified EVERY recorded consult (each a full
+    // receipt scan) just to report the newest one. On a repo with real
+    // history - or any slow filesystem - agents read that as a hung bridge.
+    const targetCwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-product-check-ledger-"));
+    const store = new BridgeStore(targetCwd);
+    await store.ensure();
+    for (let i = 0; i < 5; i += 1) {
+      const task = await store.createTask({
+        source: "codex",
+        title: `GPT Pro consult ${i}`,
+        prompt: "x",
+        repo_id: "default",
+        files: [],
+        provenance: { adapter: "chatgpt-control", warnings: [] }
+      });
+      await store.completeTask(task.id, {
+        status: "done",
+        summary: `answer ${i}`,
+        commands: ["visible ChatGPT browser consult"]
+      });
+    }
+    const { latestTrustedConsult } = await import("../src/cli-pro.js");
+    const verify = vi.spyOn(store, "getFinalizedResultReadOnly");
+
+    const latest = await latestTrustedConsult(store, { readOnly: false });
+
+    expect(latest).toBeDefined();
+    expect(verify).toHaveBeenCalledTimes(1);
+    verify.mockRestore();
+  });
+
   it("reports an in-flight response as busy, not as a blocked browser", async () => {
     // Field failure: agents ran `pro browser check`, saw "blocked
     // response_in_progress", concluded the browser was broken, and started

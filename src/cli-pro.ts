@@ -1471,11 +1471,25 @@ export async function getConsult(store: BridgeStore, taskId: string, options: { 
 }
 
 export async function latestTrustedConsult(store: BridgeStore, options: { readOnly?: boolean } = { readOnly: true }): Promise<ConsultRecord | undefined> {
-  const entries = await listConsultListEntries(store, options);
-  const trusted = entries.find((entry) => entry.kind === "trusted");
-  if (trusted) return trusted.consult;
-  const untrusted = entries.find((entry) => entry.kind === "untrusted");
-  if (untrusted) throw untrusted.error;
+  // Verify lazily, newest first, and stop at the first trusted consult.
+  // Verifying the whole history to report ONE record made `pro browser check`
+  // spend 42 of its 46 seconds in latest_pro on a repo with real history
+  // (measured live) - each record is a full receipt scan - and agents read
+  // that silence as a hung bridge.
+  const records = await listConsultRecordsNewestFirst(store, options);
+  let firstUntrusted: unknown;
+  for (const record of records) {
+    try {
+      return { ...record, result: await store.getFinalizedResultReadOnly(record.result.task_id) };
+    } catch (error) {
+      if (isUntrustedResultError(error)) {
+        firstUntrusted ??= error;
+        continue;
+      }
+      throw error;
+    }
+  }
+  if (firstUntrusted) throw firstUntrusted;
   return undefined;
 }
 
@@ -1484,20 +1498,29 @@ export function legacyChatGptNamespaceError(subcommand?: string): Error {
   return new Error(`${prefix} Use \`prodex pro browser help\` for visible-browser commands.`);
 }
 
-export async function listConsultListEntries(store: BridgeStore, options: { readOnly?: boolean } = { readOnly: true }): Promise<ConsultListEntry[]> {
+// Consult records (unverified) newest first, with the ledger-integrity checks
+// that must run regardless of how many records the caller ends up verifying.
+async function listConsultRecordsNewestFirst(
+  store: BridgeStore,
+  options: { readOnly?: boolean } = { readOnly: true }
+): Promise<ConsultRecord[]> {
   const [tasks, results] = options.readOnly === false
     ? await Promise.all([store.listTasks(), store.listResults()])
     : await Promise.all([listTasksForInspection(store), listRawResultsForInspection(store)]);
   const tasksById = new Map(tasks.map((task) => [task.id, task]));
   assertNoMissingTerminalConsultResults(tasks, results);
   assertNoOrphanConsultResults(tasksById, results);
-  const records = results
+  return results
     .map((result) => {
       const task = tasksById.get(result.task_id);
       return task ? { task, result } : undefined;
     })
     .filter((record): record is ConsultRecord => Boolean(record && isConsultRecord(record)))
     .sort((a, b) => b.result.created_at.localeCompare(a.result.created_at));
+}
+
+export async function listConsultListEntries(store: BridgeStore, options: { readOnly?: boolean } = { readOnly: true }): Promise<ConsultListEntry[]> {
+  const records = await listConsultRecordsNewestFirst(store, options);
   const entries: ConsultListEntry[] = [];
   for (const record of records) {
     try {

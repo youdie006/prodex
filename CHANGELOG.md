@@ -32,6 +32,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A CDP command timeout reports as `browser_cdp_timeout` with a usable next
   step (retry with `--new-chat`, or reload the tab) instead of the generic
   "resolve the visible browser issue manually".
+- `pro browser check` no longer takes a minute on a repo with real consult
+  history. Reporting the single newest consult verified EVERY recorded one,
+  and each verification is a full receipt scan: measured live, latest_pro
+  alone took 42 of the check's 46 seconds. It now verifies newest-first and
+  stops at the first trusted record (65s -> 9s on the same repo). `pro list`
+  still verifies everything, because it displays everything.
+- The browser status read honors the caller's `--timeout-ms` instead of the
+  20s default CDP command budget.
 
 ## [0.16.33] - 2026-07-23
 

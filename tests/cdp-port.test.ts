@@ -1,8 +1,11 @@
+import { createServer, type Server } from "node:http";
+import type { AddressInfo } from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
   DEFAULT_CDP_PORT,
   chromeCommandCandidates,
+  getChatGptBrowserStatus,
   isWindowsBrowserExecutablePath,
   resolveCdpPort
 } from "../src/chatgpt-browser.js";
@@ -111,4 +114,57 @@ describe("chromeCommandCandidates", () => {
     const candidates = chromeCommandCandidates("linux", {});
     expect(candidates.every((candidate) => !candidate.startsWith("/mnt/c/"))).toBe(true);
   });
+});
+
+describe("getChatGptBrowserStatus timeout budget", () => {
+  let server: Server | undefined;
+  const sockets: Array<{ destroy: () => void }> = [];
+
+  afterEach(async () => {
+    for (const socket of sockets.splice(0)) socket.destroy();
+    if (server) await new Promise<void>((resolve) => server!.close(() => resolve()));
+    server = undefined;
+  });
+
+  it("honors the caller's timeout when the tab's renderer never answers", async () => {
+    // Field failure: `pro browser check` against a very heavy ChatGPT thread
+    // took 65 seconds even with --timeout-ms 5000, because the status
+    // evaluate ran on the default 20s-per-command CDP budget instead of the
+    // caller's. Agents read the long silence as a hung bridge.
+    server = createServer((request, response) => {
+      response.setHeader("content-type", "application/json");
+      if (request.url === "/json/list") {
+        const port = (server!.address() as AddressInfo).port;
+        response.end(
+          JSON.stringify([
+            {
+              id: "stalled",
+              type: "page",
+              title: "ChatGPT",
+              url: "https://chatgpt.com/c/stalled",
+              // A websocket URL nothing ever upgrades: connect stalls, which
+              // is what a wedged renderer looks like from CDP.
+              webSocketDebuggerUrl: `ws://127.0.0.1:${port}/devtools/page/stalled`
+            }
+          ])
+        );
+        return;
+      }
+      response.end("{}");
+    });
+    // Accept the upgrade and then never speak: the socket stays open exactly
+    // like a renderer that has stopped answering CDP.
+    server.on("upgrade", (_request, socket) => {
+      sockets.push(socket);
+    });
+    await new Promise<void>((resolve) => server!.listen(0, "127.0.0.1", resolve));
+    const port = (server.address() as AddressInfo).port;
+
+    const startedAt = Date.now();
+    await getChatGptBrowserStatus({ port, timeoutMs: 500 }).catch(() => undefined);
+    const elapsedMs = Date.now() - startedAt;
+
+    // Generous ceiling: the point is "bounded by the caller", not 20s+.
+    expect(elapsedMs).toBeLessThan(6_000);
+  }, 40_000);
 });
