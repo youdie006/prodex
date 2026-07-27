@@ -1250,7 +1250,7 @@ try {
   assertIncludes(blockedSmokeCwd.stdout, "- code: browser_unreachable", "installed pro browser smoke cwd blocker output");
   assertIncludes(
     blockedSmokeCwd.stdout,
-    `- next_step: Run \`cd ${shellQuotedForSmoke(browserSmokeCwdTarget)} && ${sourcePrefix} pro browser login --source-cli ${installedSourceCli} --port 65534\`, log in, then retry.`,
+    `- next_step: Run \`cd ${shellQuotedForSmoke(browserSmokeCwdTarget)} && ${sourcePrefix} pro browser login --source-cli ${installedSourceCli} --port 65534\` to reopen`,
     "installed pro browser smoke cwd blocker output"
   );
   const browserSmokeCwdNoSourceTarget = path.join(tmp, "browser smoke cwd nosource target");
@@ -1275,7 +1275,7 @@ try {
   assertIncludes(blockedSmokeCwdNoSource.stdout, "status: blocked", "installed pro browser smoke cwd no-source blocker output");
   assertIncludes(
     blockedSmokeCwdNoSource.stdout,
-    `- next_step: Run \`cd ${shellQuotedForSmoke(browserSmokeCwdNoSourceTarget)} && prodex pro browser login --port 65534\`, log in, then retry.`,
+    `- next_step: Run \`cd ${shellQuotedForSmoke(browserSmokeCwdNoSourceTarget)} && prodex pro browser login --port 65534\` to reopen`,
     "installed pro browser smoke cwd no-source blocker output"
   );
   const browserCheck = await runExpectFailure(binPath, ["pro", "browser", "check", "--port", "65534", "--timeout-ms", "10"], {
