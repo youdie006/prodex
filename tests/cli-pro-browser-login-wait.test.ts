@@ -131,6 +131,54 @@ describe("pro browser login --wait", () => {
     expect(errs.some((line) => line.includes("not ready after"))).toBe(true);
   });
 
+  it("names Cloudflare as the reason a headless login never becomes ready", async () => {
+    // Field failure: headless Chrome gets a Cloudflare "Just a moment..."
+    // interstitial on chatgpt.com and never reaches the composer, but the
+    // login reported "the profile is not signed in" - sending the user to
+    // re-login instead of telling them headless is the problem.
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-login-wait-"));
+    const priorLastLogin = process.env.PRODEX_LAST_LOGIN_FILE;
+    process.env.PRODEX_LAST_LOGIN_FILE = path.join(cwd, "last-login.json");
+    openChatGptBrowserMock.mockReturnValueOnce({
+      port: 9333,
+      profileDir: "/tmp/fake-profile",
+      waitForEarlyExit: async () => undefined
+    });
+    const challenged = {
+      ...status({ reachable: true }),
+      title: "Just a moment...",
+      blocker: {
+        code: "cloudflare_check",
+        message: "ChatGPT is showing a Cloudflare or human-verification interstitial.",
+        retryable: true,
+        next_step: "Complete the visible browser check manually, then retry."
+      }
+    };
+    // First probe decides "is something already running" - nothing is, so the
+    // headless launch happens; every later read sees the challenge.
+    let probe = 0;
+    getChatGptBrowserStatusMock.mockImplementation(async () => (probe++ === 0 ? status() : challenged));
+    const out: string[] = [];
+
+    try {
+      const code = await runCli(["pro", "browser", "login", "--headless", "--wait-timeout-ms", "50"], {
+        cwd,
+        stdout: (line) => out.push(line),
+        stderr: () => {}
+      });
+
+      const text = out.join("\n");
+      expect(code).toBe(1);
+      expect(text).toMatch(/cloudflare/i);
+      expect(text).not.toMatch(/not signed in/i);
+      expect(text).toMatch(/virtual display|Xvfb/i);
+    } finally {
+      if (priorLastLogin === undefined) delete process.env.PRODEX_LAST_LOGIN_FILE;
+      else process.env.PRODEX_LAST_LOGIN_FILE = priorLastLogin;
+      getChatGptBrowserStatusMock.mockReset();
+    }
+  });
+
   it("does not wait in non-interactive runs unless --wait is passed", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "prodex-login-wait-"));
     openChatGptBrowserMock.mockReturnValueOnce({

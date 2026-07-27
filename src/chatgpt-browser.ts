@@ -544,7 +544,14 @@ export function detectChatGptBlocker(
   visibleButtonLabels: string[] = []
 ): ChatGptBrowserStatus["blocker"] | undefined {
   const haystack = `${text}\n${visibleButtonLabels.join("\n")}`.toLowerCase();
-  if (/just a moment|checking if the site connection is secure|verify you are human|잠시만 기다려|연결이 안전한지/i.test(haystack)) {
+  // Match what the interstitial actually renders (measured live): the body
+  // says "Verifying you are human." and "<site> needs to review the security
+  // of your connection", while only the TITLE says "Just a moment...".
+  if (
+    /just a moment|checking if the site connection is secure|verif(?:y|ying) you are human|needs to review the security of your connection|잠시만 기다려|연결이 안전한지|사람인지 확인/i.test(
+      haystack
+    )
+  ) {
     return {
       code: "cloudflare_check",
       message: "ChatGPT is showing a Cloudflare or human-verification interstitial.",

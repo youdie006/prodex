@@ -345,11 +345,21 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
           // launch is only useful when the profile is already logged in.
           // Verify it here (bounded, no human to wait for) instead of letting
           // the first consult fail with a confusing not-logged-in blocker.
-          const headlessReady = await waitForChatGptLoginReady(io.stderr, { port: opened.port, timeoutMs: 30_000 });
+          const headlessWaitMs = readPositiveIntegerFlag(browserArgs, "--wait-timeout-ms") ?? 30_000;
+          const headlessReady = await waitForChatGptLoginReady(io.stderr, { port: opened.port, timeoutMs: headlessWaitMs });
           if (!headlessReady) {
+            // Name the real cause. Cloudflare rejects headless Chrome by
+            // design (its docs list headless browsers as unsupported), and
+            // reporting that as "not signed in" sent users to re-login over
+            // and over instead of back to a headed window.
+            const finalStatus = await getChatGptBrowserStatus({ port: opened.port, timeoutMs: 5_000 }).catch(() => undefined);
+            const challenged =
+              finalStatus?.blocker?.code === "cloudflare_check" || /just a moment/i.test(finalStatus?.title ?? "");
             io.stdout("");
             io.stdout(
-              `headless: the profile is not signed in. Run \`${formatBrowserLoginCommand(sourceCli, commandOptions)}\` WITHOUT --headless once, sign in, close that window, then rerun with --headless.`
+              challenged
+                ? "headless: Cloudflare challenged the headless browser and never let ChatGPT load. This is expected - Cloudflare lists headless browsers as unsupported. Run without --headless, or run a real headed Chrome on a virtual display (Xvfb) and point prodex at it with DISPLAY."
+                : `headless: the profile is not signed in. Run \`${formatBrowserLoginCommand(sourceCli, commandOptions)}\` WITHOUT --headless once, sign in, close that window, then rerun with --headless.`
             );
             return 1;
           }

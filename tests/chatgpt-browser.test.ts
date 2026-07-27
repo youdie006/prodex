@@ -131,6 +131,20 @@ describe("ChatGPT browser adapter", () => {
     expect(resolveHeadlessPreference(true, {})).toBe(true);
   });
 
+  it("detects the wording Cloudflare actually renders on the interstitial", () => {
+    // Measured live: the challenge page body says "Verifying you are human."
+    // and the title is "Just a moment...". The old pattern only matched
+    // "verify you are human", so the real page fell through undetected.
+    for (const sample of [
+      "Verifying you are human. This may take a few seconds.",
+      "chatgpt.com needs to review the security of your connection before proceeding.",
+      "사용자가 사람인지 확인하는 중입니다."
+    ]) {
+      expect(detectChatGptBlocker(sample)?.code).toBe("cloudflare_check");
+    }
+    expect(detectChatGptBlocker("A normal answer about verifying user input")?.code).not.toBe("cloudflare_check");
+  });
+
   it("recognizes a logged-in Korean ChatGPT UI snapshot", () => {
     const text = "채팅 기록\nChatGPT\n새 채팅\n프로젝트\n홍길동\nPro\n무엇이든 편하게 시작해 보세요.";
     const buttons = ["프로필 메뉴 열기", "새 채팅", "프로젝트 홈 열기"];

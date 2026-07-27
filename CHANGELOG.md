@@ -4,6 +4,22 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.1] - 2026-07-27
+
+### Fixed
+- A headless login that Cloudflare blocks now says so. It reported "the
+  profile is not signed in", sending users to re-login over and over, when
+  the real cause is that Cloudflare rejects headless browsers by design. The
+  message now names the challenge and points at the alternatives (run headed,
+  or run a real headed Chrome on a virtual display).
+- Cloudflare interstitial detection matches what the page actually renders:
+  the body says "Verifying you are human." and "<site> needs to review the
+  security of your connection", while only the title says "Just a moment...".
+  The old pattern only matched "verify you are human", so the live page went
+  undetected.
+- `pro browser login --headless` honors `--wait-timeout-ms` for its
+  signed-in verification instead of a fixed 30 seconds.
+
 ## [0.17.0] - 2026-07-27
 
 ### Added
