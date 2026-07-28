@@ -17,7 +17,10 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  # contents: write so the tag also gets a GitHub Release - npm was being
+  # published while the repo's Releases page sat 8 versions behind (0.11.0),
+  # so anyone browsing GitHub saw a stale "latest".
+  contents: write
   id-token: write
 
 jobs:
@@ -69,3 +72,22 @@ jobs:
 
       - name: Publish (provenance, trusted publishing)
         run: npm publish --provenance --access public --ignore-scripts
+
+      - name: GitHub Release from CHANGELOG
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          # Take the section for this version out of CHANGELOG.md; fall back to
+          # a pointer rather than failing the publish that already succeeded.
+          notes="$(awk -v v="## [$version]" '
+            index($0, v) == 1 { on = 1; next }
+            on && /^## \[/ { exit }
+            on { print }
+          ' CHANGELOG.md)"
+          if [ -z "$(printf "%s" "$notes" | tr -d "[:space:]")" ]; then
+            notes="See CHANGELOG.md for $version."
+          fi
+          printf "%s\n" "$notes" > /tmp/release-notes.md
+          gh release create "$GITHUB_REF_NAME" --title "prodex $version" --notes-file /tmp/release-notes.md
