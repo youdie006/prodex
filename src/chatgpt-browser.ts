@@ -222,6 +222,8 @@ export interface SendChatGptPromptResult {
   title: string;
   answer: string;
   modelHints: string[];
+  /** The model ChatGPT says produced the answer, e.g. "gpt-5-6-pro". */
+  modelSlug?: string;
   warnings: string[];
 }
 
@@ -233,6 +235,8 @@ interface ChatGptAnswerState {
   generating: boolean;
   assistantMessageCount: number;
   userMessageCount: number;
+  /** ChatGPT's own tag for the model that produced the last answer. */
+  modelSlug?: string;
   textSample: string;
   blockerTextSample: string;
   blockerScanTextSample?: string;
@@ -717,6 +721,21 @@ export function hasChatGptPromptAcceptance(
   state: Pick<ChatGptAnswerState, "assistantMessageCount" | "generating" | "userMessageCount">
 ): boolean {
   return state.userMessageCount > previous.userMessageCount || state.assistantMessageCount > previous.assistantMessageCount;
+}
+
+/**
+ * Compare the model that was ASKED for against the model that actually
+ * produced the answer (ChatGPT tags each message with data-message-model-slug).
+ * prodex used to record only the request, so a model click that silently did
+ * not take - or no model pinned at all - was invisible, and the user believed
+ * they were getting Pro reasoning when they were not.
+ */
+export function modelSelectionWarning(requestedModel: string | undefined, modelSlug: string | undefined): string | undefined {
+  if (!requestedModel || !modelSlug) return undefined;
+  const wantsPro = /\bpro\b/i.test(requestedModel);
+  if (!wantsPro) return undefined;
+  if (/pro/i.test(modelSlug)) return undefined;
+  return `model_mismatch: you asked for ${requestedModel}, but the answer came from "${modelSlug}". Check the model picker in the browser; the selection did not take.`;
 }
 
 export function chatGptBusyBlocker(generating: boolean): ChatGptBrowserStatus["blocker"] | undefined {
@@ -1936,6 +1955,7 @@ export async function recoverChatGptAnswerFromThread(
     title: state.title,
     answer: state.answer.trim(),
     modelHints: state.modelHints,
+    ...(state.modelSlug ? { modelSlug: state.modelSlug } : {}),
     warnings: []
   };
 }
@@ -2193,7 +2213,10 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
       title: completed.title,
       answer: completed.answer.trim(),
       modelHints: completed.modelHints,
-      warnings: [...sendWarnings]
+      ...(completed.modelSlug ? { modelSlug: completed.modelSlug } : {}),
+      warnings: [...sendWarnings, modelSelectionWarning(options.model, completed.modelSlug)].filter(
+        (warning): warning is string => Boolean(warning)
+      )
     };
   }
   // Timed out while the answer was still streaming: salvage the partial text
@@ -2206,15 +2229,23 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
       title: completed.title,
       answer: completed.answer.trim(),
       modelHints: completed.modelHints,
+      ...(completed.modelSlug ? { modelSlug: completed.modelSlug } : {}),
       warnings: [
         ...sendWarnings,
+        ...(modelSelectionWarning(options.model, completed.modelSlug) ? [modelSelectionWarning(options.model, completed.modelSlug) as string] : []),
         `answer_incomplete: ChatGPT was still generating after ${formatDurationMs(timeoutMs)} (${timeoutMs}ms), so the answer below may be truncated. Raise --timeout-ms and retry for the full response.`
       ]
     };
   }
-  throw new Error(
-    `Timed out after ${formatDurationMs(timeoutMs)} (${timeoutMs}ms) waiting for ChatGPT to respond. ` +
-      "Pro reasoning can run many minutes. Raise --timeout-ms and retry."
+  // Carry the thread the prompt landed in: ChatGPT usually finishes the answer
+  // after prodex gives up, and `pro browser recover --target-url` exists to
+  // fetch it - but only if the caller knows which thread to point at.
+  throw Object.assign(
+    new Error(
+      `Timed out after ${formatDurationMs(timeoutMs)} (${timeoutMs}ms) waiting for ChatGPT to respond. ` +
+        "Pro reasoning can run many minutes. Raise --timeout-ms and retry."
+    ),
+    completed?.url ? { thread: completed.url } : {}
   );
 }
 
@@ -2803,10 +2834,17 @@ export function answerExpression(): string {
       return parts.join(String.fromCharCode(10));
     };
     const lines = text.split(String.fromCharCode(10)).map((line) => line.trim()).filter(Boolean);
-    const messages = [...document.querySelectorAll('[data-message-author-role]')].map((node) => ({
-      role: node.getAttribute('data-message-author-role'),
-      text: node.innerText || ""
-    }));
+    const messages = [...document.querySelectorAll('[data-message-author-role]')].map((node) => {
+      // ChatGPT tags each message with the model that produced it, on the
+      // message node or an ancestor depending on the build. This is the only
+      // ground truth for "did the Pro selection actually take".
+      let modelSlug = node.getAttribute('data-message-model-slug') || undefined;
+      if (!modelSlug && typeof node.closest === "function") {
+        const tagged = node.closest('[data-message-model-slug]');
+        if (tagged) modelSlug = tagged.getAttribute('data-message-model-slug') || undefined;
+      }
+      return { role: node.getAttribute('data-message-author-role'), text: node.innerText || "", modelSlug };
+    });
     const assistantMessages = messages.filter((message) => message.role === "assistant");
     const userMessages = messages.filter((message) => message.role === "user");
     const assistant = assistantMessages.at(-1);
@@ -2830,6 +2868,9 @@ export function answerExpression(): string {
       generating: placeholder || Boolean(document.querySelector(${streamingSelector})) || buttons.some((label) => generatingControlPattern.test(label)),
       assistantMessageCount: assistantMessages.length,
       userMessageCount: userMessages.length,
+      // ChatGPT tags each assistant message with the model that produced it -
+      // the only ground truth for "did the Pro selection actually take".
+      modelSlug: assistant ? assistant.modelSlug : undefined,
       modelHints: lines.filter((line) => /GPT|Pro|Thinking|ChatGPT|Extra High|Auto/i.test(line)).slice(0, 30)
     };
   })()`;

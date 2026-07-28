@@ -635,6 +635,29 @@ describe("pro browser ask persistence", () => {
     }
   });
 
+  it("records the thread URL on a timed-out consult so recover has a target", async () => {
+    // recover exists for exactly this case, but a timed-out consult saved no
+    // thread URL - so the user had to hunt the conversation down by hand
+    // (observed live). The blocked record now carries it, and the next step
+    // spells out the recover command.
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-send-"));
+    const thread = "https://chatgpt.com/g/g-p-abc-demo/c/timed-out-thread";
+    sendChatGptPromptMock.mockRejectedValueOnce(
+      Object.assign(new Error("Timed out after 4 min (240000ms) waiting for ChatGPT to respond."), { thread })
+    );
+
+    await expect(
+      runCli(["pro", "browser", "ask", "--model", "Pro", "prompt"], { cwd, stdout: () => {}, stderr: () => {} })
+    ).rejects.toThrow(/Timed out/);
+
+    const results = await readdir(path.join(cwd, ".bridge", "results"));
+    const record = JSON.parse(await readFile(path.join(cwd, ".bridge", "results", results[0]), "utf8")) as {
+      blocker?: { thread?: string; next_step?: string };
+    };
+    expect(record.blocker?.thread).toBe(thread);
+    expect(record.blocker?.next_step).toContain(`pro browser recover --target-url ${thread}`);
+  });
+
   it("queues behind a live lock holder by default, with no --busy-wait-ms passed", async () => {
     // Field failure: MCP consults cannot pass --busy-wait-ms at all, so a
     // live holder made pro_consult fail instantly with advice the caller had

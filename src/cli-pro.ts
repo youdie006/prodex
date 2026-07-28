@@ -1074,7 +1074,9 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
       // quietly ran on a mid-tier model. Warn loudly and record it.
       if (!selectionModel && !selectionProMode && !selectionEffort) {
         persistenceWarnings.push(
-          "model_selection_warning: no model/effort was selected for this send (no per-ask flag, no saved default), so it used whatever the ChatGPT UI last had selected. Pin one with `prodex setup --model Pro` or pass --model/--effort."
+          "model_selection_warning: no model/effort was selected for this send (no per-ask flag, no saved default), so it used whatever the ChatGPT UI last had selected" +
+            (consult.modelSlug ? ` - it answered as "${consult.modelSlug}"` : "") +
+            ". Pin one with `prodex setup --model Pro` or pass --model/--effort."
         );
       }
       // In-project threads carry the project slug in their URL
@@ -1090,6 +1092,7 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
       // only inside the persisted receipt: a caller who never opens .bridge
       // would otherwise treat a cut-off answer as complete.
       for (const warning of persistenceWarnings) io.stderr(warning);
+      if (consult.modelSlug) io.stderr(`model_used: ${consult.modelSlug}`);
       let answerArtifactPath: string | undefined;
       const answerArtifactBytes = Buffer.byteLength(answerArtifactText, "utf8");
       if (answerArtifactBytes > MAX_FETCHABLE_RESULT_ARTIFACT_BYTES) {
@@ -1115,6 +1118,9 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
             ...(answerArtifactPath ? { artifact_path: answerArtifactPath } : {}),
             thread: consult.url,
             ...(Object.keys(selectionMetadata).length > 0 ? { selection: selectionMetadata } : {}),
+            // What actually answered, straight from ChatGPT's own tag - the
+            // receipt used to record only what prodex asked for.
+            ...(consult.modelSlug ? { model_used: consult.modelSlug } : {}),
             warnings: persistenceWarnings
           }
         });
@@ -1462,6 +1468,10 @@ export function browserSendBlockerFromError(error: unknown): { code: string; mes
   }
   // Match the raw ms whether the message uses the old "after 90000ms" form or
   // the newer human-readable "after 20 min (1200000ms)" form.
+  const thread =
+    typeof error === "object" && error !== null && "thread" in error && typeof (error as { thread?: unknown }).thread === "string"
+      ? ((error as { thread: string }).thread)
+      : undefined;
   const timedOut = message.match(/Timed out after [\s\S]*?(\d+)\s*ms/);
   if (timedOut) {
     // Suggest a concrete doubled budget so the user can paste a rerun command
@@ -1472,7 +1482,12 @@ export function browserSendBlockerFromError(error: unknown): { code: string; mes
       code: "send_timeout",
       message,
       retryable: true,
-      next_step: `Rerun with a bigger budget (${formatDurationMs(suggestedMs)}): \`prodex pro browser ask --timeout-ms ${suggestedMs} "<same prompt>"\`.`
+      ...(thread ? { thread } : {}),
+      next_step:
+        `Rerun with a bigger budget (${formatDurationMs(suggestedMs)}): \`prodex pro browser ask --timeout-ms ${suggestedMs} "<same prompt>"\`.` +
+        (thread
+          ? ` ChatGPT often finishes after prodex gives up - fetch that answer instead of re-asking: \`prodex pro browser recover --target-url ${thread}\`.`
+          : "")
     };
   }
   // A CDP command timeout means the page's renderer stalled, which in the

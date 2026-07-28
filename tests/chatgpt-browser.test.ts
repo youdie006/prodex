@@ -30,6 +30,7 @@ import {
   menuItemLabelMatches,
   chunkComposerText,
   COMPOSER_INSERT_CHUNK_CHARS,
+  modelSelectionWarning,
   resolveHeadlessPreference,
   resolveVirtualDisplayPreference,
   virtualDisplayServerArgs,
@@ -181,6 +182,22 @@ describe("ChatGPT browser adapter", () => {
     expect(resolveHeadlessPreference(undefined, { PRODEX_HEADLESS: "0" })).toBe(false);
     expect(resolveHeadlessPreference(false, { PRODEX_HEADLESS: "1" })).toBe(false);
     expect(resolveHeadlessPreference(true, {})).toBe(true);
+  });
+
+  it("flags an answer that did not come from the requested model", () => {
+    // prodex recorded what it ASKED for and never what actually answered, so a
+    // model click that silently did not take (or no model pinned at all) was
+    // invisible: the user believed they were getting Pro reasoning.
+    expect(modelSelectionWarning("Pro", "gpt-5-6-pro")).toBeUndefined();
+    expect(modelSelectionWarning(undefined, "gpt-5-6-pro")).toBeUndefined();
+    const mismatch = modelSelectionWarning("Pro", "gpt-5-6-thinking");
+    expect(mismatch).toMatch(/model_mismatch/);
+    expect(mismatch).toMatch(/gpt-5-6-thinking/i);
+    expect(mismatch).toMatch(/Pro/);
+    // An unknown slug must not manufacture a false alarm.
+    expect(modelSelectionWarning("Pro", undefined)).toBeUndefined();
+    // A non-Pro request is not judged against the Pro rule.
+    expect(modelSelectionWarning("Thinking", "gpt-5-6-thinking")).toBeUndefined();
   });
 
   it("detects the wording Cloudflare actually renders on the interstitial", () => {

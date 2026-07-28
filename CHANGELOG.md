@@ -4,6 +4,24 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.0] - 2026-07-28
+
+### Added
+- Every consult now records the model that ACTUALLY answered. ChatGPT tags each
+  message with `data-message-model-slug`; prodex reads it, prints
+  `model_used: gpt-5-6-pro` on stderr and stores it on the consult receipt.
+  Until now prodex recorded only what it ASKED for, so a model click that
+  silently did not take - or a repo with no default at all - was invisible, and
+  you could believe you were getting Pro reasoning when you were not. Verified
+  live end to end.
+- `model_mismatch` warning when Pro was requested but a non-Pro model answered,
+  and the existing `model_selection_warning` (nothing pinned) now names the
+  model that answered instead of leaving it to guesswork.
+- A timed-out consult records the thread URL it landed in, and its next step
+  spells out `pro browser recover --target-url <thread>`. recover was built for
+  exactly this case but the blocked record kept no URL, so the thread had to be
+  hunted down by hand (hit live).
+
 ## [0.18.1] - 2026-07-28
 
 ### Fixed

@@ -41,7 +41,11 @@ export const BlockerSchema = z.object({
   code: z.string(),
   message: z.string(),
   retryable: z.boolean().default(false),
-  next_step: z.string().optional()
+  next_step: z.string().optional(),
+  // The ChatGPT thread the prompt landed in, recorded on send failures so
+  // `pro browser recover --target-url` has something to point at: ChatGPT
+  // usually finishes the answer after prodex has given up waiting.
+  thread: z.string().optional()
 });
 
 export const TaskSchema = z.object({
