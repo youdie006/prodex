@@ -313,3 +313,19 @@ describe("browser selection defaults", () => {
     }
   });
 });
+
+describe("resolveProdexCwd", () => {
+  it("prefers an absolute PRODEX_CWD over a broken process working directory", async () => {
+    // The MCP server takes no flags, so when its working directory is unusable
+    // (a /dev/fd pipe path, a deleted directory) the env var is the only way
+    // for an operator to pin the repo without changing how the agent harness
+    // spawns the server.
+    const { resolveProdexCwd } = await import("../src/config.js");
+    expect(resolveProdexCwd("/dev/fd/11", { PRODEX_CWD: "/home/me/repo" })).toBe("/home/me/repo");
+    expect(resolveProdexCwd("/home/me/repo", {})).toBe("/home/me/repo");
+    // A relative or empty value is ignored rather than silently resolved
+    // against the same broken cwd.
+    expect(resolveProdexCwd("/dev/fd/11", { PRODEX_CWD: "repo" })).toBe("/dev/fd/11");
+    expect(resolveProdexCwd("/dev/fd/11", { PRODEX_CWD: "   " })).toBe("/dev/fd/11");
+  });
+});

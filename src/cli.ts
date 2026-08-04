@@ -29,6 +29,7 @@ import {
   getTokenExpiryStatus,
   loadBrowserDefaults,
   loadLocalConfig,
+  resolveProdexCwd,
   writeLocalConfig,
   type LocalConfig,
   type WriteLocalConfigInput
@@ -359,7 +360,10 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
 
 function defaultIo(): CliIO {
   return {
-    cwd: process.cwd(),
+    // PRODEX_CWD wins over a working directory prodex cannot use (a /dev/fd
+    // pipe path from an agent harness, a deleted directory); --cwd still wins
+    // over both where a command accepts it.
+    cwd: resolveProdexCwd(),
     stdout: (line) => console.log(line),
     stderr: (line) => console.error(line),
     isInteractive: process.stdout.isTTY === true,

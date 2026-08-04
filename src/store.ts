@@ -120,6 +120,31 @@ export interface ResealResultOutput {
   receipt: Receipt;
 }
 
+
+// A bridge root has to be a real directory in a real filesystem. Field report
+// (macOS): an agent harness started `prodex mcp` with a working directory of
+// /dev/fd/<n> - a file-descriptor path - so every call failed with a raw
+// ENOENT/ENOTDIR on <root>/tasks, /sessions, /receipts, with a different
+// number each time, and the operator had no way to tell what prodex had
+// resolved or how to override it.
+const NON_REPO_ROOT_PREFIXES = ["/dev/", "/proc/", "/sys/"] as const;
+
+export async function assertUsableBridgeRoot(root: string): Promise<void> {
+  const looksLikeDevicePath = NON_REPO_ROOT_PREFIXES.some((prefix) => root.startsWith(prefix));
+  let isDirectory = false;
+  try {
+    isDirectory = (await stat(root)).isDirectory();
+  } catch {
+    isDirectory = false;
+  }
+  if (isDirectory && !looksLikeDevicePath) return;
+  throw new Error(
+    `Bridge root is not a usable repo directory: ${root}${
+      looksLikeDevicePath ? " (that is a file-descriptor/device path, not a repo)" : ""
+    }. prodex uses the process working directory when no --cwd is given, so a server started from a pipe or a deleted directory lands here. Pass --cwd /absolute/path/to/repo, or set PRODEX_CWD=/absolute/path/to/repo (works for the MCP server, which takes no flags).`
+  );
+}
+
 export class BridgeStore {
   readonly root: string;
   readonly bridgeDir: string;
@@ -130,6 +155,7 @@ export class BridgeStore {
   }
 
   async ensure(): Promise<void> {
+    await assertUsableBridgeRoot(this.root);
     await ensurePrivateDirectory(this.bridgeDir, "Bridge directory");
     await Promise.all([
       ensurePrivateDirectory(this.dir("tasks"), "Bridge storage directory .bridge/tasks"),

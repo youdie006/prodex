@@ -384,3 +384,19 @@ async function assertDirectoryHandle(handle: FileHandle, label: string): Promise
     throw new Error(`${label} must be a real directory`);
   }
 }
+
+/**
+ * The repo prodex should operate on. Defaults to the process working
+ * directory, but PRODEX_CWD (absolute paths only) wins: the MCP server takes
+ * no flags, so when an agent harness starts it from a pipe path or a deleted
+ * directory, the env var is the only way an operator can pin the repo without
+ * changing how that harness spawns the server.
+ */
+export function resolveProdexCwd(
+  fallback: string = process.cwd(),
+  env: Record<string, string | undefined> = process.env
+): string {
+  const raw = (env.PRODEX_CWD ?? "").trim();
+  if (raw.length === 0 || !path.isAbsolute(raw)) return fallback;
+  return raw;
+}

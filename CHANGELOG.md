@@ -4,6 +4,29 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.1] - 2026-07-28
+
+### Fixed
+- A bridge root that is not a usable repo directory now fails with a diagnosis
+  instead of a raw ENOENT. Field report (macOS): an agent harness started
+  `prodex mcp` with a working directory of `/dev/fd/<n>` - a file-descriptor
+  path - so every call died on `<root>/tasks`, `/sessions`, `/receipts` with a
+  different number each time, and the operator had no way to see what prodex
+  had resolved. The error now names the resolved path, says it is a
+  descriptor/device path, and gives both ways out.
+- `PRODEX_CWD` (absolute paths only) pins the repo prodex operates on. The MCP
+  server takes no flags, so when a harness spawns it from a pipe path or a
+  deleted directory this is the only way to fix it without changing the
+  harness; `--cwd` still wins where a command accepts it.
+
+### Security
+- No change needed, but recorded for operators: the local MCP token is stored
+  twice in `.bridge/config.local.json` - as `token` and inside `server_url`.
+  Any external redaction that masks only the `token` key will leak it from the
+  URL. prodex itself redacts both on every surface it prints, the file is mode
+  0600 and gitignored, and `prodex setup --token-ttl-hours <hours>` rotates the
+  token while preserving saved browser defaults (verified).
+
 ## [0.19.0] - 2026-07-28
 
 ### Added

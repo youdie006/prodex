@@ -13,6 +13,22 @@ describe("BridgeStore", () => {
     vi.useRealTimers();
   });
 
+  it("rejects a file-descriptor path as a bridge root with a diagnosis, not a raw ENOENT", async () => {
+    // Field report (macOS): an agent harness started `prodex mcp` with a
+    // working directory of /dev/fd/<n>, so every bridge call failed with
+    // ENOENT on <root>/tasks, /sessions, /receipts and the number changed each
+    // call. Raw ENOENT told the operator nothing; name what was resolved and
+    // the two ways out.
+    const store = new BridgeStore("/dev/fd/11");
+    await expect(store.ensure()).rejects.toThrow(/\/dev\/fd\/11/);
+    await expect(store.ensure()).rejects.toThrow(/PRODEX_CWD/);
+    await expect(store.ensure()).rejects.toThrow(/--cwd/);
+
+    // A real directory is untouched by the guard.
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-store-root-"));
+    await expect(new BridgeStore(root).ensure()).resolves.toBeUndefined();
+  });
+
   it("lists multiple finalized results as trusted from a single receipt scan", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "prodex-store-"));
     const store = new BridgeStore(root);
