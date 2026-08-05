@@ -4,6 +4,22 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.2] - 2026-08-05
+
+### Fixed
+- Long prompts and `--file` attachments send again. 0.17.0 split a large prompt
+  into 4,000-character `Input.insertText` chunks to dodge the CDP command
+  timeout, but the chunks corrupt the text at their boundaries: measured live
+  on a 95 KB prompt, the composer ended up the right LENGTH with content
+  shifted from the first boundary on (first divergence at 3,938 characters),
+  which surfaced as "Composer text did not match after insertion" and blocked
+  every long consult - including any `--file` attachment, whose contents make
+  the prompt long. A prompt above the chunk size now goes in as ONE in-page
+  `execCommand("insertText")`, where nothing can interleave, on a connection
+  whose budget scales with the text (a 67 KB insert takes ~20s in the page).
+  Verified live end to end: the same 95 KB prompt and a large `--file`
+  attachment both send and answer.
+
 ## [0.19.1] - 2026-07-28
 
 ### Fixed

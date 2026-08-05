@@ -2091,7 +2091,7 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
     // into; a --project/--project-new hop lands on a page with its own counts.
     beforeSubmit = await evaluateOnPage<ChatGptAnswerState>(page, answerExpression());
     dbgSend(`baseline url=${beforeSubmit.url} user=${beforeSubmit.userMessageCount} assistant=${beforeSubmit.assistantMessageCount}`);
-    await insertComposerTextViaCdp(cdp, options.prompt);
+    await insertComposerTextViaCdp(cdp, options.prompt, page);
     // The send button renders asynchronously after the prompt lands. Poll for it
     // BEFORE submitting so (a) submitButtonFound reflects whether the control
     // actually EXISTS - otherwise a successful Enter-key submit skips the fallback
@@ -2663,6 +2663,39 @@ export function prepareComposerExpression(): string {
 // just that it is non-empty): a failed clear would leave stale text prepended,
 // silently submitting a contaminated prompt. Whitespace is collapsed on both
 // sides because ProseMirror round-trips newlines as extra blank lines.
+
+
+/**
+ * Insert the whole prompt with ONE in-page execCommand("insertText"). The
+ * editor applies it as a single input event, so - unlike a chunked
+ * Input.insertText sequence - nothing can interleave at a boundary and the
+ * text lands byte-for-byte. Used for prompts too large to push through
+ * Input.insertText in one CDP command.
+ */
+export function insertComposerTextInPageExpression(text: string): string {
+  const textJson = JSON.stringify(text);
+  return `(() => {
+    ${composerExpressionHelpers()}
+    const el = findChatGptComposerCandidate();
+    if (!el) return { ok: false, reason: "No visible composer" };
+    el.focus();
+    if ("value" in el) {
+      el.value = ${textJson};
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+      return { ok: true };
+    }
+    const selection = window.getSelection();
+    const all = document.createRange();
+    all.selectNodeContents(el);
+    selection.removeAllRanges();
+    selection.addRange(all);
+    document.execCommand("delete");
+    const inserted = document.execCommand("insertText", false, ${textJson});
+    if (!inserted) return { ok: false, reason: "The ChatGPT composer refused the prompt text" };
+    return { ok: true };
+  })()`;
+}
+
 export function composerTextStateExpression(expectedText?: string): string {
   const expectedJson = JSON.stringify(expectedText ?? null);
   return `(() => {
@@ -2684,7 +2717,7 @@ export function composerTextStateExpression(expectedText?: string): string {
 // Focus the composer, clear any leftover text submit-safely, type the prompt
 // with native CDP input so ProseMirror registers it, then verify the composer
 // holds exactly the prompt.
-async function insertComposerTextViaCdp(cdp: CdpConnection, text: string): Promise<void> {
+async function insertComposerTextViaCdp(cdp: CdpConnection, text: string, page?: DevtoolsPage): Promise<void> {
   const prepared = await cdp.evaluate<{ ok: boolean; reason?: string; hasText?: boolean }>(prepareComposerExpression());
   if (!prepared.ok) throw new Error(prepared.reason ?? "Could not focus the ChatGPT composer");
   // Clear leftover text (e.g. from a prior failed send) via native keyboard
@@ -2699,13 +2732,38 @@ async function insertComposerTextViaCdp(cdp: CdpConnection, text: string): Promi
     await cdp.send("Input.dispatchKeyEvent", { type: "keyUp", key: "Backspace", code: "Backspace", windowsVirtualKeyCode: 8 });
     await sleep(100);
   }
-  // Insert in bounded chunks: a single multi-KB Input.insertText makes
-  // ProseMirror do one huge transaction, which on a heavy thread stalls past
-  // the 20s CDP command timeout and kills the send with "Chrome DevTools
-  // command timed out: Input.insertText" (field failure on long prompts,
-  // twice in one session). Each chunk gets its own command budget.
-  for (const chunk of chunkComposerText(text)) {
-    await cdp.send("Input.insertText", { text: chunk });
+  // Insertion path, chosen by size:
+  //
+  // Short prompts go through Input.insertText - real key-level input events,
+  // which is what ChatGPT's composer is built for.
+  //
+  // Long prompts do NOT. One giant insertText stalls ProseMirror past the CDP
+  // command timeout, and splitting it into chunks corrupts the text at the
+  // chunk boundaries: measured live on a 95 KB prompt, the composer ended up
+  // the right LENGTH but with content shifted from the first boundary on
+  // (first divergence at 3,938 chars with a 4,000-char chunk size), which is
+  // what surfaced to users as "Composer text did not match after insertion".
+  // Both failures come from crossing the CDP boundary mid-edit, so large text
+  // is inserted by a single in-page execCommand instead: the editor applies it
+  // as one input event and nothing can interleave. Measured: 67 KB inserted in
+  // ~20s, verified byte-for-byte.
+  if (text.length <= COMPOSER_INSERT_CHUNK_CHARS) {
+    await cdp.send("Input.insertText", { text });
+  } else {
+    // A 67 KB insert measured ~20s in the page, which the default 20s CDP
+    // command budget would cut off, so this one call gets its own connection
+    // with a size-scaled budget instead of loosening the budget for every
+    // command on the shared connection.
+    const budgetMs = Math.max(60_000, Math.ceil(text.length / 1_000) * 1_000);
+    const slowCdp = page ? await connectCdp(page.webSocketDebuggerUrl, budgetMs) : undefined;
+    try {
+      const target = slowCdp ?? cdp;
+      if (slowCdp) await slowCdp.send("Runtime.enable");
+      const inserted = await target.evaluate<{ ok: boolean; reason?: string }>(insertComposerTextInPageExpression(text));
+      if (!inserted?.ok) throw new Error(inserted?.reason ?? "Could not insert the prompt into the ChatGPT composer");
+    } finally {
+      slowCdp?.close();
+    }
   }
   await sleep(200);
   const state = await cdp.evaluate<{ ok: boolean; reason?: string }>(composerTextStateExpression(text));

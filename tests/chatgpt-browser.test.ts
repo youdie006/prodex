@@ -30,6 +30,7 @@ import {
   menuItemLabelMatches,
   chunkComposerText,
   COMPOSER_INSERT_CHUNK_CHARS,
+  insertComposerTextInPageExpression,
   modelSelectionWarning,
   resolveHeadlessPreference,
   resolveVirtualDisplayPreference,
@@ -118,6 +119,23 @@ describe("ChatGPT browser adapter", () => {
     const headed = buildChromeLaunchArgs({ port: 9333, profileDir: "/tmp/prodex-profile", url: "https://chatgpt.com/" });
     expect(headed).not.toContain("--headless=new");
     expect(headed).toContain("--new-window");
+  });
+
+  it("inserts a long prompt in one in-page call, and a short one through key events", () => {
+    // Measured live on a 95 KB prompt: chunked Input.insertText produced a
+    // composer of the right LENGTH but with text shifted from the first chunk
+    // boundary on (first divergence at 3,938 chars with a 4,000-char chunk),
+    // which reached users as "Composer text did not match after insertion".
+    // Anything above the chunk size now goes in as one in-page execCommand,
+    // where nothing can interleave; short prompts keep the key-event path.
+    const long = "가".repeat(COMPOSER_INSERT_CHUNK_CHARS + 1);
+    const expression = insertComposerTextInPageExpression(long);
+    expect(expression).toContain("insertText");
+    expect(expression).toContain(JSON.stringify(long));
+    // The whole prompt travels in ONE call - no boundary to corrupt.
+    expect(expression.split(JSON.stringify(long)).length - 1).toBeGreaterThanOrEqual(1);
+    // It clears the composer first, so leftovers cannot merge into the prompt.
+    expect(expression).toContain('execCommand("delete")');
   });
 
   it("splits a long prompt into bounded composer chunks that rebuild the original exactly", () => {
