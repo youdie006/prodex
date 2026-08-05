@@ -2783,11 +2783,16 @@ async function smokeInstalledHttpOnboarding(binPath, cwd) {
     )}\n`,
     "utf8"
   );
-  const staleUrlReveal = await runExpectFailure(binPath, ["status", "--cwd", staleUrlCwd, "--show-token", "--url-only"], { cwd: launcherCwd });
+  // A token left in server_url is no longer a second source of truth to
+  // disagree with `token`: the load strips it (and repairs the file), then
+  // composes the paste-ready URL from the current token.
+  const staleUrlReveal = await run(binPath, ["status", "--cwd", staleUrlCwd, "--show-token", "--url-only"], { cwd: launcherCwd });
   const staleUrlRevealOutput = `${staleUrlReveal.stdout}\n${staleUrlReveal.stderr}`;
-  assertIncludes(staleUrlRevealOutput, "server_url must match host, port, and token", "installed stale server URL refusal");
-  assertNotIncludes(staleUrlRevealOutput, "stale-package-smoke-token", "installed stale server URL refusal");
-  assertNotIncludes(staleUrlRevealOutput, "real-package-smoke-token", "installed stale server URL refusal");
+  assertIncludes(staleUrlRevealOutput, "prodex_token=real-package-smoke-token", "installed stale server URL repair");
+  assertNotIncludes(staleUrlRevealOutput, "stale-package-smoke-token", "installed stale server URL repair");
+  const repairedStaleConfig = await readFile(path.join(staleUrlCwd, ".bridge", "config.local.json"), "utf8");
+  assertNotIncludes(repairedStaleConfig, "stale-package-smoke-token", "installed stale server URL repaired file");
+  assertIncludes(repairedStaleConfig, '"server_url": "http://127.0.0.1:8792/mcp"', "installed stale server URL repaired file");
 
   const configuredDoctor = await run(binPath, ["doctor", "--cwd", cwd], { cwd: launcherCwd, timeout: 60_000 });
   assertIncludes(configuredDoctor.stdout, "config: ok", "installed configured doctor output");
