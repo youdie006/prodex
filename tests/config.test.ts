@@ -17,7 +17,8 @@ describe("local bridge config", () => {
     const loaded = await loadLocalConfig(cwd);
     const bridgeIgnore = await readFile(path.join(cwd, ".bridge", ".gitignore"), "utf8");
 
-    expect(config.server_url).toBe("http://127.0.0.1:9797/mcp?prodex_token=test-token");
+    // The persisted endpoint carries no token - it lives in `token` only.
+    expect(config.server_url).toBe("http://127.0.0.1:9797/mcp");
     expect(loaded).toEqual(config);
     expect(bridgeIgnore).toContain("config.local.json");
   });
@@ -42,7 +43,7 @@ describe("local bridge config", () => {
     const config = await writeLocalConfig(cwd, { port: 80, token: "test-token" });
     const loaded = await loadLocalConfig(cwd);
 
-    expect(config.server_url).toBe("http://127.0.0.1:80/mcp?prodex_token=test-token");
+    expect(config.server_url).toBe("http://127.0.0.1:80/mcp");
     expect(loaded.port).toBe(80);
   });
 
@@ -125,7 +126,13 @@ describe("local bridge config", () => {
       "utf8"
     );
 
-    await expect(loadLocalConfig(cwd)).rejects.toThrow(/server_url|token|match/i);
+    // A stale token in the URL used to be a hard error, because the URL was a
+    // second source of truth for the secret. It no longer is: the load strips
+    // it, so a legacy or hand-edited config keeps working and stops carrying
+    // a duplicate secret.
+    const loaded = await loadLocalConfig(cwd);
+    expect(loaded.server_url).toBe("http://127.0.0.1:9797/mcp");
+    expect(loaded.token).toBe("real-token");
   });
 
   it("rejects non-positive token TTL values", async () => {
@@ -327,5 +334,55 @@ describe("resolveProdexCwd", () => {
     // against the same broken cwd.
     expect(resolveProdexCwd("/dev/fd/11", { PRODEX_CWD: "repo" })).toBe("/dev/fd/11");
     expect(resolveProdexCwd("/dev/fd/11", { PRODEX_CWD: "   " })).toBe("/dev/fd/11");
+  });
+});
+
+describe("token is stored in exactly one field", () => {
+  it("keeps the token out of server_url, and still composes the token-bearing URL on demand", async () => {
+    // Field report: an operator's redaction masked the `token` key and leaked
+    // the same secret from server_url, because setup persisted it twice. One
+    // field is the only shape where masking the token masks the token.
+    const { writeLocalConfig, loadLocalConfig, composeServerUrlWithToken } = await import("../src/config.js");
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-token-shape-"));
+    await writeLocalConfig(cwd, { token: "s3cr3t-token-value" });
+
+    const raw = await readFile(path.join(cwd, ".bridge", "config.local.json"), "utf8");
+    expect(raw).toContain("s3cr3t-token-value");
+    expect(raw.match(/s3cr3t-token-value/g)).toHaveLength(1);
+    const stored = JSON.parse(raw) as { server_url: string };
+    expect(stored.server_url).not.toContain("s3cr3t-token-value");
+    expect(stored.server_url).not.toContain("prodex_token");
+
+    const config = await loadLocalConfig(cwd);
+    expect(composeServerUrlWithToken(config)).toContain("prodex_token=s3cr3t-token-value");
+  });
+
+  it("accepts and repairs a config written before the token was split out", async () => {
+    const { loadLocalConfig, composeServerUrlWithToken } = await import("../src/config.js");
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-token-legacy-"));
+    await mkdir(path.join(cwd, ".bridge"), { recursive: true, mode: 0o700 });
+    await writeFile(
+      path.join(cwd, ".bridge", "config.local.json"),
+      JSON.stringify({
+        schema_version: 1,
+        host: "127.0.0.1",
+        port: 8787,
+        token: "legacy-token",
+        server_url: "http://127.0.0.1:8787/mcp?prodex_token=legacy-token",
+        created_at: "2026-01-01T00:00:00.000Z",
+        updated_at: "2026-01-01T00:00:00.000Z"
+      }),
+      { mode: 0o600 }
+    );
+
+    const config = await loadLocalConfig(cwd);
+    expect(config.server_url).not.toContain("legacy-token");
+    expect(composeServerUrlWithToken(config)).toContain("prodex_token=legacy-token");
+
+    // Self-heal: the duplicate has to leave the FILE too, or an operator
+    // reading config.local.json still finds the secret twice.
+    const healed = await readFile(path.join(cwd, ".bridge", "config.local.json"), "utf8");
+    expect(healed.match(/legacy-token/g)).toHaveLength(1);
+    expect(JSON.parse(healed).server_url).toBe("http://127.0.0.1:8787/mcp");
   });
 });

@@ -23,7 +23,8 @@ import {
   loadLocalConfig,
   type LocalConfig,
   writeLocalConfig,
-  type WriteLocalConfigInput
+  type WriteLocalConfigInput,
+  composeServerUrlWithToken
 } from "./config.js";
 import { startHttpMcpServer } from "./http-mcp.js";
 import { readVerifiedUtf8File, writeVerifiedUtf8File } from "./safe-file.js";
@@ -72,7 +73,7 @@ export async function runSetupCommand(rest: string[], io: CliIO): Promise<number
     io.stdout("Saved local ChatGPT Developer Mode MCP profile.");
     io.stdout(`Server URL: ${redactServerUrl(config.server_url)}`);
     io.stdout(formatTokenExpiryLine(config));
-    io.stdout("Full URL is stored in .bridge/config.local.json.");
+    io.stdout("The token is stored (once) in .bridge/config.local.json; print the full URL with `prodex status --show-token --url-only`.");
     if (config.browser_defaults) {
       io.stdout(`Browser send defaults: ${formatBrowserDefaults(config.browser_defaults)}`);
     }
@@ -141,7 +142,10 @@ export async function runStatusCommand(rest: string[], io: CliIO): Promise<numbe
             { cwd: setupHintCwd }
           )
         : undefined;
-    const serverUrl = formatServerUrlForOutput(config.server_url, { showToken });
+    // The token is no longer persisted inside server_url, so compose the
+    // usable URL here; masking still applies when the caller did not ask for
+    // the token.
+    const serverUrl = formatServerUrlForOutput(composeServerUrlWithToken(config), { showToken });
     if (rest.includes("--url-only")) {
       if (showToken) io.stderr(TOKEN_BEARING_MCP_URL_AUTHORITY_WARNING);
       if (nonExpiringRevealWarning) io.stderr(nonExpiringRevealWarning);

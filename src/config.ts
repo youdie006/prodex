@@ -84,6 +84,35 @@ export function makeServerUrl(host: string, port: number, token: string): string
   return `http://${host}:${port}/mcp?prodex_token=${encodeURIComponent(token)}`;
 }
 
+/**
+ * The endpoint WITHOUT the token, which is what gets persisted. The token used
+ * to be stored twice - as `token` and inside `server_url` - so an operator's
+ * redaction that masked the key still leaked the secret from the URL (field
+ * report). One field is the only shape where masking the token masks it.
+ */
+export function makeServerUrlBase(host: string, port: number): string {
+  return `http://${host}:${port}/mcp`;
+}
+
+/** The token-bearing URL, composed on demand for clients that need it. */
+export function composeServerUrlWithToken(config: Pick<LocalConfig, "server_url" | "token">): string {
+  const url = new URL(config.server_url);
+  url.searchParams.set("prodex_token", config.token);
+  return url.toString();
+}
+
+/** Strip a token that an older config (or a hand edit) left in the URL. */
+export function stripTokenFromServerUrl(serverUrl: string): string {
+  try {
+    const url = new URL(serverUrl);
+    url.searchParams.delete("prodex_token");
+    url.search = url.searchParams.toString();
+    return url.toString();
+  } catch {
+    return serverUrl;
+  }
+}
+
 export function normalizeLoopbackHttpHost(host: string): string {
   const normalized = host.trim().toLowerCase();
   const isLocalhost = normalized === "localhost";
@@ -118,7 +147,7 @@ export async function writeLocalConfig(cwd: string, input: WriteLocalConfigInput
     host,
     port,
     token,
-    server_url: makeServerUrl(host, port, token),
+    server_url: makeServerUrlBase(host, port),
     ...(tokenExpiresAt ? { token_expires_at: tokenExpiresAt } : {}),
     ...(browserDefaults ? { browser_defaults: browserDefaults } : {}),
     created_at: existing?.created_at ?? now,
@@ -152,7 +181,25 @@ export async function loadLocalConfig(cwd: string): Promise<LocalConfig> {
   }
   assertLoopbackHttpHost(config.host);
   assertLoopbackHttpHost(new URL(config.server_url).hostname);
+  // Configs written before the split still carry the token in the URL. Drop it
+  // in memory AND rewrite the file: leaving it on disk is the whole problem
+  // being fixed - an operator reading config.local.json would still find the
+  // secret twice, and any redaction keyed to `token` would miss one copy.
+  const strippedServerUrl = stripTokenFromServerUrl(config.server_url);
+  const carriedDuplicate = strippedServerUrl !== config.server_url;
+  config = { ...config, server_url: strippedServerUrl };
   assertServerUrlMatchesConfig(config);
+  if (carriedDuplicate) {
+    // Best effort: a read-only checkout or a concurrent writer must not turn
+    // a working config into a failed command.
+    try {
+      await writeVerifiedUtf8File(localConfigPath(cwd), `${JSON.stringify(config, null, 2)}\n`, () => assertLocalConfigTargetSafe(cwd), {
+        mode: 0o600
+      });
+    } catch {
+      // The in-memory strip above already keeps prodex from printing it.
+    }
+  }
   return config;
 }
 
@@ -241,13 +288,14 @@ function isTokenExpired(tokenExpiresAt: string, now: Date): boolean {
 
 function assertServerUrlMatchesConfig(config: LocalConfig): void {
   const serverUrl = new URL(config.server_url);
-  const tokenParams = serverUrl.searchParams.getAll("prodex_token");
   const hostMatches = normalizeLoopbackHttpHost(serverUrl.hostname) === normalizeLoopbackHttpHost(config.host);
   const portMatches = effectiveUrlPort(serverUrl) === config.port;
-  const tokenMatches = tokenParams.length === 1 && tokenParams[0] === config.token;
-  const shapeMatches = serverUrl.protocol === "http:" && serverUrl.pathname === "/mcp" && Array.from(serverUrl.searchParams.keys()).length === 1;
-  if (!hostMatches || !portMatches || !tokenMatches || !shapeMatches) {
-    throw new Error(".bridge/config.local.json server_url must match host, port, and token. Run `prodex setup` to replace it.");
+  // The persisted URL must carry NO query at all: the token lives in `token`
+  // and nowhere else.
+  const shapeMatches =
+    serverUrl.protocol === "http:" && serverUrl.pathname === "/mcp" && Array.from(serverUrl.searchParams.keys()).length === 0;
+  if (!hostMatches || !portMatches || !shapeMatches) {
+    throw new Error(".bridge/config.local.json server_url must be the token-free endpoint for host and port. Run `prodex setup` to replace it.");
   }
 }
 

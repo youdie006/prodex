@@ -20,12 +20,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   harness; `--cwd` still wins where a command accepts it.
 
 ### Security
-- No change needed, but recorded for operators: the local MCP token is stored
-  twice in `.bridge/config.local.json` - as `token` and inside `server_url`.
-  Any external redaction that masks only the `token` key will leak it from the
-  URL. prodex itself redacts both on every surface it prints, the file is mode
-  0600 and gitignored, and `prodex setup --token-ttl-hours <hours>` rotates the
-  token while preserving saved browser defaults (verified).
+- The local MCP token is stored ONCE. It used to be persisted twice in
+  `.bridge/config.local.json` - as `token` and again inside `server_url` - so
+  an operator's redaction that masked the `token` key still leaked the same
+  secret from the URL (field report). `server_url` now holds the token-free
+  endpoint, the token-bearing URL is composed only where it is actually needed
+  (`prodex status --show-token --url-only`), and a config written before this
+  change is repaired in place the first time any command reads it: the
+  duplicate leaves the file, not just the output. Verified on a real config
+  (token occurrences 2 -> 1, saved browser defaults preserved).
+- Unchanged, for the record: the file is mode 0600 and gitignored, prodex masks
+  the token on every surface it prints, and `prodex setup --token-ttl-hours
+  <hours>` rotates it while preserving saved browser defaults (verified).
 
 ## [0.19.0] - 2026-07-28
 

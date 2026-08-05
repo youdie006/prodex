@@ -4919,7 +4919,10 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     const text = out.join("\n");
     expect(code).toBe(1);
     expect(text).toContain("bridge: ok (.bridge)");
-    expect(text).toContain("config: ok http://127.0.0.1:8789/mcp?prodex_token=*** token_status=valid");
+    // The endpoint no longer carries a token to redact - the secret lives in
+    // the `token` field only.
+    expect(text).toContain("config: ok http://127.0.0.1:8789/mcp token_status=valid");
+    expect(text).not.toContain("prodex_token=");
     expect(text).not.toContain("super-secret-token");
     expect(text).toContain("chatgpt: browser_unreachable");
     expect(await readdir(launcherCwd)).not.toContain(".bridge");
@@ -5158,7 +5161,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     });
 
     const text = out.join("\n");
-    expect(text).toContain("prodex_token=***");
+    expect(text).not.toContain("prodex_token=");
     expect(text).not.toContain("super-secret-token");
   });
 
@@ -5214,6 +5217,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     });
 
     const text = [...setupOut, ...statusOut].join("\n");
+    // status composes the URL for display; it must appear masked, never raw.
     expect(text).toContain("prodex_token=***");
     expect(text).not.toContain("super-secret-token");
   });
@@ -5500,7 +5504,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     expect(out.join("\n")).not.toContain("expired-secret-token");
   });
 
-  it("refuses stale local MCP server URLs before printing paste-ready tokens", async () => {
+  it("drops a stale token left in server_url and pastes the current one", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     await mkdir(path.join(cwd, ".bridge"), { recursive: true });
     await writeFile(
@@ -5529,10 +5533,13 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
         stdout: (line) => out.push(line),
         stderr: () => {}
       })
-    ).rejects.toThrow(/server_url|token|match/i);
+    ).resolves.toBe(0);
+    // The stale copy is dropped rather than printed, and the paste-ready URL
+    // is composed from the current token.
+    expect(out.join("\n")).not.toContain("stale-secret-token");
+    expect(out.join("\n")).toContain("prodex_token=real-secret-token");
 
     expect(out.join("\n")).not.toContain("stale-secret-token");
-    expect(out.join("\n")).not.toContain("real-secret-token");
   });
 
   it("prints token expiry status when setup uses a TTL", async () => {
@@ -5976,7 +5983,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     });
 
     const text = out.join("\n");
-    expect(text).toContain("prodex_token=***");
+    expect(text).not.toContain("prodex_token=");
     expect(text).toContain("config_warning: Token has no expiry. Keep this local-only");
     expect(text).not.toContain("super-secret-token");
   });
