@@ -1337,7 +1337,9 @@ try {
   assertIncludes(cwdBrowserCheck.stdout, "bridge: ok (.bridge)", "installed explicit --cwd pro browser check output");
   assertIncludes(
     cwdBrowserCheck.stdout,
-    "config: ok http://127.0.0.1:8789/mcp?prodex_token=*** token_status=valid",
+    // The persisted endpoint is token-free now; the secret lives in `token`
+    // only, so there is nothing to redact on this line.
+    "config: ok http://127.0.0.1:8789/mcp token_status=valid",
     "installed explicit --cwd pro browser check output"
   );
   assertNotIncludes(cwdBrowserCheck.stdout, "super-secret-token", "installed explicit --cwd pro browser check output");
@@ -2672,7 +2674,7 @@ async function smokeInstalledHttpOnboarding(binPath, cwd) {
 
   const setup = await run(binPath, ["setup", "--cwd", cwd, "--port", String(port), "--token", token, "--token-ttl-hours", "1"], { cwd: launcherCwd });
   const setupOutput = `${setup.stdout}\n${setup.stderr}`;
-  assertIncludes(setupOutput, "prodex_token=***", "installed setup output");
+  assertNotIncludes(setupOutput, "prodex_token=", "installed setup output");
   assertIncludes(setupOutput, "Token expires:", "installed setup output");
   assertNotIncludes(setupOutput, token, "installed setup output");
   assertIncludes(await readFile(path.join(cwd, ".bridge", "config.local.json"), "utf8"), token, "installed explicit --cwd config file");
@@ -2790,7 +2792,7 @@ async function smokeInstalledHttpOnboarding(binPath, cwd) {
   const configuredDoctor = await run(binPath, ["doctor", "--cwd", cwd], { cwd: launcherCwd, timeout: 60_000 });
   assertIncludes(configuredDoctor.stdout, "config: ok", "installed configured doctor output");
   assertIncludes(configuredDoctor.stdout, "token_status=valid", "installed configured doctor output");
-  assertIncludes(configuredDoctor.stdout, "prodex_token=***", "installed configured doctor output");
+  assertNotIncludes(configuredDoctor.stdout, "prodex_token=", "installed configured doctor output");
   assertNotIncludes(configuredDoctor.stdout, token, "installed configured doctor output");
 
   const pasteReady = await run(binPath, ["status", "--cwd", cwd, "--show-token", "--url-only"], { cwd: launcherCwd });
