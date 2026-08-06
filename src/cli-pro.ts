@@ -1,3 +1,4 @@
+import { existsSync, statSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { buildDryRunBundle } from "./bundle.js";
@@ -819,6 +820,25 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
       }
       return rel;
     });
+    // --attach UPLOADS the file (pdf, pptx, image) instead of inlining its
+    // text like --file. Same escape guard: an agent must not be able to upload
+    // ~/.ssh or anything else outside the repo to a chat.
+    const attachments = readRepeatedFlag(parsedAskPro.optionArgs, "--attach").map((file) => {
+      const absolute = path.resolve(targetCwd, file);
+      const rel = path.relative(targetCwd, absolute);
+      if (rel === "" || rel.startsWith("..") || path.isAbsolute(rel)) {
+        throw new Error(
+          `--attach "${file}" is outside the repo root (${targetCwd}). Pass a path inside the repo, or point --cwd at that repo.`
+        );
+      }
+      if (!existsSync(absolute) || !statSync(absolute).isFile()) {
+        throw new Error(`--attach "${file}" is not a readable file (looked at ${absolute}).`);
+      }
+      return absolute;
+    });
+    if (attachments.length > 0 && !hasSendMode) {
+      throw new Error("--attach only applies when sending (`prodex pro browser ask`); the dry-run preview cannot upload files.");
+    }
     const targetUrl = readFlag(parsedAskPro.optionArgs, "--target-url");
     const normalizedTargetUrl = targetUrl ? normalizeChatGptTargetUrl(targetUrl) : undefined;
     if (!normalizedTargetUrl && parsedAskPro.optionArgs.includes("--confirm-target")) {
@@ -985,6 +1005,7 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
           prompt: bundle.text,
           targetUrl: normalizedTargetUrl,
           timeoutMs: browserTimeoutMs,
+          ...(attachments.length > 0 ? { attachments } : {}),
           ...(newChat ? { newChat: true } : {}),
           ...(busyWaitMs !== undefined ? { busyWaitMs } : {}),
           project: selectionProject,
@@ -1258,6 +1279,8 @@ export interface BrowserConsultInput {
   project?: string;
   timeout_ms?: number;
   files?: string[];
+  /** Repo-relative paths to UPLOAD as real ChatGPT attachments (pdf, pptx, images). */
+  attach?: string[];
   /** Send into a fresh chat; recommended for agent loops and debates. */
   new_chat?: boolean;
 }
@@ -1298,6 +1321,7 @@ export async function performBrowserConsultForMcp(
     ...(input.project !== undefined ? ["--project", input.project] : []),
     ...(input.timeout_ms !== undefined ? ["--timeout-ms", String(input.timeout_ms)] : []),
     ...(input.files ?? []).flatMap((file) => ["--file", file]),
+    ...(input.attach ?? []).flatMap((file: string) => ["--attach", file]),
     ...(input.new_chat ? ["--new-chat"] : []),
     "--",
     input.prompt

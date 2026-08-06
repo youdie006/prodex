@@ -4,6 +4,23 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.0] - 2026-08-06
+
+### Added
+- `--attach <path>` (and `attach: [...]` on the `pro_consult` MCP tool) uploads
+  a real file to ChatGPT instead of inlining its text. This is the only way to
+  hand ChatGPT a pdf, pptx, xlsx or image and let it parse the original;
+  `--file` still inlines a text file's contents into the prompt, which cannot
+  carry a binary and bloats the prompt. The upload goes through the composer's
+  file input over CDP (no file dialog, no OS automation), runs BEFORE the
+  prompt is submitted, and waits until ChatGPT has finished accepting every
+  file - a send that fires mid-upload posts a prompt ChatGPT cannot see the
+  file for. `--attach` carries the same escape guard as `--file`: a path
+  outside the repo root is refused, so an agent cannot upload `~/.ssh` by
+  asking nicely. The browser process reads the path, so the file must live on
+  the machine running the browser; when it does not, the attachment never
+  appears and prodex says exactly that.
+
 ## [0.19.2] - 2026-08-05
 
 ### Fixed

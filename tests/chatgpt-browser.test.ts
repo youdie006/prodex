@@ -31,6 +31,8 @@ import {
   chunkComposerText,
   COMPOSER_INSERT_CHUNK_CHARS,
   insertComposerTextInPageExpression,
+  composerFileInputSelector,
+  attachmentStateExpression,
   modelSelectionWarning,
   resolveHeadlessPreference,
   resolveVirtualDisplayPreference,
@@ -119,6 +121,27 @@ describe("ChatGPT browser adapter", () => {
     const headed = buildChromeLaunchArgs({ port: 9333, profileDir: "/tmp/prodex-profile", url: "https://chatgpt.com/" });
     expect(headed).not.toContain("--headless=new");
     expect(headed).toContain("--new-window");
+  });
+
+  it("targets the general file input, not the image-only ones, when attaching", () => {
+    // Measured live: ChatGPT's composer carries three file inputs - one
+    // general (accept="") plus two accept="image/*". Attaching a pptx or pdf to
+    // an image-only input silently does nothing.
+    const selector = composerFileInputSelector();
+    const general = { accept: "", matches: (sel: string) => !sel.includes("image") };
+    expect(selector).toContain("input");
+    expect(selector).toContain("file");
+    expect(selector).toMatch(/not\(\[accept\*?=?"?image/i);
+    expect(general.accept).toBe("");
+  });
+
+  it("reports which attachments the composer has accepted and whether one is still uploading", () => {
+    const expression = attachmentStateExpression(["deck.pptx", "notes.pdf"]);
+    expect(expression).toContain("deck.pptx");
+    expect(expression).toContain("notes.pdf");
+    // An upload in flight must be visible, or the send fires before the file
+    // finishes and ChatGPT answers without it.
+    expect(expression).toContain("progressbar");
   });
 
   it("inserts a long prompt in one in-page call, and a short one through key events", () => {

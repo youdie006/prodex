@@ -197,6 +197,12 @@ export interface SendChatGptPromptOptions {
   project?: string;
   /** Create a new project with this name before sending. */
   projectNew?: string;
+  /**
+   * Absolute paths to UPLOAD into the composer (pdf, pptx, images, ...), as
+   * opposed to inlining their text into the prompt. The browser process reads
+   * these paths, so they must exist on the machine running the browser.
+   */
+  attachments?: string[];
   /** Model to select in the composer picker, e.g. "Pro". */
   model?: string;
   /** Pro sub-mode, used when model is Pro. */
@@ -2091,6 +2097,13 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
     // into; a --project/--project-new hop lands on a page with its own counts.
     beforeSubmit = await evaluateOnPage<ChatGptAnswerState>(page, answerExpression());
     dbgSend(`baseline url=${beforeSubmit.url} user=${beforeSubmit.userMessageCount} assistant=${beforeSubmit.assistantMessageCount}`);
+    // Attach BEFORE typing: the upload is the slow part, and a file that
+    // arrives after the prompt is submitted is a file ChatGPT never saw.
+    if (options.attachments && options.attachments.length > 0) {
+      emitProgress("selecting", `uploading ${options.attachments.length} file(s)`);
+      const uploaded = await attachFilesToComposer(cdp, options.attachments);
+      emitProgress("selecting", `attached ${uploaded.attached.join(", ")}`);
+    }
     await insertComposerTextViaCdp(cdp, options.prompt, page);
     // The send button renders asynchronously after the prompt lands. Poll for it
     // BEFORE submitting so (a) submitButtonFound reflects whether the control
@@ -2694,6 +2707,82 @@ export function insertComposerTextInPageExpression(text: string): string {
     if (!inserted) return { ok: false, reason: "The ChatGPT composer refused the prompt text" };
     return { ok: true };
   })()`;
+}
+
+
+// ---------------------------------------------------------------------------
+// Attachments (real file upload)
+//
+// `--file` inlines a file's TEXT into the prompt; this uploads the file itself
+// through the composer's file input, which is the only way to hand ChatGPT a
+// pdf/pptx/image and let it parse the original. CDP's DOM.setFileInputFiles
+// sets the input without any file dialog.
+// ---------------------------------------------------------------------------
+
+/**
+ * The composer's general file input. Measured live: ChatGPT renders three
+ * inputs - one general (accept="") plus two accept="image/*" - and attaching a
+ * document to an image-only input silently does nothing.
+ */
+export function composerFileInputSelector(): string {
+  return 'input[type="file"]:not([accept*="image"])';
+}
+
+/** Which of the expected attachments the composer shows, and whether one is still uploading. */
+export function attachmentStateExpression(fileNames: string[]): string {
+  const namesJson = JSON.stringify(fileNames);
+  return `(() => {
+    const names = ${namesJson};
+    const text = document.body ? document.body.innerText || "" : "";
+    const present = names.filter((name) => text.includes(name));
+    // A visible progressbar means a file is still going up; sending now would
+    // post the prompt without it.
+    const uploading = document.querySelectorAll('[role="progressbar"]').length > 0;
+    return { ok: true, present, uploading };
+  })()`;
+}
+
+export interface AttachmentUploadResult {
+  attached: string[];
+}
+
+/**
+ * Attach files to the composer and wait until ChatGPT has taken them. The
+ * files must be readable by the BROWSER process, so a browser on another
+ * machine (or another container) cannot see the caller's paths - that shows up
+ * as the attachment never appearing, which this reports as such.
+ */
+export async function attachFilesToComposer(
+  cdp: CdpConnection,
+  absolutePaths: string[],
+  options: { timeoutMs?: number } = {}
+): Promise<AttachmentUploadResult> {
+  if (absolutePaths.length === 0) return { attached: [] };
+  await cdp.send("DOM.enable");
+  const document = await cdp.send("DOM.getDocument", { depth: -1, pierce: true });
+  const rootNodeId = (document.result as { root?: { nodeId?: number } } | undefined)?.root?.nodeId;
+  if (rootNodeId === undefined) throw new Error("Could not read the ChatGPT page DOM to attach files.");
+  const input = await cdp.send("DOM.querySelector", { nodeId: rootNodeId, selector: composerFileInputSelector() });
+  const inputNodeId = (input.result as { nodeId?: number } | undefined)?.nodeId;
+  if (!inputNodeId) {
+    throw new Error(
+      "The ChatGPT composer has no file input to attach to. Open a normal chat (not a shared or read-only view) and retry."
+    );
+  }
+  await cdp.send("DOM.setFileInputFiles", { files: absolutePaths, nodeId: inputNodeId });
+  const fileNames = absolutePaths.map((file) => path.basename(file));
+  const deadline = Date.now() + (options.timeoutMs ?? 120_000);
+  let lastPresent: string[] = [];
+  while (Date.now() < deadline) {
+    await sleep(1_000);
+    const state = await cdp.evaluate<{ present?: string[]; uploading?: boolean }>(attachmentStateExpression(fileNames));
+    lastPresent = state?.present ?? [];
+    if (lastPresent.length === fileNames.length && !state?.uploading) return { attached: lastPresent };
+  }
+  const missing = fileNames.filter((name) => !lastPresent.includes(name));
+  throw new Error(
+    `ChatGPT did not finish accepting ${missing.length > 0 ? missing.join(", ") : fileNames.join(", ")} within the upload budget. The file must be readable by the browser process (same machine), and ChatGPT enforces its own size and type limits.`
+  );
 }
 
 export function composerTextStateExpression(expectedText?: string): string {

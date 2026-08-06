@@ -28,6 +28,7 @@ export interface BrowserConsultToolInput {
   project?: string;
   timeout_ms?: number;
   files?: string[];
+  attach?: string[];
   new_chat?: boolean;
 }
 
@@ -278,6 +279,13 @@ export function createServer(cwd = process.cwd(), options: CreateMcpServerOption
           project: McpShortTextSchema.optional(),
           timeout_ms: z.number().int().positive().max(3_600_000).optional(),
           files: z.array(McpShortTextSchema).max(20).optional(),
+          attach: z
+            .array(McpShortTextSchema)
+            .max(10)
+            .optional()
+            .describe(
+              "Repo-relative paths to UPLOAD to ChatGPT as real attachments (pdf, pptx, xlsx, images, or any file you want ChatGPT to parse itself). Use this instead of `files` for binaries and for large documents; `files` inlines a text file's contents into the prompt, which cannot carry a binary and bloats the prompt."
+            ),
           new_chat: z
             .boolean()
             .optional()

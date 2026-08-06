@@ -265,6 +265,8 @@ export const ASK_PRO_SELECTION_VALUE_FLAGS = ["--project", "--project-new", "--m
 export const ASK_PRO_VALUE_FLAGS = new Set([
   "--cwd",
   "--file",
+  // Upload the file itself (pdf/pptx/image) instead of inlining its text.
+  "--attach",
   "--port",
   "--timeout-ms",
   "--busy-wait-ms",
