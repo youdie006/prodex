@@ -32,7 +32,9 @@ import {
   COMPOSER_INSERT_CHUNK_CHARS,
   insertComposerTextInPageExpression,
   composerFileInputSelector,
+  modelButtonAlreadyShows,
   attachmentStateExpression,
+  attachmentPresenceExpression,
   modelSelectionWarning,
   resolveHeadlessPreference,
   resolveVirtualDisplayPreference,
@@ -123,6 +125,22 @@ describe("ChatGPT browser adapter", () => {
     expect(headed).toContain("--new-window");
   });
 
+  it("treats the model as already selected when the picker button says so", () => {
+    // ChatGPT moved the models behind a "Model" submenu (top level is now
+    // Advanced / Model / Effort), so prodex's flat radio lookup started
+    // failing with "Pro option not found in the model menu" - while the picker
+    // button itself already read "Pro, 5 of 5". Opening the menu at all is
+    // unnecessary when the requested model is the active one.
+    expect(modelButtonAlreadyShows("Pro", "Pro, 5 of 5.")).toBe(true);
+    expect(modelButtonAlreadyShows("pro", "Pro")).toBe(true);
+    expect(modelButtonAlreadyShows("Pro", "GPT-5.6 Pro")).toBe(true);
+    expect(modelButtonAlreadyShows("Pro", "Thinking")).toBe(false);
+    expect(modelButtonAlreadyShows("Thinking", "Pro, 5 of 5.")).toBe(false);
+    // No requested model, or an unreadable button, must not claim a match.
+    expect(modelButtonAlreadyShows(undefined, "Pro")).toBe(false);
+    expect(modelButtonAlreadyShows("Pro", "")).toBe(false);
+  });
+
   it("targets the general file input, not the image-only ones, when attaching", () => {
     // Measured live: ChatGPT's composer carries three file inputs - one
     // general (accept="") plus two accept="image/*". Attaching a pptx or pdf to
@@ -142,6 +160,14 @@ describe("ChatGPT browser adapter", () => {
     // An upload in flight must be visible, or the send fires before the file
     // finishes and ChatGPT answers without it.
     expect(expression).toContain("progressbar");
+    // An image attachment puts its filename ONLY on the remove button's
+    // aria-label (measured live), so text-only detection misses it.
+    expect(expression).toContain("aria-label");
+    // Stale attachments are detected read-only: clicking the remove buttons
+    // wedges the composer (measured live), so the reset is a reload.
+    const presence = attachmentPresenceExpression();
+    expect(presence).toMatch(/remove file/i);
+    expect(presence).not.toContain(".click()");
   });
 
   it("inserts a long prompt in one in-page call, and a short one through key events", () => {

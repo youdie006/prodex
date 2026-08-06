@@ -1252,6 +1252,8 @@ interface RectHit {
   available?: string[];
   role?: string | null;
   haspopup?: string | null;
+  /** Visible label of the hit element, when the expression reports one. */
+  label?: string;
 }
 
 // Plain real mouse click at a point (no hover-verify). Used for the send
@@ -1396,6 +1398,26 @@ async function verifiedClickAt(cdp: CdpConnection, x: number, y: number, label: 
   await cdp.send("Input.dispatchMouseEvent", { type: "mouseReleased", x, y, button: "left", clickCount: 1 });
 }
 
+
+/**
+ * Whether the model picker BUTTON already advertises the requested model, so
+ * the menu never has to be opened. ChatGPT moved the models behind a "Model"
+ * submenu (the top level is now Advanced / Model / Effort), which broke the
+ * flat radio lookup with "Pro option not found in the model menu" - while the
+ * button itself read "Pro, 5 of 5". Selecting what is already selected is
+ * pointless work that a UI change can only break.
+ */
+export function modelButtonAlreadyShows(requestedModel: string | undefined, buttonLabel: string | undefined): boolean {
+  if (!requestedModel || !buttonLabel) return false;
+  const wanted = requestedModel.trim().toLowerCase();
+  if (!wanted) return false;
+  // The label carries decoration ("Pro, 5 of 5.", "GPT-5.6 Pro"), so match the
+  // model name as a WORD inside it rather than by equality.
+  const label = buttonLabel.trim().toLowerCase();
+  const escaped = wanted.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(^|[^a-z0-9])${escaped}([^a-z0-9]|$)`).test(label);
+}
+
 export function modelButtonRectExpression(): string {
   return `(() => {${CLICK_POINT_SNIPPET}
     const c = document.querySelector('#prompt-textarea,[contenteditable="true"],textarea');
@@ -1406,7 +1428,10 @@ export function modelButtonRectExpression(): string {
       return /\\S/.test(t) && !/파일|첨부|받아쓰기|음성|dictation|attach|file|voice|record|search|mic/i.test(t + aria);
     });
     if (!b) return { ok: false, reason: "model selector button not found" };
-    return clickPoint(b);
+    // Return the label too: the caller compares it against the requested model
+    // to skip opening the menu when it is already selected.
+    const label = ((b.getAttribute("aria-label") || b.textContent || "").trim().split(String.fromCharCode(10))[0] || "").trim();
+    return { ...clickPoint(b), label };
   })()`;
 }
 
@@ -1572,6 +1597,13 @@ async function selectModelReasoning(
   }
   if (!button.ok || button.x === undefined || button.y === undefined) {
     throw new Error(button.reason ?? "Could not open the ChatGPT model selector");
+  }
+  // Skip the menu entirely when the picker already shows the requested model:
+  // it is the same end state, and it survives ChatGPT reshuffling the menu
+  // (which it did - the models moved behind a "Model" submenu and every
+  // --model Pro send started failing).
+  if (options.model && !options.proMode && !options.effort && modelButtonAlreadyShows(options.model, button.label)) {
+    return;
   }
   try {
     // The hover-verified click can be transiently refused right after a page
@@ -2113,7 +2145,12 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
     // live: submitExpression finds data-testid="send-button" fine, yet the
     // timeout error blamed a UI change) - and (b) we never press Enter before the
     // composer is submit-ready.
-    submitButtonFound = await waitForExpressionTrue(cdp, `(${submitExpression()}).ok === true`, 3_000);
+    // With an attachment, ChatGPT keeps the send control disabled while it
+    // ingests the file server-side; 3s expired mid-ingest and the send never
+    // posted (measured live on a markdown attachment: the button was enabled
+    // and clickable a moment after prodex gave up).
+    const submitReadyBudgetMs = options.attachments && options.attachments.length > 0 ? 120_000 : 3_000;
+    submitButtonFound = await waitForExpressionTrue(cdp, `(${submitExpression()}).ok === true`, submitReadyBudgetMs);
     // Submit. Prefer the Enter key: it goes to the focused composer and does
     // not depend on coordinates, whereas the send button moves ~100px as the
     // composer grows after the prompt lands, so a click at captured coordinates
@@ -2728,17 +2765,42 @@ export function composerFileInputSelector(): string {
   return 'input[type="file"]:not([accept*="image"])';
 }
 
-/** Which of the expected attachments the composer shows, and whether one is still uploading. */
+/**
+ * Which of the expected attachments the composer shows, and whether one is
+ * still uploading.
+ *
+ * Measured live: a DOCUMENT chip carries its filename in visible text, but an
+ * IMAGE renders as a blob: thumbnail whose only filename is on the remove
+ * button's aria-label ("Remove file 1: cli-banner.png"). Reading innerText
+ * alone therefore reported a perfectly good image upload as never accepted.
+ */
 export function attachmentStateExpression(fileNames: string[]): string {
   const namesJson = JSON.stringify(fileNames);
   return `(() => {
     const names = ${namesJson};
     const text = document.body ? document.body.innerText || "" : "";
-    const present = names.filter((name) => text.includes(name));
+    const labels = [...document.querySelectorAll('[aria-label],[title],[alt]')]
+      .map((el) => (el.getAttribute("aria-label") || el.getAttribute("title") || el.getAttribute("alt") || ""))
+      .join(String.fromCharCode(10));
+    const haystack = text + String.fromCharCode(10) + labels;
+    const present = names.filter((name) => haystack.includes(name));
+    const attachedFiles = [...document.querySelectorAll('input[type="file"]')]
+      .reduce((total, el) => total + (el.files ? el.files.length : 0), 0);
     // A visible progressbar means a file is still going up; sending now would
     // post the prompt without it.
     const uploading = document.querySelectorAll('[role="progressbar"]').length > 0;
-    return { ok: true, present, uploading };
+    return { ok: true, present, attachedFiles, uploading };
+  })()`;
+}
+
+
+/** How many attachments are already sitting in the composer (read-only). */
+export function attachmentPresenceExpression(): string {
+  return `(() => {
+    const buttons = [...document.querySelectorAll('button[aria-label]')].filter((b) =>
+      /remove file|파일 제거|첨부 제거/i.test(b.getAttribute("aria-label") || "")
+    );
+    return { ok: true, removed: buttons.length };
   })()`;
 }
 
@@ -2759,6 +2821,31 @@ export async function attachFilesToComposer(
 ): Promise<AttachmentUploadResult> {
   if (absolutePaths.length === 0) return { attached: [] };
   await cdp.send("DOM.enable");
+  // Drop anything a previous (failed) send left attached: it would ride along
+  // with this prompt, which is exactly the kind of silent contamination the
+  // composer text check already guards against. This must happen BEFORE the
+  // input node is resolved - removing a chip re-renders the composer and
+  // replaces the input element, and setting files on the old (detached) node
+  // silently does nothing (measured live: the file input held the file while
+  // the UI showed no attachment at all).
+  // Leftover attachments from a previous (failed) send would ride along with
+  // this prompt. Clearing them by clicking the remove buttons WEDGES the
+  // composer: measured live, after a removal the file input accepts files
+  // (input.files becomes 1) while the UI never renders the chip again, and
+  // every later attach in that tab silently does nothing. A reload is the only
+  // reliable reset, and it costs a few seconds only when there is something to
+  // clear.
+  const stale = await cdp.evaluate<{ removed?: number }>(attachmentPresenceExpression());
+  if ((stale?.removed ?? 0) > 0) {
+    await cdp.evaluate("location.reload()");
+    await sleep(6_000);
+    const settleDeadline = Date.now() + 15_000;
+    for (;;) {
+      const ready = await cdp.evaluate<{ ok: boolean }>(composerTextStateExpression());
+      if (ready?.ok || Date.now() >= settleDeadline) break;
+      await sleep(500);
+    }
+  }
   const document = await cdp.send("DOM.getDocument", { depth: -1, pierce: true });
   const rootNodeId = (document.result as { root?: { nodeId?: number } } | undefined)?.root?.nodeId;
   if (rootNodeId === undefined) throw new Error("Could not read the ChatGPT page DOM to attach files.");

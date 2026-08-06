@@ -20,6 +20,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   asking nicely. The browser process reads the path, so the file must live on
   the machine running the browser; when it does not, the attachment never
   appears and prodex says exactly that.
+  Verified live end to end: an image attachment came back with the product name
+  read off the banner, and a document attachment came back with the marker
+  string from inside the file.
+
+### Fixed
+- `--model Pro` works again. ChatGPT moved the models behind a "Model" submenu
+  (the picker's top level is now Advanced / Model / Effort), so the flat radio
+  lookup failed every send with "Pro option not found in the model menu" -
+  while the picker button itself already read "Pro, 5 of 5". prodex now skips
+  the menu entirely when the button already shows the requested model, which
+  is both the same end state and immune to the menu being reshuffled again.
+- A send carrying an attachment waits up to 2 minutes for the composer to
+  become submit-ready instead of 3 seconds. ChatGPT keeps the send control
+  disabled while it ingests an uploaded document, and the old budget expired
+  mid-ingest: the prompt sat in the composer and the send timed out with
+  "ChatGPT never registered the prompt".
+- Attachments left by a previous failed send are cleared by reloading the tab,
+  not by clicking their remove buttons. Measured live: after a removal the file
+  input still accepts files (input.files becomes 1) while the composer never
+  renders the chip again, and every later attach in that tab silently does
+  nothing - a wedge that outlives the command that caused it.
 
 ## [0.19.2] - 2026-08-05
 
