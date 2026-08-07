@@ -6,6 +6,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.21.0] - 2026-08-07
 
+### Fixed
+- Model and effort selection works against ChatGPT's new picker. The radio list
+  is gone: the picker is now a single power slider whose five positions render,
+  on GPT-5.6 Sol, as Instant / Medium / High / Extra High / Pro - so "Pro" is
+  the top EFFORT, not a model, and every `--model Pro` send had been failing
+  with "Pro option not found in the model menu". prodex focuses the slider and
+  steps it until the readout matches the requested label (Korean and English
+  names both resolve), and falls back to the old radio path when a browser
+  still renders one. Verified live: `--effort 높음` moved the picker to High,
+  `--model Pro` moved it back to Pro.
+- `pro_quota_low` warning when the picker reports 1 or 0 Pro runs left
+  ("Pro, 5 of 5." in its header), so a limit shows up before it turns into a
+  silent downgrade.
+
 ### Added
 - `--tool <name>` (and `tools: [...]` on `pro_consult`) turns on a ChatGPT
   composer tool for a send: `web-search`, `deep-research`, `create-image`, or

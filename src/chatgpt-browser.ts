@@ -1425,6 +1425,81 @@ export function modelButtonAlreadyShows(requestedModel: string | undefined, butt
   return new RegExp(`(^|[^a-z0-9])${escaped}([^a-z0-9]|$)`).test(label);
 }
 
+
+// ---------------------------------------------------------------------------
+// Power slider (model + effort)
+//
+// ChatGPT replaced the model radio list with ONE slider. Measured live, its
+// five positions render on GPT-5.6 Sol as:
+//   0 Instant · 1 Medium · 2 High · 3 Extra High · 4 Pro
+// so "Pro" is now the top EFFORT, not a model - which is exactly why looking
+// for a "Pro" radio started failing. The slider takes focus and responds to
+// Arrow keys, so selection is: focus, step toward the wanted label, stop.
+// ---------------------------------------------------------------------------
+
+const POWER_LABEL_SYNONYMS: ReadonlyArray<{ canonical: string; aliases: readonly string[] }> = [
+  { canonical: "instant", aliases: ["instant", "즉시", "빠름", "fast"] },
+  { canonical: "medium", aliases: ["medium", "중간", "보통"] },
+  { canonical: "high", aliases: ["high", "높음"] },
+  { canonical: "extra high", aliases: ["extra high", "extrahigh", "very high", "매우 높음", "매우높음"] },
+  { canonical: "pro", aliases: ["pro", "프로"] }
+];
+
+function canonicalPowerLabel(value: string): string {
+  const normalized = value.trim().toLowerCase().replace(/\s+/g, " ");
+  const hit = POWER_LABEL_SYNONYMS.find((entry) => entry.aliases.includes(normalized));
+  return hit ? hit.canonical : normalized;
+}
+
+/** Whether a requested model/effort names the same step the slider renders. */
+export function powerLabelMatches(requested: string, rendered: string): boolean {
+  if (!requested || !rendered) return false;
+  return canonicalPowerLabel(requested) === canonicalPowerLabel(rendered);
+}
+
+export interface ProQuota {
+  remaining: number;
+  total: number;
+}
+
+/** "Pro, 5 of 5." in the picker header is the remaining Pro runs. */
+export function parseProQuota(menuLines: readonly string[]): ProQuota | undefined {
+  for (const line of menuLines) {
+    const match = line.match(/pro,\s*(\d+)\s*of\s*(\d+)/i);
+    if (match) return { remaining: Number(match[1]), total: Number(match[2]) };
+  }
+  return undefined;
+}
+
+/** Slider position plus the Model/Effort readout next to it. */
+export function powerSliderStateExpression(): string {
+  return `(() => {
+    const slider = document.querySelector('[role="slider"]');
+    const menu = document.querySelector('[data-testid="composer-intelligence-picker-content"]');
+    const lines = menu ? (menu.innerText || "").split(String.fromCharCode(10)).map((l) => l.trim()).filter(Boolean) : [];
+    const after = (label) => { const i = lines.indexOf(label); return i >= 0 ? lines[i + 1] : null; };
+    if (!slider) return { ok: false, reason: "power slider not found", lines };
+    return {
+      ok: true,
+      position: Number(slider.getAttribute("aria-valuenow")),
+      min: Number(slider.getAttribute("aria-valuemin")),
+      max: Number(slider.getAttribute("aria-valuemax")),
+      model: after("Model"),
+      effort: after("Effort"),
+      lines
+    };
+  })()`;
+}
+
+export function focusPowerSliderExpression(): string {
+  return `(() => {
+    const slider = document.querySelector('[role="slider"]');
+    if (!slider) return { ok: false, reason: "power slider not found" };
+    slider.focus();
+    return { ok: document.activeElement === slider };
+  })()`;
+}
+
 export function modelButtonRectExpression(): string {
   return `(() => {${CLICK_POINT_SNIPPET}
     const c = document.querySelector('#prompt-textarea,[contenteditable="true"],textarea');
@@ -1580,9 +1655,62 @@ async function assertSelectionCommitted(cdp: CdpConnection, label: string): Prom
   }
 }
 
+
+interface PowerSliderState {
+  ok: boolean;
+  reason?: string;
+  position?: number;
+  min?: number;
+  max?: number;
+  model?: string | null;
+  effort?: string | null;
+  lines?: string[];
+}
+
+/**
+ * Move the power slider until its Effort readout is the requested step. The
+ * menu must already be open. Returns the quota line so the caller can warn
+ * when Pro runs are nearly spent.
+ */
+async function selectPowerStep(cdp: CdpConnection, requested: string): Promise<{ effort?: string | null; quota?: ProQuota }> {
+  const focused = await cdp.evaluate<{ ok: boolean; reason?: string }>(focusPowerSliderExpression());
+  if (!focused?.ok) {
+    throw new Error(
+      focused?.reason ??
+        "ChatGPT's model picker did not expose its power slider, so the requested model/effort could not be selected."
+    );
+  }
+  let state = await cdp.evaluate<PowerSliderState>(powerSliderStateExpression());
+  if (!state?.ok) throw new Error(state?.reason ?? "Could not read ChatGPT's power slider");
+  const steps = (state.max ?? 4) - (state.min ?? 0) + 1;
+  for (let attempt = 0; attempt <= steps * 2; attempt += 1) {
+    if (state.effort && powerLabelMatches(requested, state.effort)) {
+      return { effort: state.effort, ...(parseProQuota(state.lines ?? []) ? { quota: parseProQuota(state.lines ?? []) } : {}) };
+    }
+    // Walk upward first, then back down: the labels are ordered, but their
+    // exact set can change, so this never assumes a fixed index for a name.
+    const atTop = (state.position ?? 0) >= (state.max ?? 4);
+    const key = attempt < steps && !atTop ? "ArrowRight" : "ArrowLeft";
+    await dispatchArrowKey(cdp, key);
+    await sleep(400);
+    state = await cdp.evaluate<PowerSliderState>(powerSliderStateExpression());
+    if (!state?.ok) throw new Error(state?.reason ?? "Could not read ChatGPT's power slider");
+  }
+  const available = (state.lines ?? []).join(" / ");
+  throw new Error(`ChatGPT's model picker has no "${requested}" step. It showed: ${available}`);
+}
+
+async function dispatchArrowKey(cdp: CdpConnection, key: "ArrowLeft" | "ArrowRight"): Promise<void> {
+  const code = key;
+  const virtualKey = key === "ArrowLeft" ? 37 : 39;
+  await cdp.send("Input.dispatchKeyEvent", { type: "rawKeyDown", key, code, windowsVirtualKeyCode: virtualKey });
+  await cdp.send("Input.dispatchKeyEvent", { type: "keyUp", key, code, windowsVirtualKeyCode: virtualKey });
+}
+
 async function selectModelReasoning(
   cdp: CdpConnection,
-  options: Pick<SendChatGptPromptOptions, "model" | "proMode" | "effort">
+  options: Pick<SendChatGptPromptOptions, "model" | "proMode" | "effort">,
+  selectionWarnings: string[] = []
 ): Promise<void> {
   if (!options.model && !options.proMode && !options.effort) return;
   // --pro-mode selects a Pro sub-mode, so it is meaningless with a non-Pro
@@ -1632,6 +1760,25 @@ async function selectModelReasoning(
     }
     const opened = await waitForExpressionTrue(cdp, menuOpenExpression(), MENU_OPEN_TIMEOUT_MS);
     if (!opened) throw new Error("ChatGPT model menu did not open after clicking the selector");
+
+    // Current ChatGPT: one power slider (Instant/Medium/High/Extra High/Pro on
+    // GPT-5.6 Sol) instead of a model radio list, so "Pro" is the top EFFORT.
+    // Drive it when it is there and fall through to the legacy radio path when
+    // it is not, so both UI generations work.
+    const sliderState = await cdp.evaluate<PowerSliderState>(powerSliderStateExpression());
+    if (sliderState?.ok) {
+      const wanted = options.effort ?? options.model;
+      if (wanted) {
+        const outcome = await selectPowerStep(cdp, wanted);
+        if (outcome.quota && outcome.quota.remaining <= 1) {
+          selectionWarnings.push(
+            `pro_quota_low: ${outcome.quota.remaining} of ${outcome.quota.total} Pro runs left on this account.`
+          );
+        }
+      }
+      await dispatchEscapeKey(cdp);
+      return;
+    }
 
     const wantsProMode = Boolean(options.proMode) && (!options.model || /pro/i.test(options.model));
     if (wantsProMode && options.proMode) {
@@ -2116,7 +2263,7 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
     await cdp.send("Runtime.enable");
     await selectProject(cdp, options);
     try {
-      await selectModelReasoning(cdp, options);
+      await selectModelReasoning(cdp, options, sendWarnings);
     } catch (modelError) {
       // Pro sub-mode isn't exposed in this UI yet (staged rollout). Pro itself is
       // already selected by this point, so degrade to plain Pro with a warning

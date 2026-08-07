@@ -36,6 +36,8 @@ import {
   attachmentStateExpression,
   attachmentPresenceExpression,
   resolveComposerToolLabel,
+  powerLabelMatches,
+  parseProQuota,
   defaultTimeoutForTools,
   modelSelectionWarning,
   resolveHeadlessPreference,
@@ -141,6 +143,33 @@ describe("ChatGPT browser adapter", () => {
     // No requested model, or an unreadable button, must not claim a match.
     expect(modelButtonAlreadyShows(undefined, "Pro")).toBe(false);
     expect(modelButtonAlreadyShows("Pro", "")).toBe(false);
+  });
+
+  it("matches a requested model/effort against the labels the power slider renders", () => {
+    // ChatGPT replaced the model radio list with a single power slider:
+    // positions 0..4 render Instant / Medium / High / Extra High / Pro on
+    // GPT-5.6 Sol (measured live). "Pro" is now the top EFFORT, not a model,
+    // which is why --model Pro could not find a Pro radio any more.
+    expect(powerLabelMatches("Pro", "Pro")).toBe(true);
+    expect(powerLabelMatches("pro", "Pro")).toBe(true);
+    expect(powerLabelMatches("높음", "High")).toBe(true);
+    expect(powerLabelMatches("High", "High")).toBe(true);
+    expect(powerLabelMatches("매우 높음", "Extra High")).toBe(true);
+    expect(powerLabelMatches("extra high", "Extra High")).toBe(true);
+    expect(powerLabelMatches("중간", "Medium")).toBe(true);
+    expect(powerLabelMatches("즉시", "Instant")).toBe(true);
+    // "High" must not satisfy a request for "Extra High" (prefix trap).
+    expect(powerLabelMatches("매우 높음", "High")).toBe(false);
+    expect(powerLabelMatches("Pro", "Extra High")).toBe(false);
+  });
+
+  it("reads the remaining Pro runs out of the picker header", () => {
+    // The header reads "Pro, 5 of 5." - the Pro quota. Surfacing it lets a
+    // caller see a limit approaching instead of discovering it as a silent
+    // downgrade.
+    expect(parseProQuota(["Pro, 5 of 5.", "Advanced"])).toEqual({ remaining: 5, total: 5 });
+    expect(parseProQuota(["Pro, 1 of 5."])).toEqual({ remaining: 1, total: 5 });
+    expect(parseProQuota(["Advanced", "Faster"])).toBeUndefined();
   });
 
   it("resolves tool aliases to the labels ChatGPT renders, and passes unknown ones through", () => {
