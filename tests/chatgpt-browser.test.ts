@@ -37,6 +37,7 @@ import {
   attachmentPresenceExpression,
   resolveComposerToolLabel,
   powerLabelMatches,
+  deepResearchStartButtonRectExpression,
   defaultTimeoutForTools,
   modelSelectionWarning,
   resolveHeadlessPreference,
@@ -160,6 +161,15 @@ describe("ChatGPT browser adapter", () => {
     // "High" must not satisfy a request for "Extra High" (prefix trap).
     expect(powerLabelMatches("매우 높음", "High")).toBe(false);
     expect(powerLabelMatches("Pro", "Extra High")).toBe(false);
+  });
+
+  it("recognizes the deep-research start button in either language", () => {
+    // Deep research does not begin on submit: it shows a start button with a
+    // countdown ring. prodex waited for an answer that never came because it
+    // never pressed it (30+ minutes, zero assistant messages, measured live).
+    const expression = deepResearchStartButtonRectExpression();
+    expect(expression).toMatch(/시작/);
+    expect(expression).toMatch(/start/i);
   });
 
   it("does not read the picker header count as a quota", () => {

@@ -2270,6 +2270,7 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
       emitProgress("selecting", `attached ${uploaded.attached.join(", ")}`);
     }
     const toolLabels = (options.tools ?? []).map(resolveComposerToolLabel);
+    const wantsDeepResearch = toolLabels.includes(DEEP_RESEARCH_TOOL_LABEL);
     if (toolLabels.length > 0) emitProgress("selecting", `tools=${toolLabels.join(", ")}`);
     await insertComposerTextViaCdp(cdp, options.prompt, page, toolLabels);
     // The send button renders asynchronously after the prompt lands. Poll for it
@@ -2311,6 +2312,28 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
       }
     }
     dbgSend(`submit posted=${promptPosted} submitButtonFound=${submitButtonFound}`);
+    // Deep research does not begin when the prompt posts: it shows a start
+    // control with a countdown ring. Press it instead of trusting the timer -
+    // a run left waiting sat with zero assistant messages for 30+ minutes.
+    if (wantsDeepResearch) {
+      const startDeadline = Date.now() + 60_000;
+      let pressed = false;
+      while (Date.now() < startDeadline) {
+        const start = await cdp.evaluate<RectHit>(deepResearchStartButtonRectExpression());
+        if (start.ok && start.x !== undefined && start.y !== undefined) {
+          await dispatchMouseClickAt(cdp, start.x, start.y);
+          pressed = true;
+          emitProgress("selecting", "deep research started");
+          break;
+        }
+        await sleep(1_000);
+      }
+      if (!pressed) {
+        sendWarnings.push(
+          "deep_research_start_not_found: no start control appeared for the deep research run. If ChatGPT asked a clarifying question instead, answer it with a follow-up consult in the same thread."
+        );
+      }
+    }
   } finally {
     cdp.close();
   }
@@ -3018,11 +3041,33 @@ export async function attachFilesToComposer(
 // check has to ignore the token or it reads as leftover contamination.
 // ---------------------------------------------------------------------------
 
-const COMPOSER_TOOL_ALIASES: ReadonlyArray<{ label: string; aliases: readonly string[] }> = [
-  { label: "Deep research", aliases: ["deep research", "deep-research", "deepresearch", "deep", "research"] },
-  { label: "Web search", aliases: ["web search", "web-search", "websearch", "search", "web"] },
-  { label: "Create image", aliases: ["create image", "create-image", "image", "img"] }
+const COMPOSER_TOOL_ALIASES: ReadonlyArray<{ label: string; aliases: readonly string[]; menuText: readonly string[] }> = [
+  // menuText carries every string the menu row is known to render. ChatGPT
+  // dropped the visible "Deep research" title at one point and left only its
+  // description, which made a title-only lookup fail (measured live), so each
+  // tool is found by title OR description.
+  {
+    label: "Deep research",
+    aliases: ["deep research", "deep-research", "deepresearch", "deep", "research"],
+    menuText: ["Deep research", "Get a detailed report"]
+  },
+  {
+    label: "Web search",
+    aliases: ["web search", "web-search", "websearch", "search", "web"],
+    menuText: ["Web search", "Find real-time news and info"]
+  },
+  {
+    label: "Create image",
+    aliases: ["create image", "create-image", "image", "img"],
+    menuText: ["Create image", "Visualize anything"]
+  }
 ];
+
+/** Every string the tools menu may render for this tool. */
+export function composerToolMenuTexts(label: string): string[] {
+  const known = COMPOSER_TOOL_ALIASES.find((tool) => tool.label === label);
+  return known ? [...known.menuText] : [label];
+}
 
 /**
  * Map what a caller typed to the label ChatGPT renders. An unknown value is
@@ -3054,11 +3099,11 @@ export function composerToolsButtonRectExpression(): string {
 
 /** Click point for a tools-menu entry, matched by its visible label. */
 export function composerToolEntryRectExpression(label: string): string {
-  const labelJson = JSON.stringify(label);
+  const candidatesJson = JSON.stringify(composerToolMenuTexts(label).map((text) => text.toLowerCase()));
   return `(() => {${CLICK_POINT_SNIPPET}
-    const wanted = ${labelJson}.trim().toLowerCase();
+    const candidates = ${candidatesJson};
     const leaves = [...document.querySelectorAll("div,span,button,a")].filter((el) => el.children.length === 0);
-    const leaf = leaves.find((el) => (el.textContent || "").trim().toLowerCase() === wanted);
+    const leaf = leaves.find((el) => candidates.includes((el.textContent || "").trim().toLowerCase()));
     if (!leaf) {
       const available = [...new Set(leaves.map((el) => (el.textContent || "").trim()).filter((t) => t.length > 1 && t.length < 30))].slice(0, 20);
       return { ok: false, reason: "tool not found in the composer tools menu", available };
@@ -3072,8 +3117,12 @@ export function composerToolEntryRectExpression(label: string): string {
 export function activeComposerToolsExpression(labels: readonly string[]): string {
   const labelsJson = JSON.stringify(labels);
   return `(() => {
+    // The token normally lands inside the editor, but some builds render it as
+    // a pill in the surrounding composer form - check both before deciding a
+    // selection did not take.
     const el = document.querySelector('#prompt-textarea,[contenteditable="true"]');
-    const text = el ? (el.innerText || "") : "";
+    const form = el ? (el.closest("form") || el.parentElement) : null;
+    const text = (el ? el.innerText || "" : "") + String.fromCharCode(10) + (form ? form.innerText || "" : "");
     return { ok: true, active: ${labelsJson}.filter((label) => text.includes(label)) };
   })()`;
 }
@@ -3113,8 +3162,9 @@ export function composerTextStateExpression(expectedText?: string, toolLabels: r
 export async function enableComposerTools(cdp: CdpConnection, labels: readonly string[]): Promise<string[]> {
   const enabled: string[] = [];
   for (const label of labels) {
-    const already = await cdp.evaluate<{ active?: string[] }>(activeComposerToolsExpression([label]));
-    if ((already?.active ?? []).includes(label)) {
+    const activeProbe = composerToolMenuTexts(label);
+    const already = await cdp.evaluate<{ active?: string[] }>(activeComposerToolsExpression(activeProbe));
+    if ((already?.active ?? []).length > 0) {
       enabled.push(label);
       continue;
     }
@@ -3140,10 +3190,30 @@ export async function enableComposerTools(cdp: CdpConnection, labels: readonly s
     const activeDeadline = Date.now() + 8_000;
     let active = false;
     for (;;) {
-      const state = await cdp.evaluate<{ active?: string[] }>(activeComposerToolsExpression([label]));
-      active = (state?.active ?? []).includes(label);
+      const state = await cdp.evaluate<{ active?: string[] }>(activeComposerToolsExpression(activeProbe));
+      active = (state?.active ?? []).length > 0;
       if (active || Date.now() >= activeDeadline) break;
       await sleep(250);
+    }
+    if (!active) {
+      // One retry: the menu can close on a click that lands as the popover is
+      // still settling, which looks identical to a refused selection.
+      const retryButton = await cdp.evaluate<RectHit>(composerToolsButtonRectExpression());
+      if (retryButton.ok && retryButton.x !== undefined && retryButton.y !== undefined) {
+        await dispatchMouseClickAt(cdp, retryButton.x, retryButton.y);
+        await sleep(1_000);
+        const retryEntry = await cdp.evaluate<RectHit>(composerToolEntryRectExpression(label));
+        if (retryEntry.ok && retryEntry.x !== undefined && retryEntry.y !== undefined) {
+          await dispatchMouseClickAt(cdp, retryEntry.x, retryEntry.y);
+          const retryDeadline = Date.now() + 8_000;
+          for (;;) {
+            const state = await cdp.evaluate<{ active?: string[] }>(activeComposerToolsExpression(activeProbe));
+            active = (state?.active ?? []).length > 0;
+            if (active || Date.now() >= retryDeadline) break;
+            await sleep(250);
+          }
+        }
+      }
     }
     if (!active) throw new Error(`Selected "${label}" but the composer never showed it as active.`);
     enabled.push(label);
@@ -3236,6 +3306,29 @@ export function chunkComposerText(text: string, size: number = COMPOSER_INSERT_C
   }
   if (current.length > 0) chunks.push(current);
   return chunks;
+}
+
+
+/**
+ * The start control a deep research run shows after the prompt posts. It has a
+ * countdown ring and starts on its own eventually, but prodex must not depend
+ * on that: a run left waiting produced zero assistant messages for 30+ minutes
+ * (measured live), because nothing pressed it.
+ */
+export function deepResearchStartButtonRectExpression(): string {
+  return `(() => {${CLICK_POINT_SNIPPET}
+    const buttons = [...document.querySelectorAll('button,[role="button"]')];
+    const target = buttons.find((b) => {
+      const text = ((b.innerText || "") + " " + (b.getAttribute("aria-label") || "")).trim();
+      // "Start dictation" and "Start Voice" live in the same composer and
+      // would otherwise swallow this click - pressing the microphone instead
+      // of starting the research (measured live).
+      if (/dictation|voice|mic|음성|받아쓰기/i.test(text)) return false;
+      return /^(start|시작)\\s*$|start research|시작하기|리서치 시작|조사 시작/i.test(text);
+    });
+    if (!target) return { ok: false, reason: "no deep research start button" };
+    return clickPoint(target);
+  })()`;
 }
 
 export function submitExpression(): string {

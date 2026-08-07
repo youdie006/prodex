@@ -4,6 +4,28 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.21.1] - 2026-08-07
+
+### Fixed
+- A composer tool is found by its title OR its description. ChatGPT stopped
+  rendering the visible "Deep research" title and left only "Get a detailed
+  report", so a title-only lookup started failing with `Selected "Deep
+  research" but the composer never showed it as active` (measured live, twice).
+  Each known tool now carries every string its menu row is known to render, and
+  the activation check accepts any of them.
+- The deep research start control is pressed without ever hitting the
+  microphone. "Start dictation" and "Start Voice" sit in the same composer and
+  matched the old start-button pattern, so the click could land on dictation
+  instead of the run.
+
+### Known limitation
+- `--tool deep-research` still cannot be called working. The tool enables, the
+  prompt posts, and prodex presses the start control, but no run has yet
+  produced an assistant message in these tests. Everything else in `--tool`
+  (web search) and the model/effort slider is verified live. If you need a deep
+  research report today, let prodex post the prompt and press start in the
+  browser yourself - the thread is a normal one.
+
 ## [0.21.0] - 2026-08-07
 
 ### Fixed
