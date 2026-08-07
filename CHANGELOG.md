@@ -16,9 +16,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   names both resolve), and falls back to the old radio path when a browser
   still renders one. Verified live: `--effort 높음` moved the picker to High,
   `--model Pro` moved it back to Pro.
-- `pro_quota_low` warning when the picker reports 1 or 0 Pro runs left
-  ("Pro, 5 of 5." in its header), so a limit shows up before it turns into a
-  silent downgrade.
+  (The picker header's "Pro, 5 of 5." is the slider POSITION, not a remaining
+  -runs quota - it reads "Instant, 1 of 5." at the other end. An earlier draft
+  of this release mistook it for a quota; nothing ships that reads it that way.)
 
 ### Added
 - `--tool <name>` (and `tools: [...]` on `pro_consult`) turns on a ChatGPT

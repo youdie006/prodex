@@ -1457,20 +1457,6 @@ export function powerLabelMatches(requested: string, rendered: string): boolean 
   return canonicalPowerLabel(requested) === canonicalPowerLabel(rendered);
 }
 
-export interface ProQuota {
-  remaining: number;
-  total: number;
-}
-
-/** "Pro, 5 of 5." in the picker header is the remaining Pro runs. */
-export function parseProQuota(menuLines: readonly string[]): ProQuota | undefined {
-  for (const line of menuLines) {
-    const match = line.match(/pro,\s*(\d+)\s*of\s*(\d+)/i);
-    if (match) return { remaining: Number(match[1]), total: Number(match[2]) };
-  }
-  return undefined;
-}
-
 /** Slider position plus the Model/Effort readout next to it. */
 export function powerSliderStateExpression(): string {
   return `(() => {
@@ -1672,7 +1658,7 @@ interface PowerSliderState {
  * menu must already be open. Returns the quota line so the caller can warn
  * when Pro runs are nearly spent.
  */
-async function selectPowerStep(cdp: CdpConnection, requested: string): Promise<{ effort?: string | null; quota?: ProQuota }> {
+async function selectPowerStep(cdp: CdpConnection, requested: string): Promise<{ effort?: string | null }> {
   const focused = await cdp.evaluate<{ ok: boolean; reason?: string }>(focusPowerSliderExpression());
   if (!focused?.ok) {
     throw new Error(
@@ -1684,9 +1670,7 @@ async function selectPowerStep(cdp: CdpConnection, requested: string): Promise<{
   if (!state?.ok) throw new Error(state?.reason ?? "Could not read ChatGPT's power slider");
   const steps = (state.max ?? 4) - (state.min ?? 0) + 1;
   for (let attempt = 0; attempt <= steps * 2; attempt += 1) {
-    if (state.effort && powerLabelMatches(requested, state.effort)) {
-      return { effort: state.effort, ...(parseProQuota(state.lines ?? []) ? { quota: parseProQuota(state.lines ?? []) } : {}) };
-    }
+    if (state.effort && powerLabelMatches(requested, state.effort)) return { effort: state.effort };
     // Walk upward first, then back down: the labels are ordered, but their
     // exact set can change, so this never assumes a fixed index for a name.
     const atTop = (state.position ?? 0) >= (state.max ?? 4);
@@ -1769,12 +1753,7 @@ async function selectModelReasoning(
     if (sliderState?.ok) {
       const wanted = options.effort ?? options.model;
       if (wanted) {
-        const outcome = await selectPowerStep(cdp, wanted);
-        if (outcome.quota && outcome.quota.remaining <= 1) {
-          selectionWarnings.push(
-            `pro_quota_low: ${outcome.quota.remaining} of ${outcome.quota.total} Pro runs left on this account.`
-          );
-        }
+        await selectPowerStep(cdp, wanted);
       }
       await dispatchEscapeKey(cdp);
       return;

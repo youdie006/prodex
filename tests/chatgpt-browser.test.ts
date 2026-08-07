@@ -37,7 +37,6 @@ import {
   attachmentPresenceExpression,
   resolveComposerToolLabel,
   powerLabelMatches,
-  parseProQuota,
   defaultTimeoutForTools,
   modelSelectionWarning,
   resolveHeadlessPreference,
@@ -163,13 +162,12 @@ describe("ChatGPT browser adapter", () => {
     expect(powerLabelMatches("Pro", "Extra High")).toBe(false);
   });
 
-  it("reads the remaining Pro runs out of the picker header", () => {
-    // The header reads "Pro, 5 of 5." - the Pro quota. Surfacing it lets a
-    // caller see a limit approaching instead of discovering it as a silent
-    // downgrade.
-    expect(parseProQuota(["Pro, 5 of 5.", "Advanced"])).toEqual({ remaining: 5, total: 5 });
-    expect(parseProQuota(["Pro, 1 of 5."])).toEqual({ remaining: 1, total: 5 });
-    expect(parseProQuota(["Advanced", "Faster"])).toBeUndefined();
+  it("does not read the picker header count as a quota", () => {
+    // Corrected by the user, then measured: the header tracks the SLIDER
+    // POSITION, not remaining runs - "Instant, 1 of 5.", "Medium, 2 of 5.",
+    // "Pro, 5 of 5.". prodex must not turn that into a quota warning.
+    expect(powerLabelMatches("Pro", "Pro")).toBe(true);
+    expect(powerLabelMatches("Instant", "Instant")).toBe(true);
   });
 
   it("resolves tool aliases to the labels ChatGPT renders, and passes unknown ones through", () => {
