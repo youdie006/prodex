@@ -203,6 +203,13 @@ export interface SendChatGptPromptOptions {
    * these paths, so they must exist on the machine running the browser.
    */
   attachments?: string[];
+  /**
+   * Composer tools to enable before sending ("Deep research", "Web search",
+   * "Create image", or any label the menu shows). Enabled AFTER the composer
+   * is cleared, because the tool is a token inside the composer and clearing
+   * removes it.
+   */
+  tools?: string[];
   /** Model to select in the composer picker, e.g. "Pro". */
   model?: string;
   /** Pro sub-mode, used when model is Pro. */
@@ -2136,7 +2143,9 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
       const uploaded = await attachFilesToComposer(cdp, options.attachments);
       emitProgress("selecting", `attached ${uploaded.attached.join(", ")}`);
     }
-    await insertComposerTextViaCdp(cdp, options.prompt, page);
+    const toolLabels = (options.tools ?? []).map(resolveComposerToolLabel);
+    if (toolLabels.length > 0) emitProgress("selecting", `tools=${toolLabels.join(", ")}`);
+    await insertComposerTextViaCdp(cdp, options.prompt, page, toolLabels);
     // The send button renders asynchronously after the prompt lands. Poll for it
     // BEFORE submitting so (a) submitButtonFound reflects whether the control
     // actually EXISTS - otherwise a successful Enter-key submit skips the fallback
@@ -2872,13 +2881,89 @@ export async function attachFilesToComposer(
   );
 }
 
-export function composerTextStateExpression(expectedText?: string): string {
+
+// ---------------------------------------------------------------------------
+// Composer tools (Deep research, Web search, Create image, connectors)
+//
+// Measured live: a tool is NOT a chip beside the composer - selecting it
+// inserts its name as a token INSIDE the ProseMirror editor, and it survives a
+// page reload. Two consequences drive this code: the tool must be enabled
+// AFTER the composer is cleared (clearing removes it), and the composer text
+// check has to ignore the token or it reads as leftover contamination.
+// ---------------------------------------------------------------------------
+
+const COMPOSER_TOOL_ALIASES: ReadonlyArray<{ label: string; aliases: readonly string[] }> = [
+  { label: "Deep research", aliases: ["deep research", "deep-research", "deepresearch", "deep", "research"] },
+  { label: "Web search", aliases: ["web search", "web-search", "websearch", "search", "web"] },
+  { label: "Create image", aliases: ["create image", "create-image", "image", "img"] }
+];
+
+/**
+ * Map what a caller typed to the label ChatGPT renders. An unknown value is
+ * passed through unchanged, so a tool ChatGPT adds tomorrow is reachable by
+ * its label without a prodex release.
+ */
+export function resolveComposerToolLabel(requested: string): string {
+  const normalized = requested.trim().toLowerCase();
+  const known = COMPOSER_TOOL_ALIASES.find((tool) => tool.aliases.includes(normalized) || tool.label.toLowerCase() === normalized);
+  return known ? known.label : requested.trim();
+}
+
+export const DEEP_RESEARCH_TOOL_LABEL = "Deep research";
+const DEEP_RESEARCH_MIN_TIMEOUT_MS = 1_800_000;
+
+/** Deep research browses for minutes; the ordinary budget abandons it mid-report. */
+export function defaultTimeoutForTools(tools: readonly string[], fallbackMs: number): number {
+  const wantsDeepResearch = tools.some((tool) => resolveComposerToolLabel(tool) === DEEP_RESEARCH_TOOL_LABEL);
+  return wantsDeepResearch ? Math.max(fallbackMs, DEEP_RESEARCH_MIN_TIMEOUT_MS) : fallbackMs;
+}
+
+export function composerToolsButtonRectExpression(): string {
+  return `(() => {${CLICK_POINT_SNIPPET}
+    const b = document.querySelector('[data-testid="composer-plus-btn"]');
+    if (!b) return { ok: false, reason: "composer tools button not found" };
+    return clickPoint(b);
+  })()`;
+}
+
+/** Click point for a tools-menu entry, matched by its visible label. */
+export function composerToolEntryRectExpression(label: string): string {
+  const labelJson = JSON.stringify(label);
+  return `(() => {${CLICK_POINT_SNIPPET}
+    const wanted = ${labelJson}.trim().toLowerCase();
+    const leaves = [...document.querySelectorAll("div,span,button,a")].filter((el) => el.children.length === 0);
+    const leaf = leaves.find((el) => (el.textContent || "").trim().toLowerCase() === wanted);
+    if (!leaf) {
+      const available = [...new Set(leaves.map((el) => (el.textContent || "").trim()).filter((t) => t.length > 1 && t.length < 30))].slice(0, 20);
+      return { ok: false, reason: "tool not found in the composer tools menu", available };
+    }
+    const target = leaf.closest('[role="menuitem"],[role="option"],button,a') || leaf.parentElement || leaf;
+    return clickPoint(target);
+  })()`;
+}
+
+/** Tool tokens currently sitting in the composer. */
+export function activeComposerToolsExpression(labels: readonly string[]): string {
+  const labelsJson = JSON.stringify(labels);
+  return `(() => {
+    const el = document.querySelector('#prompt-textarea,[contenteditable="true"]');
+    const text = el ? (el.innerText || "") : "";
+    return { ok: true, active: ${labelsJson}.filter((label) => text.includes(label)) };
+  })()`;
+}
+
+export function composerTextStateExpression(expectedText?: string, toolLabels: readonly string[] = []): string {
   const expectedJson = JSON.stringify(expectedText ?? null);
+  const toolLabelsJson = JSON.stringify(toolLabels);
   return `(() => {
     ${composerExpressionHelpers()}
     const el = findChatGptComposerCandidate();
     if (!el) return { ok: false, reason: "No visible composer" };
-    const raw = ("value" in el ? el.value : el.innerText || el.textContent || "").trim();
+    let raw = ("value" in el ? el.value : el.innerText || el.textContent || "").trim();
+    // An enabled tool lives INSIDE the composer as a token; it is not leftover
+    // text, so strip it before comparing against the prompt.
+    for (const label of ${toolLabelsJson}) raw = raw.split(label).join(" ");
+    raw = raw.trim();
     if (!raw) return { ok: false, reason: "Composer stayed empty after text insertion" };
     const expected = ${expectedJson};
     if (expected === null) return { ok: true, actualText: raw.slice(0, 120) };
@@ -2893,7 +2978,59 @@ export function composerTextStateExpression(expectedText?: string): string {
 // Focus the composer, clear any leftover text submit-safely, type the prompt
 // with native CDP input so ProseMirror registers it, then verify the composer
 // holds exactly the prompt.
-async function insertComposerTextViaCdp(cdp: CdpConnection, text: string, page?: DevtoolsPage): Promise<void> {
+
+/**
+ * Turn on a composer tool by its menu label and confirm the token landed in
+ * the composer. Called after the composer is cleared and before the prompt is
+ * typed, because clearing the composer removes the token.
+ */
+export async function enableComposerTools(cdp: CdpConnection, labels: readonly string[]): Promise<string[]> {
+  const enabled: string[] = [];
+  for (const label of labels) {
+    const already = await cdp.evaluate<{ active?: string[] }>(activeComposerToolsExpression([label]));
+    if ((already?.active ?? []).includes(label)) {
+      enabled.push(label);
+      continue;
+    }
+    const button = await cdp.evaluate<RectHit>(composerToolsButtonRectExpression());
+    if (!button.ok || button.x === undefined || button.y === undefined) {
+      throw new Error(button.reason ?? "Could not open the ChatGPT composer tools menu");
+    }
+    await dispatchMouseClickAt(cdp, button.x, button.y);
+    let entry: RectHit = { ok: false };
+    const menuDeadline = Date.now() + 6_000;
+    for (;;) {
+      entry = await cdp.evaluate<RectHit>(composerToolEntryRectExpression(label));
+      if (entry.ok && entry.x !== undefined && entry.y !== undefined) break;
+      if (Date.now() >= menuDeadline) break;
+      await sleep(250);
+    }
+    if (!entry.ok || entry.x === undefined || entry.y === undefined) {
+      await dispatchEscapeKey(cdp);
+      const available = entry.available?.length ? ` Menu showed: ${entry.available.slice(0, 12).join(", ")}.` : "";
+      throw new Error(`ChatGPT's composer tools menu has no "${label}".${available}`);
+    }
+    await dispatchMouseClickAt(cdp, entry.x, entry.y);
+    const activeDeadline = Date.now() + 8_000;
+    let active = false;
+    for (;;) {
+      const state = await cdp.evaluate<{ active?: string[] }>(activeComposerToolsExpression([label]));
+      active = (state?.active ?? []).includes(label);
+      if (active || Date.now() >= activeDeadline) break;
+      await sleep(250);
+    }
+    if (!active) throw new Error(`Selected "${label}" but the composer never showed it as active.`);
+    enabled.push(label);
+  }
+  return enabled;
+}
+
+async function insertComposerTextViaCdp(
+  cdp: CdpConnection,
+  text: string,
+  page?: DevtoolsPage,
+  toolLabels: readonly string[] = []
+): Promise<void> {
   const prepared = await cdp.evaluate<{ ok: boolean; reason?: string; hasText?: boolean }>(prepareComposerExpression());
   if (!prepared.ok) throw new Error(prepared.reason ?? "Could not focus the ChatGPT composer");
   // Clear leftover text (e.g. from a prior failed send) via native keyboard
@@ -2907,6 +3044,12 @@ async function insertComposerTextViaCdp(cdp: CdpConnection, text: string, page?:
     await cdp.send("Input.dispatchKeyEvent", { type: "keyDown", key: "Backspace", code: "Backspace", windowsVirtualKeyCode: 8 });
     await cdp.send("Input.dispatchKeyEvent", { type: "keyUp", key: "Backspace", code: "Backspace", windowsVirtualKeyCode: 8 });
     await sleep(100);
+  }
+  // The composer is clear at this point, so the tool tokens can go in now -
+  // enabling them earlier would have been wiped by the clear above.
+  if (toolLabels.length > 0) {
+    await enableComposerTools(cdp, toolLabels);
+    await sleep(300);
   }
   // Insertion path, chosen by size:
   //
@@ -2942,7 +3085,7 @@ async function insertComposerTextViaCdp(cdp: CdpConnection, text: string, page?:
     }
   }
   await sleep(200);
-  const state = await cdp.evaluate<{ ok: boolean; reason?: string }>(composerTextStateExpression(text));
+  const state = await cdp.evaluate<{ ok: boolean; reason?: string }>(composerTextStateExpression(text, toolLabels));
   if (!state.ok) throw new Error(state.reason ?? "Composer stayed empty after text insertion");
 }
 

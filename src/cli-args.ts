@@ -267,6 +267,8 @@ export const ASK_PRO_VALUE_FLAGS = new Set([
   "--file",
   // Upload the file itself (pdf/pptx/image) instead of inlining its text.
   "--attach",
+  // Composer tools: deep-research, web-search, create-image, ...
+  "--tool",
   "--port",
   "--timeout-ms",
   "--busy-wait-ms",

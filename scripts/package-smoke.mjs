@@ -91,7 +91,7 @@ try {
   assertIncludes(help.stdout, "prodex project prompt", "installed help output");
   assertIncludes(help.stdout, "prodex claude prompt", "installed help output");
   assertIncludes(help.stdout, "prodex claude config", "installed help output");
-  assertIncludes(help.stdout, "prodex pro ask [--dry-run] [--cwd /absolute/path/to/repo] [--file path] [--attach path]", "installed help output");
+  assertIncludes(help.stdout, "prodex pro ask [--dry-run] [--cwd /absolute/path/to/repo] [--file path] [--attach path] [--tool deep-research|web-search|create-image]", "installed help output");
   assertIncludes(
     help.stdout,
     "prodex pro browser login [--cwd /absolute/path/to/repo] [--dry-run] [--source-cli /absolute/path/to/dist/cli.js] [--profile-dir path] [--port 9333] [--url https://chatgpt.com/...] [--launch-timeout-ms 5000]",
@@ -109,7 +109,7 @@ try {
   );
   assertIncludes(
     help.stdout,
-    'prodex pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 300000] [--busy-wait-ms 600000] [--target-url url --confirm-target] [--new-chat] [--stdin] [--json] [--auto-login|--no-auto-login] [--file path] [--attach path] [--model Pro] [--pro-mode 기본|확장] [--effort 즉시|중간|높음|"매우 높음"] [--project "name" | --project-new "name"] "prompt"',
+    'prodex pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 300000] [--busy-wait-ms 600000] [--target-url url --confirm-target] [--new-chat] [--stdin] [--json] [--auto-login|--no-auto-login] [--file path] [--attach path] [--tool deep-research|web-search|create-image] [--model Pro] [--pro-mode 기본|확장] [--effort 즉시|중간|높음|"매우 높음"] [--project "name" | --project-new "name"] "prompt"',
     "installed help output"
   );
   assertIncludes(help.stdout, "prodex pro browser help [--source-cli /absolute/path/to/dist/cli.js]", "installed help output");
@@ -236,7 +236,7 @@ try {
     { args: ["receipts", "show", "--help"], expected: "prodex receipts show <receipt-id|latest> [--cwd /absolute/path/to/repo]" },
     { args: ["sessions", "list", "--help"], expected: "prodex sessions list [--status preview|running|done|blocked] [--cwd /absolute/path/to/repo] [--json]" },
     { args: ["sessions", "show", "--help"], expected: "prodex sessions show <session-id|latest> [--cwd /absolute/path/to/repo]" },
-    { args: ["pro", "ask", "--help"], expected: "prodex pro ask [--dry-run] [--cwd /absolute/path/to/repo] [--file path] [--attach path]" },
+    { args: ["pro", "ask", "--help"], expected: "prodex pro ask [--dry-run] [--cwd /absolute/path/to/repo] [--file path] [--attach path] [--tool deep-research|web-search|create-image]" },
     { args: ["pro", "browser", "ask", "--help"], expected: "prodex pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]" },
     { args: ["pro", "latest", "--help"], expected: "prodex pro latest [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]" },
     { args: ["pro", "list", "--help"], expected: "prodex pro list [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]" },
@@ -1038,7 +1038,7 @@ try {
   );
   assertIncludes(
     browserHelp.stdout,
-    'prodex pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 300000] [--busy-wait-ms 600000] [--target-url url --confirm-target] [--new-chat] [--stdin] [--json] [--auto-login|--no-auto-login] [--file path] [--attach path] [--model Pro] [--pro-mode 기본|확장] [--effort 즉시|중간|높음|"매우 높음"] [--project "name" | --project-new "name"] "prompt"',
+    'prodex pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 300000] [--busy-wait-ms 600000] [--target-url url --confirm-target] [--new-chat] [--stdin] [--json] [--auto-login|--no-auto-login] [--file path] [--attach path] [--tool deep-research|web-search|create-image] [--model Pro] [--pro-mode 기본|확장] [--effort 즉시|중간|높음|"매우 높음"] [--project "name" | --project-new "name"] "prompt"',
     "installed browser help"
   );
   assertIncludes(
@@ -1069,7 +1069,7 @@ try {
   );
   assertIncludes(
     sourceBrowserHelp.stdout,
-    `${sourcePrefix} pro browser ask --source-cli ${installedSourceCli} [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 300000] [--busy-wait-ms 600000] [--target-url url --confirm-target] [--new-chat] [--stdin] [--json] [--auto-login|--no-auto-login] [--file path] [--attach path] [--model Pro] [--pro-mode 기본|확장] [--effort 즉시|중간|높음|"매우 높음"] [--project "name" | --project-new "name"] "prompt"`,
+    `${sourcePrefix} pro browser ask --source-cli ${installedSourceCli} [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 300000] [--busy-wait-ms 600000] [--target-url url --confirm-target] [--new-chat] [--stdin] [--json] [--auto-login|--no-auto-login] [--file path] [--attach path] [--tool deep-research|web-search|create-image] [--model Pro] [--pro-mode 기본|확장] [--effort 즉시|중간|높음|"매우 높음"] [--project "name" | --project-new "name"] "prompt"`,
     "installed source browser help"
   );
   assertIncludes(

@@ -4,6 +4,29 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.21.0] - 2026-08-07
+
+### Added
+- `--tool <name>` (and `tools: [...]` on `pro_consult`) turns on a ChatGPT
+  composer tool for a send: `web-search`, `deep-research`, `create-image`, or
+  any label the tools menu shows - an unknown name is passed through, so a tool
+  ChatGPT adds later needs no prodex release, and a name the menu does not have
+  fails with the actual menu contents listed. Aliases (`deep`, `research`,
+  `search`, `image`) resolve to the rendered labels.
+  `web-search` is verified live end to end (a current-rate question came back
+  with the figure, the date and a source).
+  `deep-research` raises the default timeout to 30 minutes automatically. It is
+  NOT verified end to end: on this account the tool enables, the prompt posts,
+  and ChatGPT then produced no assistant message at all for 30+ minutes, with
+  no activity indicator. Treat it as available but unproven until that is
+  understood.
+- Enabling a tool had to be sequenced around a discovery: a tool is not a chip
+  beside the composer, it is a token INSIDE the ProseMirror editor. It is
+  therefore enabled after the composer is cleared (clearing removes it), the
+  prompt/composer match check ignores the token, and because the toggle
+  survives a page reload, prodex clearing the composer on every send is what
+  keeps a tool from leaking into the next one.
+
 ## [0.20.0] - 2026-08-06
 
 ### Added

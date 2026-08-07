@@ -17,6 +17,7 @@ import {
   openChatGptBrowser,
   parseProMode,
   parseReasoningEffort,
+  defaultTimeoutForTools,
   ensureVirtualDisplay,
   minimizeChatGptWindow,
   readLastBrowserLoginLaunch,
@@ -839,6 +840,12 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
     if (attachments.length > 0 && !hasSendMode) {
       throw new Error("--attach only applies when sending (`prodex pro browser ask`); the dry-run preview cannot upload files.");
     }
+    // --tool turns on a composer tool (deep-research, web-search,
+    // create-image, or any label the menu shows) for this send.
+    const tools = readRepeatedFlag(parsedAskPro.optionArgs, "--tool");
+    if (tools.length > 0 && !hasSendMode) {
+      throw new Error("--tool only applies when sending (`prodex pro browser ask`); the dry-run preview cannot open ChatGPT's tools menu.");
+    }
     const targetUrl = readFlag(parsedAskPro.optionArgs, "--target-url");
     const normalizedTargetUrl = targetUrl ? normalizeChatGptTargetUrl(targetUrl) : undefined;
     if (!normalizedTargetUrl && parsedAskPro.optionArgs.includes("--confirm-target")) {
@@ -937,7 +944,7 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
     // consults (observed in several field sessions).
     const defaultBrowserTimeoutMs = effectiveProSelection ? 1_200_000 : 300_000;
     const browserTimeoutMs = hasSendMode
-      ? (readPositiveIntegerFlag(parsedAskPro.optionArgs, "--timeout-ms") ?? defaultBrowserTimeoutMs)
+      ? (readPositiveIntegerFlag(parsedAskPro.optionArgs, "--timeout-ms") ?? defaultTimeoutForTools(tools, defaultBrowserTimeoutMs))
       : undefined;
     const sourceCli = resolveOptionalFileFlag(io.cwd, parsedAskPro.optionArgs, "--source-cli");
     const bundle = await buildDryRunBundle(targetCwd, { prompt: promptText, files });
@@ -1006,6 +1013,7 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
           targetUrl: normalizedTargetUrl,
           timeoutMs: browserTimeoutMs,
           ...(attachments.length > 0 ? { attachments } : {}),
+          ...(tools.length > 0 ? { tools } : {}),
           ...(newChat ? { newChat: true } : {}),
           ...(busyWaitMs !== undefined ? { busyWaitMs } : {}),
           project: selectionProject,
@@ -1281,6 +1289,8 @@ export interface BrowserConsultInput {
   files?: string[];
   /** Repo-relative paths to UPLOAD as real ChatGPT attachments (pdf, pptx, images). */
   attach?: string[];
+  /** Composer tools to enable: deep-research, web-search, create-image. */
+  tools?: string[];
   /** Send into a fresh chat; recommended for agent loops and debates. */
   new_chat?: boolean;
 }
@@ -1322,6 +1332,7 @@ export async function performBrowserConsultForMcp(
     ...(input.timeout_ms !== undefined ? ["--timeout-ms", String(input.timeout_ms)] : []),
     ...(input.files ?? []).flatMap((file) => ["--file", file]),
     ...(input.attach ?? []).flatMap((file: string) => ["--attach", file]),
+    ...(input.tools ?? []).flatMap((tool: string) => ["--tool", tool]),
     ...(input.new_chat ? ["--new-chat"] : []),
     "--",
     input.prompt

@@ -19,7 +19,7 @@ First-time setup:
 
 Ask / consult commands:
   prodex ask [same flags as pro browser ask] "prompt"  # top-level shortcut for pro browser ask
-  prodex pro ask [--dry-run] [--cwd /absolute/path/to/repo] [--file path] [--attach path] "prompt"  # dry-run preview
+  prodex pro ask [--dry-run] [--cwd /absolute/path/to/repo] [--file path] [--attach path] [--tool deep-research|web-search|create-image] "prompt"  # dry-run preview
   prodex pro debate-prompt [--topic "..."] [--rounds 2] [--source-cli /absolute/path/to/dist/cli.js]  # print an agent prompt for a structured GPT Pro debate
   prodex pro browser login [--cwd /absolute/path/to/repo] [--dry-run] [--source-cli /absolute/path/to/dist/cli.js] [--profile-dir path] [--port 9333] [--url https://chatgpt.com/...] [--launch-timeout-ms 5000] [--wait|--no-wait] [--headless|--minimized|--virtual-display] [--wait-timeout-ms 300000]  # preview/open visible browser login
   prodex pro browser help [--source-cli /absolute/path/to/dist/cli.js]
@@ -28,14 +28,14 @@ Ask / consult commands:
   prodex pro browser models [--source-cli /absolute/path/to/dist/cli.js] [--port 9333] [--timeout-ms 15000]  # read-only list of model menu options
   prodex pro browser projects [--source-cli /absolute/path/to/dist/cli.js] [--port 9333] [--timeout-ms 15000]  # read-only list of sidebar project names (for --project)
   prodex pro browser recover [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] --target-url <thread-url> [--timeout-ms 60000]  # recover a finished answer from a thread whose send timed out
-  prodex pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 300000] [--busy-wait-ms 600000] [--target-url url --confirm-target] [--new-chat] [--stdin] [--json] [--auto-login|--no-auto-login] [--file path] [--attach path] [--model Pro] [--pro-mode 기본|확장] [--effort 즉시|중간|높음|"매우 높음"] [--project "name" | --project-new "name"] "prompt"  # explicit visible-browser send
+  prodex pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 300000] [--busy-wait-ms 600000] [--target-url url --confirm-target] [--new-chat] [--stdin] [--json] [--auto-login|--no-auto-login] [--file path] [--attach path] [--tool deep-research|web-search|create-image] [--model Pro] [--pro-mode 기본|확장] [--effort 즉시|중간|높음|"매우 높음"] [--project "name" | --project-new "name"] "prompt"  # explicit visible-browser send
   prodex pro latest [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]
   prodex pro list [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--json]
   prodex pro show <task-id|latest> [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]
 
 Bridge ledger (durable tasks/results/receipts/sessions under .bridge/):
   prodex init [--cwd /absolute/path/to/repo]
-  prodex tasks create [--cwd /absolute/path/to/repo] --title "Title" --prompt "Prompt" [--repo-id id] [--file path] [--attach path]
+  prodex tasks create [--cwd /absolute/path/to/repo] --title "Title" --prompt "Prompt" [--repo-id id] [--file path] [--attach path] [--tool deep-research|web-search|create-image]
   prodex tasks list [--status new|claimed|done|blocked] [--cwd /absolute/path/to/repo] [--json]
   prodex tasks show <task-id|latest> [--cwd /absolute/path/to/repo]
   prodex tasks claim <task-id> [--cwd /absolute/path/to/repo] [--by codex]
@@ -161,14 +161,14 @@ export function printProHelp(stdout: (line: string) => void): void {
   stdout(`prodex pro
 
 Commands:
-  prodex pro ask [--dry-run] [--cwd /absolute/path/to/repo] [--file path] [--attach path] "prompt"
+  prodex pro ask [--dry-run] [--cwd /absolute/path/to/repo] [--file path] [--attach path] [--tool deep-research|web-search|create-image] "prompt"
   prodex pro debate-prompt [--topic "..."] [--rounds 2] [--source-cli /absolute/path/to/dist/cli.js]
   prodex pro browser help [--source-cli /absolute/path/to/dist/cli.js]
   prodex pro browser login [--cwd /absolute/path/to/repo] [--dry-run] [--source-cli /absolute/path/to/dist/cli.js] [--launch-timeout-ms 5000] [--wait|--no-wait] [--headless|--minimized|--virtual-display] [--wait-timeout-ms 300000]
   prodex pro browser check [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]
   prodex pro browser smoke [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]
   prodex pro browser models [--source-cli /absolute/path/to/dist/cli.js]
-  prodex pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--target-url url --confirm-target] [--new-chat] [--stdin] [--json] [--auto-login|--no-auto-login] [--file path] [--attach path] [--model Pro] [--pro-mode 기본|확장] [--effort 즉시|중간|높음|"매우 높음"] [--project "name" | --project-new "name"] "prompt"
+  prodex pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--target-url url --confirm-target] [--new-chat] [--stdin] [--json] [--auto-login|--no-auto-login] [--file path] [--attach path] [--tool deep-research|web-search|create-image] [--model Pro] [--pro-mode 기본|확장] [--effort 즉시|중간|높음|"매우 높음"] [--project "name" | --project-new "name"] "prompt"
   prodex pro latest [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]
   prodex pro list [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--json]
   prodex pro show <task-id|latest> [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]
@@ -205,7 +205,7 @@ export function printTasksHelp(stdout: (line: string) => void): void {
   stdout(`prodex tasks
 
 Commands:
-  prodex tasks create [--cwd /absolute/path/to/repo] --title "Title" --prompt "Prompt" [--repo-id id] [--file path] [--attach path]
+  prodex tasks create [--cwd /absolute/path/to/repo] --title "Title" --prompt "Prompt" [--repo-id id] [--file path] [--attach path] [--tool deep-research|web-search|create-image]
   prodex tasks list [--status new|claimed|done|blocked] [--cwd /absolute/path/to/repo] [--json]
   prodex tasks show <task-id|latest> [--cwd /absolute/path/to/repo]
   prodex tasks claim <task-id> [--cwd /absolute/path/to/repo] [--by codex]
@@ -254,8 +254,8 @@ export function printProBrowserHelp(stdout: (line: string) => void, sourceCli?: 
     : "prodex pro browser smoke [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 90000]";
   const selectionUsage = '[--model Pro] [--pro-mode 기본|확장] [--effort 즉시|중간|높음|"매우 높음"] [--project "name" | --project-new "name"]';
   const askUsage = sourceCli
-    ? `${cli} pro browser ask${sourceCliOption} [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 300000] [--busy-wait-ms 600000] [--target-url url --confirm-target] [--new-chat] [--stdin] [--json] [--auto-login|--no-auto-login] [--file path] [--attach path] ${selectionUsage} "prompt"`
-    : `prodex pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 300000] [--busy-wait-ms 600000] [--target-url url --confirm-target] [--new-chat] [--stdin] [--json] [--auto-login|--no-auto-login] [--file path] [--attach path] ${selectionUsage} "prompt"`;
+    ? `${cli} pro browser ask${sourceCliOption} [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 300000] [--busy-wait-ms 600000] [--target-url url --confirm-target] [--new-chat] [--stdin] [--json] [--auto-login|--no-auto-login] [--file path] [--attach path] [--tool deep-research|web-search|create-image] ${selectionUsage} "prompt"`
+    : `prodex pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 300000] [--busy-wait-ms 600000] [--target-url url --confirm-target] [--new-chat] [--stdin] [--json] [--auto-login|--no-auto-login] [--file path] [--attach path] [--tool deep-research|web-search|create-image] ${selectionUsage} "prompt"`;
   const modelsUsage = sourceCli
     ? `${cli} pro browser models${sourceCliOption} [--port 9333] [--timeout-ms 15000]`
     : "prodex pro browser models [--source-cli /absolute/path/to/dist/cli.js] [--port 9333] [--timeout-ms 15000]";

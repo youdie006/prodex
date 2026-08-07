@@ -35,6 +35,8 @@ import {
   modelButtonAlreadyShows,
   attachmentStateExpression,
   attachmentPresenceExpression,
+  resolveComposerToolLabel,
+  defaultTimeoutForTools,
   modelSelectionWarning,
   resolveHeadlessPreference,
   resolveVirtualDisplayPreference,
@@ -139,6 +141,38 @@ describe("ChatGPT browser adapter", () => {
     // No requested model, or an unreadable button, must not claim a match.
     expect(modelButtonAlreadyShows(undefined, "Pro")).toBe(false);
     expect(modelButtonAlreadyShows("Pro", "")).toBe(false);
+  });
+
+  it("resolves tool aliases to the labels ChatGPT renders, and passes unknown ones through", () => {
+    // Agents will type the obvious thing, not ChatGPT's exact casing.
+    expect(resolveComposerToolLabel("deep-research")).toBe("Deep research");
+    expect(resolveComposerToolLabel("deep research")).toBe("Deep research");
+    expect(resolveComposerToolLabel("DEEP")).toBe("Deep research");
+    expect(resolveComposerToolLabel("research")).toBe("Deep research");
+    expect(resolveComposerToolLabel("web-search")).toBe("Web search");
+    expect(resolveComposerToolLabel("search")).toBe("Web search");
+    expect(resolveComposerToolLabel("create-image")).toBe("Create image");
+    expect(resolveComposerToolLabel("image")).toBe("Create image");
+    // A tool prodex has never heard of still reaches the menu by its label,
+    // so a new ChatGPT tool does not need a prodex release.
+    expect(resolveComposerToolLabel("Canva")).toBe("Canva");
+  });
+
+  it("ignores the tool token when checking that the composer holds the prompt", () => {
+    // Measured live: enabling a tool inserts its name INTO the ProseMirror
+    // composer (it is not a separate chip), so a strict text match would read
+    // "Deep research" as leftover contamination and refuse to send.
+    const expression = composerTextStateExpression("my prompt", ["Deep research"]);
+    expect(expression).toContain("Deep research");
+    expect(expression).toContain("my prompt");
+  });
+
+  it("needs a research-sized budget by default when deep research is on", () => {
+    // A deep research run is minutes of browsing, not one model reply; the
+    // ordinary Pro budget would abandon it mid-report.
+    expect(defaultTimeoutForTools(["Deep research"], 1_200_000)).toBeGreaterThanOrEqual(1_800_000);
+    expect(defaultTimeoutForTools(["Web search"], 1_200_000)).toBe(1_200_000);
+    expect(defaultTimeoutForTools([], 90_000)).toBe(90_000);
   });
 
   it("targets the general file input, not the image-only ones, when attaching", () => {

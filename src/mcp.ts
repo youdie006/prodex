@@ -29,6 +29,7 @@ export interface BrowserConsultToolInput {
   timeout_ms?: number;
   files?: string[];
   attach?: string[];
+  tools?: string[];
   new_chat?: boolean;
 }
 
@@ -279,6 +280,13 @@ export function createServer(cwd = process.cwd(), options: CreateMcpServerOption
           project: McpShortTextSchema.optional(),
           timeout_ms: z.number().int().positive().max(3_600_000).optional(),
           files: z.array(McpShortTextSchema).max(20).optional(),
+          tools: z
+            .array(McpShortTextSchema)
+            .max(4)
+            .optional()
+            .describe(
+              "ChatGPT composer tools to enable for this consult: \"deep-research\" (a multi-minute browsed report - the timeout rises to 30 minutes automatically), \"web-search\" (current facts), \"create-image\". Deep research often replies with a CLARIFYING QUESTION first; answer it with a normal follow-up consult in the same thread."
+            ),
           attach: z
             .array(McpShortTextSchema)
             .max(10)
