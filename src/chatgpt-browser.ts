@@ -2392,12 +2392,38 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
     throw acceptanceTimeoutError({ timeoutMs, composerStillHasText, submitButtonFound });
   }
 
+  // Pin the conversation the prompt actually landed in. The browser is shared
+  // (other agents, the user, tooling), and a tab that moves mid-wait made
+  // prodex read a DIFFERENT conversation and save it as this consult's answer -
+  // silently, with a receipt (caught live). Nothing about that is recoverable
+  // after the fact, so the wait either stays on this thread or fails loudly.
+  const pinnedThreadUrl = finalState?.url;
+  let recoveredNavigations = 0;
   const answerIsStable = createChatGptAnswerStabilityTracker();
   while (Date.now() - started < timeoutMs) {
     await sleep(1000);
     try {
       finalState = await evaluateOnPage<ChatGptAnswerState>(page, answerExpression());
-    } catch {
+      if (pinnedThreadUrl && finalState?.url && !chatGptUrlsReferToSameTarget(finalState.url, pinnedThreadUrl)) {
+        if (recoveredNavigations >= 2) {
+          throw new ChatGptBrowserBlockerError({
+            code: "thread_navigated_away",
+            message: "The browser tab was moved to a different ChatGPT conversation while this consult was waiting for its answer.",
+            retryable: true,
+            next_step: `Keep the dedicated browser on the consult thread, then fetch the answer with \`prodex pro browser recover --target-url ${pinnedThreadUrl}\`.`,
+            thread: pinnedThreadUrl
+          } as NonNullable<ChatGptBrowserStatus["blocker"]>);
+        }
+        recoveredNavigations += 1;
+        sendWarnings.push(
+          `thread_navigated_away_recovered: something moved the tab to another conversation mid-wait; prodex navigated back to ${pinnedThreadUrl}.`
+        );
+        await evaluateOnPage(page, `location.assign(${JSON.stringify(pinnedThreadUrl)})`);
+        await sleep(3_000);
+        continue;
+      }
+    } catch (error) {
+      if (error instanceof ChatGptBrowserBlockerError) throw error;
       // Transient CDP failure while the answer is streaming: retry. A throw here
       // would discard an already-streamed partial answer and skip the salvage
       // path below, so keep the last good state and poll again until timeout.
@@ -3088,6 +3114,7 @@ export function defaultTimeoutForTools(tools: readonly string[], fallbackMs: num
   const wantsDeepResearch = tools.some((tool) => resolveComposerToolLabel(tool) === DEEP_RESEARCH_TOOL_LABEL);
   return wantsDeepResearch ? Math.max(fallbackMs, DEEP_RESEARCH_MIN_TIMEOUT_MS) : fallbackMs;
 }
+
 
 export function composerToolsButtonRectExpression(): string {
   return `(() => {${CLICK_POINT_SNIPPET}

@@ -163,6 +163,19 @@ describe("ChatGPT browser adapter", () => {
     expect(powerLabelMatches("Pro", "Extra High")).toBe(false);
   });
 
+  it("treats a mid-wait conversation switch as a different target", () => {
+    // Caught live and it is a correctness bug, not a nuisance: while prodex
+    // waited for an answer, the shared tab was navigated to another
+    // conversation, and prodex saved THAT conversation's text as the consult
+    // answer - a completely unrelated thread, silently, with a receipt.
+    const sent = "https://chatgpt.com/c/6a7590d4-3e08-83ee-8962-50a7fc1e5646";
+    const other = "https://chatgpt.com/c/6a631bf8-c7b0-83e8-b25c-70b16f6d2287";
+    expect(chatGptUrlsReferToSameTarget(sent, other)).toBe(false);
+    expect(chatGptUrlsReferToSameTarget(sent, sent)).toBe(true);
+    // Query strings on the same conversation are still the same target.
+    expect(chatGptUrlsReferToSameTarget(sent, `${sent}?messageId=finalAgentTurnStart`)).toBe(true);
+  });
+
   it("recognizes the deep-research start button in either language", () => {
     // Deep research does not begin on submit: it shows a start button with a
     // countdown ring. prodex waited for an answer that never came because it
