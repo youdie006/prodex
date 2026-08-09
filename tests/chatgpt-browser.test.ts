@@ -38,6 +38,8 @@ import {
   resolveComposerToolLabel,
   powerLabelMatches,
   deepResearchStartButtonRectExpression,
+  conversationIdFromThreadUrl,
+  deepResearchReportExpression,
   deepResearchUnreadableBlocker,
   defaultTimeoutForTools,
   modelSelectionWarning,
@@ -191,18 +193,108 @@ describe("ChatGPT browser adapter", () => {
     expect(expression).toContain('data-message-author-role="user"');
   });
 
-  it("hands back the thread instead of waiting on a report it cannot read", () => {
-    // Measured against the user's own finished run: the same thread, same
-    // account, hard-reloaded in prodex's browser, shows only the prompt turn
-    // and an EMPTY result turn (roles ["user"], 72 chars of page) while their
-    // browser shows the finished report. Whatever the cause, prodex cannot
-    // read a deep research report - so it must say so with the thread URL
-    // rather than burn a 30-minute budget and time out.
+  it("pulls the deep research report out of the widget state the app stores it in", async () => {
+    // Deep research now renders as a widget app (connector_openai_deep_research)
+    // inside an iframe, so the report is absent from the main frame DOM. The
+    // conversation transcript still carries it: the tool message's
+    // chatgpt_sdk.widget_state holds report_message.content.parts.
+    const conversation = {
+      mapping: {
+        "client-created-root": {},
+        u1: { message: { author: { role: "user" }, content: { content_type: "text", parts: ["research this"] } } },
+        t1: {
+          message: {
+            author: { role: "tool" },
+            content: { content_type: "code", text: "{}" },
+            metadata: {
+              chatgpt_sdk: {
+                resource_name: "Deep Research App_start",
+                widget_state: JSON.stringify({
+                  status: "completed",
+                  research_started_at: "2026-08-09T04:56:48.802612Z",
+                  report_message: { content: { parts: ["# Report\n\nBody text."] } }
+                })
+              }
+            }
+          }
+        }
+      }
+    };
+    const fetched: string[] = [];
+    const fakeFetch = async (url: string) => {
+      fetched.push(url);
+      if (url.includes("/api/auth/session")) return { ok: true, status: 200, json: async () => ({ accessToken: "tok" }) };
+      return { ok: true, status: 200, json: async () => conversation };
+    };
+    const run = new Function("fetch", `return ${deepResearchReportExpression("conv-1")}`);
+    const state = await run(fakeFetch);
+
+    expect(state.ok).toBe(true);
+    expect(state.status).toBe("completed");
+    expect(state.report).toBe("# Report\n\nBody text.");
+    expect(fetched[1]).toContain("/backend-api/conversation/conv-1");
+  });
+
+  it("says why the deep research report is not readable yet instead of returning an empty answer", async () => {
+    const running = {
+      mapping: {
+        t1: {
+          message: {
+            author: { role: "tool" },
+            metadata: { chatgpt_sdk: { widget_state: JSON.stringify({ status: "researching" }) } }
+          }
+        }
+      }
+    };
+    const fakeFetch = async (url: string) =>
+      url.includes("/api/auth/session")
+        ? { ok: true, status: 200, json: async () => ({ accessToken: "tok" }) }
+        : { ok: true, status: 200, json: async () => running };
+    const state = await new Function("fetch", `return ${deepResearchReportExpression("conv-1")}`)(fakeFetch);
+    expect(state.ok).toBe(false);
+    expect(state.status).toBe("researching");
+    expect(state.report).toBe("");
+
+    // No widget at all (the tool never ran) must be distinguishable from a run
+    // still in progress, so the caller can stop waiting.
+    const bare = async (url: string) =>
+      url.includes("/api/auth/session")
+        ? { ok: true, status: 200, json: async () => ({ accessToken: "tok" }) }
+        : { ok: true, status: 200, json: async () => ({ mapping: {} }) };
+    const none = await new Function("fetch", `return ${deepResearchReportExpression("conv-1")}`)(bare);
+    expect(none.ok).toBe(false);
+    expect(none.reason).toBe("no_widget_state");
+
+    // A failed auth/session lookup must not look like "still researching".
+    const denied = async () => ({ ok: false, status: 401, json: async () => ({}) });
+    const unauth = await new Function("fetch", `return ${deepResearchReportExpression("conv-1")}`)(denied);
+    expect(unauth.ok).toBe(false);
+    expect(unauth.reason).toBe("session_http_401");
+  });
+
+  it("reads the conversation id out of plain and project thread urls", () => {
+    expect(conversationIdFromThreadUrl("https://chatgpt.com/c/6a780848-1660-83ee-9e1a-104f95826746")).toBe(
+      "6a780848-1660-83ee-9e1a-104f95826746"
+    );
+    expect(conversationIdFromThreadUrl("https://chatgpt.com/g/g-p-abc123-some-project/c/6a781322-552c-83e8-9c8f-02a5182c87f9")).toBe(
+      "6a781322-552c-83e8-9c8f-02a5182c87f9"
+    );
+    expect(conversationIdFromThreadUrl("https://chatgpt.com/c/6a780848-1660-83ee-9e1a-104f95826746?model=gpt-5")).toBe(
+      "6a780848-1660-83ee-9e1a-104f95826746"
+    );
+    expect(conversationIdFromThreadUrl("https://chatgpt.com/")).toBeUndefined();
+    expect(conversationIdFromThreadUrl("not a url")).toBeUndefined();
+  });
+
+  it("hands back the thread when there is no conversation id to fetch the report by", () => {
+    // The report is fetched from the conversation transcript, so a thread url
+    // without a conversation id leaves nothing to poll. The run still started,
+    // and the url is the only handle on it.
     const blocker = deepResearchUnreadableBlocker("https://chatgpt.com/c/abc123");
     expect(blocker.code).toBe("deep_research_not_readable");
     expect(blocker.thread).toBe("https://chatgpt.com/c/abc123");
     expect(blocker.next_step).toContain("https://chatgpt.com/c/abc123");
-    expect(blocker.retryable).toBe(false);
+    expect(blocker.retryable).toBe(true);
   });
 
   it("recognizes the deep-research start button in either language", () => {

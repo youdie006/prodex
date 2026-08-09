@@ -2,7 +2,13 @@
 
 All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).## 0.22.0
+
+### Added
+- `--tool deep-research` now returns the finished report. Deep research renders as a widget app inside an iframe, so the thread looks empty in the DOM no matter how long you wait or how hard you reload - which is why the previous release could only hand back a link. prodex now reads the run from the conversation transcript (`chatgpt_sdk.widget_state`), waits for `status: completed`, and returns `report_message` as the answer. Verified against three finished runs (13k-47k characters).
+- `pro browser recover --target-url <thread>` recovers deep research reports too, so a run that outlives its timeout is not lost.
+- A run still going when the budget expires blocks with `deep_research_still_running` and the thread to recover from, instead of an unexplained timeout.
+
 ## 0.21.3
 
 ### Changed

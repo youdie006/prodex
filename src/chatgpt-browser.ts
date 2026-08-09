@@ -2083,6 +2083,29 @@ export async function recoverChatGptAnswerFromThread(
     // In-tab navigation (location.assign, not Page.navigate which has crashed the
     // instance) so we read the requested thread, not whatever was open.
     await cdp.evaluate(`location.assign(${JSON.stringify(url)})`);
+    // A deep research thread has no assistant message to recover - its report
+    // lives in the widget state on the conversation transcript. Check that
+    // first so `recover` works on research threads at all.
+    const conversationId = conversationIdFromThreadUrl(url);
+    if (conversationId) {
+      try {
+        const report = await evaluateOnPage<DeepResearchReportState>(page.page, deepResearchReportExpression(conversationId), {
+          timeoutMs: 60_000
+        });
+        if (report.ok && report.report.trim().length > 0) {
+          return {
+            url,
+            title: "",
+            answer: report.report.trim(),
+            modelHints: [],
+            warnings: []
+          };
+        }
+      } catch {
+        // Not a research thread, or the transcript API is unavailable: fall
+        // through to the normal DOM recovery below.
+      }
+    }
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
       await sleep(500);
@@ -2238,6 +2261,7 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
   };
   let beforeSubmit!: ChatGptAnswerState;
   let submitButtonFound = false;
+  let wantsDeepResearch = false;
   const sendWarnings: string[] = [];
   const cdp = await connectCdp(page.webSocketDebuggerUrl);
   try {
@@ -2272,7 +2296,7 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
       emitProgress("selecting", `attached ${uploaded.attached.join(", ")}`);
     }
     const toolLabels = (options.tools ?? []).map(resolveComposerToolLabel);
-    const wantsDeepResearch = toolLabels.includes(DEEP_RESEARCH_TOOL_LABEL);
+    wantsDeepResearch = toolLabels.includes(DEEP_RESEARCH_TOOL_LABEL);
     if (toolLabels.length > 0) emitProgress("selecting", `tools=${toolLabels.join(", ")}`);
     await insertComposerTextViaCdp(cdp, options.prompt, page, toolLabels);
     // The send button renders asynchronously after the prompt lands. Poll for it
@@ -2329,11 +2353,6 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
           break;
         }
         await sleep(1_000);
-      }
-      // Do not wait for a report this browser will never render.
-      const threadNow = await cdp.evaluate<string>("location.href");
-      if (typeof threadNow === "string" && threadNow.length > 0) {
-        throw new ChatGptBrowserBlockerError(deepResearchUnreadableBlocker(threadNow));
       }
       if (!pressed) {
         sendWarnings.push(
@@ -2405,6 +2424,46 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
   // silently, with a receipt (caught live). Nothing about that is recoverable
   // after the fact, so the wait either stays on this thread or fails loudly.
   const pinnedThreadUrl = finalState?.url;
+  // Deep research never reaches the DOM answer wait below: the report is
+  // rendered by a widget app in an iframe, so the main frame stays empty even
+  // when the run has finished. Read the run out of the conversation transcript
+  // instead, which is where the widget keeps its state.
+  if (wantsDeepResearch) {
+    const conversationId = pinnedThreadUrl ? conversationIdFromThreadUrl(pinnedThreadUrl) : undefined;
+    if (!conversationId) throw new ChatGptBrowserBlockerError(deepResearchUnreadableBlocker(pinnedThreadUrl ?? "https://chatgpt.com/"));
+    let lastState: DeepResearchReportState | undefined;
+    while (Date.now() - started < timeoutMs) {
+      try {
+        lastState = await evaluateOnPage<DeepResearchReportState>(page, deepResearchReportExpression(conversationId), { timeoutMs: 60_000 });
+      } catch {
+        // Transient CDP/network failure: keep polling until the budget runs out.
+        await sleep(5_000);
+        continue;
+      }
+      if (lastState.ok && lastState.report.trim().length > 0) {
+        emitProgress("answered", `deep research report (${lastState.chars} chars)`);
+        return {
+          url: pinnedThreadUrl ?? "",
+          title: finalState?.title ?? "",
+          answer: lastState.report.trim(),
+          modelHints: finalState?.modelHints ?? [],
+          ...(finalState?.modelSlug ? { modelSlug: finalState.modelSlug } : {}),
+          warnings: sendWarnings
+        };
+      }
+      emitProgress("waiting", `deep research ${lastState.status || lastState.reason} (${formatDurationMs(Date.now() - started)})`);
+      // Each poll pulls the whole transcript, which a research run grows into
+      // the hundreds of KB - so poll on a calm cadence, not a tight one.
+      await sleep(15_000);
+    }
+    throw new ChatGptBrowserBlockerError({
+      code: "deep_research_still_running",
+      message: `The deep research run was still ${lastState?.status || "in progress"} after ${formatDurationMs(timeoutMs)}.`,
+      retryable: true,
+      next_step: `Fetch the report once it finishes with \`prodex pro browser recover --target-url ${pinnedThreadUrl}\`, or read it in your browser: ${pinnedThreadUrl}`,
+      ...(pinnedThreadUrl ? { thread: pinnedThreadUrl } : {})
+    });
+  }
   let recoveredNavigations = 0;
   const answerIsStable = createChatGptAnswerStabilityTracker();
   while (Date.now() - started < timeoutMs) {
@@ -3351,22 +3410,89 @@ export function chunkComposerText(text: string, size: number = COMPOSER_INSERT_C
  */
 
 /**
- * Deep research reports are not readable from prodex's browser session.
- * Measured against a run the user finished themselves: the SAME thread, same
- * account, hard-reloaded here, renders only the prompt turn and an empty
- * result turn (roles ["user"], 72 characters of page) while their own browser
- * shows the completed report. Rather than spend a 30-minute budget waiting for
- * text that never arrives, prodex hands back the thread and says where to read
- * it.
+ * The report is read from the conversation transcript, which is keyed by the
+ * conversation id in the thread url. Without that id there is nothing to poll,
+ * so hand the run back rather than waiting on a page that never renders it -
+ * deep research draws into a widget iframe, leaving the thread DOM empty.
  */
 export function deepResearchUnreadableBlocker(threadUrl: string): NonNullable<ChatGptBrowserStatus["blocker"]> {
   return {
     code: "deep_research_not_readable",
-    message: "The deep research run was started, but prodex cannot read deep research reports from its browser session - they do not render there.",
-    retryable: false,
-    next_step: `Open the run in your own browser and read it there: ${threadUrl}`,
+    message: "The deep research run was started, but prodex could not tell which conversation it landed in, so it cannot fetch the report.",
+    retryable: true,
+    next_step: `Read the run in your browser, or fetch it once it finishes with \`prodex pro browser recover --target-url ${threadUrl}\`: ${threadUrl}`,
     thread: threadUrl
   };
+}
+
+
+/**
+ * Deep research renders as a widget app (connector_openai_deep_research) inside
+ * an iframe, so the finished report is nowhere in the main frame DOM - which is
+ * why a completed run reads as an empty thread. The conversation transcript
+ * still carries it: the tool message's `chatgpt_sdk.widget_state` is a JSON
+ * blob holding the run status and `report_message.content.parts`.
+ *
+ * The expression runs in the page so it inherits the signed-in session; it only
+ * depends on `fetch`, which keeps it testable off-browser.
+ */
+export interface DeepResearchReportState {
+  ok: boolean;
+  reason: string;
+  status: string;
+  report: string;
+  chars: number;
+}
+
+export function deepResearchReportExpression(conversationId: string): string {
+  return `(async () => {
+  const fail = (reason, status) => ({ ok: false, reason, status: status || "", report: "", chars: 0 });
+  let token = "";
+  try {
+    const session = await fetch("/api/auth/session", { credentials: "include" });
+    if (!session.ok) return fail("session_http_" + session.status);
+    const parsed = await session.json();
+    token = (parsed && parsed.accessToken) || "";
+  } catch (error) {
+    return fail("session_error");
+  }
+  let conversation;
+  try {
+    const response = await fetch("/backend-api/conversation/" + ${JSON.stringify(conversationId)}, {
+      credentials: "include",
+      headers: token ? { Authorization: "Bearer " + token } : {}
+    });
+    if (!response.ok) return fail("conversation_http_" + response.status);
+    conversation = await response.json();
+  } catch (error) {
+    return fail("conversation_error");
+  }
+  const nodes = Object.keys((conversation && conversation.mapping) || {}).map((key) => conversation.mapping[key]);
+  const widgetNode = nodes.find(
+    (node) => node && node.message && node.message.metadata && node.message.metadata.chatgpt_sdk && node.message.metadata.chatgpt_sdk.widget_state
+  );
+  if (!widgetNode) return fail("no_widget_state");
+  let state;
+  try {
+    state = JSON.parse(widgetNode.message.metadata.chatgpt_sdk.widget_state);
+  } catch (error) {
+    return fail("widget_state_unparsable");
+  }
+  const status = (state && state.status) || "";
+  const parts = state && state.report_message && state.report_message.content && state.report_message.content.parts;
+  const report = Array.isArray(parts) ? parts.filter((part) => typeof part === "string").join("") : "";
+  if (!report) return fail("report_not_ready", status);
+  return { ok: true, reason: "", status, report, chars: report.length };
+})()`;
+}
+
+/**
+ * Thread urls come in a plain (`/c/<id>`) and a project (`/g/g-p-.../c/<id>`)
+ * shape; both end in the conversation id the backend API is keyed by.
+ */
+export function conversationIdFromThreadUrl(url: string): string | undefined {
+  const match = /\/c\/([0-9a-fA-F-]{16,})/.exec(url);
+  return match ? match[1] : undefined;
 }
 
 export function deepResearchStartButtonRectExpression(): string {
