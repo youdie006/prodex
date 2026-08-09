@@ -38,6 +38,7 @@ import {
   resolveComposerToolLabel,
   powerLabelMatches,
   deepResearchStartButtonRectExpression,
+  deepResearchUnreadableBlocker,
   defaultTimeoutForTools,
   modelSelectionWarning,
   resolveHeadlessPreference,
@@ -54,6 +55,7 @@ import {
   selectChatGptPage,
   prepareComposerExpression,
   composerTextStateExpression,
+  answerExpression,
   sendChatGptPrompt,
   submitExpression,
   isUsableChatGptAnswer,
@@ -174,6 +176,33 @@ describe("ChatGPT browser adapter", () => {
     expect(chatGptUrlsReferToSameTarget(sent, sent)).toBe(true);
     // Query strings on the same conversation are still the same target.
     expect(chatGptUrlsReferToSameTarget(sent, `${sent}?messageId=finalAgentTurnStart`)).toBe(true);
+  });
+
+  it("reads an answer that ChatGPT renders without an assistant role", () => {
+    // Deep research does not produce a [data-message-author-role="assistant"]
+    // node: the thread holds conversation-turn sections, the user's prompt in
+    // the first and the report in a later one (measured live on a running
+    // research thread - roles were ["user"] only). Reading assistant roles
+    // alone therefore reports "no answer" forever while the report is right
+    // there.
+    const expression = answerExpression();
+    expect(expression).toContain("conversation-turn");
+    // The user's own turn must never be mistaken for the answer.
+    expect(expression).toContain('data-message-author-role="user"');
+  });
+
+  it("hands back the thread instead of waiting on a report it cannot read", () => {
+    // Measured against the user's own finished run: the same thread, same
+    // account, hard-reloaded in prodex's browser, shows only the prompt turn
+    // and an EMPTY result turn (roles ["user"], 72 chars of page) while their
+    // browser shows the finished report. Whatever the cause, prodex cannot
+    // read a deep research report - so it must say so with the thread URL
+    // rather than burn a 30-minute budget and time out.
+    const blocker = deepResearchUnreadableBlocker("https://chatgpt.com/c/abc123");
+    expect(blocker.code).toBe("deep_research_not_readable");
+    expect(blocker.thread).toBe("https://chatgpt.com/c/abc123");
+    expect(blocker.next_step).toContain("https://chatgpt.com/c/abc123");
+    expect(blocker.retryable).toBe(false);
   });
 
   it("recognizes the deep-research start button in either language", () => {

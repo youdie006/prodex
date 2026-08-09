@@ -52,6 +52,8 @@ export interface ChatGptBrowserStatus {
     message: string;
     retryable: boolean;
     next_step?: string;
+    /** Thread the prompt landed in, when the blocker has one to hand back. */
+    thread?: string;
   };
 }
 
@@ -2328,6 +2330,11 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
         }
         await sleep(1_000);
       }
+      // Do not wait for a report this browser will never render.
+      const threadNow = await cdp.evaluate<string>("location.href");
+      if (typeof threadNow === "string" && threadNow.length > 0) {
+        throw new ChatGptBrowserBlockerError(deepResearchUnreadableBlocker(threadNow));
+      }
       if (!pressed) {
         sendWarnings.push(
           "deep_research_start_not_found: no start control appeared for the deep research run. If ChatGPT asked a clarifying question instead, answer it with a follow-up consult in the same thread."
@@ -3342,6 +3349,26 @@ export function chunkComposerText(text: string, size: number = COMPOSER_INSERT_C
  * on that: a run left waiting produced zero assistant messages for 30+ minutes
  * (measured live), because nothing pressed it.
  */
+
+/**
+ * Deep research reports are not readable from prodex's browser session.
+ * Measured against a run the user finished themselves: the SAME thread, same
+ * account, hard-reloaded here, renders only the prompt turn and an empty
+ * result turn (roles ["user"], 72 characters of page) while their own browser
+ * shows the completed report. Rather than spend a 30-minute budget waiting for
+ * text that never arrives, prodex hands back the thread and says where to read
+ * it.
+ */
+export function deepResearchUnreadableBlocker(threadUrl: string): NonNullable<ChatGptBrowserStatus["blocker"]> {
+  return {
+    code: "deep_research_not_readable",
+    message: "The deep research run was started, but prodex cannot read deep research reports from its browser session - they do not render there.",
+    retryable: false,
+    next_step: `Open the run in your own browser and read it there: ${threadUrl}`,
+    thread: threadUrl
+  };
+}
+
 export function deepResearchStartButtonRectExpression(): string {
   return `(() => {${CLICK_POINT_SNIPPET}
     const buttons = [...document.querySelectorAll('button,[role="button"]')];
@@ -3470,7 +3497,17 @@ export function answerExpression(): string {
     });
     const assistantMessages = messages.filter((message) => message.role === "assistant");
     const userMessages = messages.filter((message) => message.role === "user");
-    const assistant = assistantMessages.at(-1);
+    // Deep research renders no assistant-role node at all: the thread is
+    // conversation-turn sections, the prompt in the first and the report in a
+    // later one (measured live - roles were ["user"] only while a research ran).
+    // Fall back to the last turn that is NOT the user's, so such an answer is
+    // readable instead of looking like "no answer" forever.
+    const turnAnswers = assistantMessages.length > 0 ? [] : [...document.querySelectorAll('[data-testid^="conversation-turn"]')]
+      .filter((turn) => !turn.querySelector('[data-message-author-role="user"]'))
+      .map((turn) => ({ role: "assistant", text: (turn.innerText || "").trim(), modelSlug: undefined }))
+      .filter((turn) => turn.text.length > 0);
+    const effectiveAssistants = assistantMessages.length > 0 ? assistantMessages : turnAnswers;
+    const assistant = effectiveAssistants.at(-1);
     const buttons = [...document.querySelectorAll('button,[role="button"]')]
       .filter((node) => !!(node.offsetWidth || node.offsetHeight || node.getClientRects().length))
       .filter((node) => !node.closest(excludedTextSelector))
@@ -3489,7 +3526,7 @@ export function answerExpression(): string {
       blockerScanTextSample: visibleTextOutsideMessages(blockerScanExcludedSelector).slice(0, 12000),
       visibleButtonLabels: buttons,
       generating: placeholder || Boolean(document.querySelector(${streamingSelector})) || buttons.some((label) => generatingControlPattern.test(label)),
-      assistantMessageCount: assistantMessages.length,
+      assistantMessageCount: effectiveAssistants.length,
       userMessageCount: userMessages.length,
       // ChatGPT tags each assistant message with the model that produced it -
       // the only ground truth for "did the Pro selection actually take".

@@ -1053,6 +1053,10 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
           const name = selectionMetadata.project;
           return name ? text.split(name).join("<project>") : text;
         };
+        // Where the prompt actually landed beats where the caller aimed: with
+        // --new-chat there is no target url, and a blocker that started a run
+        // still has a thread worth handing back.
+        const blockedThread = blocker.thread ?? normalizedTargetUrl;
         const persistedBlocker = {
           ...blocker,
           message: redactProject(blocker.message),
@@ -1072,7 +1076,7 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
               direction: "codex_to_chatgpt",
               backend: "chatgpt-control",
               task_id: task.id,
-              thread: normalizedTargetUrl,
+              thread: blockedThread,
               status: "blocked",
               blocker: persistedBlocker,
               warnings: []
@@ -1087,7 +1091,7 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
         if (jsonOutput) {
           io.stdout(
             JSON.stringify(
-              { task_id: task.id, status: "blocked", thread: normalizedTargetUrl ?? null, answer: null, warnings: [], blocker },
+              { task_id: task.id, status: "blocked", thread: blockedThread ?? null, answer: null, warnings: [], blocker },
               null,
               2
             )
@@ -1473,7 +1477,7 @@ export async function assertBrowserLaunchStayedAlive(opened: ChatGptBrowserLaunc
   );
 }
 
-export function browserSendBlockerFromError(error: unknown): { code: string; message: string; retryable: boolean; next_step?: string } {
+export function browserSendBlockerFromError(error: unknown): { code: string; message: string; retryable: boolean; next_step?: string; thread?: string } {
   const blocker = typeof error === "object" && error !== null && "blocker" in error ? (error as { blocker?: unknown }).blocker : undefined;
   if (
     typeof blocker === "object" &&
@@ -1489,7 +1493,10 @@ export function browserSendBlockerFromError(error: unknown): { code: string; mes
       code: blocker.code,
       message: blocker.message,
       retryable: blocker.retryable,
-      ...("next_step" in blocker && typeof blocker.next_step === "string" ? { next_step: blocker.next_step } : {})
+      ...("next_step" in blocker && typeof blocker.next_step === "string" ? { next_step: blocker.next_step } : {}),
+      // A blocker that knows which thread the prompt landed in is the only
+      // place that URL exists - keep it so callers get a link, not prose.
+      ...("thread" in blocker && typeof blocker.thread === "string" ? { thread: blocker.thread } : {})
     };
   }
   const message = errorMessage(error);

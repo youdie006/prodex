@@ -135,6 +135,36 @@ describe("pro browser ask persistence", () => {
     );
   });
 
+  it("reports the thread a blocker landed in, not the one the caller asked for", async () => {
+    // --tool deep-research posts into a NEW thread and then blocks, because the
+    // report never renders here. The URL of that thread is the only thing the
+    // caller can act on, so it has to reach `thread` - not just prose inside
+    // next_step.
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-send-"));
+    const blocker = {
+      code: "deep_research_not_readable",
+      message: "The deep research run was started, but prodex cannot read deep research reports from its browser session.",
+      retryable: false,
+      next_step: "Open the run in your own browser and read it there: https://chatgpt.com/c/started",
+      thread: "https://chatgpt.com/c/started"
+    };
+    sendChatGptPromptMock.mockRejectedValueOnce(Object.assign(new Error(blocker.message), { blocker }));
+    const out: string[] = [];
+
+    await expect(
+      runCli(["pro", "browser", "ask", "--new-chat", "--tool", "deep-research", "--json", "Research this"], {
+        cwd,
+        stdout: (line) => out.push(line),
+        stderr: () => {}
+      })
+    ).rejects.toThrow(/blocked consult recorded: task_/);
+
+    const printed = JSON.parse(out.join("\n"));
+    expect(printed.status).toBe("blocked");
+    expect(printed.thread).toBe("https://chatgpt.com/c/started");
+    expect(printed.blocker.thread).toBe("https://chatgpt.com/c/started");
+  });
+
   it("records a blocked smoke consult when ChatGPT does not return the exact smoke token", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-send-"));
     sendChatGptPromptMock.mockResolvedValueOnce({

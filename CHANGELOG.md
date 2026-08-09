@@ -3,6 +3,16 @@
 All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## 0.21.3
+
+### Changed
+- `--tool deep-research` now returns the thread URL immediately instead of waiting out a 30-minute budget for a report it cannot read. A run the user finished themselves was measured from prodex's browser: the same thread, same account, after a real navigation and a cache-ignoring reload, renders only the prompt turn and an empty result turn - while their own browser shows the finished report. prodex starts the run and tells you where to read it (`deep_research_not_readable`).
+- README no longer claims deep research reports come back through prodex.
+- Blocked sends now report the thread the prompt actually landed in (`thread`, also on the blocker), instead of `null` whenever the send used `--new-chat`.
+
+### Fixed
+- The answer reader falls back to `conversation-turn` sections when a thread renders no `data-message-author-role` nodes, so answers in that shape are no longer read as empty.
+- Tests no longer write the real `~/.local/share/prodex/last-login.json`; the login registry is isolated per run.
 
 ## [0.21.2] - 2026-08-09
 
