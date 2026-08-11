@@ -499,6 +499,16 @@ repo: ${cwd}
    ${cli} pro browser check${sourceCliOption} --cwd ${quotedCwd}
    ${cli} pro browser smoke${sourceCliOption} --cwd ${quotedCwd}
    Sharing the browser with other agents? Sends queue behind an in-flight response automatically; pass --busy-wait-ms 0 to fail fast instead.
+   Hand ChatGPT a real file - the only way it can open a pdf, pptx, xlsx or image:
+   ${cli} ask --cwd ${quotedCwd} --attach deck.pptx "Review slides 40-60"  # uploads the file itself
+   ${cli} ask --cwd ${quotedCwd} --file notes.md "Summarize"  # pastes a text file's CONTENTS into the prompt
+   Both are restricted to paths inside the repo. Repeat either flag for several files.
+   Turn on a composer tool for one send:
+   ${cli} ask --cwd ${quotedCwd} --tool web-search "What shipped in Node 24?"  # current facts with sources
+   ${cli} ask --cwd ${quotedCwd} --tool deep-research "Compare managed Postgres providers"  # full browsed report; runs ~10 minutes, budget rises to 30
+   Any other label the composer menu shows works too, so a tool ChatGPT adds later needs no prodex release.
+   A send that outlives its budget did not lose the answer - ChatGPT usually finishes after prodex stops waiting:
+   ${cli} pro browser recover --target-url <thread-url> --cwd ${quotedCwd}  # fetches the finished answer (deep research reports too) and records it
 
 2. Let coding agents consult ChatGPT (stdio MCP: Claude, Codex, Cursor, ...):
    ${cli} claude config --cwd ${quotedCwd}${sourceCliOption}

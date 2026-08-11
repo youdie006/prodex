@@ -7,7 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - `--tool deep-research` now returns the finished report. Deep research renders as a widget app inside an iframe, so the thread looks empty in the DOM no matter how long you wait or how hard you reload - which is why the previous release could only hand back a link. prodex now reads the run from the conversation transcript (`chatgpt_sdk.widget_state`), waits for `status: completed`, and returns `report_message` as the answer. Verified against three finished runs (13k-47k characters).
 - `pro browser recover --target-url <thread>` recovers deep research reports too, so a run that outlives its timeout is not lost.
-- A run still going when the budget expires blocks with `deep_research_still_running` and the thread to recover from, instead of an unexplained timeout.
+- A run still going when the budget expires blocks with `deep_research_still_running` and the thread to recover from, instead of an unexplained timeout.## 0.23.1
+
+### Fixed
+- Onboarding taught none of the capabilities added since it was written. It now covers `--attach` (the only way ChatGPT can open a pdf, pptx, xlsx or image) next to `--file`, `--tool web-search` and `--tool deep-research` with its real cost (~10 minutes, 30-minute budget), and `pro browser recover --target-url`, so a send that outlives its budget is not treated as a lost answer.
+- `pro browser help` was missing `projects` and `recover` entirely - the same help onboarding tells agents to read.
+
 ## 0.23.0
 
 ### Changed

@@ -259,6 +259,14 @@ export function printProBrowserHelp(stdout: (line: string) => void, sourceCli?: 
   const modelsUsage = sourceCli
     ? `${cli} pro browser models${sourceCliOption} [--port 9333] [--timeout-ms 15000]`
     : "prodex pro browser models [--source-cli /absolute/path/to/dist/cli.js] [--port 9333] [--timeout-ms 15000]";
+  const projectsUsage = sourceCli
+    ? `${cli} pro browser projects${sourceCliOption} [--port 9333] [--timeout-ms 15000]  # read-only: exact sidebar project names`
+    : "prodex pro browser projects [--source-cli /absolute/path/to/dist/cli.js] [--port 9333] [--timeout-ms 15000]  # read-only: exact sidebar project names";
+  // A send that outlives its budget is not a lost answer, but only if agents
+  // know this exists - and this help is where onboarding sends them.
+  const recoverUsage = sourceCli
+    ? `${cli} pro browser recover${sourceCliOption} [--cwd /absolute/path/to/repo] [--port 9333] --target-url <thread-url> [--timeout-ms 60000]  # fetch a finished answer (deep research reports too) from a thread whose send timed out`
+    : "prodex pro browser recover [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] --target-url <thread-url> [--timeout-ms 60000]  # fetch a finished answer (deep research reports too) from a thread whose send timed out";
   stdout(`${cli} pro browser
 
 Commands:
@@ -266,7 +274,9 @@ Commands:
   ${checkUsage}
   ${smokeUsage}
   ${modelsUsage}
+  ${projectsUsage}
   ${askUsage}
+  ${recoverUsage}
 
 Visible-browser sends require a manual browser session and stop on login, captcha, Cloudflare, permission, rate-limit, or usage-limit blockers.
 Model/project selection (ask):

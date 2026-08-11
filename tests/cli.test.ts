@@ -3101,6 +3101,45 @@ describe("runCli", () => {
     ).rejects.toThrow(`--source-cli must be a file: ${sourceCliDir}`);
   });
 
+  it("lists every browser subcommand in the browser help agents are told to read", async () => {
+    // Onboarding points agents at `pro browser help`; a subcommand missing from
+    // that list is a subcommand agents never use. recover is the one that turns
+    // a timed-out send back into an answer.
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
+    const out: string[] = [];
+    await runCli(["pro", "browser", "help"], { cwd, stdout: (line) => out.push(line), stderr: () => {} });
+    const text = out.join("\n");
+
+    for (const subcommand of ["login", "check", "smoke", "models", "projects", "ask", "recover"]) {
+      expect(text).toContain(`prodex pro browser ${subcommand}`);
+    }
+  });
+
+  it("onboard teaches the capabilities an agent cannot discover by guessing", async () => {
+    // An agent that does not know --attach exists will paste a pdf path into
+    // the prompt; one that does not know recover exists treats a timed-out send
+    // as a lost answer. Onboarding is the only place these get taught.
+    const launcherCwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-launcher-"));
+    const targetCwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-target-"));
+    const out: string[] = [];
+
+    await runCli(["onboard", "--cwd", targetCwd], {
+      cwd: launcherCwd,
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+    const text = out.join("\n");
+
+    // Uploading a real file is not the same flag as inlining a text file.
+    expect(text).toContain("--attach");
+    expect(text).toContain("--file");
+    // Composer tools, and the one whose cost an agent must plan for.
+    expect(text).toContain("--tool deep-research");
+    expect(text).toContain("--tool web-search");
+    // A send that outlives its budget is recoverable, not lost.
+    expect(text).toContain(`prodex pro browser recover --target-url`);
+  });
+
   it("onboard prints first-run commands without exposing tokens or changing state", async () => {
     const launcherCwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-launcher-"));
     const targetCwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-target-"));
