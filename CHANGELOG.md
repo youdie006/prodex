@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `--tool deep-research` now returns the finished report. Deep research renders as a widget app inside an iframe, so the thread looks empty in the DOM no matter how long you wait or how hard you reload - which is why the previous release could only hand back a link. prodex now reads the run from the conversation transcript (`chatgpt_sdk.widget_state`), waits for `status: completed`, and returns `report_message` as the answer. Verified against three finished runs (13k-47k characters).
 - `pro browser recover --target-url <thread>` recovers deep research reports too, so a run that outlives its timeout is not lost.
 - A run still going when the budget expires blocks with `deep_research_still_running` and the thread to recover from, instead of an unexplained timeout.
+## 0.23.0
+
+### Changed
+- Answers are now read from the conversation transcript, with the rendered page as fallback. The transcript is the same data the UI draws, minus the drawing: markdown tables and fenced code survive instead of being flattened by innerText, citations come back as real links (the DOM drops their urls entirely), completion is an explicit `finished_successfully`/`end_turn` rather than a caret heuristic, and `model_used` comes from ChatGPT's own tag on the message.
+- The wait now pins the conversation id instead of the tab. Measured live: a send whose tab drifted back to the project page left the DOM reader reporting zero assistant messages for over ten minutes while the finished answer had been sitting in the transcript since 52 seconds in. Reading by conversation id is immune to where the tab wandered.
+- Deep research reports and `pro browser recover` resolve their citation markers the same way, so a saved report carries source links instead of private-use characters.
 
 ## 0.21.3
 

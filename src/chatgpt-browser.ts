@@ -2096,7 +2096,7 @@ export async function recoverChatGptAnswerFromThread(
           return {
             url,
             title: "",
-            answer: report.report.trim(),
+            answer: resolveTranscriptCitations(report.report, report.references).trim(),
             modelHints: [],
             warnings: []
           };
@@ -2155,6 +2155,29 @@ export async function recoverChatGptAnswerFromThread(
     warnings: []
   };
 }
+
+/**
+ * Read the answer from the conversation transcript, or undefined when it is not
+ * there yet. The transcript trails the rendered stream by a beat, so callers
+ * either poll it or fall back to the DOM text.
+ */
+async function readTranscriptAnswer(
+  page: DevtoolsPage,
+  conversationId: string
+): Promise<{ answer: string; modelSlug: string } | undefined> {
+  let transcript: TranscriptAnswerState;
+  try {
+    transcript = await evaluateOnPage<TranscriptAnswerState>(page, transcriptAnswerExpression(conversationId), { timeoutMs: 30_000 });
+  } catch {
+    // Transcript unavailable (endpoint changed, transient failure): the DOM
+    // reader still runs, so this never blocks a send.
+    return undefined;
+  }
+  if (!transcript.ok || transcript.text.trim().length === 0) return undefined;
+  const answer = resolveTranscriptCitations(transcript.text, transcript.references).trim();
+  return answer.length > 0 ? { answer, modelSlug: transcript.modelSlug } : undefined;
+}
+
 
 export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Promise<SendChatGptPromptResult> {
   const port = resolveCdpPort(options.port);
@@ -2424,6 +2447,25 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
   // silently, with a receipt (caught live). Nothing about that is recoverable
   // after the fact, so the wait either stays on this thread or fails loudly.
   const pinnedThreadUrl = finalState?.url;
+  // Pin the CONVERSATION, not the tab. The transcript reader fetches by id, so
+  // it keeps working when the tab wanders off the thread - which is exactly how
+  // a finished answer was lost: the tab returned to the project page, the url
+  // still matched the pin taken before ChatGPT rewrote it, and the DOM reader
+  // sat on zero assistant messages until the budget ran out.
+  let transcriptConversationId = pinnedThreadUrl ? conversationIdFromThreadUrl(pinnedThreadUrl) : undefined;
+  const transcriptResult = (transcript: { answer: string; modelSlug: string }): SendChatGptPromptResult => {
+    emitProgress("answered", `transcript (${transcript.answer.length} chars)`);
+    return {
+      url: finalState?.url ?? pinnedThreadUrl ?? "",
+      title: finalState?.title ?? "",
+      answer: transcript.answer,
+      modelHints: finalState?.modelHints ?? [],
+      ...(transcript.modelSlug ? { modelSlug: transcript.modelSlug } : finalState?.modelSlug ? { modelSlug: finalState.modelSlug } : {}),
+      warnings: [...sendWarnings, modelSelectionWarning(options.model, transcript.modelSlug || finalState?.modelSlug)].filter(
+        (warning): warning is string => Boolean(warning)
+      )
+    };
+  };
   // Deep research never reaches the DOM answer wait below: the report is
   // rendered by a widget app in an iframe, so the main frame stays empty even
   // when the run has finished. Read the run out of the conversation transcript
@@ -2441,11 +2483,12 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
         continue;
       }
       if (lastState.ok && lastState.report.trim().length > 0) {
-        emitProgress("answered", `deep research report (${lastState.chars} chars)`);
+        const report = resolveTranscriptCitations(lastState.report, lastState.references).trim();
+        emitProgress("answered", `deep research report (${report.length} chars)`);
         return {
           url: pinnedThreadUrl ?? "",
           title: finalState?.title ?? "",
-          answer: lastState.report.trim(),
+          answer: report,
           modelHints: finalState?.modelHints ?? [],
           ...(finalState?.modelSlug ? { modelSlug: finalState.modelSlug } : {}),
           warnings: sendWarnings
@@ -2470,7 +2513,17 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
     await sleep(1000);
     try {
       finalState = await evaluateOnPage<ChatGptAnswerState>(page, answerExpression());
-      if (pinnedThreadUrl && finalState?.url && !chatGptUrlsReferToSameTarget(finalState.url, pinnedThreadUrl)) {
+      if (!transcriptConversationId && finalState?.url) transcriptConversationId = conversationIdFromThreadUrl(finalState.url);
+      // The transcript is the same data the page renders, minus the rendering:
+      // markdown instead of flattened innerText, an explicit finish state
+      // instead of caret heuristics, and the model that actually answered.
+      if (transcriptConversationId && !finalState.generating) {
+        const transcript = await readTranscriptAnswer(page, transcriptConversationId);
+        if (transcript) return transcriptResult(transcript);
+      }
+      // Only the DOM reader depends on which thread the tab is showing; once the
+      // conversation id is known, a wandering tab is harmless.
+      if (!transcriptConversationId && pinnedThreadUrl && finalState?.url && !chatGptUrlsReferToSameTarget(finalState.url, pinnedThreadUrl)) {
         if (recoveredNavigations >= 2) {
           throw new ChatGptBrowserBlockerError({
             code: "thread_navigated_away",
@@ -2503,7 +2556,19 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
     // mid-stream, and the streaming caret renders as a literal trailing
     // character that can outlive the stop button. The tracker requires extra
     // confirmations for caret-suspect tails (see its doc comment).
-    if (answerIsStable(finalState.answer, finalState.generating)) break;
+    if (answerIsStable(finalState.answer, finalState.generating)) {
+      // The rendered answer settles a beat before the server transcript does.
+      // Give the transcript that beat: it carries markdown (tables and fenced
+      // code that innerText flattens) and the model that actually answered.
+      if (transcriptConversationId) {
+        for (let attempt = 0; attempt < 6; attempt += 1) {
+          const transcript = await readTranscriptAnswer(page, transcriptConversationId);
+          if (transcript) return transcriptResult(transcript);
+          await sleep(1_500);
+        }
+      }
+      break;
+    }
   }
   const completed = finalState;
   if (completed && hasFreshChatGptAnswer(beforeSubmit.assistantMessageCount, completed)) {
@@ -3436,17 +3501,130 @@ export function deepResearchUnreadableBlocker(threadUrl: string): NonNullable<Ch
  * The expression runs in the page so it inherits the signed-in session; it only
  * depends on `fetch`, which keeps it testable off-browser.
  */
+export interface TranscriptCitationReference {
+  matched_text?: string;
+  items?: Array<{ title?: string; url?: string }>;
+}
+
+export interface TranscriptAnswerState {
+  ok: boolean;
+  reason: string;
+  status: string;
+  endTurn: boolean;
+  isComplete: boolean;
+  text: string;
+  modelSlug: string;
+  references: TranscriptCitationReference[];
+}
+
+/**
+ * The transcript is the same data the UI renders, minus the rendering: it
+ * carries the answer as markdown (tables and fenced code survive, which
+ * innerText flattens), an explicit finish state, and the model that actually
+ * answered. Walk from `current_node` up the parents so a regenerated turn reads
+ * the branch the UI is on, not an abandoned sibling.
+ */
+export function transcriptAnswerExpression(conversationId: string): string {
+  return `(async () => {
+  const fail = (reason, extra) => Object.assign({ ok: false, reason, status: "", endTurn: false, isComplete: false, text: "", modelSlug: "", references: [] }, extra || {});
+  let token = "";
+  try {
+    const session = await fetch("/api/auth/session", { credentials: "include" });
+    if (!session.ok) return fail("session_http_" + session.status);
+    const parsed = await session.json();
+    token = (parsed && parsed.accessToken) || "";
+  } catch (error) {
+    return fail("session_error");
+  }
+  let conversation;
+  try {
+    const response = await fetch("/backend-api/conversation/" + ${JSON.stringify(conversationId)}, {
+      credentials: "include",
+      headers: token ? { Authorization: "Bearer " + token } : {}
+    });
+    if (!response.ok) return fail("conversation_http_" + response.status);
+    conversation = await response.json();
+  } catch (error) {
+    return fail("conversation_error");
+  }
+  const mapping = (conversation && conversation.mapping) || {};
+  const chain = [];
+  let nodeId = conversation && conversation.current_node;
+  let guard = 0;
+  while (nodeId && mapping[nodeId] && guard < 2000) {
+    guard += 1;
+    if (mapping[nodeId].message) chain.push(mapping[nodeId].message);
+    nodeId = mapping[nodeId].parent;
+  }
+  const message = chain.find(
+    (entry) => entry && entry.author && entry.author.role === "assistant" && entry.content && entry.content.content_type === "text"
+  );
+  if (!message) return fail("no_assistant_message");
+  const parts = (message.content.parts || []).filter((part) => typeof part === "string");
+  const text = parts.join("");
+  const metadata = message.metadata || {};
+  const state = {
+    status: message.status || "",
+    endTurn: message.end_turn === true,
+    isComplete: metadata.is_complete === true,
+    text,
+    modelSlug: metadata.model_slug || "",
+    references: Array.isArray(metadata.content_references) ? metadata.content_references : []
+  };
+  if (state.status !== "finished_successfully" || !state.endTurn) return fail("answer_not_finished", state);
+  if (!text) return fail("answer_empty", state);
+  return Object.assign({ ok: true, reason: "" }, state);
+})()`;
+}
+
+// ChatGPT marks citations with private-use delimiters (U+E200 opens, U+E202
+// separates, U+E201 closes) and keeps the real sources in content_references.
+const CITATION_MARKER_PATTERN = /\uE200[^\uE200-\uE206]*(?:[\uE202\uE204-\uE206][^\uE200-\uE206]*)*[\uE201\uE203]/g;
+
+/**
+ * Turn those markers into ordinary markdown links, so a saved answer keeps the
+ * sources instead of the private-use noise (or, as in the rendered DOM, nothing
+ * at all). Markers with no matching reference are dropped.
+ */
+export function resolveTranscriptCitations(text: string, references: TranscriptCitationReference[] = []): string {
+  const byMarker = new Map<string, TranscriptCitationReference>();
+  for (const reference of references) {
+    if (reference && typeof reference.matched_text === "string" && reference.matched_text.length > 0) {
+      byMarker.set(reference.matched_text, reference);
+    }
+  }
+  const linksFor = (reference: TranscriptCitationReference | undefined): string => {
+    const seen = new Set<string>();
+    const links: string[] = [];
+    for (const item of reference?.items ?? []) {
+      const url = item?.url;
+      if (!url || seen.has(url)) continue;
+      seen.add(url);
+      links.push(`[${(item.title || url).trim()}](${url})`);
+    }
+    return links.length > 0 ? ` ${links.join(" ")}` : "";
+  };
+  let resolved = text;
+  for (const [marker, reference] of byMarker) {
+    resolved = resolved.split(marker).join(linksFor(reference));
+  }
+  // Anything still delimited had no reference to restore: strip it so private-use
+  // characters never reach a receipt.
+  return resolved.replace(CITATION_MARKER_PATTERN, "");
+}
+
 export interface DeepResearchReportState {
   ok: boolean;
   reason: string;
   status: string;
   report: string;
   chars: number;
+  references: TranscriptCitationReference[];
 }
 
 export function deepResearchReportExpression(conversationId: string): string {
   return `(async () => {
-  const fail = (reason, status) => ({ ok: false, reason, status: status || "", report: "", chars: 0 });
+  const fail = (reason, status) => ({ ok: false, reason, status: status || "", report: "", chars: 0, references: [] });
   let token = "";
   try {
     const session = await fetch("/api/auth/session", { credentials: "include" });
@@ -3479,10 +3657,12 @@ export function deepResearchReportExpression(conversationId: string): string {
     return fail("widget_state_unparsable");
   }
   const status = (state && state.status) || "";
-  const parts = state && state.report_message && state.report_message.content && state.report_message.content.parts;
+  const message = (state && state.report_message) || null;
+  const parts = message && message.content && message.content.parts;
   const report = Array.isArray(parts) ? parts.filter((part) => typeof part === "string").join("") : "";
+  const references = message && message.metadata && Array.isArray(message.metadata.content_references) ? message.metadata.content_references : [];
   if (!report) return fail("report_not_ready", status);
-  return { ok: true, reason: "", status, report, chars: report.length };
+  return { ok: true, reason: "", status, report, chars: report.length, references };
 })()`;
 }
 

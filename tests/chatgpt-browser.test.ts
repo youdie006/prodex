@@ -40,6 +40,8 @@ import {
   deepResearchStartButtonRectExpression,
   conversationIdFromThreadUrl,
   deepResearchReportExpression,
+  resolveTranscriptCitations,
+  transcriptAnswerExpression,
   deepResearchUnreadableBlocker,
   defaultTimeoutForTools,
   modelSelectionWarning,
@@ -191,6 +193,108 @@ describe("ChatGPT browser adapter", () => {
     expect(expression).toContain("conversation-turn");
     // The user's own turn must never be mistaken for the answer.
     expect(expression).toContain('data-message-author-role="user"');
+  });
+
+  it("reads the answer off the active branch of the transcript, not the newest node", async () => {
+    // Regenerating forks the conversation: the abandoned branch stays in the
+    // mapping. The UI follows current_node up its parents, and so must this -
+    // otherwise a regenerate hands back the answer the user threw away.
+    const conversation = {
+      current_node: "a2",
+      mapping: {
+        root: { message: null, parent: null },
+        u1: { message: { author: { role: "user" }, content: { content_type: "text", parts: ["q"] } }, parent: "root" },
+        a1: {
+          message: {
+            author: { role: "assistant" },
+            content: { content_type: "text", parts: ["discarded answer"] },
+            status: "finished_successfully",
+            end_turn: true
+          },
+          parent: "u1"
+        },
+        a2: {
+          message: {
+            author: { role: "assistant" },
+            content: { content_type: "text", parts: ["kept answer"] },
+            status: "finished_successfully",
+            end_turn: true,
+            metadata: { is_complete: true, model_slug: "gpt-5-6-pro" }
+          },
+          parent: "u1"
+        }
+      }
+    };
+    const fakeFetch = async (url: string) =>
+      url.includes("/api/auth/session")
+        ? { ok: true, status: 200, json: async () => ({ accessToken: "tok" }) }
+        : { ok: true, status: 200, json: async () => conversation };
+    const state = await new Function("fetch", `return ${transcriptAnswerExpression("conv-1")}`)(fakeFetch);
+
+    expect(state.ok).toBe(true);
+    expect(state.text).toBe("kept answer");
+    expect(state.modelSlug).toBe("gpt-5-6-pro");
+    expect(state.endTurn).toBe(true);
+  });
+
+  it("treats an unfinished transcript message as still generating", async () => {
+    const conversation = {
+      current_node: "a1",
+      mapping: {
+        u1: { message: { author: { role: "user" }, content: { content_type: "text", parts: ["q"] } }, parent: null },
+        a1: {
+          message: {
+            author: { role: "assistant" },
+            content: { content_type: "text", parts: ["half an ans"] },
+            status: "in_progress",
+            end_turn: null
+          },
+          parent: "u1"
+        }
+      }
+    };
+    const fakeFetch = async (url: string) =>
+      url.includes("/api/auth/session")
+        ? { ok: true, status: 200, json: async () => ({ accessToken: "tok" }) }
+        : { ok: true, status: 200, json: async () => conversation };
+    const state = await new Function("fetch", `return ${transcriptAnswerExpression("conv-1")}`)(fakeFetch);
+
+    expect(state.ok).toBe(false);
+    expect(state.reason).toBe("answer_not_finished");
+    expect(state.status).toBe("in_progress");
+    expect(state.text).toBe("half an ans");
+  });
+
+  it("restores citation markers to links the transcript already carries", () => {
+    // ChatGPT stores citations as private-use delimited tokens the UI renders
+    // as chips; innerText drops the urls entirely. content_references maps each
+    // token back to its sources, so the answer keeps them.
+    const marker = "\uE200cite\uE202turn0search19\uE202turn0search5\uE201";
+    const text = `Jeju is busy in summer.${marker} Book early.`;
+    const resolved = resolveTranscriptCitations(text, [
+      {
+        matched_text: marker,
+        items: [
+          { title: "Visit Jeju", url: "https://www.visitjeju.net/u/25n" },
+          { title: "Halla reservations", url: "https://visithalla.jeju.go.kr/contents.do" }
+        ]
+      }
+    ]);
+    expect(resolved).toBe(
+      "Jeju is busy in summer. [Visit Jeju](https://www.visitjeju.net/u/25n) [Halla reservations](https://visithalla.jeju.go.kr/contents.do) Book early."
+    );
+
+    // A marker with no reference is noise, not content: drop it rather than
+    // leaking private-use characters into the saved answer.
+    expect(resolveTranscriptCitations(`kept${marker}`, [])).toBe("kept");
+    // Duplicate urls collapse so a heavily cited sentence stays readable.
+    expect(
+      resolveTranscriptCitations(`x${marker}`, [
+        { matched_text: marker, items: [{ title: "A", url: "https://a.example" }, { title: "A again", url: "https://a.example" }] }
+      ])
+    ).toBe("x [A](https://a.example)");
+    // Text without markers is returned untouched.
+    expect(resolveTranscriptCitations("plain answer", [])).toBe("plain answer");
   });
 
   it("pulls the deep research report out of the widget state the app stores it in", async () => {
