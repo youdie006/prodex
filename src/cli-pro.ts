@@ -130,7 +130,7 @@ export async function runChatgptCommand(rest: string[], io: CliIO): Promise<numb
         const task = await targetStore.createTask({
           source: "codex",
           title: "GPT Pro smoke",
-          prompt: bundle.text,
+          prompt: bundle.sendText,
           repo_id: "default",
           provenance: {
             adapter: "chatgpt-control",
@@ -957,7 +957,8 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
       const task = await targetStore.createTask({
         source: "codex",
         title: "GPT Pro consult",
-        prompt: bundle.text,
+        // Record what ChatGPT actually received, not the preview rendering.
+        prompt: bundle.sendText,
         repo_id: "default",
         files: files.map((file) => ({ path: file, role: "context" as const })),
         provenance: {
@@ -1009,7 +1010,7 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
         withBrowserSendLock(busyWaitMs ?? browserTimeoutMs ?? 0, (detail) => io.stderr(`progress: ${detail}`), () =>
         sendChatGptPrompt({
           port: browserPort,
-          prompt: bundle.text,
+          prompt: bundle.sendText,
           targetUrl: normalizedTargetUrl,
           timeoutMs: browserTimeoutMs,
           ...(attachments.length > 0 ? { attachments } : {}),

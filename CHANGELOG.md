@@ -11,7 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Onboarding taught none of the capabilities added since it was written. It now covers `--attach` (the only way ChatGPT can open a pdf, pptx, xlsx or image) next to `--file`, `--tool web-search` and `--tool deep-research` with its real cost (~10 minutes, 30-minute budget), and `pro browser recover --target-url`, so a send that outlives its budget is not treated as a lost answer.
-- `pro browser help` was missing `projects` and `recover` entirely - the same help onboarding tells agents to read.
+- `pro browser help` was missing `projects` and `recover` entirely - the same help onboarding tells agents to read.## 0.25.0
+
+### Fixed
+- prodex told ChatGPT that every real send was a preview. The visible-browser send reused the dry-run bundle, so each consult arrived headed "# prodex consult dry run / This preview was not sent anywhere." above the actual prompt - verified from a thread's own transcript. Sends now carry the prompt (and any `--file` contents) with no preview framing, and the receipt records what was really sent.
+- A composer tool's progress panel was returned as the answer. A `--tool web-search` consult came back with the 28 characters "Searching the web / Answer now" while the real reply was still being written. The transcript now decides when an answer is finished: if it can read the conversation and says the message is unfinished, the wait continues even when the page looks settled. The page reader also recognizes that panel as a placeholder for when the transcript is unreachable.
+- The transcript reader could latch onto the wrong conversation. It re-derived the conversation id from the tab's url on every poll, so a tab that wandered mid-wait would have handed back a stranger's answer - the accident thread pinning exists to prevent. The id is now fixed once, and every transcript read is checked against the prompt that was actually sent (tolerating the `@Tool` prefix a composer tool adds).
+
 ## 0.24.0
 
 ### Fixed

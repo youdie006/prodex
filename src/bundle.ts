@@ -13,7 +13,15 @@ export interface DryRunBundle {
   mode: "manual_copy";
   prompt: string;
   files: BridgeFile[];
+  /** Preview text for `pro ask`: explicitly labelled as not sent. */
   text: string;
+  /**
+   * What actually goes into the ChatGPT composer. This used to be `text`, so
+   * every real send arrived headed "# prodex consult dry run / This preview was
+   * not sent anywhere." - prodex told the model to disregard the very message
+   * it was asking it to answer.
+   */
+  sendText: string;
   created_at: string;
 }
 
@@ -28,10 +36,14 @@ export async function buildDryRunBundle(root: string, input: DryRunBundleInput):
     input.prompt.trim()
   ];
   const files: BridgeFile[] = [];
+  // The prompt leads so the instruction is never buried under file dumps.
+  const sendSections: string[] = [input.prompt.trim()];
   for (const file of input.files) {
     const content = await readRepoFile(root, file, { maxLines: 500 });
     files.push({ path: file, role: "context", bytes: Buffer.byteLength(content.content, "utf8") });
-    sections.push("", `## File: ${file}`, "", "```text", content.content, "```");
+    const fileSection = ["", `## File: ${file}`, "", "```text", content.content, "```"];
+    sections.push(...fileSection);
+    sendSections.push(...fileSection);
   }
   return {
     schema_version: SCHEMA_VERSION,
@@ -40,6 +52,7 @@ export async function buildDryRunBundle(root: string, input: DryRunBundleInput):
     prompt: input.prompt,
     files,
     text: sections.join("\n"),
+    sendText: sendSections.join("\n"),
     created_at: nowIso()
   };
 }

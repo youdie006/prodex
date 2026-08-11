@@ -20,6 +20,36 @@ describe("buildDryRunBundle", () => {
     expect(bundle.mode).toBe("manual_copy");
   });
 
+  it("never tells ChatGPT the real send is a preview", async () => {
+    // Measured from a real thread's transcript: every visible-browser send
+    // arrived at ChatGPT headed "# prodex consult dry run / This preview was
+    // not sent anywhere.", because the send path reused the preview text. The
+    // model was being told to ignore the very message it had to answer.
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-bundle-"));
+    const bundle = await buildDryRunBundle(cwd, { prompt: "Compare TCP and QUIC.", files: [] });
+
+    expect(bundle.sendText).not.toContain("dry run");
+    expect(bundle.sendText).not.toContain("not sent anywhere");
+    // With no files there is nothing to frame: the prompt goes as written.
+    expect(bundle.sendText).toBe("Compare TCP and QUIC.");
+    // The preview keeps its own wording.
+    expect(bundle.text).toContain("This preview was not sent anywhere.");
+  });
+
+  it("frames inlined files without preview wording", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-bundle-"));
+    await writeFile(path.join(cwd, "notes.md"), "alpha beta\n", "utf8");
+    const bundle = await buildDryRunBundle(cwd, { prompt: "Summarize the notes.", files: ["notes.md"] });
+
+    expect(bundle.sendText).not.toContain("dry run");
+    expect(bundle.sendText).not.toContain("not sent anywhere");
+    expect(bundle.sendText).toContain("Summarize the notes.");
+    expect(bundle.sendText).toContain("## File: notes.md");
+    expect(bundle.sendText).toContain("alpha beta");
+    // The prompt must lead, so the instruction is not buried under file dumps.
+    expect(bundle.sendText.indexOf("Summarize the notes.")).toBeLessThan(bundle.sendText.indexOf("## File: notes.md"));
+  });
+
   it("rejects env-like files as consult bundle context", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "prodex-bundle-"));
     await writeFile(path.join(root, ".envrc"), "SECRET=leak\n", "utf8");

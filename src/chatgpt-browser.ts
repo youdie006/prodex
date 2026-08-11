@@ -628,7 +628,44 @@ export function isUsableChatGptAnswer(answer: string): boolean {
       /(^|\s)(생각\s*중|thinking)$/i.test(firstLine);
     if (headerOnly) return false;
   }
+  // A composer tool renders its own progress panel into the assistant turn
+  // before any text exists. Measured on a --tool web-search send: "Searching
+  // the web" over an "Answer now" button, which the page reports as a settled
+  // two-line answer. Only treat it as a placeholder when it is the WHOLE
+  // content, so an answer that discusses searching still counts.
+  if (lineCount <= 2) {
+    const toolPanelOnly = normalized
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .every((line) => /^(searching the web|웹\s*검색\s*중|answer now|지금\s*답변|검색\s*중)$/i.test(line));
+    if (toolPanelOnly) return false;
+  }
   return true;
+}
+
+export type TranscriptReadClassification = "answer" | "pending" | "unavailable";
+
+/**
+ * Who decides the answer is finished: the transcript, when it can be read.
+ *
+ * The page only guesses - a tool's progress panel looks exactly like a settled
+ * two-line answer, and a consult once returned "Searching the web / Answer now"
+ * as its result. When the transcript is reachable AND belongs to this consult,
+ * its state is authoritative: "pending" keeps the wait alive even if the page
+ * looks done. "unavailable" (unreachable, or a different conversation) is the
+ * only case that falls back to reading the page.
+ */
+export function classifyTranscriptRead(
+  state: { ok: boolean; reason: string; status: string; userText: string } | undefined,
+  sentPrompt: string
+): TranscriptReadClassification {
+  if (!state) return "unavailable";
+  if (!transcriptMatchesSentPrompt(state.userText, sentPrompt)) return "unavailable";
+  if (state.ok) return "answer";
+  return state.reason === "answer_not_finished" || state.reason === "no_assistant_message" || state.reason === "answer_empty"
+    ? "pending"
+    : "unavailable";
 }
 
 export function hasFreshChatGptAnswer(
@@ -2161,21 +2198,26 @@ export async function recoverChatGptAnswerFromThread(
  * there yet. The transcript trails the rendered stream by a beat, so callers
  * either poll it or fall back to the DOM text.
  */
-async function readTranscriptAnswer(
-  page: DevtoolsPage,
-  conversationId: string
-): Promise<{ answer: string; modelSlug: string } | undefined> {
+interface TranscriptRead {
+  classification: TranscriptReadClassification;
+  answer?: { answer: string; modelSlug: string };
+}
+
+async function readTranscriptAnswer(page: DevtoolsPage, conversationId: string, sentPrompt: string): Promise<TranscriptRead> {
   let transcript: TranscriptAnswerState;
   try {
     transcript = await evaluateOnPage<TranscriptAnswerState>(page, transcriptAnswerExpression(conversationId), { timeoutMs: 30_000 });
   } catch {
-    // Transcript unavailable (endpoint changed, transient failure): the DOM
+    // Transcript unreachable (endpoint changed, transient failure): the DOM
     // reader still runs, so this never blocks a send.
-    return undefined;
+    return { classification: "unavailable" };
   }
-  if (!transcript.ok || transcript.text.trim().length === 0) return undefined;
+  const classification = classifyTranscriptRead(transcript, sentPrompt);
+  if (classification !== "answer") return { classification };
   const answer = resolveTranscriptCitations(transcript.text, transcript.references).trim();
-  return answer.length > 0 ? { answer, modelSlug: transcript.modelSlug } : undefined;
+  return answer.length > 0
+    ? { classification: "answer", answer: { answer, modelSlug: transcript.modelSlug } }
+    : { classification: "pending" };
 }
 
 
@@ -2482,7 +2524,7 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
         await sleep(5_000);
         continue;
       }
-      if (lastState.ok && lastState.report.trim().length > 0) {
+      if (lastState.ok && lastState.report.trim().length > 0 && transcriptMatchesSentPrompt(lastState.userText, options.prompt)) {
         const report = resolveTranscriptCitations(lastState.report, lastState.references).trim();
         emitProgress("answered", `deep research report (${report.length} chars)`);
         return {
@@ -2513,13 +2555,17 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
     await sleep(1000);
     try {
       finalState = await evaluateOnPage<ChatGptAnswerState>(page, answerExpression());
+      // First conversation id wins. Re-deriving it every poll would let a tab
+      // that wandered to another thread redirect the read to a stranger's
+      // conversation - and the prompt check below is the second line of defence,
+      // not the first.
       if (!transcriptConversationId && finalState?.url) transcriptConversationId = conversationIdFromThreadUrl(finalState.url);
       // The transcript is the same data the page renders, minus the rendering:
       // markdown instead of flattened innerText, an explicit finish state
       // instead of caret heuristics, and the model that actually answered.
       if (transcriptConversationId && !finalState.generating) {
-        const transcript = await readTranscriptAnswer(page, transcriptConversationId);
-        if (transcript) return transcriptResult(transcript);
+        const transcript = await readTranscriptAnswer(page, transcriptConversationId, options.prompt);
+        if (transcript.answer) return transcriptResult(transcript.answer);
       }
       // Only the DOM reader depends on which thread the tab is showing; once the
       // conversation id is known, a wandering tab is harmless.
@@ -2561,11 +2607,13 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
       // Give the transcript that beat: it carries markdown (tables and fenced
       // code that innerText flattens) and the model that actually answered.
       if (transcriptConversationId) {
-        for (let attempt = 0; attempt < 6; attempt += 1) {
-          const transcript = await readTranscriptAnswer(page, transcriptConversationId);
-          if (transcript) return transcriptResult(transcript);
-          await sleep(1_500);
-        }
+        const transcript = await readTranscriptAnswer(page, transcriptConversationId, options.prompt);
+        if (transcript.answer) return transcriptResult(transcript.answer);
+        // The transcript can read this conversation and says it is not done:
+        // believe it over a page that merely looks settled. A tool's progress
+        // panel renders exactly like a two-line answer, and that is how a
+        // consult once returned "Searching the web / Answer now" as its result.
+        if (transcript.classification === "pending") continue;
       }
       break;
     }
@@ -3515,6 +3563,8 @@ export interface TranscriptAnswerState {
   text: string;
   modelSlug: string;
   references: TranscriptCitationReference[];
+  /** The prompt this conversation holds, so a caller can prove it is its own. */
+  userText: string;
 }
 
 /**
@@ -3526,7 +3576,7 @@ export interface TranscriptAnswerState {
  */
 export function transcriptAnswerExpression(conversationId: string): string {
   return `(async () => {
-  const fail = (reason, extra) => Object.assign({ ok: false, reason, status: "", endTurn: false, isComplete: false, text: "", modelSlug: "", references: [] }, extra || {});
+  const fail = (reason, extra) => Object.assign({ ok: false, reason, status: "", endTurn: false, isComplete: false, text: "", modelSlug: "", references: [], userText: "" }, extra || {});
   let token = "";
   try {
     const session = await fetch("/api/auth/session", { credentials: "include" });
@@ -3559,7 +3609,9 @@ export function transcriptAnswerExpression(conversationId: string): string {
   const message = chain.find(
     (entry) => entry && entry.author && entry.author.role === "assistant" && entry.content && entry.content.content_type === "text"
   );
-  if (!message) return fail("no_assistant_message");
+  const userMessage = chain.find((entry) => entry && entry.author && entry.author.role === "user" && entry.content);
+  const userText = userMessage ? (userMessage.content.parts || []).filter((part) => typeof part === "string").join("") : "";
+  if (!message) return fail("no_assistant_message", { userText });
   const parts = (message.content.parts || []).filter((part) => typeof part === "string");
   const text = parts.join("");
   const metadata = message.metadata || {};
@@ -3569,12 +3621,34 @@ export function transcriptAnswerExpression(conversationId: string): string {
     isComplete: metadata.is_complete === true,
     text,
     modelSlug: metadata.model_slug || "",
-    references: Array.isArray(metadata.content_references) ? metadata.content_references : []
+    references: Array.isArray(metadata.content_references) ? metadata.content_references : [],
+    userText
   };
   if (state.status !== "finished_successfully" || !state.endTurn) return fail("answer_not_finished", state);
   if (!text) return fail("answer_empty", state);
   return Object.assign({ ok: true, reason: "" }, state);
 })()`;
+}
+
+const NORMALIZED_PROMPT_MATCH_CHARS = 120;
+
+/**
+ * Does this transcript belong to the consult that is waiting on it?
+ *
+ * The browser is shared with the user and other agents. Reading "whatever
+ * conversation the tab shows" once cost a consult its answer - prodex saved a
+ * different conversation as the result. Identity is checked against the prompt
+ * that was actually sent, normalized because ChatGPT re-wraps whitespace, and
+ * as a containment test because the transcript wraps the prompt: a composer
+ * tool prefixes it ("@Deep research ...") and attachments append to it.
+ */
+export function transcriptMatchesSentPrompt(userText: string, sentPrompt: string): boolean {
+  const normalize = (value: string): string => value.replace(/\s+/g, " ").trim();
+  const seen = normalize(userText);
+  const sent = normalize(sentPrompt);
+  if (seen.length === 0 || sent.length === 0) return false;
+  const expected = sent.slice(0, NORMALIZED_PROMPT_MATCH_CHARS);
+  return seen.includes(expected);
 }
 
 // ChatGPT marks citations with private-use delimiters (U+E200 opens, U+E202
@@ -3625,11 +3699,12 @@ export interface DeepResearchReportState {
   report: string;
   chars: number;
   references: TranscriptCitationReference[];
+  userText: string;
 }
 
 export function deepResearchReportExpression(conversationId: string): string {
   return `(async () => {
-  const fail = (reason, status) => ({ ok: false, reason, status: status || "", report: "", chars: 0, references: [] });
+  const fail = (reason, status, userText) => ({ ok: false, reason, status: status || "", report: "", chars: 0, references: [], userText: userText || "" });
   let token = "";
   try {
     const session = await fetch("/api/auth/session", { credentials: "include" });
@@ -3650,7 +3725,8 @@ export function deepResearchReportExpression(conversationId: string): string {
   } catch (error) {
     return fail("conversation_error");
   }
-  const nodes = Object.keys((conversation && conversation.mapping) || {}).map((key) => conversation.mapping[key]);
+  const mapping = (conversation && conversation.mapping) || {};
+  const nodes = Object.keys(mapping).map((key) => mapping[key]);
   const widgetNode = nodes.find(
     (node) => node && node.message && node.message.metadata && node.message.metadata.chatgpt_sdk && node.message.metadata.chatgpt_sdk.widget_state
   );
@@ -3662,12 +3738,22 @@ export function deepResearchReportExpression(conversationId: string): string {
     return fail("widget_state_unparsable");
   }
   const status = (state && state.status) || "";
+  const chain = [];
+  let walkId = conversation && conversation.current_node;
+  let walkGuard = 0;
+  while (walkId && mapping[walkId] && walkGuard < 2000) {
+    walkGuard += 1;
+    if (mapping[walkId].message) chain.push(mapping[walkId].message);
+    walkId = mapping[walkId].parent;
+  }
+  const userNode = chain.find((entry) => entry && entry.author && entry.author.role === "user" && entry.content);
+  const userText = userNode ? (userNode.content.parts || []).filter((part) => typeof part === "string").join("") : "";
   const message = (state && state.report_message) || null;
   const parts = message && message.content && message.content.parts;
   const report = Array.isArray(parts) ? parts.filter((part) => typeof part === "string").join("") : "";
   const references = message && message.metadata && Array.isArray(message.metadata.content_references) ? message.metadata.content_references : [];
-  if (!report) return fail("report_not_ready", status);
-  return { ok: true, reason: "", status, report, chars: report.length, references };
+  if (!report) return fail("report_not_ready", status, userText);
+  return { ok: true, reason: "", status, report, chars: report.length, references, userText };
 })()`;
 }
 

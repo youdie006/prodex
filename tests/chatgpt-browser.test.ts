@@ -42,6 +42,8 @@ import {
   deepResearchReportExpression,
   resolveTranscriptCitations,
   transcriptAnswerExpression,
+  classifyTranscriptRead,
+  transcriptMatchesSentPrompt,
   deepResearchUnreadableBlocker,
   defaultTimeoutForTools,
   modelSelectionWarning,
@@ -193,6 +195,81 @@ describe("ChatGPT browser adapter", () => {
     expect(expression).toContain("conversation-turn");
     // The user's own turn must never be mistaken for the answer.
     expect(expression).toContain('data-message-author-role="user"');
+  });
+
+  it("does not mistake a tool's own progress panel for an answer", () => {
+    // Measured on a --tool web-search send: the page rendered "Searching the
+    // web / Answer now" (a status line and a button) and prodex returned those
+    // 28 characters as the answer while the real reply was still being written.
+    expect(isUsableChatGptAnswer("Searching the web\nAnswer now")).toBe(false);
+    expect(isUsableChatGptAnswer("웹 검색 중\n지금 답변")).toBe(false);
+    expect(isUsableChatGptAnswer("Searching the web")).toBe(false);
+    // A real answer that merely mentions searching is not a placeholder.
+    expect(isUsableChatGptAnswer("Searching the web for benchmarks turned up three papers, summarized below.")).toBe(true);
+  });
+
+  it("keeps waiting when the transcript says the answer is unfinished", () => {
+    // The transcript knows whether the message is done; the page only guesses.
+    // When both are available the transcript decides, so a settled-looking page
+    // cannot end the wait early.
+    const sent = "my prompt";
+    expect(classifyTranscriptRead(undefined, sent)).toBe("unavailable");
+    expect(classifyTranscriptRead({ ok: false, reason: "conversation_http_500", status: "", userText: "" }, sent)).toBe("unavailable");
+    expect(classifyTranscriptRead({ ok: false, reason: "answer_not_finished", status: "in_progress", userText: "my prompt" }, sent)).toBe(
+      "pending"
+    );
+    expect(classifyTranscriptRead({ ok: false, reason: "no_assistant_message", status: "", userText: "my prompt" }, sent)).toBe("pending");
+    expect(classifyTranscriptRead({ ok: true, reason: "", status: "finished_successfully", userText: "my prompt" }, sent)).toBe("answer");
+    // A conversation that is not ours is not something to wait on.
+    expect(classifyTranscriptRead({ ok: false, reason: "answer_not_finished", status: "in_progress", userText: "someone else" }, sent)).toBe(
+      "unavailable"
+    );
+  });
+
+  it("returns the prompt the transcript holds, so a caller can prove the thread is its own", async () => {
+    const conversation = {
+      current_node: "a1",
+      mapping: {
+        u1: { message: { author: { role: "user" }, content: { content_type: "text", parts: ["my exact prompt"] } }, parent: null },
+        a1: {
+          message: {
+            author: { role: "assistant" },
+            content: { content_type: "text", parts: ["an answer"] },
+            status: "finished_successfully",
+            end_turn: true
+          },
+          parent: "u1"
+        }
+      }
+    };
+    const fakeFetch = async (url: string) =>
+      url.includes("/api/auth/session")
+        ? { ok: true, status: 200, json: async () => ({ accessToken: "tok" }) }
+        : { ok: true, status: 200, json: async () => conversation };
+    const state = await new Function("fetch", `return ${transcriptAnswerExpression("conv-1")}`)(fakeFetch);
+    expect(state.userText).toBe("my exact prompt");
+  });
+
+  it("refuses a transcript whose prompt is not the one that was sent", () => {
+    // The browser is shared. If the tab moves to another conversation while a
+    // consult waits, reading by "whatever id the url shows" would hand back a
+    // stranger's answer and record it as this consult's - the exact accident
+    // thread pinning exists to prevent.
+    const sent = "Compare TCP and QUIC handshakes.";
+    expect(transcriptMatchesSentPrompt("Compare TCP and QUIC handshakes.", sent)).toBe(true);
+    // ChatGPT re-wraps whitespace, so matching must survive that.
+    expect(transcriptMatchesSentPrompt("Compare TCP and\n QUIC   handshakes.", sent)).toBe(true);
+    // Attachments and tool tokens can append to what the transcript shows.
+    expect(transcriptMatchesSentPrompt(`${sent}\n\n[deck.pptx]`, sent)).toBe(true);
+    // Measured: a send with a composer tool arrives PREFIXED with the tool
+    // token, so the prompt is not at the start of the transcript message.
+    expect(transcriptMatchesSentPrompt(`@Deep research ${sent}`, sent)).toBe(true);
+    // A different conversation must never pass.
+    expect(transcriptMatchesSentPrompt("What is the capital of France?", sent)).toBe(false);
+    // Neither must a truncated echo that merely shares a prefix word.
+    expect(transcriptMatchesSentPrompt("Compare", sent)).toBe(false);
+    // Nothing to compare against is not a match.
+    expect(transcriptMatchesSentPrompt("", sent)).toBe(false);
   });
 
   it("reads the answer off the active branch of the transcript, not the newest node", async () => {
