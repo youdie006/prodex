@@ -1314,6 +1314,44 @@ export interface BrowserConsultOutcome {
  * instead of printed lines. Registered only on the local stdio MCP server -
  * never on the HTTP MCP surface, which is exposed to ChatGPT itself.
  */
+export interface BrowserRecoverInput {
+  /** ChatGPT conversation URL whose finished answer to fetch. */
+  thread: string;
+  timeout_ms?: number;
+}
+
+/**
+ * MCP-side counterpart to `pro browser recover`. A consult that outlives its
+ * budget hands back the thread it landed in, but until now the only way to act
+ * on that was a shell command - which an agent reaching prodex over MCP may not
+ * be able to run. Recovery has to be reachable the same way the consult was.
+ */
+export async function performBrowserRecoverForMcp(cwd: string, input: BrowserRecoverInput): Promise<BrowserConsultOutcome> {
+  const stdoutLines: string[] = [];
+  const stderrLines: string[] = [];
+  const argv = [
+    "browser",
+    "recover",
+    "--target-url",
+    input.thread,
+    ...(input.timeout_ms !== undefined ? ["--timeout-ms", String(input.timeout_ms)] : [])
+  ];
+  await runProCommand(argv, {
+    cwd,
+    stdout: (line) => stdoutLines.push(line),
+    stderr: (line) => stderrLines.push(line)
+  }, async () => 0);
+  const header = stdoutLines[0] ?? "";
+  const [taskId = "", status = "", thread = ""] = header.split("\t");
+  return {
+    task_id: taskId,
+    status,
+    thread,
+    answer: stdoutLines.slice(2).join("\n"),
+    notes: stderrLines
+  };
+}
+
 export async function performBrowserConsultForMcp(
   cwd: string,
   input: BrowserConsultInput,

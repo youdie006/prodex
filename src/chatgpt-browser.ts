@@ -3579,6 +3579,7 @@ export function transcriptAnswerExpression(conversationId: string): string {
 
 // ChatGPT marks citations with private-use delimiters (U+E200 opens, U+E202
 // separates, U+E201 closes) and keeps the real sources in content_references.
+const CITATION_DELIMITER_PATTERN = /[\uE200-\uE206]/;
 const CITATION_MARKER_PATTERN = /\uE200[^\uE200-\uE206]*(?:[\uE202\uE204-\uE206][^\uE200-\uE206]*)*[\uE201\uE203]/g;
 
 /**
@@ -3589,7 +3590,11 @@ const CITATION_MARKER_PATTERN = /\uE200[^\uE200-\uE206]*(?:[\uE202\uE204-\uE206]
 export function resolveTranscriptCitations(text: string, references: TranscriptCitationReference[] = []): string {
   const byMarker = new Map<string, TranscriptCitationReference>();
   for (const reference of references) {
-    if (reference && typeof reference.matched_text === "string" && reference.matched_text.length > 0) {
+    // Only substitute on text that IS a marker. A `sources_footnote` reference
+    // carries matched_text " " - a single space - and substituting on that
+    // replaced every space in the document, fusing a 47k-character report into
+    // one run-on word.
+    if (reference && typeof reference.matched_text === "string" && CITATION_DELIMITER_PATTERN.test(reference.matched_text)) {
       byMarker.set(reference.matched_text, reference);
     }
   }

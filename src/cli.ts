@@ -118,6 +118,7 @@ import {
   formatConfigWarningLine,
   isConsultRecord,
   performBrowserConsultForMcp,
+  performBrowserRecoverForMcp,
   runAskProCommand,
   runChatgptCommand,
   runConsultsCommand,
@@ -350,7 +351,8 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
     // pro_consult is stdio-only: the HTTP MCP surface is exposed to ChatGPT
     // itself (and possibly a tunnel) and must never drive the user's browser.
     await runMcpServer(mcpCwd, {
-      browserConsult: (input, onProgress) => performBrowserConsultForMcp(mcpCwd, input, onProgress)
+      browserConsult: (input, onProgress) => performBrowserConsultForMcp(mcpCwd, input, onProgress),
+      browserRecover: (input) => performBrowserRecoverForMcp(mcpCwd, input)
     });
     return 0;
   }
@@ -513,7 +515,7 @@ repo: ${cwd}
 2. Let coding agents consult ChatGPT (stdio MCP: Claude, Codex, Cursor, ...):
    ${cli} claude config --cwd ${quotedCwd}${sourceCliOption}
    ${cli} claude prompt --cwd ${quotedCwd}${sourceCliOption}
-   Agents get the bridge/ledger tools plus pro_consult (ask ChatGPT Pro directly; see docs/clients.md for Codex timeout and approval notes).
+   Agents get the bridge/ledger tools plus pro_consult (ask ChatGPT Pro directly; see docs/clients.md for Codex timeout and approval notes) and pro_recover (collect an answer that finished after a consult stopped waiting - including a deep research report).
    Saved setup defaults (--model/--project) apply to agent consults too - pin them once per repo so consults stop landing in the general chat list.
    Agents often run the MCP as \`prodex mcp\` with no --cwd, which misses a per-repo default. For a default that applies from ANY directory, set PRODEX_DEFAULT_PROJECT and PRODEX_DEFAULT_MODEL (in the agent's MCP env block, or your shell) to YOUR project/model. No project? Consults just go to the general chat. List your exact project names with \`${cli} pro browser projects\`.
    ${cli} pro debate-prompt --topic "your question"${sourceCliOption}  # structured GPT Pro debate prompt for your agent

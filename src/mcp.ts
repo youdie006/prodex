@@ -46,6 +46,11 @@ export interface CreateMcpServerOptions {
    * notifications during multi-minute consults.
    */
   browserConsult?: (input: BrowserConsultToolInput, onProgress?: (message: string) => void) => Promise<unknown>;
+  /**
+   * When provided, registers pro_recover. Kept separate from browserConsult so
+   * a host that wires only one of them still gets a coherent tool list.
+   */
+  browserRecover?: (input: { thread: string; timeout_ms?: number }) => Promise<unknown>;
 }
 
 function asText(value: unknown) {
@@ -285,7 +290,7 @@ export function createServer(cwd = process.cwd(), options: CreateMcpServerOption
             .max(4)
             .optional()
             .describe(
-              "ChatGPT composer tools to enable for this consult: \"deep-research\" (a multi-minute browsed report - the timeout rises to 30 minutes automatically), \"web-search\" (current facts), \"create-image\". Deep research often replies with a CLARIFYING QUESTION first; answer it with a normal follow-up consult in the same thread."
+              "ChatGPT composer tools to enable for this consult: \"deep-research\" (a browsed report; prodex presses start and waits out the run, which takes about ten minutes, so the timeout rises to 30 minutes automatically and the FULL report comes back as the answer - if the budget still runs out, the blocker carries the thread and pro_recover collects the report later), \"web-search\" (current facts, with the sources kept as links), \"create-image\". Deep research sometimes replies with a CLARIFYING QUESTION instead; answer it with a normal follow-up consult in the same thread."
             ),
           attach: z
             .array(McpShortTextSchema)
@@ -322,6 +327,22 @@ export function createServer(cwd = process.cwd(), options: CreateMcpServerOption
               };
         return asText(await browserConsult(input, onProgress));
       }
+    );
+  }
+
+  const browserRecover = options.browserRecover;
+  if (browserRecover) {
+    server.registerTool(
+      "pro_recover",
+      {
+        description:
+          "Fetch a ChatGPT answer that finished AFTER a consult stopped waiting, and record it as a normal consult receipt. Use this whenever pro_consult came back with a timeout or a still-running blocker: those carry the thread URL, and the answer is almost always sitting in that thread. This is also how a deep research report is collected - a research run takes about ten minutes and keeps going even when the consult that started it has already returned. Reading is cheap and does not send anything, so it is safe to retry.",
+        inputSchema: {
+          thread: McpShortTextSchema.min(1).describe("The ChatGPT conversation URL from the blocker (its `thread` field)."),
+          timeout_ms: z.number().int().positive().max(600_000).optional()
+        }
+      },
+      async (input) => asText(await browserRecover(input))
     );
   }
 

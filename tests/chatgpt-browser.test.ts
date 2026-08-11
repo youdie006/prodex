@@ -265,6 +265,23 @@ describe("ChatGPT browser adapter", () => {
     expect(state.text).toBe("half an ans");
   });
 
+  it("never treats ordinary text as a citation marker", () => {
+    // Measured on a real report: a `sources_footnote` reference carries
+    // matched_text " " - a single space. Substituting on that replaced every
+    // space in the document, and a 47k-character report came back with its
+    // words fused together.
+    const marker = "\uE200cite\uE202turn0search1\uE201";
+    const text = `Widely supported today.${marker} Ship it when ready.`;
+    const resolved = resolveTranscriptCitations(text, [
+      { matched_text: " ", items: [{ title: "Sources", url: "https://example.com/sources" }] },
+      { matched_text: marker, items: [{ title: "Caniuse", url: "https://caniuse.com/webgpu" }] }
+    ]);
+
+    expect(resolved).toBe("Widely supported today. [Caniuse](https://caniuse.com/webgpu) Ship it when ready.");
+    expect(resolved).toContain("Widely supported today.");
+    expect(resolved).toContain("Ship it when ready.");
+  });
+
   it("restores citation markers to links the transcript already carries", () => {
     // ChatGPT stores citations as private-use delimited tokens the UI renders
     // as chips; innerText drops the urls entirely. content_references maps each

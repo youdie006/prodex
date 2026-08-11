@@ -99,6 +99,7 @@ The server currently exposes ledger-first tools:
 - `repo_write_file_apply`
 - `repo_stage_reviewed_paths`
 - `pro_consult`
+- `pro_recover`
 
 `bridge_complete_task` and `bridge_block_task` close tasks by writing durable `.bridge/results` records; they do not modify repo files. `bridge_fetch_result_artifact` only returns text artifacts that are listed on a result record and stored under `.bridge/artifacts/pro-consults/` or `.bridge/artifacts/results/`; it does not expose arbitrary `.bridge/artifacts` files. Newly finalized result artifacts record a sha256, and fetch rejects the artifact if its content changed afterward. The bridge rejects oversized result artifacts before task finalization; if a Pro browser answer is too large for `bridge_fetch_result_artifact`, it stays in the result summary with `answer_artifact_warning` instead of listing an unfetchable artifact.
 
@@ -106,7 +107,9 @@ Write tools are narrow and receipt-gated, and they require a git worktree with a
 
 `pro_consult` lets Claude ask your logged-in ChatGPT (Pro) directly: it drives the same explicit visible-browser consult as `prodex pro browser ask` (human-paced, blocker-gated, receipt-recorded, answer saved under `.bridge/artifacts/pro-consults/`) and can take minutes for Pro extended reasoning. It requires a prior `prodex pro browser login` session and is registered only on the local stdio MCP server — the HTTP MCP surface never exposes it, so nothing reachable through a tunnel or ChatGPT itself can drive your browser.
 
-No shell, public tunnel, direct ungated write, or direct ungated staging tools are exposed through the Claude stdio MCP server; the only browser-facing tool is the explicit `pro_consult` consult described above.
+`pro_recover` collects an answer that finished after a consult stopped waiting. A timed-out or still-running consult returns the thread it landed in, and the answer is almost always sitting there; this is also how a deep research report is collected, since a research run keeps going after the consult that started it has returned. It reads a thread and sends nothing, so retrying it is safe. Like `pro_consult`, it is registered only on the local stdio MCP server.
+
+No shell, public tunnel, direct ungated write, or direct ungated staging tools are exposed through the Claude stdio MCP server; the only browser-facing tools are the explicit `pro_consult` consult and the read-only `pro_recover` described above.
 
 ## First Prompt
 

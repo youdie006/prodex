@@ -12,6 +12,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Onboarding taught none of the capabilities added since it was written. It now covers `--attach` (the only way ChatGPT can open a pdf, pptx, xlsx or image) next to `--file`, `--tool web-search` and `--tool deep-research` with its real cost (~10 minutes, 30-minute budget), and `pro browser recover --target-url`, so a send that outlives its budget is not treated as a lost answer.
 - `pro browser help` was missing `projects` and `recover` entirely - the same help onboarding tells agents to read.
+## 0.24.0
+
+### Fixed
+- Citation resolution ate every space in a cited answer. A `sources_footnote` reference carries `matched_text: " "` - a single space - and 0.23.0 substituted on it blindly, so a 47k-character report came back with its words fused together. Substitution now requires text that actually contains a citation delimiter. Anyone on 0.23.0 or 0.23.1 should upgrade.
+
+### Added
+- `pro_recover` MCP tool. A consult that outlives its budget already handed back the thread it landed in, but acting on that meant running a shell command - which an agent reaching prodex over MCP may not be able to do. Recovery is now reachable the same way the consult was, and it is how a deep research report gets collected when the run outlasts the send.
+
+### Changed
+- The `tools` parameter description caught up with what deep research actually does now: prodex presses start, waits out the roughly ten-minute run, and returns the full report; if the budget still runs out, the blocker carries the thread for `pro_recover`.
 
 ## 0.23.0
 

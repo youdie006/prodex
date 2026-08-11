@@ -6,17 +6,19 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const sendChatGptPromptMock = vi.hoisted(() => vi.fn());
+const recoverChatGptAnswerFromThreadMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../src/chatgpt-browser.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/chatgpt-browser.js")>();
   return {
     ...actual,
-    sendChatGptPrompt: sendChatGptPromptMock
+    sendChatGptPrompt: sendChatGptPromptMock,
+    recoverChatGptAnswerFromThread: recoverChatGptAnswerFromThreadMock
   };
 });
 
 const { createServer } = await import("../src/mcp.js");
-const { performBrowserConsultForMcp } = await import("../src/cli-pro.js");
+const { performBrowserConsultForMcp, performBrowserRecoverForMcp } = await import("../src/cli-pro.js");
 
 type CreatedServer = ReturnType<typeof createServer>;
 
@@ -117,6 +119,50 @@ describe("pro_consult MCP tool registration", () => {
     expect(result.isError ?? false).toBe(false);
     expect(result.content[0].text).toContain("answered anyway");
     expect(sendChatGptPromptMock).toHaveBeenLastCalledWith(expect.not.objectContaining({ proMode: expect.anything() }));
+  });
+
+  it("gives agents a way to recover an answer whose consult timed out", async () => {
+    // A timed-out consult hands back the thread, but an MCP-only agent had no
+    // tool to do anything with it - the next step was a shell command it may
+    // not be able to run. Recovery has to be reachable the same way the
+    // consult was.
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-recover-"));
+    recoverChatGptAnswerFromThreadMock.mockResolvedValueOnce({
+      url: "https://chatgpt.com/c/recovered",
+      title: "ChatGPT",
+      answer: "the answer that finished after prodex stopped waiting",
+      modelHints: [],
+      warnings: []
+    });
+    const server = createServer(cwd, {
+      browserConsult: (input) => performBrowserConsultForMcp(cwd, input),
+      browserRecover: (input) => performBrowserRecoverForMcp(cwd, input)
+    });
+    const client = await connectClient(server);
+
+    const tools = await client.listTools();
+    expect(tools.tools.map((tool) => tool.name)).toContain("pro_recover");
+
+    const result = (await client.callTool({
+      name: "pro_recover",
+      arguments: { thread: "https://chatgpt.com/c/recovered" }
+    })) as { content: Array<{ type: string; text: string }>; isError?: boolean };
+    await client.close();
+
+    expect(result.isError ?? false).toBe(false);
+    expect(result.content[0].text).toContain("the answer that finished after prodex stopped waiting");
+    expect(recoverChatGptAnswerFromThreadMock).toHaveBeenCalledWith(
+      expect.objectContaining({ targetUrl: "https://chatgpt.com/c/recovered" })
+    );
+  });
+
+  it("does not register pro_recover without a recover callback", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-recover-"));
+    const server = createServer(cwd, {});
+    const client = await connectClient(server);
+    const tools = await client.listTools();
+    await client.close();
+    expect(tools.tools.map((tool) => tool.name)).not.toContain("pro_recover");
   });
 
   it("is registered and answers when a browser-consult callback is wired", async () => {
