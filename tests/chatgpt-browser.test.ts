@@ -43,6 +43,7 @@ import {
   resolveTranscriptCitations,
   transcriptAnswerExpression,
   classifyTranscriptRead,
+  shouldRecoverThreadNavigation,
   transcriptMatchesSentPrompt,
   deepResearchUnreadableBlocker,
   defaultTimeoutForTools,
@@ -184,17 +185,27 @@ describe("ChatGPT browser adapter", () => {
     expect(chatGptUrlsReferToSameTarget(sent, `${sent}?messageId=finalAgentTurnStart`)).toBe(true);
   });
 
-  it("reads an answer that ChatGPT renders without an assistant role", () => {
-    // Deep research does not produce a [data-message-author-role="assistant"]
-    // node: the thread holds conversation-turn sections, the user's prompt in
-    // the first and the report in a later one (measured live on a running
-    // research thread - roles were ["user"] only). Reading assistant roles
-    // alone therefore reports "no answer" forever while the report is right
-    // there.
-    const expression = answerExpression();
-    expect(expression).toContain("conversation-turn");
-    // The user's own turn must never be mistaken for the answer.
-    expect(expression).toContain('data-message-author-role="user"');
+  it("does not manufacture an answer out of a turn that holds no assistant message", async () => {
+    // A 0.21.3 fallback treated any conversation-turn without a user message as
+    // an answer. That is how a tool's progress panel became a 28-character
+    // "answer". Deep research - the case the fallback existed for - is read
+    // from the transcript now, so a turn with no assistant message is simply
+    // not an answer.
+    const browser = await import("../src/chatgpt-browser.js");
+    const answerExpression = (browser as { answerExpression: () => string }).answerExpression;
+    const doc = new FakeDocument([], []);
+    doc.body.innerText = "ChatGPT\nsidebar\nSearching the web\nAnswer now";
+    const turn = new FakeElement("div");
+    turn.setAttribute("data-testid", "conversation-turn-2");
+    turn.innerText = "Searching the web\nAnswer now";
+    doc.turns = [turn];
+    doc.messages = [];
+
+    const state = evaluateBrowserStatusExpression<{ answer: string; assistantMessageCount: number }>(answerExpression(), doc);
+    expect(state.assistantMessageCount).toBe(0);
+    // And with nothing to answer with, the field must be empty rather than a
+    // slice of whatever the page happened to render.
+    expect(state.answer).toBe("");
   });
 
   it("does not mistake a tool's own progress panel for an answer", () => {
@@ -206,6 +217,33 @@ describe("ChatGPT browser adapter", () => {
     expect(isUsableChatGptAnswer("Searching the web")).toBe(false);
     // A real answer that merely mentions searching is not a placeholder.
     expect(isUsableChatGptAnswer("Searching the web for benchmarks turned up three papers, summarized below.")).toBe(true);
+  });
+
+  it("only drags the tab back to a real conversation, and only when the page is the only source", () => {
+    // Measured: a --new-chat send into a project pinned the PROJECT page (the
+    // url before ChatGPT rewrote it to /c/<id>). When the url then became the
+    // conversation, prodex read that as "someone moved the tab" and navigated
+    // back to the project page - destroying its own view of the answer and
+    // then sitting on "stabilizing" for over ten minutes.
+    const project = "https://chatgpt.com/g/g-p-abc-my-project";
+    const thread = "https://chatgpt.com/g/g-p-abc-my-project/c/6a780848-1660-83ee-9e1a-104f95826746";
+    const other = "https://chatgpt.com/c/1111aaaa-2222-3333-4444-555566667777";
+
+    // A page that is not a conversation is not something to pin to.
+    expect(shouldRecoverThreadNavigation({ pinnedThreadUrl: project, currentUrl: thread })).toBe(false);
+    // A genuine move away from the pinned conversation, with only the page to read.
+    expect(shouldRecoverThreadNavigation({ pinnedThreadUrl: thread, currentUrl: other })).toBe(true);
+    // ...but not while the transcript is answering for us: yanking the tab back
+    // would only disturb whoever moved it.
+    expect(
+      shouldRecoverThreadNavigation({ pinnedThreadUrl: thread, currentUrl: other, lastTranscriptClassification: "pending" })
+    ).toBe(false);
+    expect(
+      shouldRecoverThreadNavigation({ pinnedThreadUrl: thread, currentUrl: other, lastTranscriptClassification: "answer" })
+    ).toBe(false);
+    // Still on the pinned thread: nothing to recover.
+    expect(shouldRecoverThreadNavigation({ pinnedThreadUrl: thread, currentUrl: thread })).toBe(false);
+    expect(shouldRecoverThreadNavigation({ currentUrl: other })).toBe(false);
   });
 
   it("keeps waiting when the transcript says the answer is unfinished", () => {
@@ -264,6 +302,13 @@ describe("ChatGPT browser adapter", () => {
     // Measured: a send with a composer tool arrives PREFIXED with the tool
     // token, so the prompt is not at the start of the transcript message.
     expect(transcriptMatchesSentPrompt(`@Deep research ${sent}`, sent)).toBe(true);
+    // Measured on a --file send: the composer escapes markdown when it stores
+    // what was typed, so "## File: x" comes back as "\\## File: x" and code
+    // fences as escaped backticks. Every file-bearing consult failed this check
+    // and silently fell back to reading the page.
+    const withMarkdown = "Summarize.\n\n## File: package.json\n\n```text\n{}\n```";
+    const escaped = "Summarize.\n\n\\## File: package.json\n\n\\`\\`\\`text\n{}\n\\`\\`\\`";
+    expect(transcriptMatchesSentPrompt(escaped, withMarkdown)).toBe(true);
     // A different conversation must never pass.
     expect(transcriptMatchesSentPrompt("What is the capital of France?", sent)).toBe(false);
     // Neither must a truncated echo that merely shares a prefix word.
@@ -1446,9 +1491,12 @@ describe("ChatGPT browser adapter", () => {
     expect(empty.answer).toBe("");
     expect(empty.assistantMessageCount).toBe(1);
 
-    // No messages at all: the page-tail fallback applies.
+    // No messages at all: there is no answer, and the page's own text must not
+    // be dressed up as one.
     doc.messages = [];
-    expect(evaluateBrowserStatusExpression<AnswerState>(answerExpression(), doc).answer).toContain("sidebar");
+    const none = evaluateBrowserStatusExpression<AnswerState>(answerExpression(), doc);
+    expect(none.answer).toBe("");
+    expect(none.assistantMessageCount).toBe(0);
   });
 
   it("prefers the row's project-home button for project navigation (2026-07 UI)", async () => {

@@ -392,9 +392,15 @@ esac
       timeout: 120_000
     });
     const installedRoot = path.join(consumer, "node_modules", "demo-release-pack");
-    expect((await stat(path.join(installedRoot, "README.md"))).mode & 0o777).toBe(0o644);
-    expect((await stat(path.join(installedRoot, "scripts", "release-check.mjs"))).mode & 0o777).toBe(0o644);
-    expect((await stat(path.join(installedRoot, "dist", "cli.js"))).mode & 0o777).toBe(0o755);
+    // The contract is "no execute bit on non-bin files", not an exact mode:
+    // npm applies the INSTALLING user's umask on extract, so asserting 0o644
+    // passed under CI's umask 022 and failed under a local umask 002 (0o664) -
+    // a red suite that had nothing to do with the packer.
+    const modeOf = async (...segments: string[]) => (await stat(path.join(installedRoot, ...segments))).mode & 0o777;
+    expect(await modeOf("README.md") & 0o111).toBe(0);
+    expect(await modeOf("scripts", "release-check.mjs") & 0o111).toBe(0);
+    // The bin entry must stay executable, or the installed CLI cannot run.
+    expect(await modeOf("dist", "cli.js") & 0o111).not.toBe(0);
   });
 
   it("prints git readiness before publish commands", async () => {

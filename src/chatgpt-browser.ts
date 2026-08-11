@@ -668,6 +668,28 @@ export function classifyTranscriptRead(
     : "unavailable";
 }
 
+/**
+ * Should prodex drag the tab back to the thread it pinned?
+ *
+ * Only when the pin is a real conversation, and only when the page is the only
+ * way left to read the answer. Pinning a project or new-chat page (the url a
+ * send starts on, before ChatGPT rewrites it to /c/<id>) made prodex treat its
+ * OWN conversation as a stray tab and navigate away from the answer it was
+ * waiting for. And while the transcript can answer, moving someone else's tab
+ * back buys nothing.
+ */
+export function shouldRecoverThreadNavigation(args: {
+  pinnedThreadUrl?: string;
+  currentUrl?: string;
+  lastTranscriptClassification?: TranscriptReadClassification;
+}): boolean {
+  const { pinnedThreadUrl, currentUrl, lastTranscriptClassification } = args;
+  if (!pinnedThreadUrl || !currentUrl) return false;
+  if (!conversationIdFromThreadUrl(pinnedThreadUrl)) return false;
+  if (lastTranscriptClassification === "pending" || lastTranscriptClassification === "answer") return false;
+  return !chatGptUrlsReferToSameTarget(currentUrl, pinnedThreadUrl);
+}
+
 export function hasFreshChatGptAnswer(
   previousAssistantMessageCount: number,
   state: Pick<ChatGptAnswerState, "answer" | "assistantMessageCount" | "generating">
@@ -2550,6 +2572,7 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
     });
   }
   let recoveredNavigations = 0;
+  let lastTranscriptClassification: TranscriptReadClassification | undefined;
   const answerIsStable = createChatGptAnswerStabilityTracker();
   while (Date.now() - started < timeoutMs) {
     await sleep(1000);
@@ -2565,11 +2588,10 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
       // instead of caret heuristics, and the model that actually answered.
       if (transcriptConversationId && !finalState.generating) {
         const transcript = await readTranscriptAnswer(page, transcriptConversationId, options.prompt);
+        lastTranscriptClassification = transcript.classification;
         if (transcript.answer) return transcriptResult(transcript.answer);
       }
-      // Only the DOM reader depends on which thread the tab is showing; once the
-      // conversation id is known, a wandering tab is harmless.
-      if (!transcriptConversationId && pinnedThreadUrl && finalState?.url && !chatGptUrlsReferToSameTarget(finalState.url, pinnedThreadUrl)) {
+      if (shouldRecoverThreadNavigation({ pinnedThreadUrl, currentUrl: finalState?.url, lastTranscriptClassification })) {
         if (recoveredNavigations >= 2) {
           throw new ChatGptBrowserBlockerError({
             code: "thread_navigated_away",
@@ -2608,6 +2630,7 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
       // code that innerText flattens) and the model that actually answered.
       if (transcriptConversationId) {
         const transcript = await readTranscriptAnswer(page, transcriptConversationId, options.prompt);
+        lastTranscriptClassification = transcript.classification;
         if (transcript.answer) return transcriptResult(transcript.answer);
         // The transcript can read this conversation and says it is not done:
         // believe it over a page that merely looks settled. A tool's progress
@@ -3643,7 +3666,15 @@ const NORMALIZED_PROMPT_MATCH_CHARS = 120;
  * tool prefixes it ("@Deep research ...") and attachments append to it.
  */
 export function transcriptMatchesSentPrompt(userText: string, sentPrompt: string): boolean {
-  const normalize = (value: string): string => value.replace(/\s+/g, " ").trim();
+  // The composer escapes markdown when it stores what was typed ("## File" is
+  // kept as "\\## File", fences as escaped backticks), so undo that before
+  // comparing - otherwise every prompt carrying markdown, which is every
+  // --file send, looks like a different conversation.
+  const normalize = (value: string): string =>
+    value
+      .replace(/\\([\\`*_{}[\]()#+\-.!>~|])/g, "$1")
+      .replace(/\s+/g, " ")
+      .trim();
   const seen = normalize(userText);
   const sent = normalize(sentPrompt);
   if (seen.length === 0 || sent.length === 0) return false;
@@ -3894,17 +3925,11 @@ export function answerExpression(): string {
     });
     const assistantMessages = messages.filter((message) => message.role === "assistant");
     const userMessages = messages.filter((message) => message.role === "user");
-    // Deep research renders no assistant-role node at all: the thread is
-    // conversation-turn sections, the prompt in the first and the report in a
-    // later one (measured live - roles were ["user"] only while a research ran).
-    // Fall back to the last turn that is NOT the user's, so such an answer is
-    // readable instead of looking like "no answer" forever.
-    const turnAnswers = assistantMessages.length > 0 ? [] : [...document.querySelectorAll('[data-testid^="conversation-turn"]')]
-      .filter((turn) => !turn.querySelector('[data-message-author-role="user"]'))
-      .map((turn) => ({ role: "assistant", text: (turn.innerText || "").trim(), modelSlug: undefined }))
-      .filter((turn) => turn.text.length > 0);
-    const effectiveAssistants = assistantMessages.length > 0 ? assistantMessages : turnAnswers;
-    const assistant = effectiveAssistants.at(-1);
+    // A turn without an assistant message is NOT an answer. Treating one as an
+    // answer (a 0.21.3 fallback for deep research, which is read from the
+    // transcript now) turned a tool's progress panel into a 28-character
+    // "answer" that a consult returned as its result.
+    const assistant = assistantMessages.at(-1);
     const buttons = [...document.querySelectorAll('button,[role="button"]')]
       .filter((node) => !!(node.offsetWidth || node.offsetHeight || node.getClientRects().length))
       .filter((node) => !node.closest(excludedTextSelector))
@@ -3917,13 +3942,16 @@ export function answerExpression(): string {
     return {
       title: document.title,
       url: location.href,
-      answer: assistant ? answer : text.slice(-4000),
+      // No assistant message means no answer. This used to hand back the last
+      // 4000 characters of the page, which reads as sidebar and navigation text
+      // dressed up as a reply.
+      answer,
       textSample: text.slice(0, 12000),
       blockerTextSample: visibleTextOutsideMessages(excludedTextSelector).slice(0, 12000),
       blockerScanTextSample: visibleTextOutsideMessages(blockerScanExcludedSelector).slice(0, 12000),
       visibleButtonLabels: buttons,
       generating: placeholder || Boolean(document.querySelector(${streamingSelector})) || buttons.some((label) => generatingControlPattern.test(label)),
-      assistantMessageCount: effectiveAssistants.length,
+      assistantMessageCount: assistantMessages.length,
       userMessageCount: userMessages.length,
       // ChatGPT tags each assistant message with the model that produced it -
       // the only ground truth for "did the Pro selection actually take".
