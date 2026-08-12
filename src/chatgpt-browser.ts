@@ -585,6 +585,58 @@ export async function ensureVirtualDisplay(options: { displayNumber?: number } =
   throw new Error(`No free X display between :${first} and :${first + 9}. Set PRODEX_VIRTUAL_DISPLAY_NUM to a free number.`);
 }
 
+export interface BrowserWindowMode {
+  headless: boolean;
+  virtualDisplay: boolean;
+  minimized: boolean;
+}
+
+/**
+ * How should the dedicated browser be opened?
+ *
+ * An explicit flag or environment variable wins; otherwise reopen it the way it
+ * was last opened. Without the saved fallback, `pro browser login` - the exact
+ * command every `browser_unreachable` blocker tells people to run - put a
+ * VISIBLE window back on the desktop of someone who had set up a virtual
+ * display, which is the surprise window they went to that trouble to avoid.
+ *
+ * Choosing a mode explicitly replaces the saved one wholesale rather than
+ * merging with it: asking for headless must not also rejoin an old virtual
+ * display.
+ */
+export function resolveBrowserWindowMode(args: {
+  flags?: { headless?: boolean; virtualDisplay?: boolean; minimized?: boolean };
+  env?: Record<string, string | undefined>;
+  lastLogin?: { headless?: boolean; minimized?: boolean; virtual_display?: number };
+}): BrowserWindowMode {
+  const env = args.env ?? process.env;
+  const flags = args.flags ?? {};
+  const fromEnv = (name: string): boolean | undefined => {
+    const raw = (env[name] ?? "").trim().toLowerCase();
+    if (raw === "") return undefined;
+    return raw === "1" || raw === "true" || raw === "yes";
+  };
+  const explicit = {
+    headless: flags.headless ?? fromEnv("PRODEX_HEADLESS"),
+    virtualDisplay: flags.virtualDisplay ?? fromEnv("PRODEX_VIRTUAL_DISPLAY"),
+    minimized: flags.minimized ?? fromEnv("PRODEX_MINIMIZE_WINDOW")
+  };
+  const chosen = Object.values(explicit).some((value) => value === true);
+  if (chosen) {
+    return {
+      headless: explicit.headless === true,
+      virtualDisplay: explicit.virtualDisplay === true,
+      minimized: explicit.minimized === true
+    };
+  }
+  const saved = args.lastLogin;
+  return {
+    headless: saved?.headless === true,
+    virtualDisplay: saved?.virtual_display !== undefined,
+    minimized: saved?.minimized === true
+  };
+}
+
 export function resolveHeadlessPreference(
   explicit?: boolean,
   env: Record<string, string | undefined> = process.env
@@ -641,6 +693,10 @@ export function isUsableChatGptAnswer(answer: string): boolean {
       .every((line) => /^(searching the web|웹\s*검색\s*중|answer now|지금\s*답변|검색\s*중)$/i.test(line));
     if (toolPanelOnly) return false;
   }
+  // ChatGPT's own interruption notice, which is what a thread shows after the
+  // browser dies mid-stream. Measured: recover saved "Pro thinking / Connection
+  // interrupted. Waiting for the complete answer" as a recovered answer.
+  if (/connection interrupted|연결이\s*중단/i.test(normalized) && normalized.length < 200) return false;
   return true;
 }
 
@@ -2160,6 +2216,26 @@ export async function recoverChatGptAnswerFromThread(
             warnings: []
           };
         }
+        // Not a research thread: read the ordinary answer from the transcript
+        // too. Recover used to be page-only, so it inherited everything the
+        // page loses - flattened markdown, dropped citation urls - and it once
+        // saved ChatGPT's "Connection interrupted" notice as the answer.
+        const transcript = await evaluateOnPage<TranscriptAnswerState>(page.page, transcriptAnswerExpression(conversationId), {
+          timeoutMs: 60_000
+        });
+        if (transcript.ok && transcript.text.trim().length > 0) {
+          const recovered = resolveTranscriptCitations(transcript.text, transcript.references).trim();
+          if (recovered.length > 0) {
+            return {
+              url,
+              title: "",
+              answer: recovered,
+              modelHints: [],
+              ...(transcript.modelSlug ? { modelSlug: transcript.modelSlug } : {}),
+              warnings: []
+            };
+          }
+        }
       } catch {
         // Not a research thread, or the transcript API is unavailable: fall
         // through to the normal DOM recovery below.
@@ -2538,11 +2614,20 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
     const conversationId = pinnedThreadUrl ? conversationIdFromThreadUrl(pinnedThreadUrl) : undefined;
     if (!conversationId) throw new ChatGptBrowserBlockerError(deepResearchUnreadableBlocker(pinnedThreadUrl ?? "https://chatgpt.com/"));
     let lastState: DeepResearchReportState | undefined;
+    let consecutiveResearchReadFailures = 0;
     while (Date.now() - started < timeoutMs) {
       try {
         lastState = await evaluateOnPage<DeepResearchReportState>(page, deepResearchReportExpression(conversationId), { timeoutMs: 60_000 });
+        consecutiveResearchReadFailures = 0;
       } catch {
-        // Transient CDP/network failure: keep polling until the budget runs out.
+        // A few failures in a row mean the browser is gone, not busy. Waiting
+        // out a 30-minute budget on a dead browser helps nobody: the research
+        // finishes on ChatGPT's side anyway, so hand back the thread and let
+        // recover collect the report.
+        consecutiveResearchReadFailures += 1;
+        if (consecutiveResearchReadFailures >= CONSECUTIVE_READ_FAILURES_BEFORE_GIVING_UP) {
+          throw new ChatGptBrowserBlockerError(browserLostMidWaitBlocker(pinnedThreadUrl));
+        }
         await sleep(5_000);
         continue;
       }
@@ -2573,11 +2658,13 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
   }
   let recoveredNavigations = 0;
   let lastTranscriptClassification: TranscriptReadClassification | undefined;
+  let consecutiveReadFailures = 0;
   const answerIsStable = createChatGptAnswerStabilityTracker();
   while (Date.now() - started < timeoutMs) {
     await sleep(1000);
     try {
       finalState = await evaluateOnPage<ChatGptAnswerState>(page, answerExpression());
+      consecutiveReadFailures = 0;
       // First conversation id wins. Re-deriving it every poll would let a tab
       // that wandered to another thread redirect the read to a stranger's
       // conversation - and the prompt check below is the second line of defence,
@@ -2613,7 +2700,13 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
       if (error instanceof ChatGptBrowserBlockerError) throw error;
       // Transient CDP failure while the answer is streaming: retry. A throw here
       // would discard an already-streamed partial answer and skip the salvage
-      // path below, so keep the last good state and poll again until timeout.
+      // path below, so keep the last good state and poll again. But a run of
+      // failures is a browser that went away rather than a busy one, and
+      // sitting out the whole budget on it only delays the recovery.
+      consecutiveReadFailures += 1;
+      if (consecutiveReadFailures >= CONSECUTIVE_READ_FAILURES_BEFORE_GIVING_UP) {
+        throw new ChatGptBrowserBlockerError(browserLostMidWaitBlocker(finalState?.url ?? pinnedThreadUrl));
+      }
       continue;
     }
     const runtimeBlocker = chatGptBlockerFromAnswerState(finalState);
@@ -3551,6 +3644,34 @@ export function chunkComposerText(text: string, size: number = COMPOSER_INSERT_C
  * so hand the run back rather than waiting on a page that never renders it -
  * deep research draws into a widget iframe, leaving the thread DOM empty.
  */
+/**
+ * The dedicated browser died while a send was waiting for its answer.
+ *
+ * Observed live: Chrome went away mid deep-research run, every poll threw, the
+ * loop swallowed each failure, and the send sat silent for the rest of a
+ * 30-minute budget - while the research finished on ChatGPT's side. Nothing is
+ * lost except the ability to read it, so fail fast and hand back the thread.
+ */
+// Reading the page can fail for a moment (a navigation, a busy renderer). Five
+// failures in a row is not a moment - it is a browser that went away.
+const CONSECUTIVE_READ_FAILURES_BEFORE_GIVING_UP = 5;
+
+export function browserLostMidWaitBlocker(threadUrl: string | undefined): NonNullable<ChatGptBrowserStatus["blocker"]> {
+  // Killing the browser aborts a streaming answer too, so promise nothing
+  // about the answer itself - only say where to look. Deep research is the one
+  // case that genuinely keeps going without us.
+  const where = threadUrl ? ` The consult landed in ${threadUrl}` : "";
+  return {
+    code: "browser_unreachable",
+    message: `The dedicated ChatGPT browser stopped responding while this consult was waiting for its answer.${where}`,
+    retryable: true,
+    next_step: threadUrl
+      ? `Run \`prodex pro browser login\` to reopen the browser, then collect the answer with \`prodex pro browser recover --target-url ${threadUrl}\` (MCP: pro_recover with thread ${threadUrl}).`
+      : "Run `prodex pro browser login` to reopen the browser, then retry.",
+    ...(threadUrl ? { thread: threadUrl } : {})
+  };
+}
+
 export function deepResearchUnreadableBlocker(threadUrl: string): NonNullable<ChatGptBrowserStatus["blocker"]> {
   return {
     code: "deep_research_not_readable",

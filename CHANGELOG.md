@@ -16,7 +16,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - prodex told ChatGPT that every real send was a preview. The visible-browser send reused the dry-run bundle, so each consult arrived headed "# prodex consult dry run / This preview was not sent anywhere." above the actual prompt - verified from a thread's own transcript. Sends now carry the prompt (and any `--file` contents) with no preview framing, and the receipt records what was really sent.
 - A composer tool's progress panel was returned as the answer. A `--tool web-search` consult came back with the 28 characters "Searching the web / Answer now" while the real reply was still being written. The transcript now decides when an answer is finished: if it can read the conversation and says the message is unfinished, the wait continues even when the page looks settled. The page reader also recognizes that panel as a placeholder for when the transcript is unreachable.
-- The transcript reader could latch onto the wrong conversation. It re-derived the conversation id from the tab's url on every poll, so a tab that wandered mid-wait would have handed back a stranger's answer - the accident thread pinning exists to prevent. The id is now fixed once, and every transcript read is checked against the prompt that was actually sent (tolerating the `@Tool` prefix a composer tool adds).
+- The transcript reader could latch onto the wrong conversation. It re-derived the conversation id from the tab's url on every poll, so a tab that wandered mid-wait would have handed back a stranger's answer - the accident thread pinning exists to prevent. The id is now fixed once, and every transcript read is checked against the prompt that was actually sent (tolerating the `@Tool` prefix a composer tool adds).## 0.26.0
+
+### Fixed
+- A send whose browser died sat silent for the rest of its budget. Chrome went away mid deep-research run, every poll threw, the loop swallowed each failure, and nothing was reported for the remaining half hour. Five failed reads in a row now end the wait with `browser_unreachable` carrying the thread, so the answer can be collected; measured live, a killed browser is reported in 7 seconds instead of 20 minutes.
+- `pro browser login` ignored how the browser was last opened, so anyone who set up a virtual display got a visible window back every time they followed the `browser_unreachable` advice - the surprise window they went to that trouble to avoid. It now reopens in the saved mode unless a flag or environment variable says otherwise.
+- `pro browser recover` read only the page for ordinary answers, inheriting everything the page loses (flattened tables, dropped citation urls) and once saving ChatGPT's "Connection interrupted" notice as the recovered answer. It reads the transcript first now, and that notice is recognized as a placeholder for when the transcript is unreachable.
+
 ## 0.25.1
 
 ### Fixed

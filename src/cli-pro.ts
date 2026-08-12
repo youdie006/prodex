@@ -22,6 +22,7 @@ import {
   minimizeChatGptWindow,
   readLastBrowserLoginLaunch,
   resolveVirtualDisplayPreference,
+  resolveBrowserWindowMode,
   resolveHeadlessPreference,
   recordBrowserLoginLaunch,
   recoverChatGptAnswerFromThread,
@@ -312,16 +313,32 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
         // again: Chrome's singleton would just open ANOTHER window (the recurring
         // "extra windows" problem, which then blocks sends as
         // ambiguous_chatgpt_tabs). Reuse the running instance instead.
-        const headless = resolveHeadlessPreference(browserArgs.includes("--headless") ? true : undefined);
-        // A real browser on a virtual X display: no window anywhere, and
-        // Cloudflare sees an ordinary headed Chrome (headless it rejects).
-        const wantsVirtualDisplay = resolveVirtualDisplayPreference(
-          browserArgs.includes("--virtual-display") ? true : undefined
-        );
-        if (wantsVirtualDisplay && headless) {
+        if (browserArgs.includes("--virtual-display") && browserArgs.includes("--headless")) {
           throw new Error("pro browser login cannot combine --headless and --virtual-display (a virtual display already hides the window).");
         }
-        const virtualDisplay = wantsVirtualDisplay ? await ensureVirtualDisplay() : undefined;
+        // Reopen the browser the way it was last opened unless a flag or the
+        // environment says otherwise. A virtual-display user who follows the
+        // `browser_unreachable` advice used to get a visible window back.
+        const savedLaunch = await readLastBrowserLoginLaunch();
+        const windowMode = resolveBrowserWindowMode({
+          flags: {
+            ...(browserArgs.includes("--headless") ? { headless: true } : {}),
+            ...(browserArgs.includes("--virtual-display") ? { virtualDisplay: true } : {}),
+            ...(browserArgs.includes("--minimized") ? { minimized: true } : {})
+          },
+          ...(savedLaunch ? { lastLogin: savedLaunch } : {})
+        });
+        const headless = windowMode.headless;
+        // A real browser on a virtual X display: no window anywhere, and
+        // Cloudflare sees an ordinary headed Chrome (headless it rejects).
+        const wantsVirtualDisplay = windowMode.virtualDisplay;
+        const virtualDisplay = wantsVirtualDisplay
+          ? await ensureVirtualDisplay(
+              savedLaunch?.virtual_display !== undefined && !browserArgs.includes("--virtual-display")
+                ? { displayNumber: savedLaunch.virtual_display }
+                : {}
+            )
+          : undefined;
         const alreadyRunning = (await getChatGptBrowserStatus({ port })).reachable;
         if (alreadyRunning) {
           // One Chrome profile cannot serve a headed and a headless instance at

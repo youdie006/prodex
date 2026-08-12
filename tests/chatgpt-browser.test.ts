@@ -43,6 +43,8 @@ import {
   resolveTranscriptCitations,
   transcriptAnswerExpression,
   classifyTranscriptRead,
+  browserLostMidWaitBlocker,
+  resolveBrowserWindowMode,
   shouldRecoverThreadNavigation,
   transcriptMatchesSentPrompt,
   deepResearchUnreadableBlocker,
@@ -208,6 +210,15 @@ describe("ChatGPT browser adapter", () => {
     expect(state.answer).toBe("");
   });
 
+  it("does not mistake ChatGPT's interruption notice for an answer", () => {
+    // Measured after killing the browser mid-stream: the thread rendered
+    // "Pro thinking / Connection interrupted. Waiting for the complete answer",
+    // and recover saved that as the recovered answer.
+    expect(isUsableChatGptAnswer("Pro thinking\nConnection interrupted. Waiting for the complete answer")).toBe(false);
+    expect(isUsableChatGptAnswer("Connection interrupted. Waiting for the complete answer")).toBe(false);
+    expect(isUsableChatGptAnswer("연결이 중단되었습니다. 전체 답변을 기다리는 중")).toBe(false);
+  });
+
   it("does not mistake a tool's own progress panel for an answer", () => {
     // Measured on a --tool web-search send: the page rendered "Searching the
     // web / Answer now" (a status line and a button) and prodex returned those
@@ -217,6 +228,67 @@ describe("ChatGPT browser adapter", () => {
     expect(isUsableChatGptAnswer("Searching the web")).toBe(false);
     // A real answer that merely mentions searching is not a placeholder.
     expect(isUsableChatGptAnswer("Searching the web for benchmarks turned up three papers, summarized below.")).toBe(true);
+  });
+
+  it("stops waiting when the browser it was reading through is gone", () => {
+    // Observed: the dedicated Chrome died mid-wait during a deep research run.
+    // Every poll threw, the loop swallowed it, and the send sat silent for the
+    // rest of a 30-minute budget while the research finished server-side. The
+    // thread is the whole point - hand it back so the report can be recovered.
+    const thread = "https://chatgpt.com/c/6a780848-1660-83ee-9e1a-104f95826746";
+    const blocker = browserLostMidWaitBlocker(thread);
+
+    expect(blocker.code).toBe("browser_unreachable");
+    expect(blocker.retryable).toBe(true);
+    expect(blocker.thread).toBe(thread);
+    expect(blocker.next_step).toContain("pro browser login");
+    expect(blocker.next_step).toContain(thread);
+    expect(blocker.message).toMatch(/browser/i);
+    // Killing the browser also aborts a streaming answer, so the message must
+    // not promise that one is still being written - only deep research keeps
+    // going without us. Measured: the thread showed "Connection interrupted."
+    expect(blocker.message).not.toContain("still being written");
+  });
+
+  it("reopens the browser the way the user set it up, not with a fresh window", () => {
+    // The browser_unreachable blocker tells people to run `pro browser login`.
+    // That command read only flags and env, so someone who set up a virtual
+    // display got a VISIBLE window back every time they followed the advice -
+    // the surprise window they went headless to avoid.
+    const saved = { virtual_display: 99, headless: false, minimized: false };
+
+    expect(resolveBrowserWindowMode({ lastLogin: saved })).toEqual({ headless: false, virtualDisplay: true, minimized: false });
+    expect(resolveBrowserWindowMode({ lastLogin: { headless: true } })).toEqual({
+      headless: true,
+      virtualDisplay: false,
+      minimized: false
+    });
+    expect(resolveBrowserWindowMode({ lastLogin: { minimized: true } })).toEqual({
+      headless: false,
+      virtualDisplay: false,
+      minimized: true
+    });
+
+    // An explicit flag still wins over what was saved.
+    expect(resolveBrowserWindowMode({ flags: { headless: true }, lastLogin: saved })).toEqual({
+      headless: true,
+      virtualDisplay: false,
+      minimized: false
+    });
+    expect(resolveBrowserWindowMode({ flags: { minimized: true }, lastLogin: saved })).toEqual({
+      headless: false,
+      virtualDisplay: false,
+      minimized: true
+    });
+    // And so does the environment, which is how CI and agents pin a mode.
+    expect(resolveBrowserWindowMode({ env: { PRODEX_HEADLESS: "1" }, lastLogin: saved })).toEqual({
+      headless: true,
+      virtualDisplay: false,
+      minimized: false
+    });
+
+    // Nothing saved and nothing asked for: an ordinary visible window.
+    expect(resolveBrowserWindowMode({})).toEqual({ headless: false, virtualDisplay: false, minimized: false });
   });
 
   it("only drags the tab back to a real conversation, and only when the page is the only source", () => {
