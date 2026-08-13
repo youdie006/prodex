@@ -25,7 +25,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - `prodex ui`, and plain `prodex` in a terminal, now open an interactive consult instead of a wall of commands. It asks for the prompt, where the consult should land (the open chat, an existing project, a new project, or no project), which composer tools to enable, and whether to start a fresh thread - then runs the send with a progress bar that fills against the send's own budget and names what it is waiting on, including queueing behind another agent's send. Piped and scripted callers still get the banner and command list unchanged.
-- `--no-project` on `ask` / `pro browser ask`, so a single send can skip a pinned default project. Without it "no project" was unsayable once a repo had one pinned.
+- `--no-project` on `ask` / `pro browser ask`, so a single send can skip a pinned default project. Without it "no project" was unsayable once a repo had one pinned.## 0.27.2
+
+### Fixed
+- Keys pressed while the picker was not actively reading were dropped, because a listener was attached per read. Anything typed during a redraw, or across the seconds it takes to read the project list out of the browser, vanished - found by using it: the row number typed first was swallowed and the next key landed on the wrong choice. Keys are queued now.
+- The interactive prompt appeared a second or two late, because the context panel's browser check ran before the question. Anything typed into that gap was lost, prompt included. The check now runs while the prompt is being typed, and the panel leads every question after it - which is where it earns its place.
+
 ## 0.27.1
 
 ### Changed

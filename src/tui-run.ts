@@ -40,14 +40,57 @@ export interface TuiIo {
   input: NodeJS.ReadStream;
 }
 
-function readKey(io: TuiIo): Promise<Key> {
-  return new Promise((resolve) => {
-    const onKey = (_str: string, key: Key): void => {
-      io.input.off("keypress", onKey);
-      resolve(key ?? {});
-    };
-    io.input.on("keypress", onKey);
-  });
+/**
+ * Keys are queued by one long-lived listener rather than a listener attached
+ * per read.
+ *
+ * Attaching on demand drops every key pressed while nothing is waiting - during
+ * a redraw, or across the seconds it takes to read the project list out of the
+ * browser. Measured by using it: the first key after the prompt vanished, so
+ * "4" (no project) was swallowed and the next key landed on the wrong row.
+ */
+class KeyQueue {
+  private readonly pending: Key[] = [];
+  private waiting: ((key: Key) => void) | undefined;
+
+  constructor(private readonly input: NodeJS.ReadStream) {
+    this.input.on("keypress", this.onKey);
+  }
+
+  private onKey = (_str: string, key: Key): void => {
+    const value = key ?? {};
+    if (this.waiting) {
+      const resolve = this.waiting;
+      this.waiting = undefined;
+      resolve(value);
+      return;
+    }
+    this.pending.push(value);
+  };
+
+  next(): Promise<Key> {
+    const buffered = this.pending.shift();
+    if (buffered) return Promise.resolve(buffered);
+    return new Promise((resolve) => {
+      this.waiting = resolve;
+    });
+  }
+
+  /** Drop keys typed before a screen existed to receive them. */
+  drain(): void {
+    this.pending.length = 0;
+  }
+
+  dispose(): void {
+    this.input.off("keypress", this.onKey);
+  }
+}
+
+let keys: KeyQueue | undefined;
+
+function readKey(_io: TuiIo): Promise<Key> {
+  if (!keys) throw new Error("The key reader is not running.");
+  return keys.next();
 }
 
 function isCancel(key: Key): boolean {
@@ -141,6 +184,7 @@ async function askLine(io: TuiIo, question: string): Promise<string> {
   io.input.setRawMode?.(true);
   readline.emitKeypressEvents(io.input);
   io.input.resume();
+  keys?.drain();
   return answer.trim();
 }
 
@@ -167,22 +211,21 @@ export async function runInteractiveConsult(io: TuiIo, deps: InteractiveDeps): P
   readline.emitKeypressEvents(io.input);
   io.input.setRawMode?.(true);
   io.input.resume();
+  keys = new KeyQueue(io.input);
   io.write(ALT_SCREEN_ON + HIDE_CURSOR);
   let header = "";
   try {
     io.write(CLEAR);
-    // Show what the send will use before asking anything: choosing a project or
-    // a tool without knowing the model, or whether the browser is even up, is
-    // choosing blind - and a browser failure after four questions wastes all four.
-    if (deps.describeContext) {
-      try {
-        const rows = await deps.describeContext();
-        if (rows.length > 0) header = `${renderContextPanel(rows, { color: colorEnabled(), width: terminalWidth() })}\n\n`;
-      } catch {
-        // Context is a courtesy; never let it block the consult.
-      }
-    }
-    const prompt = await askLine(io, `${header}Ask ChatGPT Pro\n\n  prompt: `);
+    // Gather the context WHILE the prompt is being typed. Reading the browser
+    // state takes a second or two, and doing it first left the screen blank for
+    // that long - anything typed into that gap was swallowed, prompt included.
+    const contextPromise = deps.describeContext?.().catch(() => [] as ContextRow[]);
+    const prompt = await askLine(io, "Ask ChatGPT Pro\n\n  prompt: ");
+    // The panel still leads every question that follows, which is where it
+    // earns its place: choosing a project and tools without knowing the browser
+    // is down wastes every answer given before the failure.
+    const rows = (await contextPromise) ?? [];
+    if (rows.length > 0) header = `${renderContextPanel(rows, { color: colorEnabled(), width: terminalWidth() })}\n\n`;
     if (prompt.length === 0) {
       io.write("Nothing to ask.\n");
       return 1;
@@ -278,6 +321,8 @@ export async function runInteractiveConsult(io: TuiIo, deps: InteractiveDeps): P
       throw error;
     }
   } finally {
+    keys?.dispose();
+    keys = undefined;
     io.write(ALT_SCREEN_OFF + SHOW_CURSOR);
     io.input.setRawMode?.(false);
     io.input.pause();
