@@ -26,6 +26,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - `prodex ui`, and plain `prodex` in a terminal, now open an interactive consult instead of a wall of commands. It asks for the prompt, where the consult should land (the open chat, an existing project, a new project, or no project), which composer tools to enable, and whether to start a fresh thread - then runs the send with a progress bar that fills against the send's own budget and names what it is waiting on, including queueing behind another agent's send. Piped and scripted callers still get the banner and command list unchanged.
 - `--no-project` on `ask` / `pro browser ask`, so a single send can skip a pinned default project. Without it "no project" was unsayable once a repo had one pinned.
+## 0.27.1
+
+### Changed
+- The interactive picker reads the way the terminal tools it sits beside do. It runs on the alternate screen so the shell's scrollback comes back untouched, opens with a framed panel naming the repo, model, pinned project and browser state (choosing a project without knowing the browser is down wasted every question that followed), numbers each row so a choice can be typed instead of arrowed to, marks the cursor with a left bar that survives coloring, labels each question with its step, truncates to the terminal instead of wrapping, and dims hints and key help rather than competing with the choices. The wait line gained a spinner, so a still frame no longer reads as a hang, and says how to stop.
 
 ## 0.26.1
 

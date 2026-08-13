@@ -58,22 +58,79 @@ export interface SelectListInput {
   selected?: number[];
   multi?: boolean;
   footer?: string;
+  /** Shown beside the title so the flow has a visible length. */
+  step?: { index: number; total: number };
+  width?: number;
+  color?: boolean;
+}
+
+const ESC = "";
+const DIM = `${ESC}[2m`;
+const BOLD = `${ESC}[1m`;
+const ACCENT = `${ESC}[38;2;190;28;28m`;
+const RESET = `${ESC}[0m`;
+const CURSOR_BAR = "▌";
+
+function paint(text: string, code: string, color: boolean): string {
+  return color ? `${code}${text}${RESET}` : text;
+}
+
+/** Cut a line to the terminal rather than letting it wrap into a second row. */
+export function truncateToWidth(text: string, width: number): string {
+  if (width <= 0 || text.length <= width) return text;
+  return width <= 3 ? text.slice(0, width) : `${text.slice(0, width - 3)}...`;
 }
 
 export function renderSelectList(input: SelectListInput): string {
+  const color = input.color ?? true;
+  const width = input.width ?? 100;
   const selected = new Set(input.selected ?? []);
-  const lines = [input.title, ""];
+  const step = input.step ? paint(`   Step ${input.step.index} of ${input.step.total}`, DIM, color) : "";
+  const lines = [`${paint(input.title, BOLD, color)}${step}`, ""];
   // Hints line up in their own column; ragged hints read as noise next to the
   // labels they belong to.
   const labelWidth = Math.max(...input.options.map((option) => option.label.length), 0);
   input.options.forEach((option, index) => {
-    const pointer = index === input.cursor ? ">" : " ";
+    const onCursor = index === input.cursor;
+    // A left bar reads as a cursor even once the row is colored, where a ">"
+    // competes with the text. Rows that are not on the cursor keep the same
+    // indent so nothing shifts as it moves.
+    const bar = onCursor ? paint(CURSOR_BAR, ACCENT, color) : " ";
+    // A number per row means a choice can be typed instead of arrowed to.
+    const ordinal = paint(`${index + 1}`, onCursor ? ACCENT : DIM, color);
     const box = input.multi ? (selected.has(index) ? "[x] " : "[ ] ") : "";
-    const hint = option.hint ? `${" ".repeat(labelWidth - option.label.length)}    ${option.hint}` : "";
-    lines.push(`  ${pointer} ${box}${option.label}${hint}`);
+    const label = onCursor ? paint(option.label, BOLD, color) : option.label;
+    const gap = " ".repeat(Math.max(0, labelWidth - option.label.length));
+    const hint = option.hint ? `${gap}    ${paint(option.hint, DIM, color)}` : "";
+    lines.push(truncateToWidth(` ${bar} ${ordinal} ${box}${label}${hint}`, width + (color ? 64 : 0)));
   });
-  if (input.footer) lines.push("", input.footer);
+  if (input.footer) lines.push("", paint(input.footer, DIM, color));
   return lines.join("\n");
+}
+
+export interface ContextRow {
+  label: string;
+  value: string;
+}
+
+/**
+ * The settings a send is about to use, framed above the questions.
+ *
+ * Picking a project or a tool without seeing which model is pinned, or whether
+ * the browser is even reachable, is choosing blind - and a send that fails on
+ * the browser after four questions wastes all four.
+ */
+export function renderContextPanel(rows: ContextRow[], options: { color?: boolean; width?: number } = {}): string {
+  const color = options.color ?? true;
+  const labelWidth = Math.max(...rows.map((row) => row.label.length), 0);
+  const texts = rows.map((row) => ` ${row.label.padEnd(labelWidth)}   ${row.value} `);
+  // Size the frame to its contents, capped by the terminal. A box stretched to
+  // the full width is mostly empty space with a border around it.
+  const inner = Math.min(Math.max(...texts.map((text) => text.length), 0), Math.max(20, (options.width ?? 72) - 2));
+  const body = texts.map((text) => `│${truncateToWidth(text, inner).padEnd(inner)}│`);
+  const top = `╭${"─".repeat(inner)}╮`;
+  const bottom = `╰${"─".repeat(inner)}╯`;
+  return [top, ...body, bottom].map((line) => (color ? paint(line, DIM, color) : line)).join("\n");
 }
 
 export function moveCursor(cursor: number, direction: "up" | "down", length: number): number {
@@ -99,7 +156,11 @@ export interface ProgressBarInput {
   budgetMs?: number;
   label: string;
   width?: number;
+  /** Advances the spinner; a still frame reads as a hang. */
+  tick?: number;
 }
+
+const SPINNER = ["|", "/", "-", "\\"];
 
 /**
  * A Pro consult can run for many minutes with nothing on screen. The bar fills
@@ -108,11 +169,15 @@ export interface ProgressBarInput {
  */
 export function renderProgressBar(input: ProgressBarInput): string {
   const elapsed = formatElapsed(input.elapsedMs);
-  if (!input.budgetMs || input.budgetMs <= 0) return `${input.label}  ${elapsed}`;
+  const spinner = SPINNER[Math.abs(input.tick ?? 0) % SPINNER.length];
+  // Saying how to abort belongs on the waiting line itself: a consult can run
+  // for many minutes and the only other thing on screen is the bar.
+  const stop = "ctrl-c to stop";
+  if (!input.budgetMs || input.budgetMs <= 0) return `${spinner} ${input.label}  ${elapsed}  ${stop}`;
   const width = Math.max(4, input.width ?? 28);
   const ratio = input.elapsedMs / input.budgetMs;
   const filled = Math.min(width, Math.round(Math.min(ratio, 1) * width));
   const bar = `${"#".repeat(filled)}${"-".repeat(width - filled)}`;
   const over = ratio > 1 ? "  over budget" : "";
-  return `[${bar}] ${elapsed} / ${formatElapsed(input.budgetMs)}  ${input.label}${over}`;
+  return `${spinner} [${bar}] ${elapsed} / ${formatElapsed(input.budgetMs)}  ${input.label}${over}  ${stop}`;
 }

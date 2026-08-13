@@ -194,6 +194,25 @@ async function runInteractiveUi(io: CliIO): Promise<number> {
   return runInteractiveConsult(
     { write: (text) => process.stdout.write(text), input: process.stdin },
     {
+      describeContext: async () => {
+        const { loadBrowserDefaults } = await import("./config.js");
+        const { getChatGptBrowserStatus } = await import("./chatgpt-browser.js");
+        const defaults = await loadBrowserDefaults(io.cwd).catch(() => undefined);
+        const status = await getChatGptBrowserStatus({ timeoutMs: 1_500 }).catch(() => undefined);
+        const browser = !status?.reachable
+          ? "not running - prodex pro browser login"
+          : status.blocker
+            ? status.blocker.code
+            : status.loggedInLikely
+              ? "ready"
+              : "reachable, not logged in";
+        return [
+          { label: "repo", value: io.cwd },
+          { label: "model", value: defaults?.model ?? "whatever the ChatGPT UI has selected" },
+          { label: "project", value: defaults?.project ?? "none pinned" },
+          { label: "browser", value: browser }
+        ];
+      },
       listProjects: async () => {
         const { listChatGptSidebarProjects } = await import("./chatgpt-browser.js");
         const listed = await listChatGptSidebarProjects({});

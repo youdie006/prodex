@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-const { consultArgsFromChoices, moveCursor, renderProgressBar, renderSelectList, toggleSelection } = await import("../src/tui.js");
+const { consultArgsFromChoices, moveCursor, renderContextPanel, renderProgressBar, renderSelectList, toggleSelection, truncateToWidth } = await import(
+  "../src/tui.js"
+);
 
 describe("interactive consult choices", () => {
   it("turns picker answers into the send command an agent would have typed", () => {
@@ -83,16 +85,17 @@ describe("select list", () => {
         { label: "An existing project" },
         { label: "No project" }
       ],
-      cursor: 1
+      cursor: 1,
+      color: false
     });
     const lines = rendered.split("\n");
 
     expect(lines[0]).toContain("Where should this go?");
     // Title, blank, then one row per option.
     expect(lines[3]).toContain("An existing project");
-    // The cursor row is the only one carrying the pointer.
-    expect(lines.filter((line) => line.trimStart().startsWith(">"))).toHaveLength(1);
-    expect(lines[3].trimStart().startsWith(">")).toBe(true);
+    // Exactly one row carries the cursor bar.
+    expect(lines.filter((line) => line.includes("\u258c"))).toHaveLength(1);
+    expect(lines[3].includes("\u258c")).toBe(true);
     expect(rendered).toContain("keeps context");
     // Terminal output stays plain text - no emoji anywhere.
     expect(/\p{Extended_Pictographic}/u.test(rendered)).toBe(false);
@@ -104,7 +107,8 @@ describe("select list", () => {
       options: [{ label: "Deep research" }, { label: "Web search" }],
       cursor: 0,
       selected: [1],
-      multi: true
+      multi: true,
+      color: false
     });
     expect(rendered).toContain("[x] Web search");
     expect(rendered).toContain("[ ] Deep research");
@@ -125,7 +129,72 @@ describe("select list", () => {
   });
 });
 
+describe("readability", () => {
+  it("numbers the rows and marks the cursor with a bar, the way a picker is normally read", () => {
+    // Borrowed from the pickers this sits next to: a number per row so a choice
+    // can be typed directly, and a left bar for the cursor, which stays legible
+    // when the row is also colored.
+    const rendered = renderSelectList({
+      title: "Where should this consult land?",
+      step: { index: 2, total: 4 },
+      options: [{ label: "The open chat", hint: "keeps context" }, { label: "An existing project" }],
+      cursor: 1,
+      color: false
+    });
+    const lines = rendered.split("\n");
+
+    expect(lines[0]).toContain("Step 2 of 4");
+    expect(rendered).toContain("1 The open chat");
+    expect(rendered).toContain("2 An existing project");
+    // The cursor row carries the bar; the others are indented to match.
+    const cursorRows = lines.filter((line) => line.includes("\u258c"));
+    expect(cursorRows).toHaveLength(1);
+    expect(cursorRows[0]).toContain("An existing project");
+  });
+
+  it("truncates rows to the terminal instead of wrapping them into a mess", () => {
+    expect(truncateToWidth("a".repeat(40), 10)).toHaveLength(10);
+    expect(truncateToWidth("a".repeat(40), 10).endsWith("...")).toBe(true);
+    expect(truncateToWidth("short", 10)).toBe("short");
+    const rendered = renderSelectList({
+      title: "T",
+      options: [{ label: "x".repeat(200) }],
+      cursor: 0,
+      width: 40,
+      color: false
+    });
+    for (const line of rendered.split("\n")) expect(line.length).toBeLessThanOrEqual(40);
+  });
+
+  it("frames the settings a send will use, so nothing is chosen blind", () => {
+    const panel = renderContextPanel(
+      [
+        { label: "model", value: "Pro" },
+        { label: "project", value: "prodex-smoke-project" },
+        { label: "browser", value: "ready" }
+      ],
+      { color: false, width: 60 }
+    );
+    const lines = panel.split("\n");
+
+    // A closed box, values aligned in one column.
+    expect(lines[0].startsWith("\u256d")).toBe(true);
+    expect(lines[lines.length - 1].startsWith("\u2570")).toBe(true);
+    const modelRow = lines.find((line) => line.includes("model"));
+    const projectRow = lines.find((line) => line.includes("project"));
+    expect(modelRow?.indexOf("Pro")).toBe(projectRow?.indexOf("prodex-smoke-project"));
+    expect(/\p{Extended_Pictographic}/u.test(panel)).toBe(false);
+  });
+});
+
 describe("progress bar", () => {
+  it("says how to stop, and turns a spinner so a still frame never reads as a hang", () => {
+    const first = renderProgressBar({ elapsedMs: 1_000, budgetMs: 120_000, label: "generating", width: 20, tick: 0 });
+    const second = renderProgressBar({ elapsedMs: 1_000, budgetMs: 120_000, label: "generating", width: 20, tick: 1 });
+    expect(first).not.toBe(second);
+    expect(first).toContain("ctrl-c to stop");
+  });
+
   it("fills against the budget and always shows elapsed time", () => {
     const bar = renderProgressBar({ elapsedMs: 30_000, budgetMs: 120_000, label: "generating", width: 20 });
     expect(bar).toContain("generating");

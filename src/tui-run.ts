@@ -10,16 +10,22 @@ import readline from "node:readline";
 import {
   consultArgsFromChoices,
   moveCursor,
+  renderContextPanel,
   renderProgressBar,
   renderSelectList,
   toggleSelection,
   type ConsultChoices,
+  type ContextRow,
   type ProjectMode,
   type SelectListInput
 } from "./tui.js";
 
 const ESC = "";
 const CLEAR = `${ESC}[2J${ESC}[H`;
+// The alternate screen buffer: the terminal comes back exactly as it was, so a
+// picker does not shove the user's scrollback off the top.
+const ALT_SCREEN_ON = `${ESC}[?1049h`;
+const ALT_SCREEN_OFF = `${ESC}[?1049l`;
 const CLEAR_LINE = `${ESC}[2K\r`;
 const HIDE_CURSOR = `${ESC}[?25l`;
 const SHOW_CURSOR = `${ESC}[?25h`;
@@ -54,36 +60,70 @@ function isConfirm(key: Key): boolean {
   return key.name === "return" || key.name === "enter";
 }
 
-async function pick(io: TuiIo, input: Omit<SelectListInput, "cursor">): Promise<number | undefined> {
+async function pick(io: TuiIo, input: Omit<SelectListInput, "cursor">, header = ""): Promise<number | undefined> {
   let cursor = 0;
   for (;;) {
-    io.write(CLEAR + renderSelectList({ ...input, cursor, footer: "  up/down move, enter choose, q cancel" }) + "\n");
+    io.write(
+      CLEAR +
+        header +
+        renderSelectList({
+          ...input,
+          cursor,
+          width: terminalWidth(),
+          color: colorEnabled(),
+          footer: "  up/down move   1-9 choose directly   enter confirm   q cancel"
+        }) +
+        "\n"
+    );
     const key = await readKey(io);
     if (isCancel(key)) return undefined;
+    const typed = numericChoice(key, input.options.length);
+    if (typed !== undefined) return typed;
     if (key.name === "up" || key.name === "k") cursor = moveCursor(cursor, "up", input.options.length);
     else if (key.name === "down" || key.name === "j") cursor = moveCursor(cursor, "down", input.options.length);
     else if (isConfirm(key)) return cursor;
   }
 }
 
-async function pickMany(io: TuiIo, input: Omit<SelectListInput, "cursor" | "multi">): Promise<number[] | undefined> {
+function terminalWidth(): number {
+  return Math.max(40, Math.min(process.stdout.columns ?? 100, 120));
+}
+
+function colorEnabled(): boolean {
+  return process.stdout.isTTY === true && !process.env.NO_COLOR;
+}
+
+// Typing the row number is faster than arrowing to it, and matches how the
+// pickers this sits beside are driven.
+function numericChoice(key: Key, length: number): number | undefined {
+  const digit = Number(key.name);
+  if (!Number.isInteger(digit) || digit < 1 || digit > Math.min(9, length)) return undefined;
+  return digit - 1;
+}
+
+async function pickMany(io: TuiIo, input: Omit<SelectListInput, "cursor" | "multi">, header = ""): Promise<number[] | undefined> {
   let cursor = 0;
   let selected: number[] = [];
   for (;;) {
     io.write(
       CLEAR +
+        header +
         renderSelectList({
           ...input,
           cursor,
           selected,
           multi: true,
-          footer: "  space toggle, enter confirm (none is fine), q cancel"
+          width: terminalWidth(),
+          color: colorEnabled(),
+          footer: "  space toggle   1-9 toggle directly   enter confirm (none is fine)   q cancel"
         }) +
         "\n"
     );
     const key = await readKey(io);
     if (isCancel(key)) return undefined;
-    if (key.name === "up" || key.name === "k") cursor = moveCursor(cursor, "up", input.options.length);
+    const typed = numericChoice(key, input.options.length);
+    if (typed !== undefined) selected = toggleSelection(selected, typed);
+    else if (key.name === "up" || key.name === "k") cursor = moveCursor(cursor, "up", input.options.length);
     else if (key.name === "down" || key.name === "j") cursor = moveCursor(cursor, "down", input.options.length);
     else if (key.name === "space") selected = toggleSelection(selected, cursor);
     else if (isConfirm(key)) return selected;
@@ -111,6 +151,8 @@ const TOOL_CHOICES: Array<{ id: string; label: string; hint?: string }> = [
 ];
 
 export interface InteractiveDeps {
+  /** What the send will use if nothing is overridden, shown before any question. */
+  describeContext?: () => Promise<ContextRow[]>;
   listProjects: () => Promise<string[]>;
   runConsult: (args: string[], onProgress: (line: string) => void) => Promise<number>;
   now?: () => number;
@@ -125,10 +167,22 @@ export async function runInteractiveConsult(io: TuiIo, deps: InteractiveDeps): P
   readline.emitKeypressEvents(io.input);
   io.input.setRawMode?.(true);
   io.input.resume();
-  io.write(HIDE_CURSOR);
+  io.write(ALT_SCREEN_ON + HIDE_CURSOR);
+  let header = "";
   try {
     io.write(CLEAR);
-    const prompt = await askLine(io, "Ask ChatGPT Pro\n\n  prompt: ");
+    // Show what the send will use before asking anything: choosing a project or
+    // a tool without knowing the model, or whether the browser is even up, is
+    // choosing blind - and a browser failure after four questions wastes all four.
+    if (deps.describeContext) {
+      try {
+        const rows = await deps.describeContext();
+        if (rows.length > 0) header = `${renderContextPanel(rows, { color: colorEnabled(), width: terminalWidth() })}\n\n`;
+      } catch {
+        // Context is a courtesy; never let it block the consult.
+      }
+    }
+    const prompt = await askLine(io, `${header}Ask ChatGPT Pro\n\n  prompt: `);
     if (prompt.length === 0) {
       io.write("Nothing to ask.\n");
       return 1;
@@ -136,13 +190,14 @@ export async function runInteractiveConsult(io: TuiIo, deps: InteractiveDeps): P
 
     const projectChoice = await pick(io, {
       title: "Where should this consult land?",
+      step: { index: 1, total: 3 },
       options: [
         { label: "The chat that is already open", hint: "keeps the thread's context" },
         { label: "An existing project" },
         { label: "A new project" },
         { label: "No project", hint: "plain chat list, ignores a pinned default" }
       ]
-    });
+    }, header);
     if (projectChoice === undefined) return cancel(io);
 
     const modes: ProjectMode[] = ["current", "existing", "new", "none"];
@@ -157,7 +212,7 @@ export async function runInteractiveConsult(io: TuiIo, deps: InteractiveDeps): P
       const chosen = await pick(io, {
         title: "Which project?",
         options: projects.map((name) => ({ label: name }))
-      });
+      }, header);
       if (chosen === undefined) return cancel(io);
       projectName = projects[chosen];
     } else if (projectMode === "new") {
@@ -167,18 +222,20 @@ export async function runInteractiveConsult(io: TuiIo, deps: InteractiveDeps): P
 
     const toolChoice = await pickMany(io, {
       title: "Turn on any composer tools for this send",
+      step: { index: 2, total: 3 },
       options: TOOL_CHOICES.map((tool) => ({ label: tool.label, ...(tool.hint ? { hint: tool.hint } : {}) }))
-    });
+    }, header);
     if (toolChoice === undefined) return cancel(io);
     const tools = toolChoice.map((index) => TOOL_CHOICES[index].id);
 
     const threadChoice = await pick(io, {
       title: "Start a fresh thread?",
+      step: { index: 3, total: 3 },
       options: [
         { label: "Continue the current thread", hint: "follow-ups keep context" },
         { label: "Start a new chat", hint: "recommended for an unrelated question" }
       ]
-    });
+    }, header);
     if (threadChoice === undefined) return cancel(io);
 
     const choices: ConsultChoices = {
@@ -190,7 +247,9 @@ export async function runInteractiveConsult(io: TuiIo, deps: InteractiveDeps): P
     };
     const args = consultArgsFromChoices(choices);
 
-    io.write(CLEAR + SHOW_CURSOR);
+    // Leave the alternate screen before the send: the answer, the receipt id
+    // and any blocker belong in the scrollback the user keeps.
+    io.write(ALT_SCREEN_OFF + SHOW_CURSOR);
     io.write(`Sending. Equivalent command:\n  prodex ${formatCommand(args)}\n\n`);
 
     // Deep research runs about ten minutes; an ordinary Pro answer, minutes.
@@ -198,9 +257,14 @@ export async function runInteractiveConsult(io: TuiIo, deps: InteractiveDeps): P
     const budgetMs = tools.includes("deep-research") ? 30 * 60_000 : 20 * 60_000;
     const startedAt = now();
     let label = "starting";
+    let tick = 0;
     const timer = setInterval(() => {
-      io.write(CLEAR_LINE + renderProgressBar({ elapsedMs: now() - startedAt, budgetMs, label }));
-    }, 500);
+      tick += 1;
+      io.write(
+        CLEAR_LINE +
+          renderProgressBar({ elapsedMs: now() - startedAt, budgetMs, label, tick, width: Math.min(28, terminalWidth() - 52) })
+      );
+    }, 250);
     try {
       const code = await deps.runConsult(args, (line) => {
         label = line.replace(/^progress:\s*/, "").slice(0, 60);
@@ -214,7 +278,7 @@ export async function runInteractiveConsult(io: TuiIo, deps: InteractiveDeps): P
       throw error;
     }
   } finally {
-    io.write(SHOW_CURSOR);
+    io.write(ALT_SCREEN_OFF + SHOW_CURSOR);
     io.input.setRawMode?.(false);
     io.input.pause();
   }
