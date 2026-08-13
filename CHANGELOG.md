@@ -30,6 +30,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Keys pressed while the picker was not actively reading were dropped, because a listener was attached per read. Anything typed during a redraw, or across the seconds it takes to read the project list out of the browser, vanished - found by using it: the row number typed first was swallowed and the next key landed on the wrong choice. Keys are queued now.
 - The interactive prompt appeared a second or two late, because the context panel's browser check ran before the question. Anything typed into that gap was lost, prompt included. The check now runs while the prompt is being typed, and the panel leads every question after it - which is where it earns its place.
+## 0.27.3
+
+### Changed
+- The waiting line no longer prints the clock twice. A deep research run read `[###---] 2m 58s / 30m  waiting 2m 57s (deep research researching (1m 48s))` - the same elapsed time in two places, with the part worth reading pushed to the end. The label now carries only the detail.
 
 ## 0.27.1
 

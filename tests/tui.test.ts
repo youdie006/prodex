@@ -1,8 +1,15 @@
 import { describe, expect, it } from "vitest";
 
-const { consultArgsFromChoices, moveCursor, renderContextPanel, renderProgressBar, renderSelectList, toggleSelection, truncateToWidth } = await import(
-  "../src/tui.js"
-);
+const {
+  consultArgsFromChoices,
+  moveCursor,
+  progressLabel,
+  renderContextPanel,
+  renderProgressBar,
+  renderSelectList,
+  toggleSelection,
+  truncateToWidth
+} = await import("../src/tui.js");
 
 describe("interactive consult choices", () => {
   it("turns picker answers into the send command an agent would have typed", () => {
@@ -184,6 +191,22 @@ describe("readability", () => {
     const projectRow = lines.find((line) => line.includes("project"));
     expect(modelRow?.indexOf("Pro")).toBe(projectRow?.indexOf("prodex-smoke-project"));
     expect(/\p{Extended_Pictographic}/u.test(panel)).toBe(false);
+  });
+});
+
+describe("progress labels", () => {
+  it("drops the elapsed time the bar already shows", () => {
+    // Measured on a deep research run: the line read
+    // "[###---] 2m 58s / 30m  waiting 2m 57s (deep research researching (1m 48s))"
+    // - the same clock twice, with the part worth reading pushed to the end.
+    expect(progressLabel("progress: waiting 2m 57s (deep research researching (1m 48s))")).toBe(
+      "deep research researching (1m 48s)"
+    );
+    expect(progressLabel("progress: waiting 45s (generating)")).toBe("generating");
+    expect(progressLabel("progress: applying selection (model=Pro)")).toBe("applying selection (model=Pro)");
+    expect(progressLabel("progress: connecting to browser (port 9333)")).toBe("connecting to browser (port 9333)");
+    // A bare "waiting" with no detail still has to say something.
+    expect(progressLabel("progress: waiting 45s")).toBe("waiting");
   });
 });
 

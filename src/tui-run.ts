@@ -10,6 +10,7 @@ import readline from "node:readline";
 import {
   consultArgsFromChoices,
   moveCursor,
+  progressLabel,
   renderContextPanel,
   renderProgressBar,
   renderSelectList,
@@ -310,7 +311,7 @@ export async function runInteractiveConsult(io: TuiIo, deps: InteractiveDeps): P
     }, 250);
     try {
       const code = await deps.runConsult(args, (line) => {
-        label = line.replace(/^progress:\s*/, "").slice(0, 60);
+        label = progressLabel(line).slice(0, 60);
       });
       clearInterval(timer);
       io.write(CLEAR_LINE);

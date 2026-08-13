@@ -150,6 +150,24 @@ function formatElapsed(ms: number): string {
   return rest === 0 ? `${minutes}m` : `${minutes}m ${rest}s`;
 }
 
+/**
+ * Turn a `progress:` line from the send into the label beside the bar.
+ *
+ * The bar already carries the elapsed clock, so a label that opens with
+ * "waiting 2m 57s" prints the same number twice and pushes the part worth
+ * reading off to the right. Keep the detail, drop the duplicate.
+ */
+export function progressLabel(line: string): string {
+  const text = line.replace(/^progress:\s*/, "").trim();
+  const waiting = /^waiting\s+[0-9]+[a-z]*(?:\s+[0-9]+[a-z]*)*\s*(.*)$/i.exec(text);
+  if (!waiting) return text;
+  const detail = waiting[1].trim();
+  if (detail.length === 0) return "waiting";
+  // The send wraps its detail in parentheses; the bar reads better without them.
+  const unwrapped = /^\((.*)\)$/.exec(detail);
+  return (unwrapped ? unwrapped[1] : detail).trim();
+}
+
 export interface ProgressBarInput {
   elapsedMs: number;
   /** Omit when the wait has no meaningful budget to fill against. */
