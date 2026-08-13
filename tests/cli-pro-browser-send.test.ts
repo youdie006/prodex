@@ -135,6 +135,34 @@ describe("pro browser ask persistence", () => {
     );
   });
 
+  it("lets a send opt out of the pinned default project", async () => {
+    // A repo can pin a default project so every consult lands there. Without a
+    // way to say "not this time", a one-off question had no route to the plain
+    // chat list - which is exactly what an interactive picker has to offer.
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-send-"));
+    await mkdir(path.join(cwd, ".bridge"), { recursive: true });
+    await writeFile(
+      path.join(cwd, ".bridge", "config.json"),
+      `${JSON.stringify({ schema_version: 1, host: "127.0.0.1", port: 8787, browser_defaults: { project: "Pinned Project" } }, null, 2)}\n`,
+      "utf8"
+    );
+    sendChatGptPromptMock.mockResolvedValueOnce({
+      url: "https://chatgpt.com/c/no-project",
+      title: "ChatGPT",
+      answer: "answered outside the project",
+      modelHints: [],
+      warnings: []
+    });
+
+    await runCli(["pro", "browser", "ask", "--no-project", "--json", "Question"], {
+      cwd,
+      stdout: () => {},
+      stderr: () => {}
+    });
+
+    expect(sendChatGptPromptMock).toHaveBeenLastCalledWith(expect.not.objectContaining({ project: expect.anything() }));
+  });
+
   it("reports the thread a blocker landed in, not the one the caller asked for", async () => {
     // --tool deep-research posts into a NEW thread and then blocks, because the
     // report never renders here. The URL of that thread is the only thing the

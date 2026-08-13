@@ -185,6 +185,32 @@ export interface CliIO {
   isInteractive?: boolean;
 }
 
+/**
+ * Run the interactive picker and hand its choices to the ordinary send path, so
+ * the terminal flow and the documented flags cannot drift apart.
+ */
+async function runInteractiveUi(io: CliIO): Promise<number> {
+  const { runInteractiveConsult } = await import("./tui-run.js");
+  return runInteractiveConsult(
+    { write: (text) => process.stdout.write(text), input: process.stdin },
+    {
+      listProjects: async () => {
+        const { listChatGptSidebarProjects } = await import("./chatgpt-browser.js");
+        const listed = await listChatGptSidebarProjects({});
+        return listed.projects;
+      },
+      runConsult: (args, onProgress) =>
+        runCli(args, {
+          ...io,
+          stderr: (line) => {
+            if (line.startsWith("progress:")) onProgress(line);
+            else io.stderr(line);
+          }
+        })
+    }
+  );
+}
+
 export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<number> {
   const [command, ...rest] = args;
   const store = new BridgeStore(io.cwd);
@@ -194,10 +220,20 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
     return 0;
   }
 
+  // A person typing `prodex` used to get the agent-facing command wall and no
+  // way in. On a terminal, walk them through a consult instead; piped or
+  // scripted callers still get the banner and the command list they parse.
+  if (!command && io.isInteractive === true) return runInteractiveUi(io);
+
   if (!command || command === "help" || command === "--help" || command === "-h") {
     if (shouldColorize()) io.stdout(renderBanner({ color: true }));
     printHelp(io.stdout);
     return 0;
+  }
+
+  if (command === "ui") {
+    assertOnlyOptions(rest, "ui", []);
+    return runInteractiveUi(io);
   }
 
   if (command === "init") return runInitCommand(rest, io);
@@ -500,6 +536,7 @@ repo: ${cwd}
    ${cli} pro browser help${sourceCliOption}
    ${cli} pro browser check${sourceCliOption} --cwd ${quotedCwd}
    ${cli} pro browser smoke${sourceCliOption} --cwd ${quotedCwd}
+   Prefer to drive it yourself? ${cli} ui (or just ${cli} in a terminal) asks where the consult should land, which composer tools to turn on, and shows a progress bar while Pro writes.
    Sharing the browser with other agents? Sends queue behind an in-flight response automatically; pass --busy-wait-ms 0 to fail fast instead.
    Hand ChatGPT a real file - the only way it can open a pdf, pptx, xlsx or image:
    ${cli} ask --cwd ${quotedCwd} --attach deck.pptx "Review slides 40-60"  # uploads the file itself

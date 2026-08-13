@@ -21,7 +21,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - A send whose browser died sat silent for the rest of its budget. Chrome went away mid deep-research run, every poll threw, the loop swallowed each failure, and nothing was reported for the remaining half hour. Five failed reads in a row now end the wait with `browser_unreachable` carrying the thread, so the answer can be collected; measured live, a killed browser is reported in 7 seconds instead of 20 minutes.
 - `pro browser login` ignored how the browser was last opened, so anyone who set up a virtual display got a visible window back every time they followed the `browser_unreachable` advice - the surprise window they went to that trouble to avoid. It now reopens in the saved mode unless a flag or environment variable says otherwise.
-- `pro browser recover` read only the page for ordinary answers, inheriting everything the page loses (flattened tables, dropped citation urls) and once saving ChatGPT's "Connection interrupted" notice as the recovered answer. It reads the transcript first now, and that notice is recognized as a placeholder for when the transcript is unreachable.
+- `pro browser recover` read only the page for ordinary answers, inheriting everything the page loses (flattened tables, dropped citation urls) and once saving ChatGPT's "Connection interrupted" notice as the recovered answer. It reads the transcript first now, and that notice is recognized as a placeholder for when the transcript is unreachable.## 0.27.0
+
+### Added
+- `prodex ui`, and plain `prodex` in a terminal, now open an interactive consult instead of a wall of commands. It asks for the prompt, where the consult should land (the open chat, an existing project, a new project, or no project), which composer tools to enable, and whether to start a fresh thread - then runs the send with a progress bar that fills against the send's own budget and names what it is waiting on, including queueing behind another agent's send. Piped and scripted callers still get the banner and command list unchanged.
+- `--no-project` on `ask` / `pro browser ask`, so a single send can skip a pinned default project. Without it "no project" was unsayable once a repo had one pinned.
+
 ## 0.26.1
 
 ### Fixed

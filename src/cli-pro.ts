@@ -238,6 +238,7 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
         "--confirm-target",
         "--project",
         "--project-new",
+        "--no-project",
         "--model",
         "--pro-mode",
         "--effort",
@@ -899,6 +900,12 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
     const browserDefaults = await loadBrowserDefaults(targetCwd);
     const explicitProject = readFlag(parsedAskPro.optionArgs, "--project");
     const explicitProjectNew = readFlag(parsedAskPro.optionArgs, "--project-new");
+    // Opt out of a pinned default project for one send. Without this a repo
+    // that pins a project has no route back to the plain chat list.
+    const suppressProject = parsedAskPro.optionArgs.includes("--no-project");
+    if (suppressProject && (explicitProject !== undefined || explicitProjectNew !== undefined)) {
+      throw new Error("ask-pro cannot combine --no-project with --project/--project-new; pick one.");
+    }
     if (explicitProject !== undefined && explicitProjectNew !== undefined) {
       throw new Error("ask-pro cannot combine --project and --project-new; pick an existing project or create one.");
     }
@@ -934,7 +941,7 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
     // (pinned tab) and --project-new suppress it.
     const selectionProject =
       explicitProject ??
-      (normalizedTargetUrl || selectionProjectNew !== undefined ? undefined : browserDefaults?.project);
+      (normalizedTargetUrl || selectionProjectNew !== undefined || suppressProject ? undefined : browserDefaults?.project);
     const reasoningAxisChosen = explicitProMode !== undefined || explicitEffort !== undefined;
     const selectionProMode = explicitProMode ?? (reasoningAxisChosen ? undefined : browserDefaults?.pro_mode);
     const selectionEffort = explicitEffort ?? (reasoningAxisChosen ? undefined : browserDefaults?.effort);

@@ -22,7 +22,8 @@ export const TOP_LEVEL_COMMANDS = [
   "sessions",
   "pro",
   "release",
-  "mcp"
+  "mcp",
+  "ui"
 ] as const;
 export function isHelpSubcommand(value: string): boolean {
   return value === "help" || value === "--help" || value === "-h";
@@ -259,7 +260,9 @@ export const ASK_PRO_BOOLEAN_FLAGS = new Set([
   "--stdin",
   "--json",
   "--auto-login",
-  "--no-auto-login"
+  "--no-auto-login",
+  // Send outside any project for once, overriding a pinned default.
+  "--no-project"
 ]);
 export const ASK_PRO_SELECTION_VALUE_FLAGS = ["--project", "--project-new", "--model", "--pro-mode", "--effort"] as const;
 export const ASK_PRO_VALUE_FLAGS = new Set([
