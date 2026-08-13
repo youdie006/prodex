@@ -15,6 +15,7 @@ import {
   listChatGptSidebarProjects,
   normalizeChatGptTargetUrl,
   openChatGptBrowser,
+  openChatGptTab,
   parseProMode,
   parseReasoningEffort,
   defaultTimeoutForTools,
@@ -1470,6 +1471,7 @@ export interface LoginWaitDeps {
   statusFn?: typeof getChatGptBrowserStatus;
   sleepFn?: (ms: number) => Promise<void>;
   now?: () => number;
+  openTabFn?: (port: number) => Promise<unknown>;
 }
 
 /**
@@ -1485,13 +1487,24 @@ export async function waitForChatGptLoginReady(
   const statusFn = deps.statusFn ?? getChatGptBrowserStatus;
   const sleepFn = deps.sleepFn ?? sleep;
   const now = deps.now ?? Date.now;
+  const openTabFn = deps.openTabFn ?? openChatGptTab;
   const timeoutMs = options.timeoutMs ?? 300_000;
   const pollMs = options.pollMs ?? 2_000;
   const startedAt = now();
-  stderr("login: waiting for a logged-in ChatGPT tab (finish login in the opened window; Ctrl+C stops waiting)...");
+  stderr("login: waiting for a logged-in ChatGPT tab (finish login in the dedicated Chrome window; Ctrl+C stops waiting)...");
   let lastState = "";
+  let openedMissingTab = false;
   while (now() - startedAt < timeoutMs) {
     const status = await statusFn({ port: options.port, timeoutMs: 1_500 });
+    // A running Chrome with no chatgpt.com tab leaves the user nothing to log
+    // into. Open the tab once rather than waiting for one to appear.
+    if (status.reachable && status.blocker?.code === "chatgpt_page_missing" && !openedMissingTab) {
+      openedMissingTab = true;
+      stderr("login: the running Chrome had no ChatGPT tab - opening a ChatGPT tab in it...");
+      await openTabFn(options.port);
+      await sleepFn(pollMs);
+      continue;
+    }
     const state = !status.reachable
       ? "login: browser starting..."
       : status.blocker

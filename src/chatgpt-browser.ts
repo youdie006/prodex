@@ -1314,6 +1314,30 @@ export function openChatGptBrowser(options: ChatGptBrowserOptions = {}): ChatGpt
   };
 }
 
+/**
+ * Open a ChatGPT tab in the already-running dedicated Chrome.
+ *
+ * Reported from a live machine: Chrome was up but had no chatgpt.com tab, so
+ * login reused it ("no new window opened"), told the user to finish logging in
+ * "in the opened window", and then blocked forever on a tab that nobody was
+ * going to create. Opening it is the whole fix.
+ */
+export async function openChatGptTab(port = DEFAULT_CDP_PORT, url = "https://chatgpt.com/"): Promise<boolean> {
+  const endpoint = `http://127.0.0.1:${port}/json/new?${encodeURIComponent(url)}`;
+  // Chrome moved /json/new from GET to PUT; try the current verb first and fall
+  // back so this keeps working on either.
+  for (const method of ["PUT", "GET"] as const) {
+    try {
+      const response = await fetch(endpoint, { method, signal: AbortSignal.timeout(5_000) });
+      if (response.ok) return true;
+    } catch {
+      // Try the next verb, then give up quietly: the caller keeps polling and
+      // the user can still open the tab by hand.
+    }
+  }
+  return false;
+}
+
 export async function getChatGptBrowserStatus(options: { port?: number; timeoutMs?: number } = {}): Promise<ChatGptBrowserStatus> {
   const port = resolveCdpPort(options.port);
   const page = await findChatGptPage(port, options.timeoutMs ?? 1500);

@@ -76,6 +76,53 @@ describe("waitForChatGptLoginReady", () => {
     expect(lines).toContain("login: blocked - ChatGPT is behind a Cloudflare check.");
   });
 
+  it("opens the ChatGPT tab itself when the running Chrome has none", async () => {
+    // Reported from a live machine: Chrome was already running, so login said
+    // "reusing it (no new window opened)" - and then told the user to finish
+    // logging in "in the opened window" while blocking on
+    // "no chatgpt.com tab is open". There was no window to log into and prodex
+    // never opened one, so the wait could not end.
+    const lines: string[] = [];
+    const missing = {
+      ...status({ reachable: true }),
+      blocker: {
+        code: "chatgpt_page_missing",
+        message: "Chrome debug port is reachable, but no chatgpt.com tab is open.",
+        retryable: true
+      }
+    };
+    const statuses = [missing, missing, status({ reachable: true, loggedInLikely: true, hasComposer: true })];
+    let call = 0;
+    const opened: number[] = [];
+
+    const ready = await waitForChatGptLoginReady((line) => lines.push(line), { port: 9333, timeoutMs: 60_000, pollMs: 1 }, {
+      statusFn: async () => statuses[Math.min(call++, statuses.length - 1)],
+      sleepFn: async () => {},
+      openTabFn: async (port: number) => {
+        opened.push(port);
+      }
+    });
+
+    expect(ready).toBe(true);
+    // Opened once, not once per poll: a tab per second would bury the user.
+    expect(opened).toEqual([9333]);
+    expect(lines.some((line) => /opening a ChatGPT tab/i.test(line))).toBe(true);
+  });
+
+  it("does not claim a window was opened when it reused a running Chrome", async () => {
+    const lines: string[] = [];
+    await waitForChatGptLoginReady((line) => lines.push(line), { port: 9333, timeoutMs: 1, pollMs: 1 }, {
+      statusFn: async () => status({ reachable: true, loggedInLikely: true, hasComposer: true }),
+      sleepFn: async () => {},
+      now: (() => {
+        let t = 0;
+        return () => (t += 1);
+      })()
+    });
+    // "the opened window" is wrong whenever login reused a running browser.
+    expect(lines.some((line) => line.includes("the opened window"))).toBe(false);
+  });
+
   it("gives up after the timeout with a check hint", async () => {
     const lines: string[] = [];
     let fakeNow = 0;
