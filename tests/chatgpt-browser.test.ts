@@ -41,6 +41,8 @@ import {
   conversationIdFromThreadUrl,
   deepResearchReportExpression,
   resolveTranscriptCitations,
+  pickLandedConversation,
+  recentConversationsExpression,
   transcriptAnswerExpression,
   classifyTranscriptRead,
   browserLostMidWaitBlocker,
@@ -334,6 +336,48 @@ describe("ChatGPT browser adapter", () => {
     expect(classifyTranscriptRead({ ok: false, reason: "answer_not_finished", status: "in_progress", userText: "someone else" }, sent)).toBe(
       "unavailable"
     );
+  });
+
+  it("finds the conversation a prompt landed in when the page never showed it post", async () => {
+    // Acceptance is read off the page. When the page changes shape, a prompt
+    // that DID post looks like a prompt that never left - and the caller's
+    // retry sends the same question twice. The transcript knows better.
+    const conversations = {
+      items: [
+        { id: "conv-other", title: "Something else" },
+        { id: "conv-ours", title: "Ours" }
+      ]
+    };
+    const transcripts: Record<string, unknown> = {
+      "conv-other": {
+        current_node: "u1",
+        mapping: { u1: { message: { author: { role: "user" }, content: { content_type: "text", parts: ["a different question"] } } } }
+      },
+      "conv-ours": {
+        current_node: "u1",
+        mapping: { u1: { message: { author: { role: "user" }, content: { content_type: "text", parts: ["the prompt we sent"] } } } }
+      }
+    };
+    const fakeFetch = async (url: string) => {
+      if (url.includes("/api/auth/session")) return { ok: true, status: 200, json: async () => ({ accessToken: "tok" }) };
+      if (url.includes("/backend-api/conversations")) return { ok: true, status: 200, json: async () => conversations };
+      const id = url.split("/").pop() ?? "";
+      return { ok: true, status: 200, json: async () => transcripts[id] };
+    };
+    const found = await new Function("fetch", `return ${recentConversationsExpression(2)}`)(fakeFetch);
+
+    expect(found.map((entry: { id: string }) => entry.id)).toEqual(["conv-other", "conv-ours"]);
+    expect(found[1].userText).toBe("the prompt we sent");
+  });
+
+  it("picks the conversation whose prompt is the one that was sent", () => {
+    const candidates = [
+      { id: "conv-other", userText: "a different question" },
+      { id: "conv-ours", userText: "@Deep research the prompt we sent" }
+    ];
+    expect(pickLandedConversation(candidates, "the prompt we sent")).toBe("conv-ours");
+    expect(pickLandedConversation(candidates, "a question nobody asked")).toBeUndefined();
+    expect(pickLandedConversation([], "anything")).toBeUndefined();
   });
 
   it("returns the prompt the transcript holds, so a caller can prove the thread is its own", async () => {

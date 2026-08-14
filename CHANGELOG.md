@@ -29,7 +29,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Keys pressed while the picker was not actively reading were dropped, because a listener was attached per read. Anything typed during a redraw, or across the seconds it takes to read the project list out of the browser, vanished - found by using it: the row number typed first was swallowed and the next key landed on the wrong choice. Keys are queued now.
-- The interactive prompt appeared a second or two late, because the context panel's browser check ran before the question. Anything typed into that gap was lost, prompt included. The check now runs while the prompt is being typed, and the panel leads every question after it - which is where it earns its place.
+- The interactive prompt appeared a second or two late, because the context panel's browser check ran before the question. Anything typed into that gap was lost, prompt included. The check now runs while the prompt is being typed, and the panel leads every question after it - which is where it earns its place.## 0.28.0
+
+### Fixed
+- A prompt that posted but was not seen to post no longer fails the send. Acceptance was read only off the page, so a change in the ChatGPT DOM would report "ChatGPT never registered the prompt" for a prompt sitting in a conversation - and a caller that retried asked the same question twice. The send now checks the transcript for a conversation holding the prompt it sent, and continues there, warning `prompt_acceptance_unreadable`.
+- That check runs 20 seconds in rather than at the deadline. Acceptance ran on the whole send budget, so an unreadable page cost the full twenty minutes before anything was reported. Verified by disabling acceptance detection in a local build: the send recovered and answered in 30 seconds, where it previously spun for the entire budget and failed.
+
 ## 0.27.3
 
 ### Changed

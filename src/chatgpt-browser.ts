@@ -2343,6 +2343,24 @@ async function readTranscriptAnswer(page: DevtoolsPage, conversationId: string, 
 }
 
 
+// A page that has not reported the prompt posting within this long is worth
+// double-checking against the transcript; the probe is a couple of small fetches.
+const ACCEPTANCE_TRANSCRIPT_PROBE_AFTER_MS = 20_000;
+const ACCEPTANCE_TRANSCRIPT_PROBE_EVERY_MS = 10_000;
+
+/** Which conversation, if any, already holds the prompt this send posted. */
+async function findLandedConversation(page: DevtoolsPage, prompt: string): Promise<string | undefined> {
+  try {
+    const candidates = await evaluateOnPage<LandedConversationCandidate[]>(page, recentConversationsExpression(4), {
+      timeoutMs: 30_000
+    });
+    return pickLandedConversation(candidates ?? [], prompt);
+  } catch {
+    // Transcript unavailable: the caller falls back to the page.
+    return undefined;
+  }
+}
+
 export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Promise<SendChatGptPromptResult> {
   const port = resolveCdpPort(options.port);
   const timeoutMs = options.timeoutMs ?? 90_000;
@@ -2556,8 +2574,29 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
   const acceptDeadline = computePromptAcceptanceDeadline(timeoutMs, started);
   let accepted = false;
   let finalState: ChatGptAnswerState | undefined;
+  // Seeded either from the url once ChatGPT rewrites it, or - when the page
+  // never showed the prompt post - from the transcript that proves it did.
+  let transcriptConversationId: string | undefined;
+  // Ask the transcript early rather than only at the deadline. Acceptance runs
+  // on the full send budget, so a page that stops reporting the prompt posting
+  // used to burn all twenty minutes before saying anything - while the prompt
+  // sat in a conversation the whole time.
+  let nextTranscriptProbeAt = started + ACCEPTANCE_TRANSCRIPT_PROBE_AFTER_MS;
   while (Date.now() < acceptDeadline) {
     await sleep(500);
+    if (Date.now() >= nextTranscriptProbeAt) {
+      nextTranscriptProbeAt = Date.now() + ACCEPTANCE_TRANSCRIPT_PROBE_EVERY_MS;
+      const landed = await findLandedConversation(page, options.prompt);
+      if (landed) {
+        transcriptConversationId = landed;
+        accepted = true;
+        sendWarnings.push(
+          "prompt_acceptance_unreadable: the page never showed the prompt posting, but the transcript has it - continuing on the conversation the transcript names."
+        );
+        dbgSend(`acceptance recovered from transcript conversation=${landed}`);
+        break;
+      }
+    }
     try {
       finalState = await evaluateOnPage<ChatGptAnswerState>(page, answerExpression());
     } catch {
@@ -2602,7 +2641,20 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
     } catch {
       // best effort: fall back to submit-button signal only
     }
-    throw acceptanceTimeoutError({ timeoutMs, composerStillHasText, submitButtonFound });
+    // Before calling this a failed send: did the prompt actually land? Reading
+    // acceptance off the page means a changed DOM reports "never posted" for a
+    // prompt that posted fine, and the caller's retry asks ChatGPT the same
+    // question twice. The transcript is the ground truth.
+    const landed = await findLandedConversation(page, options.prompt);
+    if (landed) {
+      transcriptConversationId = landed;
+      accepted = true;
+      sendWarnings.push(
+        "prompt_acceptance_unreadable: the page never showed the prompt posting, but the transcript has it - continuing on the conversation the transcript names."
+      );
+      dbgSend(`acceptance recovered from transcript conversation=${landed}`);
+    }
+    if (!accepted) throw acceptanceTimeoutError({ timeoutMs, composerStillHasText, submitButtonFound });
   }
 
   // Pin the conversation the prompt actually landed in. The browser is shared
@@ -2616,7 +2668,9 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
   // a finished answer was lost: the tab returned to the project page, the url
   // still matched the pin taken before ChatGPT rewrote it, and the DOM reader
   // sat on zero assistant messages until the budget ran out.
-  let transcriptConversationId = pinnedThreadUrl ? conversationIdFromThreadUrl(pinnedThreadUrl) : undefined;
+  // Acceptance may already have adopted one from the transcript; otherwise take
+  // it from the url ChatGPT rewrote to.
+  transcriptConversationId ??= pinnedThreadUrl ? conversationIdFromThreadUrl(pinnedThreadUrl) : undefined;
   const transcriptResult = (transcript: { answer: string; modelSlug: string }): SendChatGptPromptResult => {
     emitProgress("answered", `transcript (${transcript.answer.length} chars)`);
     return {
@@ -3742,6 +3796,78 @@ export interface TranscriptAnswerState {
  * answered. Walk from `current_node` up the parents so a regenerated turn reads
  * the branch the UI is on, not an abandoned sibling.
  */
+export interface LandedConversationCandidate {
+  id: string;
+  userText: string;
+}
+
+/**
+ * The most recently updated conversations, each with the prompt it opens with.
+ *
+ * Acceptance is otherwise read off the page: if the DOM changes shape, a prompt
+ * that DID post looks like one that never left, the send fails, and the
+ * caller's retry asks ChatGPT the same question twice. The transcript settles
+ * it - the conversation either holds our prompt or it does not.
+ *
+ * Only the head of each prompt is returned: a research transcript runs to
+ * hundreds of KB and none of that is needed to recognise it.
+ */
+export function recentConversationsExpression(limit = 4): string {
+  return `(async () => {
+  const out = [];
+  let token = "";
+  try {
+    const session = await fetch("/api/auth/session", { credentials: "include" });
+    if (!session.ok) return out;
+    const parsed = await session.json();
+    token = (parsed && parsed.accessToken) || "";
+  } catch (error) {
+    return out;
+  }
+  const headers = token ? { Authorization: "Bearer " + token } : {};
+  let items = [];
+  try {
+    const response = await fetch("/backend-api/conversations?offset=0&limit=${limit}&order=updated", {
+      credentials: "include",
+      headers
+    });
+    if (!response.ok) return out;
+    const listed = await response.json();
+    items = (listed && listed.items) || [];
+  } catch (error) {
+    return out;
+  }
+  for (const item of items) {
+    if (!item || !item.id) continue;
+    try {
+      const response = await fetch("/backend-api/conversation/" + item.id, { credentials: "include", headers });
+      if (!response.ok) continue;
+      const conversation = await response.json();
+      const mapping = (conversation && conversation.mapping) || {};
+      const chain = [];
+      let nodeId = conversation && conversation.current_node;
+      let guard = 0;
+      while (nodeId && mapping[nodeId] && guard < 2000) {
+        guard += 1;
+        if (mapping[nodeId].message) chain.push(mapping[nodeId].message);
+        nodeId = mapping[nodeId].parent;
+      }
+      const user = chain.find((entry) => entry && entry.author && entry.author.role === "user" && entry.content);
+      const text = user ? (user.content.parts || []).filter((part) => typeof part === "string").join("") : "";
+      out.push({ id: item.id, userText: text.slice(0, 600) });
+    } catch (error) {
+      // A conversation we cannot read is simply not a match.
+    }
+  }
+  return out;
+})()`;
+}
+
+/** Which of those conversations is the one this send posted into, if any. */
+export function pickLandedConversation(candidates: LandedConversationCandidate[], sentPrompt: string): string | undefined {
+  return candidates.find((candidate) => transcriptMatchesSentPrompt(candidate.userText, sentPrompt))?.id;
+}
+
 export function transcriptAnswerExpression(conversationId: string): string {
   return `(async () => {
   const fail = (reason, extra) => Object.assign({ ok: false, reason, status: "", endTurn: false, isComplete: false, text: "", modelSlug: "", references: [], userText: "" }, extra || {});
