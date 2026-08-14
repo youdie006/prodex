@@ -135,6 +135,36 @@ describe("pro browser ask persistence", () => {
     );
   });
 
+  it("prints a machine-readable answer for pro latest and pro show", async () => {
+    // Every other read path an agent uses is JSON; these two were prose only,
+    // so an agent that wanted the thread or the model behind an answer had to
+    // scrape a human-facing rendering.
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-send-"));
+    sendChatGptPromptMock.mockResolvedValueOnce({
+      url: "https://chatgpt.com/c/json-latest",
+      title: "ChatGPT",
+      answer: "the recorded answer",
+      modelHints: [],
+      modelSlug: "gpt-5-6-pro",
+      warnings: []
+    });
+    await runCli(["pro", "browser", "ask", "--new-chat", "Question"], { cwd, stdout: () => {}, stderr: () => {} });
+
+    const latest: string[] = [];
+    await runCli(["pro", "latest", "--json"], { cwd, stdout: (line) => latest.push(line), stderr: () => {} });
+    const parsed = JSON.parse(latest.join("\n"));
+    expect(parsed.status).toBe("done");
+    expect(parsed.answer).toBe("the recorded answer");
+    expect(parsed.thread).toBe("https://chatgpt.com/c/json-latest");
+    expect(parsed.model_used).toBe("gpt-5-6-pro");
+    expect(typeof parsed.task_id).toBe("string");
+
+    // The same for an explicit task id, so scripts do not need two shapes.
+    const shown: string[] = [];
+    await runCli(["pro", "show", parsed.task_id, "--json"], { cwd, stdout: (line) => shown.push(line), stderr: () => {} });
+    expect(JSON.parse(shown.join("\n")).answer).toBe("the recorded answer");
+  });
+
   it("lets a send opt out of the pinned default project", async () => {
     // A repo can pin a default project so every consult lands there. Without a
     // way to say "not this time", a one-off question had no route to the plain

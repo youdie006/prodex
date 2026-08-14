@@ -673,7 +673,7 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
     }
     if (subcommand === "latest") {
       if (printHelpIfRequested(proArgs, "pro latest", io.stdout, printProHelp, { valueFlags: ["--cwd", "--source-cli"] })) return 0;
-      assertOnlyOptions(proArgs, "pro latest", ["--cwd", "--source-cli"]);
+      assertOnlyOptions(proArgs, "pro latest", ["--cwd", "--source-cli"], ["--json"]);
       const targetCwd = resolveCwdFlag(io.cwd, proArgs);
       const targetStore = new BridgeStore(targetCwd);
       const sourceCli = resolveOptionalFileFlag(io.cwd, proArgs, "--source-cli");
@@ -685,12 +685,17 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
         throw sourceAwareResultError(error, sourceCli, answerOptions);
       }
       if (!consult) throw new Error("No GPT Pro answers found");
-      io.stdout(formatProAnswer(consult, sourceCli, answerOptions));
+      if (proArgs.includes("--json")) {
+        const modelUsed = await recordedModelUsed(targetStore, consult.task.id);
+        io.stdout(formatProAnswerJson(consult, sourceCli, answerOptions, modelUsed ? { modelUsed } : {}));
+      } else {
+        io.stdout(formatProAnswer(consult, sourceCli, answerOptions));
+      }
       return 0;
     }
     if (subcommand === "show") {
       if (printHelpIfRequested(proArgs, "pro show", io.stdout, printProHelp, { valueFlags: ["--cwd", "--source-cli"], maxPositionals: 1 })) return 0;
-      const [taskId] = readPositionalsWithOptions(proArgs, "pro show", 1, ["--cwd", "--source-cli"]);
+      const [taskId] = readPositionalsWithOptions(proArgs, "pro show", 1, ["--cwd", "--source-cli"], ["--json"]);
       if (!taskId) throw new Error("pro show requires <task-id|latest>");
       const targetCwd = resolveCwdFlag(io.cwd, proArgs);
       const targetStore = new BridgeStore(targetCwd);
@@ -703,7 +708,12 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
         throw sourceAwareResultError(error, sourceCli, answerOptions);
       }
       if (!consult) throw new Error(taskId === "latest" ? "No GPT Pro answers found" : `GPT Pro answer not found: ${taskId}`);
-      io.stdout(formatProAnswer(consult, sourceCli, answerOptions));
+      if (proArgs.includes("--json")) {
+        const modelUsed = await recordedModelUsed(targetStore, consult.task.id);
+        io.stdout(formatProAnswerJson(consult, sourceCli, answerOptions, modelUsed ? { modelUsed } : {}));
+      } else {
+        io.stdout(formatProAnswer(consult, sourceCli, answerOptions));
+      }
       return 0;
     }
     if (subcommand === "debate-prompt") {
@@ -1627,6 +1637,52 @@ export function browserSendBlockerFromError(error: unknown): { code: string; mes
     retryable: true,
     next_step: "Resolve the visible browser issue manually, then rerun the consult if needed."
   };
+}
+
+/**
+ * The same answer as `formatProAnswer`, shaped for a program.
+ *
+ * Every other read path is JSON; these two printed only the human rendering,
+ * so an agent after the thread or the model that produced an answer had to
+ * scrape prose.
+ */
+export function formatProAnswerJson(
+  consult: ConsultRecord,
+  sourceCli?: string,
+  options: BrowserCommandOptions = {},
+  extras: { modelUsed?: string } = {}
+): string {
+  const blocker = sourceAwareProAnswerBlocker(consult, sourceCli, options);
+  return JSON.stringify(
+    {
+      task_id: consult.task.id,
+      status: consult.result.status,
+      thread: consult.task.provenance.thread ?? null,
+      created_at: consult.result.created_at,
+      answer: consult.result.summary,
+      ...(extras.modelUsed ? { model_used: extras.modelUsed } : {}),
+      warnings: consult.result.warnings ?? [],
+      ...(blocker ? { blocker } : {})
+    },
+    null,
+    2
+  );
+}
+
+/**
+ * Which model actually answered, from the receipt that recorded the answer.
+ * It lives there rather than on the task because it is what ChatGPT tagged the
+ * message with, not what prodex asked for.
+ */
+async function recordedModelUsed(store: BridgeStore, taskId: string): Promise<string | undefined> {
+  try {
+    const receipts = await store.listReceiptsReadOnly({ kind: "consult_answer_saved", task_id: taskId });
+    const value = receipts[0]?.metadata?.model_used;
+    return typeof value === "string" ? value : undefined;
+  } catch {
+    // A missing or unreadable receipt just means the field is unknown.
+    return undefined;
+  }
 }
 
 export function formatProAnswer(consult: ConsultRecord, sourceCli?: string, options: BrowserCommandOptions = {}): string {

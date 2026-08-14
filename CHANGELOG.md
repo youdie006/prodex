@@ -34,6 +34,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - A prompt that posted but was not seen to post no longer fails the send. Acceptance was read only off the page, so a change in the ChatGPT DOM would report "ChatGPT never registered the prompt" for a prompt sitting in a conversation - and a caller that retried asked the same question twice. The send now checks the transcript for a conversation holding the prompt it sent, and continues there, warning `prompt_acceptance_unreadable`.
 - That check runs 20 seconds in rather than at the deadline. Acceptance ran on the whole send budget, so an unreadable page cost the full twenty minutes before anything was reported. Verified by disabling acceptance detection in a local build: the send recovered and answered in 30 seconds, where it previously spun for the entire budget and failed.
+## 0.28.1
+
+### Added
+- `--json` on `pro latest` and `pro show`. Every other read path was already machine-readable, so an agent that wanted the thread, the recorded warnings, or the model that actually answered had to scrape a human-facing rendering. The JSON carries `task_id`, `status`, `thread`, `created_at`, `answer`, `warnings`, `model_used` when the receipt recorded one, and the blocker when there is one.
 
 ## 0.27.3
 
