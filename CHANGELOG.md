@@ -33,7 +33,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - A prompt that posted but was not seen to post no longer fails the send. Acceptance was read only off the page, so a change in the ChatGPT DOM would report "ChatGPT never registered the prompt" for a prompt sitting in a conversation - and a caller that retried asked the same question twice. The send now checks the transcript for a conversation holding the prompt it sent, and continues there, warning `prompt_acceptance_unreadable`.
-- That check runs 20 seconds in rather than at the deadline. Acceptance ran on the whole send budget, so an unreadable page cost the full twenty minutes before anything was reported. Verified by disabling acceptance detection in a local build: the send recovered and answered in 30 seconds, where it previously spun for the entire budget and failed.
+- That check runs 20 seconds in rather than at the deadline. Acceptance ran on the whole send budget, so an unreadable page cost the full twenty minutes before anything was reported. Verified by disabling acceptance detection in a local build: the send recovered and answered in 30 seconds, where it previously spun for the entire budget and failed.## 0.29.0
+
+### Changed
+- The interactive picker asks in the order the request is actually formed: what kind of send (normal chat, deep research, web search, create image), then where it goes, then the prompt. Asking for the prompt first was backwards - whether this is an ordinary chat or a ten-minute research run changes what you would type - and it also hid ordinary chat behind a tools multi-select instead of naming it. The seconds spent choosing are now used to fetch the project and conversation lists, so no step waits on the network.
+- The logo leads the picker, and the settings panel sits under it.
+- Destination is one question instead of two, and it can continue an existing conversation: recent chats are listed by title, and picking one moves the dedicated tab there before the send confirms it with `--target-url`. Continuing was previously unreachable from the picker, and `--target-url` alone does not navigate - it confirms a tab that is already on the thread.
+
 ## 0.28.1
 
 ### Added

@@ -213,6 +213,18 @@ async function runInteractiveUi(io: CliIO): Promise<number> {
           { label: "browser", value: browser }
         ];
       },
+      pinnedProject: async () => {
+        const { loadBrowserDefaults } = await import("./config.js");
+        return (await loadBrowserDefaults(io.cwd).catch(() => undefined))?.project;
+      },
+      listConversations: async () => {
+        const { listRecentChatGptConversations } = await import("./chatgpt-browser.js");
+        return listRecentChatGptConversations({});
+      },
+      openThread: async (url) => {
+        const { navigateChatGptTabTo } = await import("./chatgpt-browser.js");
+        return navigateChatGptTabTo(url, {});
+      },
       listProjects: async () => {
         const { listChatGptSidebarProjects } = await import("./chatgpt-browser.js");
         const listed = await listChatGptSidebarProjects({});

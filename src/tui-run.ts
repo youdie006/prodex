@@ -7,16 +7,20 @@
  * what keeps the interactive path from drifting away from the documented flags.
  */
 import readline from "node:readline";
+import { renderBanner } from "./banner.js";
+import { destinationChoices, SEND_KINDS, type DestinationId } from "./tui-flow.js";
 import {
   consultArgsFromChoices,
+  conversationThreadUrl,
   moveCursor,
   progressLabel,
+  recentConversationTitlesExpression,
   renderContextPanel,
   renderProgressBar,
   renderSelectList,
-  toggleSelection,
   type ConsultChoices,
   type ContextRow,
+  type ConversationSummary,
   type ProjectMode,
   type SelectListInput
 } from "./tui.js";
@@ -145,35 +149,6 @@ function numericChoice(key: Key, length: number): number | undefined {
   return digit - 1;
 }
 
-async function pickMany(io: TuiIo, input: Omit<SelectListInput, "cursor" | "multi">, header = ""): Promise<number[] | undefined> {
-  let cursor = 0;
-  let selected: number[] = [];
-  for (;;) {
-    io.write(
-      CLEAR +
-        header +
-        renderSelectList({
-          ...input,
-          cursor,
-          selected,
-          multi: true,
-          width: terminalWidth(),
-          color: colorEnabled(),
-          footer: "  space toggle   1-9 toggle directly   enter confirm (none is fine)   q cancel"
-        }) +
-        "\n"
-    );
-    const key = await readKey(io);
-    if (isCancel(key)) return undefined;
-    const typed = numericChoice(key, input.options.length);
-    if (typed !== undefined) selected = toggleSelection(selected, typed);
-    else if (key.name === "up" || key.name === "k") cursor = moveCursor(cursor, "up", input.options.length);
-    else if (key.name === "down" || key.name === "j") cursor = moveCursor(cursor, "down", input.options.length);
-    else if (key.name === "space") selected = toggleSelection(selected, cursor);
-    else if (isConfirm(key)) return selected;
-  }
-}
-
 /** Read one line with the terminal back in cooked mode, so editing works. */
 async function askLine(io: TuiIo, question: string): Promise<string> {
   io.input.setRawMode?.(false);
@@ -189,15 +164,14 @@ async function askLine(io: TuiIo, question: string): Promise<string> {
   return answer.trim();
 }
 
-const TOOL_CHOICES: Array<{ id: string; label: string; hint?: string }> = [
-  { id: "deep-research", label: "Deep research", hint: "browsed report, runs about 10 minutes" },
-  { id: "web-search", label: "Web search", hint: "current facts, with sources" },
-  { id: "create-image", label: "Create image" }
-];
-
 export interface InteractiveDeps {
   /** What the send will use if nothing is overridden, shown before any question. */
   describeContext?: () => Promise<ContextRow[]>;
+  /** Pinned project name, so the destination screen can say where "new chat" goes. */
+  pinnedProject?: () => Promise<string | undefined>;
+  listConversations?: () => Promise<ConversationSummary[]>;
+  /** Move the dedicated tab onto a picked conversation before sending. */
+  openThread?: (url: string) => Promise<boolean>;
   listProjects: () => Promise<string[]>;
   runConsult: (args: string[], onProgress: (line: string) => void) => Promise<number>;
   now?: () => number;
@@ -216,84 +190,113 @@ export async function runInteractiveConsult(io: TuiIo, deps: InteractiveDeps): P
   io.write(ALT_SCREEN_ON + HIDE_CURSOR);
   let header = "";
   try {
-    io.write(CLEAR);
-    // Gather the context WHILE the prompt is being typed. Reading the browser
-    // state takes a second or two, and doing it first left the screen blank for
-    // that long - anything typed into that gap was swallowed, prompt included.
+    // The logo is the program saying which program it is; the panel says what
+    // this send will use. Both belong above the first question, not nowhere.
+    const banner = colorEnabled() ? `${renderBanner({ color: true })}\n` : "";
+    io.write(CLEAR + banner);
+    // Everything the later screens need is fetched while the first question is
+    // being read, so no step waits on the network.
     const contextPromise = deps.describeContext?.().catch(() => [] as ContextRow[]);
-    const prompt = await askLine(io, "Ask ChatGPT Pro\n\n  prompt: ");
-    // The panel still leads every question that follows, which is where it
-    // earns its place: choosing a project and tools without knowing the browser
-    // is down wastes every answer given before the failure.
+    const pinnedPromise = deps.pinnedProject?.().catch(() => undefined);
+    const conversationsPromise = deps.listConversations?.().catch(() => [] as ConversationSummary[]);
+
+    const kindChoice = await pick(
+      io,
+      {
+        title: "What kind of send is this?",
+        step: { index: 1, total: 3 },
+        options: SEND_KINDS.map((kind) => ({ label: kind.label, ...(kind.hint ? { hint: kind.hint } : {}) }))
+      },
+      banner
+    );
+    if (kindChoice === undefined) return cancel(io);
+    const tools = SEND_KINDS[kindChoice].tools;
+
     const rows = (await contextPromise) ?? [];
-    if (rows.length > 0) header = `${renderContextPanel(rows, { color: colorEnabled(), width: terminalWidth() })}\n\n`;
-    if (prompt.length === 0) {
-      io.write("Nothing to ask.\n");
-      return 1;
-    }
+    if (rows.length > 0) header = `${banner}${renderContextPanel(rows, { color: colorEnabled(), width: terminalWidth() })}\n\n`;
+    else header = banner;
 
-    const projectChoice = await pick(io, {
-      title: "Where should this consult land?",
-      step: { index: 1, total: 3 },
-      options: [
-        { label: "The chat that is already open", hint: "keeps the thread's context" },
-        { label: "An existing project" },
-        { label: "A new project" },
-        { label: "No project", hint: "plain chat list, ignores a pinned default" }
-      ]
-    }, header);
-    if (projectChoice === undefined) return cancel(io);
+    const pinnedProject = await pinnedPromise;
+    const destinations = destinationChoices(pinnedProject);
+    const destinationChoice = await pick(
+      io,
+      {
+        title: "Where should it go?",
+        step: { index: 2, total: 3 },
+        options: destinations.map((entry) => ({ label: entry.label, ...(entry.hint ? { hint: entry.hint } : {}) }))
+      },
+      header
+    );
+    if (destinationChoice === undefined) return cancel(io);
+    const destination: DestinationId = destinations[destinationChoice].id;
 
-    const modes: ProjectMode[] = ["current", "existing", "new", "none"];
-    const projectMode = modes[projectChoice];
+    let projectMode: ProjectMode = "current";
     let projectName: string | undefined;
-    if (projectMode === "existing") {
+    let targetUrl: string | undefined;
+    if (destination === "continue") {
+      const conversations = (await conversationsPromise) ?? [];
+      if (conversations.length === 0) {
+        io.write("\nNo recent conversations were readable. Start a new chat instead.\n");
+        return 1;
+      }
+      const chosen = await pick(
+        io,
+        { title: "Which conversation?", options: conversations.map((entry) => ({ label: entry.title })) },
+        header
+      );
+      if (chosen === undefined) return cancel(io);
+      targetUrl = conversationThreadUrl(conversations[chosen].id);
+    } else if (destination === "project") {
       const projects = await deps.listProjects();
       if (projects.length === 0) {
         io.write("\nNo projects are visible in the ChatGPT sidebar.\n");
         return 1;
       }
-      const chosen = await pick(io, {
-        title: "Which project?",
-        options: projects.map((name) => ({ label: name }))
-      }, header);
+      const chosen = await pick(io, { title: "Which project?", options: projects.map((name) => ({ label: name })) }, header);
       if (chosen === undefined) return cancel(io);
+      projectMode = "existing";
       projectName = projects[chosen];
-    } else if (projectMode === "new") {
-      projectName = await askLine(io, `${CLEAR}New project\n\n  name: `);
+    } else if (destination === "project-new") {
+      projectName = await askLine(io, `${CLEAR}${header}New project\n\n  name: `);
       if (!projectName) return cancel(io);
+      projectMode = "new";
+    } else if (destination === "no-project") {
+      projectMode = "none";
     }
 
-    const toolChoice = await pickMany(io, {
-      title: "Turn on any composer tools for this send",
-      step: { index: 2, total: 3 },
-      options: TOOL_CHOICES.map((tool) => ({ label: tool.label, ...(tool.hint ? { hint: tool.hint } : {}) }))
-    }, header);
-    if (toolChoice === undefined) return cancel(io);
-    const tools = toolChoice.map((index) => TOOL_CHOICES[index].id);
-
-    const threadChoice = await pick(io, {
-      title: "Start a fresh thread?",
-      step: { index: 3, total: 3 },
-      options: [
-        { label: "Continue the current thread", hint: "follow-ups keep context" },
-        { label: "Start a new chat", hint: "recommended for an unrelated question" }
-      ]
-    }, header);
-    if (threadChoice === undefined) return cancel(io);
+    // The prompt comes last: what you type depends on what you just decided.
+    io.write(CLEAR + header + SHOW_CURSOR);
+    const kindLabel = SEND_KINDS[kindChoice].label;
+    const prompt = await askLine(io, `${kindLabel}   Step 3 of 3\n\n  prompt: `);
+    io.write(HIDE_CURSOR);
+    if (prompt.length === 0) {
+      io.write("Nothing to ask.\n");
+      return 1;
+    }
 
     const choices: ConsultChoices = {
       prompt,
       projectMode,
       ...(projectName ? { projectName } : {}),
+      ...(targetUrl ? { targetUrl } : {}),
       tools,
-      newChat: threadChoice === 1
+      newChat: !targetUrl
     };
     const args = consultArgsFromChoices(choices);
 
     // Leave the alternate screen before the send: the answer, the receipt id
     // and any blocker belong in the scrollback the user keeps.
     io.write(ALT_SCREEN_OFF + SHOW_CURSOR);
+    // --target-url confirms which conversation a send means; it deliberately
+    // does not navigate. Picking one from a list IS a request to go there, so
+    // move the tab first and let the flag confirm it landed.
+    if (targetUrl && deps.openThread) {
+      io.write("Opening the conversation you picked...\n");
+      if (!(await deps.openThread(targetUrl))) {
+        io.write(`Could not open ${targetUrl} in the dedicated browser.\n`);
+        return 1;
+      }
+    }
     io.write(`Sending. Equivalent command:\n  prodex ${formatCommand(args)}\n\n`);
 
     // Deep research runs about ten minutes; an ordinary Pro answer, minutes.

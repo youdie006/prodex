@@ -17,9 +17,16 @@ export interface ConsultChoices {
   prompt: string;
   projectMode: ProjectMode;
   projectName?: string;
+  /** A conversation picked from the list; a complete destination on its own. */
+  targetUrl?: string;
   tools: string[];
   newChat: boolean;
   attachments?: string[];
+}
+
+/** Where a conversation lives, given its id. */
+export function conversationThreadUrl(conversationId: string): string {
+  return `https://chatgpt.com/c/${conversationId}`;
 }
 
 /**
@@ -31,6 +38,15 @@ export function consultArgsFromChoices(choices: ConsultChoices): string[] {
   const prompt = choices.prompt.trim();
   if (prompt.length === 0) throw new Error("The prompt is empty - there is nothing to ask.");
   const args = ["pro", "browser", "ask"];
+  // A picked conversation is the whole destination: the send rejects a project
+  // or a fresh chat alongside a pinned target, and rightly so.
+  if (choices.targetUrl) {
+    args.push("--target-url", choices.targetUrl, "--confirm-target");
+    for (const attachment of choices.attachments ?? []) args.push("--attach", attachment);
+    for (const tool of choices.tools) args.push("--tool", tool);
+    args.push("--", prompt);
+    return args;
+  }
   if (choices.newChat) args.push("--new-chat");
   if (choices.projectMode === "existing" || choices.projectMode === "new") {
     const name = choices.projectName?.trim();
@@ -43,6 +59,43 @@ export function consultArgsFromChoices(choices: ConsultChoices): string[] {
   for (const tool of choices.tools) args.push("--tool", tool);
   args.push("--", prompt);
   return args;
+}
+
+export interface ConversationSummary {
+  id: string;
+  title: string;
+}
+
+/**
+ * Recent conversations with their titles, for the "continue an existing chat"
+ * list. Only the sidebar listing is fetched - the transcripts themselves are
+ * large and nothing here needs them.
+ */
+export function recentConversationTitlesExpression(limit = 10): string {
+  return `(async () => {
+  let token = "";
+  try {
+    const session = await fetch("/api/auth/session", { credentials: "include" });
+    if (!session.ok) return [];
+    const parsed = await session.json();
+    token = (parsed && parsed.accessToken) || "";
+  } catch (error) {
+    return [];
+  }
+  try {
+    const response = await fetch("/backend-api/conversations?offset=0&limit=${limit}&order=updated", {
+      credentials: "include",
+      headers: token ? { Authorization: "Bearer " + token } : {}
+    });
+    if (!response.ok) return [];
+    const listed = await response.json();
+    return ((listed && listed.items) || [])
+      .filter((item) => item && item.id)
+      .map((item) => ({ id: item.id, title: (item.title || "").trim() || "Untitled" }));
+  } catch (error) {
+    return [];
+  }
+})()`;
 }
 
 export interface SelectOption {

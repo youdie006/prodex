@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 
 const {
   consultArgsFromChoices,
+  conversationThreadUrl,
   moveCursor,
   progressLabel,
+  recentConversationTitlesExpression,
   renderContextPanel,
   renderProgressBar,
   renderSelectList,
@@ -12,6 +14,42 @@ const {
 } = await import("../src/tui.js");
 
 describe("interactive consult choices", () => {
+  it("continues a chosen conversation by pinning its thread", () => {
+    // "Continue an existing chat" needs the thread the user picked from a list,
+    // not whatever tab happens to be open - and pinning a target is how the
+    // send says which conversation it means.
+    expect(
+      consultArgsFromChoices({
+        prompt: "and what about QUIC?",
+        projectMode: "current",
+        targetUrl: "https://chatgpt.com/c/6a780848-1660-83ee-9e1a-104f95826746",
+        tools: [],
+        newChat: false
+      })
+    ).toEqual([
+      "pro",
+      "browser",
+      "ask",
+      "--target-url",
+      "https://chatgpt.com/c/6a780848-1660-83ee-9e1a-104f95826746",
+      "--confirm-target",
+      "--",
+      "and what about QUIC?"
+    ]);
+
+    // A pinned thread is a complete destination: no project or new-chat flag
+    // may ride along, which the send would reject anyway.
+    expect(
+      consultArgsFromChoices({
+        prompt: "hi",
+        projectMode: "none",
+        targetUrl: "https://chatgpt.com/c/abc12345-1111-2222-3333-444455556666",
+        tools: [],
+        newChat: true
+      })
+    ).not.toContain("--new-chat");
+  });
+
   it("turns picker answers into the send command an agent would have typed", () => {
     expect(
       consultArgsFromChoices({
@@ -133,6 +171,28 @@ describe("select list", () => {
     expect(toggleSelection([], 1)).toEqual([1]);
     expect(toggleSelection([1], 1)).toEqual([]);
     expect(toggleSelection([2], 1)).toEqual([1, 2]);
+  });
+});
+
+describe("conversation list", () => {
+  it("lists recent conversations with titles so an existing chat can be picked", async () => {
+    const listed = { items: [{ id: "c1", title: "TCP vs QUIC" }, { id: "c2", title: "" }] };
+    const fakeFetch = async (url: string) =>
+      url.includes("/api/auth/session")
+        ? { ok: true, status: 200, json: async () => ({ accessToken: "tok" }) }
+        : { ok: true, status: 200, json: async () => listed };
+    const rows = await new Function("fetch", `return ${recentConversationTitlesExpression(5)}`)(fakeFetch);
+
+    expect(rows).toEqual([
+      { id: "c1", title: "TCP vs QUIC" },
+      { id: "c2", title: "Untitled" }
+    ]);
+  });
+
+  it("builds the thread url a picked conversation lives at", () => {
+    expect(conversationThreadUrl("6a780848-1660-83ee-9e1a-104f95826746")).toBe(
+      "https://chatgpt.com/c/6a780848-1660-83ee-9e1a-104f95826746"
+    );
   });
 });
 

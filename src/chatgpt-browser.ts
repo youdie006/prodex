@@ -2903,6 +2903,62 @@ export interface ListChatGptSidebarProjectsResult {
 // Read-only discovery for --project/setup --project: list the sidebar project
 // names exactly as ChatGPT renders them, so nobody has to guess spelling or
 // case. Polls briefly because the Projects section hydrates after navigation.
+/**
+ * Recent conversations with their titles, for the interactive "continue an
+ * existing chat" list.
+ */
+/**
+ * Point the dedicated tab at a conversation and wait until it is really there.
+ *
+ * `--target-url` confirms which conversation a send means; it deliberately does
+ * not navigate, so nothing moves a shared browser behind the user's back. When
+ * the user has just picked a conversation from a list, moving there IS the
+ * request, so the picker navigates first and then confirms.
+ */
+export async function navigateChatGptTabTo(url: string, options: { port?: number; timeoutMs?: number } = {}): Promise<boolean> {
+  const port = resolveCdpPort(options.port);
+  const page = await findChatGptPage(port, 3_000);
+  if (!page.ok || !page.page) return false;
+  const target = normalizeChatGptTargetUrl(url);
+  const cdp = await connectCdp(page.page.webSocketDebuggerUrl);
+  try {
+    await cdp.send("Runtime.enable");
+    await cdp.evaluate(`location.assign(${JSON.stringify(target)})`);
+    const deadline = Date.now() + Math.max(1_000, options.timeoutMs ?? 20_000);
+    while (Date.now() < deadline) {
+      await sleep(500);
+      try {
+        const here = await cdp.evaluate<string>("location.href");
+        if (typeof here === "string" && chatGptUrlsReferToSameTarget(here, target)) return true;
+      } catch {
+        // Mid-navigation evaluate failures are expected; keep polling.
+      }
+    }
+    return false;
+  } finally {
+    cdp.close();
+  }
+}
+
+export async function listRecentChatGptConversations(input: { port?: number; timeoutMs?: number; limit?: number } = {}): Promise<
+  Array<{ id: string; title: string }>
+> {
+  const port = resolveCdpPort(input.port);
+  const page = await findChatGptPage(port, input.timeoutMs ?? 3_000);
+  if (!page.ok || !page.page) return [];
+  const { recentConversationTitlesExpression } = await import("./tui.js");
+  try {
+    return (
+      (await evaluateOnPage<Array<{ id: string; title: string }>>(page.page, recentConversationTitlesExpression(input.limit ?? 10), {
+        timeoutMs: 30_000
+      })) ?? []
+    );
+  } catch {
+    // Nothing to continue from is a normal answer here, not a failure.
+    return [];
+  }
+}
+
 export async function listChatGptSidebarProjects(input: { port?: number; timeoutMs?: number } = {}): Promise<ListChatGptSidebarProjectsResult> {
   const port = resolveCdpPort(input.port);
   const timeoutMs = input.timeoutMs ?? 15_000;
