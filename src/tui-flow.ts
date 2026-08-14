@@ -65,11 +65,14 @@ export interface EffortChoice {
  * and ChatGPT deselects Pro as soon as an effort is set.
  */
 export function effortChoices(pinnedModel: string | undefined): EffortChoice[] {
+  // Reads down from what the repo pinned: the level just under Pro sits just
+  // under "Keep", and Instant is at the bottom. Climbing up from Instant put
+  // the levels closest to Pro furthest from it.
   return [
     { label: pinnedModel ? `Keep ${pinnedModel}` : "Keep the current selection", hint: "whatever this repo pinned" },
-    { effort: "instant", label: "Instant", hint: "seconds, for a quick question" },
-    { effort: "medium", label: "Medium" },
+    { effort: "max", label: "Extra high", hint: "strongest of the standard levels" },
     { effort: "high", label: "High" },
-    { effort: "max", label: "Extra high", hint: "slowest of the standard levels" }
+    { effort: "medium", label: "Medium" },
+    { effort: "instant", label: "Instant", hint: "seconds, for a quick question" }
   ];
 }

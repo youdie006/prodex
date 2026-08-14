@@ -2940,6 +2940,21 @@ export async function navigateChatGptTabTo(url: string, options: { port?: number
   }
 }
 
+/** Projects with the id their conversations are tagged with. */
+export async function listChatGptProjectsWithIds(input: { port?: number; timeoutMs?: number } = {}): Promise<
+  Array<{ id: string; name: string }>
+> {
+  const port = resolveCdpPort(input.port);
+  const page = await findChatGptPage(port, input.timeoutMs ?? 3_000);
+  if (!page.ok || !page.page) return [];
+  const { projectsWithIdsExpression } = await import("./tui.js");
+  try {
+    return (await evaluateOnPage<Array<{ id: string; name: string }>>(page.page, projectsWithIdsExpression(), { timeoutMs: 30_000 })) ?? [];
+  } catch {
+    return [];
+  }
+}
+
 export async function listRecentChatGptConversations(input: { port?: number; timeoutMs?: number; limit?: number } = {}): Promise<
   Array<{ id: string; title: string }>
 > {

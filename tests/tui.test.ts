@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 
+const { effortChoices } = await import("../src/tui-flow.js");
 const {
   consultArgsFromChoices,
   conversationThreadUrl,
   moveCursor,
   progressLabel,
+  conversationsInProject,
+  projectsWithIdsExpression,
   recentConversationTitlesExpression,
   renderContextPanel,
   renderProgressBar,
@@ -186,6 +189,23 @@ describe("select list", () => {
   });
 });
 
+describe("reasoning choices", () => {
+  it("descends from the pinned model, strongest first", () => {
+    // The list reads down from what the repo pinned: Extra high sits just under
+    // Keep, Instant at the bottom. Climbing up from Instant put the levels
+    // closest to Pro furthest from it.
+    expect(effortChoices("Pro").map((entry) => entry.label)).toEqual([
+      "Keep Pro",
+      "Extra high",
+      "High",
+      "Medium",
+      "Instant"
+    ]);
+    expect(effortChoices(undefined)[0].label).toBe("Keep the current selection");
+    expect(effortChoices("Pro").map((entry) => entry.effort)).toEqual([undefined, "max", "high", "medium", "instant"]);
+  });
+});
+
 describe("conversation list", () => {
   it("lists recent conversations with titles so an existing chat can be picked", async () => {
     const listed = { items: [{ id: "c1", title: "TCP vs QUIC" }, { id: "c2", title: "" }] };
@@ -199,6 +219,39 @@ describe("conversation list", () => {
       { id: "c1", title: "TCP vs QUIC" },
       { id: "c2", title: "Untitled" }
     ]);
+  });
+
+  it("lists projects with the id their conversations are tagged with", async () => {
+    const sidebar = {
+      items: [
+        { gizmo: { id: "g-p-aaa", display: { name: "prodex-smoke-project" } } },
+        { gizmo: { id: "g-p-bbb", display: { name: "Codex" } } }
+      ]
+    };
+    const fakeFetch = async (url: string) =>
+      url.includes("/api/auth/session")
+        ? { ok: true, status: 200, json: async () => ({ accessToken: "tok" }) }
+        : { ok: true, status: 200, json: async () => sidebar };
+    const rows = await new Function("fetch", `return ${projectsWithIdsExpression()}`)(fakeFetch);
+
+    expect(rows).toEqual([
+      { id: "g-p-aaa", name: "prodex-smoke-project" },
+      { id: "g-p-bbb", name: "Codex" }
+    ]);
+  });
+
+  it("keeps only the conversations belonging to a picked project", () => {
+    // A project's chats are exactly the conversations tagged with its gizmo id,
+    // which is what "open the project and pick a session inside it" means.
+    const conversations = [
+      { id: "c1", title: "in project", gizmoId: "g-p-aaa" },
+      { id: "c2", title: "elsewhere", gizmoId: "g-p-bbb" },
+      { id: "c3", title: "no project" }
+    ];
+    expect(conversationsInProject(conversations, "g-p-aaa")).toEqual([{ id: "c1", title: "in project", gizmoId: "g-p-aaa" }]);
+    // Without a project id the whole list stands, which is the plain
+    // "continue a recent chat" case.
+    expect(conversationsInProject(conversations, undefined)).toHaveLength(3);
   });
 
   it("builds the thread url a picked conversation lives at", () => {

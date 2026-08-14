@@ -38,7 +38,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - The interactive picker asks in the order the request is actually formed: what kind of send (normal chat, deep research, web search, create image), then where it goes, then the prompt. Asking for the prompt first was backwards - whether this is an ordinary chat or a ten-minute research run changes what you would type - and it also hid ordinary chat behind a tools multi-select instead of naming it. The seconds spent choosing are now used to fetch the project and conversation lists, so no step waits on the network.
 - The logo leads the picker, and the settings panel sits under it.
-- Destination is one question instead of two, and it can continue an existing conversation: recent chats are listed by title, and picking one moves the dedicated tab there before the send confirms it with `--target-url`. Continuing was previously unreachable from the picker, and `--target-url` alone does not navigate - it confirms a tab that is already on the thread.
+- Destination is one question instead of two, and it can continue an existing conversation: recent chats are listed by title, and picking one moves the dedicated tab there before the send confirms it with `--target-url`. Continuing was previously unreachable from the picker, and `--target-url` alone does not navigate - it confirms a tab that is already on the thread.## 0.31.0
+
+### Added
+- Opening a project now lists the conversations inside it, so a session can be resumed where it lives instead of only starting yet another chat there. Conversations carry the project id they belong to, and the project list now carries that id too - the sidebar gives names only, which is enough to enter a project but not to tell which chats are in it.
+
+### Changed
+- The reasoning list reads down from the pinned model: Keep, then Extra high, High, Medium, Instant. Climbing up from Instant put the levels closest to Pro furthest from it.
+
 ## 0.30.0
 
 ### Added

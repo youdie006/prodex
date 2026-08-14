@@ -68,6 +68,54 @@ export function consultArgsFromChoices(choices: ConsultChoices): string[] {
 export interface ConversationSummary {
   id: string;
   title: string;
+  /** The project this conversation belongs to, when it belongs to one. */
+  gizmoId?: string;
+}
+
+export interface ProjectSummary {
+  id: string;
+  name: string;
+}
+
+/**
+ * Projects with the id their conversations are tagged with.
+ *
+ * The sidebar gives names only, which is enough to ENTER a project but not to
+ * tell which chats live in it - and "open the project, then pick the session
+ * inside it" needs exactly that link.
+ */
+export function projectsWithIdsExpression(): string {
+  return `(async () => {
+  let token = "";
+  try {
+    const session = await fetch("/api/auth/session", { credentials: "include" });
+    if (!session.ok) return [];
+    const parsed = await session.json();
+    token = (parsed && parsed.accessToken) || "";
+  } catch (error) {
+    return [];
+  }
+  try {
+    const response = await fetch("/backend-api/gizmos/snorlax/sidebar", {
+      credentials: "include",
+      headers: token ? { Authorization: "Bearer " + token } : {}
+    });
+    if (!response.ok) return [];
+    const listed = await response.json();
+    return ((listed && listed.items) || [])
+      .map((item) => item && item.gizmo)
+      .filter((gizmo) => gizmo && gizmo.id)
+      .map((gizmo) => ({ id: gizmo.id, name: ((gizmo.display && gizmo.display.name) || gizmo.name || "").trim() || gizmo.id }));
+  } catch (error) {
+    return [];
+  }
+})()`;
+}
+
+/** The conversations that live inside a project, or all of them without one. */
+export function conversationsInProject(conversations: ConversationSummary[], projectId: string | undefined): ConversationSummary[] {
+  if (!projectId) return conversations;
+  return conversations.filter((conversation) => conversation.gizmoId === projectId);
 }
 
 /**
@@ -95,7 +143,11 @@ export function recentConversationTitlesExpression(limit = 10): string {
     const listed = await response.json();
     return ((listed && listed.items) || [])
       .filter((item) => item && item.id)
-      .map((item) => ({ id: item.id, title: (item.title || "").trim() || "Untitled" }));
+      .map((item) => ({
+        id: item.id,
+        title: (item.title || "").trim() || "Untitled",
+        ...(item.gizmo_id ? { gizmoId: item.gizmo_id } : {})
+      }));
   } catch (error) {
     return [];
   }

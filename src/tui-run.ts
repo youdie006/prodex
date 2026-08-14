@@ -11,6 +11,7 @@ import { renderBanner } from "./banner.js";
 import { destinationChoices, effortChoices, SEND_KINDS, type DestinationId } from "./tui-flow.js";
 import {
   consultArgsFromChoices,
+  conversationsInProject,
   conversationThreadUrl,
   moveCursor,
   progressLabel,
@@ -174,6 +175,8 @@ export interface InteractiveDeps {
   listConversations?: () => Promise<ConversationSummary[]>;
   /** Move the dedicated tab onto a picked conversation before sending. */
   openThread?: (url: string) => Promise<boolean>;
+  /** Projects with the id their conversations carry, for "open the project". */
+  listProjectsWithIds?: () => Promise<Array<{ id: string; name: string }>>;
   listProjects: () => Promise<string[]>;
   runConsult: (args: string[], onProgress: (line: string) => void) => Promise<number>;
   now?: () => number;
@@ -267,15 +270,33 @@ export async function runInteractiveConsult(io: TuiIo, deps: InteractiveDeps): P
       if (chosen === undefined) return cancel(io);
       targetUrl = conversationThreadUrl(conversations[chosen].id);
     } else if (destination === "project") {
-      const projects = await deps.listProjects();
+      const detailed = (await deps.listProjectsWithIds?.()) ?? [];
+      const projects = detailed.length > 0 ? detailed : (await deps.listProjects()).map((name) => ({ id: "", name }));
       if (projects.length === 0) {
         io.write("\nNo projects are visible in the ChatGPT sidebar.\n");
         return 1;
       }
-      const chosen = await pick(io, { title: "Which project?", options: projects.map((name) => ({ label: name })) }, header);
+      const chosen = await pick(io, { title: "Which project?", options: projects.map((entry) => ({ label: entry.name })) }, header);
       if (chosen === undefined) return cancel(io);
       projectMode = "existing";
-      projectName = projects[chosen];
+      projectName = projects[chosen].name;
+
+      // Entering a project usually means going back to something in it, so
+      // offer its chats before starting yet another one.
+      const inside = conversationsInProject((await conversationsPromise) ?? [], projects[chosen].id || undefined);
+      if (inside.length > 0) {
+        const options = [
+          { label: "Start a new chat in this project" },
+          ...inside.map((entry) => ({ label: entry.title }))
+        ];
+        const picked = await pick(io, { title: `${projects[chosen].name}`, options }, header);
+        if (picked === undefined) return cancel(io);
+        if (picked > 0) {
+          targetUrl = conversationThreadUrl(inside[picked - 1].id);
+          projectMode = "current";
+          projectName = undefined;
+        }
+      }
     } else if (destination === "project-new") {
       projectName = await askLine(io, `${CLEAR}${header}New project\n\n  name: `);
       if (!projectName) return cancel(io);

@@ -229,6 +229,10 @@ async function runInteractiveUi(io: CliIO): Promise<number> {
         const { navigateChatGptTabTo } = await import("./chatgpt-browser.js");
         return navigateChatGptTabTo(url, {});
       },
+      listProjectsWithIds: async () => {
+        const { listChatGptProjectsWithIds } = await import("./chatgpt-browser.js");
+        return listChatGptProjectsWithIds({});
+      },
       listProjects: async () => {
         const { listChatGptSidebarProjects } = await import("./chatgpt-browser.js");
         const listed = await listChatGptSidebarProjects({});
