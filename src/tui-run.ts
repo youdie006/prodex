@@ -14,6 +14,7 @@ import {
   conversationsInProject,
   conversationThreadUrl,
   moveCursor,
+  parseAttachmentLine,
   progressLabel,
   recentConversationTitlesExpression,
   renderContextPanel,
@@ -321,12 +322,22 @@ export async function runInteractiveConsult(io: TuiIo, deps: InteractiveDeps): P
       return 1;
     }
 
+    // Uploading a file is the only way ChatGPT can open a pdf, pptx, xlsx or
+    // image, and the picker had no way to say so. Asked after the prompt, and
+    // skipped by pressing enter, so the common case costs one keystroke.
+    io.write(SHOW_CURSOR);
+    const attachments = parseAttachmentLine(
+      await askLine(io, "\n  attach files? repo-relative paths, space separated, enter to skip\n  files: ")
+    );
+    io.write(HIDE_CURSOR);
+
     const choices: ConsultChoices = {
       prompt,
       projectMode,
       ...(projectName ? { projectName } : {}),
       ...(targetUrl ? { targetUrl } : {}),
       ...(effort ? { effort } : {}),
+      ...(attachments.length > 0 ? { attachments } : {}),
       tools,
       newChat: !targetUrl
     };

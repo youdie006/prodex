@@ -5,6 +5,7 @@ const {
   consultArgsFromChoices,
   conversationThreadUrl,
   moveCursor,
+  parseAttachmentLine,
   progressLabel,
   conversationsInProject,
   projectsWithIdsExpression,
@@ -186,6 +187,20 @@ describe("select list", () => {
     expect(toggleSelection([], 1)).toEqual([1]);
     expect(toggleSelection([1], 1)).toEqual([]);
     expect(toggleSelection([2], 1)).toEqual([1, 2]);
+  });
+});
+
+describe("attachments", () => {
+  it("splits a typed line into repo-relative paths", () => {
+    // The picker asks for files as one line, because that is what a person can
+    // type; the send wants them one flag at a time.
+    expect(parseAttachmentLine("deck.pptx")).toEqual(["deck.pptx"]);
+    expect(parseAttachmentLine("  a.pdf   b.xlsx ")).toEqual(["a.pdf", "b.xlsx"]);
+    expect(parseAttachmentLine("")).toEqual([]);
+    expect(parseAttachmentLine("   ")).toEqual([]);
+    // Paths with spaces are the reason quoting exists.
+    expect(parseAttachmentLine('"my notes.pdf" plain.txt')).toEqual(["my notes.pdf", "plain.txt"]);
+    expect(parseAttachmentLine("'q1 report.xlsx'")).toEqual(["q1 report.xlsx"]);
   });
 });
 

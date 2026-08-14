@@ -65,6 +65,21 @@ export function consultArgsFromChoices(choices: ConsultChoices): string[] {
   return args;
 }
 
+/**
+ * Split the one line a person types into the paths the send wants one flag at
+ * a time. Quotes are honoured because file names have spaces in them.
+ */
+export function parseAttachmentLine(line: string): string[] {
+  const out: string[] = [];
+  const pattern = /"([^"]*)"|'([^']*)'|(\S+)/g;
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(line)) !== null) {
+    const value = (match[1] ?? match[2] ?? match[3] ?? "").trim();
+    if (value.length > 0) out.push(value);
+  }
+  return out;
+}
+
 export interface ConversationSummary {
   id: string;
   title: string;

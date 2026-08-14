@@ -44,7 +44,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Opening a project now lists the conversations inside it, so a session can be resumed where it lives instead of only starting yet another chat there. Conversations carry the project id they belong to, and the project list now carries that id too - the sidebar gives names only, which is enough to enter a project but not to tell which chats are in it.
 
 ### Changed
-- The reasoning list reads down from the pinned model: Keep, then Extra high, High, Medium, Instant. Climbing up from Instant put the levels closest to Pro furthest from it.
+- The reasoning list reads down from the pinned model: Keep, then Extra high, High, Medium, Instant. Climbing up from Instant put the levels closest to Pro furthest from it.## 0.32.0
+
+### Added
+- The picker asks for attachments. Uploading a file is the only way ChatGPT can open a pdf, pptx, xlsx or image, and the interactive path had no way to say so - the capability existed only as a flag. It is asked after the prompt and skipped with enter, so the common case costs one keystroke; quoted paths are accepted because file names have spaces in them.
+
 ## 0.31.1
 
 ### Fixed
