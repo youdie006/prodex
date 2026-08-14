@@ -167,8 +167,9 @@ export interface SelectListInput {
   selected?: number[];
   multi?: boolean;
   footer?: string;
-  /** Shown beside the title so the flow has a visible length. */
-  step?: { index: number; total: number };
+  /** Shown beside the title so the flow has a visible length. Omit `total`
+   *  where the remaining length depends on the answer being given. */
+  step?: { index: number; total?: number };
   width?: number;
   color?: boolean;
 }
@@ -194,7 +195,9 @@ export function renderSelectList(input: SelectListInput): string {
   const color = input.color ?? true;
   const width = input.width ?? 100;
   const selected = new Set(input.selected ?? []);
-  const step = input.step ? paint(`   Step ${input.step.index} of ${input.step.total}`, DIM, color) : "";
+  const step = input.step
+    ? paint(`   Step ${input.step.index}${input.step.total ? ` of ${input.step.total}` : ""}`, DIM, color)
+    : "";
   const lines = [`${paint(input.title, BOLD, color)}${step}`, ""];
   // Hints line up in their own column; ragged hints read as noise next to the
   // labels they belong to.

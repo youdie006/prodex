@@ -206,11 +206,14 @@ export async function runInteractiveConsult(io: TuiIo, deps: InteractiveDeps): P
     const pinnedModelPromise = deps.pinnedModel?.().catch(() => undefined);
     const conversationsPromise = deps.listConversations?.().catch(() => [] as ConversationSummary[]);
 
+    // A normal chat asks one more question than the tool kinds do, so how many
+    // steps remain is not known until this first answer is given.
+    const totalSteps = 4;
     const kindChoice = await pick(
       io,
       {
         title: "What kind of send is this?",
-        step: { index: 1, total: 3 },
+        step: { index: 1 },
         options: SEND_KINDS.map((kind) => ({ label: kind.label, ...(kind.hint ? { hint: kind.hint } : {}) }))
       },
       banner
@@ -221,12 +224,15 @@ export async function runInteractiveConsult(io: TuiIo, deps: InteractiveDeps): P
     // Only an ordinary chat has a reasoning level to choose: the tool kinds
     // bring their own pipeline, and an effort would deselect Pro under them.
     let effort: string | undefined;
-    if (SEND_KINDS[kindChoice].id === "chat") {
+    const asksReasoning = SEND_KINDS[kindChoice].id === "chat";
+    const steps = asksReasoning ? totalSteps : totalSteps - 1;
+    if (asksReasoning) {
       const efforts = effortChoices(await pinnedModelPromise);
       const chosen = await pick(
         io,
         {
           title: "How much reasoning?",
+          step: { index: 2, total: steps },
           options: efforts.map((entry) => ({ label: entry.label, ...(entry.hint ? { hint: entry.hint } : {}) }))
         },
         banner
@@ -245,7 +251,7 @@ export async function runInteractiveConsult(io: TuiIo, deps: InteractiveDeps): P
       io,
       {
         title: "Where should it go?",
-        step: { index: 2, total: 3 },
+        step: { index: asksReasoning ? 3 : 2, total: steps },
         options: destinations.map((entry) => ({ label: entry.label, ...(entry.hint ? { hint: entry.hint } : {}) }))
       },
       header
@@ -308,7 +314,7 @@ export async function runInteractiveConsult(io: TuiIo, deps: InteractiveDeps): P
     // The prompt comes last: what you type depends on what you just decided.
     io.write(CLEAR + header + SHOW_CURSOR);
     const kindLabel = SEND_KINDS[kindChoice].label;
-    const prompt = await askLine(io, `${kindLabel}   Step 3 of 3\n\n  prompt: `);
+    const prompt = await askLine(io, `${kindLabel}   Step ${steps} of ${steps}\n\n  prompt: `);
     io.write(HIDE_CURSOR);
     if (prompt.length === 0) {
       io.write("Nothing to ask.\n");

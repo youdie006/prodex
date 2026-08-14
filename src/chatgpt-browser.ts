@@ -1794,13 +1794,24 @@ interface PowerSliderState {
   lines?: string[];
 }
 
+// Roughly three seconds of grace for a menu that is still painting.
+const POWER_SLIDER_APPEAR_ATTEMPTS = 5;
+
 /**
  * Move the power slider until its Effort readout is the requested step. The
  * menu must already be open. Returns the quota line so the caller can warn
  * when Pro runs are nearly spent.
  */
 async function selectPowerStep(cdp: CdpConnection, requested: string): Promise<{ effort?: string | null }> {
-  const focused = await cdp.evaluate<{ ok: boolean; reason?: string }>(focusPowerSliderExpression());
+  // The menu paints a moment after it opens, and on a page that has just been
+  // built - a project created seconds ago - that moment is longer. Failing the
+  // whole send on the first empty look cost a real consult its answer, so give
+  // the slider a few beats to appear.
+  let focused = await cdp.evaluate<{ ok: boolean; reason?: string }>(focusPowerSliderExpression());
+  for (let attempt = 0; attempt < POWER_SLIDER_APPEAR_ATTEMPTS && !focused?.ok; attempt += 1) {
+    await sleep(600);
+    focused = await cdp.evaluate<{ ok: boolean; reason?: string }>(focusPowerSliderExpression());
+  }
   if (!focused?.ok) {
     throw new Error(
       focused?.reason ??
@@ -1808,6 +1819,10 @@ async function selectPowerStep(cdp: CdpConnection, requested: string): Promise<{
     );
   }
   let state = await cdp.evaluate<PowerSliderState>(powerSliderStateExpression());
+  for (let attempt = 0; attempt < POWER_SLIDER_APPEAR_ATTEMPTS && !state?.ok; attempt += 1) {
+    await sleep(600);
+    state = await cdp.evaluate<PowerSliderState>(powerSliderStateExpression());
+  }
   if (!state?.ok) throw new Error(state?.reason ?? "Could not read ChatGPT's power slider");
   const steps = (state.max ?? 4) - (state.min ?? 0) + 1;
   for (let attempt = 0; attempt <= steps * 2; attempt += 1) {

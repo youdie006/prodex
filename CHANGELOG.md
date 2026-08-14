@@ -45,6 +45,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - The reasoning list reads down from the pinned model: Keep, then Extra high, High, Medium, Instant. Climbing up from Instant put the levels closest to Pro furthest from it.
+## 0.31.1
+
+### Fixed
+- A send that created a project could fail with "power slider not found". The model menu paints a moment after it opens, and on a page built seconds earlier - a project just created - that moment is longer than the single look prodex gave it. It now waits a few beats for the slider before giving up; measured on the failing path, the same send goes through.
+- The picker's step numbers follow the path actually walked. A normal chat asks four questions and a tool kind three, but every screen claimed "of 3", and the reasoning question had no number at all. The first screen no longer states a total, because how many remain depends on the answer being given.
 
 ## 0.30.0
 

@@ -276,6 +276,14 @@ describe("readability", () => {
     const lines = rendered.split("\n");
 
     expect(lines[0]).toContain("Step 2 of 4");
+    // How many steps remain depends on the answer to the first question, so
+    // that screen states its position without inventing a total.
+    expect(
+      renderSelectList({ title: "T", step: { index: 1 }, options: [{ label: "a" }], cursor: 0, color: false }).split("\n")[0]
+    ).toContain("Step 1");
+    expect(
+      renderSelectList({ title: "T", step: { index: 1 }, options: [{ label: "a" }], cursor: 0, color: false }).split("\n")[0]
+    ).not.toContain(" of ");
     expect(rendered).toContain("1 The open chat");
     expect(rendered).toContain("2 An existing project");
     // The cursor row carries the bar; the others are indented to match.
