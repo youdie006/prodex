@@ -165,6 +165,56 @@ describe("pro browser ask persistence", () => {
     expect(JSON.parse(shown.join("\n")).answer).toBe("the recorded answer");
   });
 
+  it("lets a chosen effort override a pinned Pro model", async () => {
+    // Pinning model=Pro is the normal setup, but a quick question does not want
+    // minutes of Pro reasoning. Picking an effort is choosing the reasoning
+    // axis, and ChatGPT deselects Pro when an effort is set - so applying the
+    // pinned Pro first was selecting a model only to undo it.
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-send-"));
+    await mkdir(path.join(cwd, ".bridge"), { recursive: true });
+    await writeFile(
+      path.join(cwd, ".bridge", "config.local.json"),
+      `${JSON.stringify(
+        {
+          schema_version: 1,
+          host: "127.0.0.1",
+          port: 8787,
+          token: "test-token",
+          server_url: "http://127.0.0.1:8787/mcp",
+          browser_defaults: { model: "Pro" },
+          created_at: "2026-01-01T00:00:00.000Z",
+          updated_at: "2026-01-01T00:00:00.000Z"
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+    const answer = {
+      url: "https://chatgpt.com/c/effort",
+      title: "ChatGPT",
+      answer: "quick answer",
+      modelHints: [],
+      warnings: []
+    };
+
+    // First prove the pinned model really is being read, or the check below
+    // would pass for the wrong reason.
+    sendChatGptPromptMock.mockResolvedValueOnce(answer);
+    await runCli(["pro", "browser", "ask", "--new-chat", "--json", "Question"], { cwd, stdout: () => {}, stderr: () => {} });
+    expect(sendChatGptPromptMock.mock.lastCall?.[0]?.model).toBe("Pro");
+
+    sendChatGptPromptMock.mockResolvedValueOnce(answer);
+    await runCli(["pro", "browser", "ask", "--new-chat", "--effort", "instant", "--json", "Quick question"], {
+      cwd,
+      stdout: () => {},
+      stderr: () => {}
+    });
+
+    expect(sendChatGptPromptMock.mock.lastCall?.[0]?.effort).toMatch(/instant|즉시/);
+    expect(sendChatGptPromptMock.mock.lastCall?.[0]?.model).toBeUndefined();
+  });
+
   it("lets a send opt out of the pinned default project", async () => {
     // A repo can pin a default project so every consult lands there. Without a
     // way to say "not this time", a one-off question had no route to the plain
@@ -172,8 +222,21 @@ describe("pro browser ask persistence", () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-send-"));
     await mkdir(path.join(cwd, ".bridge"), { recursive: true });
     await writeFile(
-      path.join(cwd, ".bridge", "config.json"),
-      `${JSON.stringify({ schema_version: 1, host: "127.0.0.1", port: 8787, browser_defaults: { project: "Pinned Project" } }, null, 2)}\n`,
+      path.join(cwd, ".bridge", "config.local.json"),
+      `${JSON.stringify(
+        {
+          schema_version: 1,
+          host: "127.0.0.1",
+          port: 8787,
+          token: "test-token",
+          server_url: "http://127.0.0.1:8787/mcp",
+          browser_defaults: { project: "Pinned Project" },
+          created_at: "2026-01-01T00:00:00.000Z",
+          updated_at: "2026-01-01T00:00:00.000Z"
+        },
+        null,
+        2
+      )}\n`,
       "utf8"
     );
     sendChatGptPromptMock.mockResolvedValueOnce({
@@ -184,13 +247,24 @@ describe("pro browser ask persistence", () => {
       warnings: []
     });
 
+    // Prove the pinned project is actually read first, or the check below could
+    // pass simply because nothing was configured.
+    await runCli(["pro", "browser", "ask", "--json", "Question"], { cwd, stdout: () => {}, stderr: () => {} });
+    expect(sendChatGptPromptMock.mock.lastCall?.[0]?.project).toBe("Pinned Project");
+
+    sendChatGptPromptMock.mockResolvedValueOnce({
+      url: "https://chatgpt.com/c/no-project",
+      title: "ChatGPT",
+      answer: "answered outside the project",
+      modelHints: [],
+      warnings: []
+    });
     await runCli(["pro", "browser", "ask", "--no-project", "--json", "Question"], {
       cwd,
       stdout: () => {},
       stderr: () => {}
     });
-
-    expect(sendChatGptPromptMock).toHaveBeenLastCalledWith(expect.not.objectContaining({ project: expect.anything() }));
+    expect(sendChatGptPromptMock.mock.lastCall?.[0]?.project).toBeUndefined();
   });
 
   it("reports the thread a blocker landed in, not the one the caller asked for", async () => {

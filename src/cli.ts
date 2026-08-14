@@ -217,6 +217,10 @@ async function runInteractiveUi(io: CliIO): Promise<number> {
         const { loadBrowserDefaults } = await import("./config.js");
         return (await loadBrowserDefaults(io.cwd).catch(() => undefined))?.project;
       },
+      pinnedModel: async () => {
+        const { loadBrowserDefaults } = await import("./config.js");
+        return (await loadBrowserDefaults(io.cwd).catch(() => undefined))?.model;
+      },
       listConversations: async () => {
         const { listRecentChatGptConversations } = await import("./chatgpt-browser.js");
         return listRecentChatGptConversations({});

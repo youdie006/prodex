@@ -942,7 +942,14 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
     // reasoning axis explicitly suppresses the default for the other axis, and
     // pinning --target-url suppresses a default project (it would navigate away
     // from the confirmed tab).
-    const selectionModel = explicitModel ?? browserDefaults?.model;
+    // Choosing an effort IS choosing the reasoning axis, and ChatGPT deselects
+    // Pro the moment an effort is set - so applying a pinned Pro first would
+    // select a model only to undo it, and a quick question would still pay for
+    // the Pro selection dance.
+    // --pro-mode refines Pro, so it keeps a pinned Pro. --effort replaces it:
+    // ChatGPT deselects Pro the moment an effort is set, so applying the pinned
+    // Pro first would select a model only to undo it.
+    const selectionModel = explicitModel ?? (explicitEffort !== undefined ? undefined : browserDefaults?.model);
     const selectionProjectNew = explicitProjectNew;
     // A persisted default project APPLIES under --new-chat: since 0.16.11 a
     // fresh chat inside the project is exactly what "--new-chat + project"

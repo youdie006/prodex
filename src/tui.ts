@@ -19,6 +19,8 @@ export interface ConsultChoices {
   projectName?: string;
   /** A conversation picked from the list; a complete destination on its own. */
   targetUrl?: string;
+  /** Reasoning effort for an ordinary chat; omitted means "keep the pinned model". */
+  effort?: string;
   tools: string[];
   newChat: boolean;
   attachments?: string[];
@@ -42,12 +44,14 @@ export function consultArgsFromChoices(choices: ConsultChoices): string[] {
   // or a fresh chat alongside a pinned target, and rightly so.
   if (choices.targetUrl) {
     args.push("--target-url", choices.targetUrl, "--confirm-target");
+    if (choices.effort) args.push("--effort", choices.effort);
     for (const attachment of choices.attachments ?? []) args.push("--attach", attachment);
     for (const tool of choices.tools) args.push("--tool", tool);
     args.push("--", prompt);
     return args;
   }
   if (choices.newChat) args.push("--new-chat");
+  if (choices.effort) args.push("--effort", choices.effort);
   if (choices.projectMode === "existing" || choices.projectMode === "new") {
     const name = choices.projectName?.trim();
     if (!name) throw new Error("Pick a project name, or choose to send without a project.");

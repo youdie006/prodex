@@ -50,6 +50,18 @@ describe("interactive consult choices", () => {
     ).not.toContain("--new-chat");
   });
 
+  it("carries a chosen reasoning effort, and leaves the pinned model alone otherwise", () => {
+    // prodex is named for Pro, but the same browser runs the ordinary reasoning
+    // levels, and a one-line question does not want minutes of Pro. Picking an
+    // effort has to reach the send; picking nothing must not touch the model
+    // the repo pinned.
+    expect(
+      consultArgsFromChoices({ prompt: "Quick one", projectMode: "current", tools: [], newChat: true, effort: "instant" })
+    ).toEqual(["pro", "browser", "ask", "--new-chat", "--effort", "instant", "--", "Quick one"]);
+
+    expect(consultArgsFromChoices({ prompt: "Quick one", projectMode: "current", tools: [], newChat: true })).not.toContain("--effort");
+  });
+
   it("turns picker answers into the send command an agent would have typed", () => {
     expect(
       consultArgsFromChoices({

@@ -8,7 +8,7 @@
  */
 import readline from "node:readline";
 import { renderBanner } from "./banner.js";
-import { destinationChoices, SEND_KINDS, type DestinationId } from "./tui-flow.js";
+import { destinationChoices, effortChoices, SEND_KINDS, type DestinationId } from "./tui-flow.js";
 import {
   consultArgsFromChoices,
   conversationThreadUrl,
@@ -169,6 +169,8 @@ export interface InteractiveDeps {
   describeContext?: () => Promise<ContextRow[]>;
   /** Pinned project name, so the destination screen can say where "new chat" goes. */
   pinnedProject?: () => Promise<string | undefined>;
+  /** Pinned model name, so the reasoning screen can name what "keep" means. */
+  pinnedModel?: () => Promise<string | undefined>;
   listConversations?: () => Promise<ConversationSummary[]>;
   /** Move the dedicated tab onto a picked conversation before sending. */
   openThread?: (url: string) => Promise<boolean>;
@@ -198,6 +200,7 @@ export async function runInteractiveConsult(io: TuiIo, deps: InteractiveDeps): P
     // being read, so no step waits on the network.
     const contextPromise = deps.describeContext?.().catch(() => [] as ContextRow[]);
     const pinnedPromise = deps.pinnedProject?.().catch(() => undefined);
+    const pinnedModelPromise = deps.pinnedModel?.().catch(() => undefined);
     const conversationsPromise = deps.listConversations?.().catch(() => [] as ConversationSummary[]);
 
     const kindChoice = await pick(
@@ -211,6 +214,23 @@ export async function runInteractiveConsult(io: TuiIo, deps: InteractiveDeps): P
     );
     if (kindChoice === undefined) return cancel(io);
     const tools = SEND_KINDS[kindChoice].tools;
+
+    // Only an ordinary chat has a reasoning level to choose: the tool kinds
+    // bring their own pipeline, and an effort would deselect Pro under them.
+    let effort: string | undefined;
+    if (SEND_KINDS[kindChoice].id === "chat") {
+      const efforts = effortChoices(await pinnedModelPromise);
+      const chosen = await pick(
+        io,
+        {
+          title: "How much reasoning?",
+          options: efforts.map((entry) => ({ label: entry.label, ...(entry.hint ? { hint: entry.hint } : {}) }))
+        },
+        banner
+      );
+      if (chosen === undefined) return cancel(io);
+      effort = efforts[chosen].effort;
+    }
 
     const rows = (await contextPromise) ?? [];
     if (rows.length > 0) header = `${banner}${renderContextPanel(rows, { color: colorEnabled(), width: terminalWidth() })}\n\n`;
@@ -279,6 +299,7 @@ export async function runInteractiveConsult(io: TuiIo, deps: InteractiveDeps): P
       projectMode,
       ...(projectName ? { projectName } : {}),
       ...(targetUrl ? { targetUrl } : {}),
+      ...(effort ? { effort } : {}),
       tools,
       newChat: !targetUrl
     };

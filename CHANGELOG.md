@@ -39,6 +39,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The interactive picker asks in the order the request is actually formed: what kind of send (normal chat, deep research, web search, create image), then where it goes, then the prompt. Asking for the prompt first was backwards - whether this is an ordinary chat or a ten-minute research run changes what you would type - and it also hid ordinary chat behind a tools multi-select instead of naming it. The seconds spent choosing are now used to fetch the project and conversation lists, so no step waits on the network.
 - The logo leads the picker, and the settings panel sits under it.
 - Destination is one question instead of two, and it can continue an existing conversation: recent chats are listed by title, and picking one moves the dedicated tab there before the send confirms it with `--target-url`. Continuing was previously unreachable from the picker, and `--target-url` alone does not navigate - it confirms a tab that is already on the thread.
+## 0.30.0
+
+### Added
+- The picker asks how much reasoning an ordinary chat should get: keep the pinned model, or Instant / Medium / High / Extra high. prodex is named for Pro, but the same signed-in browser runs the standard reasoning levels, and a one-line question does not want minutes of Pro reasoning. Verified end to end: the receipt records `gpt-5-6` for an Instant send where the previous sends recorded `gpt-5-6-pro`.
+
+### Fixed
+- `--effort` now overrides a pinned Pro model instead of being applied after it. ChatGPT deselects Pro the moment an effort is set, so a repo with `model: Pro` pinned was selecting Pro only to undo it. `--pro-mode` still keeps the pinned Pro, since it refines that selection rather than replacing it.
+- Two tests wrote their fixture config to `.bridge/config.json`, which prodex does not read, so they passed without ever loading the defaults they claimed to test. They now write `.bridge/config.local.json` and first assert the pinned value is really in effect.
 
 ## 0.28.1
 

@@ -50,3 +50,26 @@ export function destinationChoices(pinnedProject: string | undefined): Destinati
     ...(pinnedProject ? [{ id: "no-project" as const, label: "New chat, ignoring the pinned project" }] : [])
   ];
 }
+
+export interface EffortChoice {
+  /** Value for --effort; undefined keeps whatever model the repo pinned. */
+  effort?: string;
+  label: string;
+  hint?: string;
+}
+
+/**
+ * prodex is named for Pro, but the same signed-in browser runs the ordinary
+ * reasoning levels, and a one-line question does not want minutes of Pro.
+ * Offered only for an ordinary chat: the tool kinds bring their own pipeline,
+ * and ChatGPT deselects Pro as soon as an effort is set.
+ */
+export function effortChoices(pinnedModel: string | undefined): EffortChoice[] {
+  return [
+    { label: pinnedModel ? `Keep ${pinnedModel}` : "Keep the current selection", hint: "whatever this repo pinned" },
+    { effort: "instant", label: "Instant", hint: "seconds, for a quick question" },
+    { effort: "medium", label: "Medium" },
+    { effort: "high", label: "High" },
+    { effort: "max", label: "Extra high", hint: "slowest of the standard levels" }
+  ];
+}
