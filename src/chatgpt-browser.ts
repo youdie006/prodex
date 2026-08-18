@@ -2968,6 +2968,89 @@ export type ProjectDeleteTarget =
  * and an id is accepted for the case this account actually has: two projects
  * sharing a name.
  */
+export type ConversationDeleteTarget =
+  | { ok: true; id: string; title: string }
+  | { ok: false; reason: string };
+
+/**
+ * Which conversation a delete means - or why it refuses to guess.
+ *
+ * Titles are written by ChatGPT and repeat far more often than project names,
+ * so an exact title matching two chats is refused with both ids rather than
+ * resolved by picking the newer one.
+ */
+export function resolveConversationToDelete(
+  conversations: Array<{ id: string; title: string }>,
+  request: { title?: string; id?: string }
+): ConversationDeleteTarget {
+  if (request.id) {
+    const byId = conversations.find((conversation) => conversation.id === request.id);
+    return byId ? { ok: true, id: byId.id, title: byId.title } : { ok: false, reason: `No recent conversation has the id ${request.id}.` };
+  }
+  const title = request.title?.trim();
+  if (!title) return { ok: false, reason: "Name the chat to delete with --title, or identify it with --id." };
+  const matches = conversations.filter((conversation) => conversation.title === title);
+  if (matches.length === 0) {
+    return { ok: false, reason: `No recent conversation is titled exactly "${title}". Run \`prodex pro browser chats\` to see them.` };
+  }
+  if (matches.length > 1) {
+    const ids = matches.map((conversation) => conversation.id).join(", ");
+    return { ok: false, reason: `More than one recent conversation is titled "${title}" (${ids}). Pass --id to say which one.` };
+  }
+  return { ok: true, id: matches[0].id, title: matches[0].title };
+}
+
+/**
+ * Remove one conversation. ChatGPT deletes a chat by hiding it, which is the
+ * same call its own UI makes; the caller is responsible for confirming intent.
+ */
+export function deleteConversationExpression(conversationId: string): string {
+  return `(async () => {
+  let token = "";
+  try {
+    const session = await fetch("/api/auth/session", { credentials: "include" });
+    if (!session.ok) return { ok: false, reason: "session_http_" + session.status };
+    const parsed = await session.json();
+    token = (parsed && parsed.accessToken) || "";
+  } catch (error) {
+    return { ok: false, reason: "session_error" };
+  }
+  try {
+    const response = await fetch("/backend-api/conversation/" + ${JSON.stringify(conversationId)}, {
+      method: "PATCH",
+      credentials: "include",
+      headers: token ? { Authorization: "Bearer " + token, "Content-Type": "application/json" } : { "Content-Type": "application/json" },
+      body: JSON.stringify({ is_visible: false })
+    });
+    const body = await response.text();
+    if (!response.ok) return { ok: false, reason: "delete_http_" + response.status + " " + body.slice(0, 120) };
+    return { ok: true, reason: "" };
+  } catch (error) {
+    return { ok: false, reason: "delete_error" };
+  }
+})()`;
+}
+
+/** Remove one conversation. Callers must have confirmed intent before calling. */
+export async function deleteChatGptConversation(input: { conversationId: string; port?: number; timeoutMs?: number }): Promise<void> {
+  const port = resolveCdpPort(input.port);
+  const page = await findChatGptPage(port, input.timeoutMs ?? 3_000);
+  if (!page.ok || !page.page) {
+    throw new ChatGptBrowserBlockerError(
+      page.blocker ?? {
+        code: "browser_unreachable",
+        message: `No Chrome DevTools endpoint is reachable on 127.0.0.1:${port}.`,
+        retryable: true,
+        next_step: "Run `prodex pro browser login` to reopen the dedicated window, then retry."
+      }
+    );
+  }
+  const result = await evaluateOnPage<{ ok: boolean; reason: string }>(page.page, deleteConversationExpression(input.conversationId), {
+    timeoutMs: 30_000
+  });
+  if (!result?.ok) throw new Error(`ChatGPT refused to delete the conversation: ${result?.reason ?? "unknown reason"}`);
+}
+
 export function resolveProjectToDelete(
   projects: Array<{ id: string; name: string }>,
   request: { name?: string; id?: string }

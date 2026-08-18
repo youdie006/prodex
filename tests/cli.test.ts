@@ -88,7 +88,7 @@ describe("runCli", () => {
       {
         args: ["pro", "browser", "chek"],
         expected:
-          "Unknown pro browser subcommand: chek. Did you mean `prodex pro browser check`? Expected one of: login, ask, smoke, check, models, projects, project-delete, recover. Run `prodex pro browser --help`."
+          "Unknown pro browser subcommand: chek. Did you mean `prodex pro browser check`? Expected one of: login, ask, smoke, check, models, projects, project-delete, chats, chat-delete, recover. Run `prodex pro browser --help`."
       },
       {
         args: ["tasks", "wat"],
@@ -4301,7 +4301,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
         stderr: () => {}
       })
     ).rejects.toThrow(
-      "Unknown pro browser subcommand: verify. Expected one of: login, ask, smoke, check, models, projects, project-delete, recover. Run `prodex pro browser --help`."
+      "Unknown pro browser subcommand: verify. Expected one of: login, ask, smoke, check, models, projects, project-delete, chats, chat-delete, recover. Run `prodex pro browser --help`."
     );
   });
 

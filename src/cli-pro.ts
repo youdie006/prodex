@@ -7,14 +7,17 @@ import {
   type SendChatGptProgressEvent,
   DEFAULT_CDP_PORT,
   resolveCdpPort,
+  resolveConversationToDelete,
   resolveProjectToDelete,
   chatGptVisibilityBlocker,
   defaultChatGptProfileDir,
   formatDurationMs,
   getChatGptBrowserStatus,
   listChatGptModelOptions,
+  deleteChatGptConversation,
   deleteChatGptProject,
   listChatGptProjectsWithIds,
+  listRecentChatGptConversations,
   listChatGptSidebarProjects,
   normalizeChatGptTargetUrl,
   openChatGptBrowser,
@@ -636,6 +639,67 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
         io.stderr(`recovered: answer saved to .bridge; re-print with \`prodex pro latest --cwd ${recoverCwd}\``);
         return 0;
       }
+      if (browserSubcommand === "chats") {
+        if (printProBrowserHelpIfRequested(browserArgs, "pro browser chats", io, { valueFlags: ["--port", "--timeout-ms", "--limit", "--source-cli"] })) return 0;
+        assertOnlyOptions(browserArgs, "pro browser chats", ["--port", "--timeout-ms", "--limit", "--source-cli"]);
+        const chatsPort = readPortFlag(browserArgs, "--port");
+        const chatsTimeoutMs = readPositiveIntegerFlag(browserArgs, "--timeout-ms");
+        const chatsLimit = readPositiveIntegerFlag(browserArgs, "--limit");
+        const chats = await listRecentChatGptConversations({
+          ...(chatsPort !== undefined ? { port: chatsPort } : {}),
+          ...(chatsTimeoutMs !== undefined ? { timeoutMs: chatsTimeoutMs } : {}),
+          ...(chatsLimit !== undefined ? { limit: chatsLimit } : {})
+        });
+        if (chats.length === 0) {
+          io.stdout("No recent conversations were readable.");
+          return 0;
+        }
+        io.stdout("Recent ChatGPT conversations (newest first):");
+        for (const chat of chats) io.stdout(`  ${chat.title}   ${chat.id}`);
+        io.stdout("Delete one with `pro browser chat-delete --id <id> --confirm-delete`.");
+        return 0;
+      }
+      if (browserSubcommand === "chat-delete") {
+        if (
+          printProBrowserHelpIfRequested(browserArgs, "pro browser chat-delete", io, {
+            valueFlags: ["--port", "--timeout-ms", "--title", "--id", "--limit", "--source-cli"],
+            booleanFlags: ["--confirm-delete"]
+          })
+        ) {
+          return 0;
+        }
+        assertOnlyOptions(
+          browserArgs,
+          "pro browser chat-delete",
+          ["--port", "--timeout-ms", "--title", "--id", "--limit", "--source-cli"],
+          ["--confirm-delete"]
+        );
+        const chatDeletePort = readPortFlag(browserArgs, "--port");
+        const chatDeleteTimeoutMs = readPositiveIntegerFlag(browserArgs, "--timeout-ms");
+        const chatDeleteLimit = readPositiveIntegerFlag(browserArgs, "--limit");
+        const chats = await listRecentChatGptConversations({
+          ...(chatDeletePort !== undefined ? { port: chatDeletePort } : {}),
+          ...(chatDeleteTimeoutMs !== undefined ? { timeoutMs: chatDeleteTimeoutMs } : {}),
+          limit: chatDeleteLimit ?? 40
+        });
+        const chatTarget = resolveConversationToDelete(chats, {
+          ...(readFlag(browserArgs, "--title") !== undefined ? { title: readFlag(browserArgs, "--title")! } : {}),
+          ...(readFlag(browserArgs, "--id") !== undefined ? { id: readFlag(browserArgs, "--id")! } : {})
+        });
+        if (!chatTarget.ok) throw new Error(chatTarget.reason);
+        if (!browserArgs.includes("--confirm-delete")) {
+          io.stdout(`Would delete the conversation "${chatTarget.title}" (${chatTarget.id}).`);
+          io.stdout("Nothing was deleted. Re-run with --confirm-delete to go ahead.");
+          return 0;
+        }
+        await deleteChatGptConversation({
+          conversationId: chatTarget.id,
+          ...(chatDeletePort !== undefined ? { port: chatDeletePort } : {}),
+          ...(chatDeleteTimeoutMs !== undefined ? { timeoutMs: chatDeleteTimeoutMs } : {})
+        });
+        io.stdout(`deleted conversation "${chatTarget.title}" (${chatTarget.id})`);
+        return 0;
+      }
       if (browserSubcommand === "project-delete") {
         if (
           printProBrowserHelpIfRequested(browserArgs, "pro browser project-delete", io, {
@@ -685,6 +749,8 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
         "models",
         "projects",
         "project-delete",
+        "chats",
+        "chat-delete",
         "recover"
       ]);
     }

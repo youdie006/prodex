@@ -47,7 +47,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The reasoning list reads down from the pinned model: Keep, then Extra high, High, Medium, Instant. Climbing up from Instant put the levels closest to Pro furthest from it.## 0.32.0
 
 ### Added
-- The picker asks for attachments. Uploading a file is the only way ChatGPT can open a pdf, pptx, xlsx or image, and the interactive path had no way to say so - the capability existed only as a flag. It is asked after the prompt and skipped with enter, so the common case costs one keystroke; quoted paths are accepted because file names have spaces in them.
+- The picker asks for attachments. Uploading a file is the only way ChatGPT can open a pdf, pptx, xlsx or image, and the interactive path had no way to say so - the capability existed only as a flag. It is asked after the prompt and skipped with enter, so the common case costs one keystroke; quoted paths are accepted because file names have spaces in them.## 0.34.0
+
+### Added
+- `pro browser chats` lists recent conversations with their ids, and `pro browser chat-delete` removes one. Same shape as project deletion: a preview by default that deletes nothing, `--confirm-delete` to act, exact titles only, and a title shared by two chats refused with both ids - titles are written by ChatGPT and repeat far more often than project names do.
+
 ## 0.33.0
 
 ### Added

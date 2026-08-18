@@ -270,6 +270,12 @@ export function printProBrowserHelp(stdout: (line: string) => void, sourceCli?: 
   const projectDeleteUsage = sourceCli
     ? `${cli} pro browser project-delete${sourceCliOption} [--name "exact name" | --id g-p-...] [--confirm-delete]  # previews unless --confirm-delete; deleting a project takes its chats with it`
     : `prodex pro browser project-delete [--source-cli /absolute/path/to/dist/cli.js] [--name "exact name" | --id g-p-...] [--confirm-delete]  # previews unless --confirm-delete; deleting a project takes its chats with it`;
+  const chatsUsage = sourceCli
+    ? `${cli} pro browser chats${sourceCliOption} [--limit 10]  # read-only: recent conversations with their ids`
+    : "prodex pro browser chats [--source-cli /absolute/path/to/dist/cli.js] [--limit 10]  # read-only: recent conversations with their ids";
+  const chatDeleteUsage = sourceCli
+    ? `${cli} pro browser chat-delete${sourceCliOption} [--title "exact title" | --id <id>] [--confirm-delete]  # previews unless --confirm-delete`
+    : `prodex pro browser chat-delete [--source-cli /absolute/path/to/dist/cli.js] [--title "exact title" | --id <id>] [--confirm-delete]  # previews unless --confirm-delete`;
   const recoverUsage = sourceCli
     ? `${cli} pro browser recover${sourceCliOption} [--cwd /absolute/path/to/repo] [--port 9333] --target-url <thread-url> [--timeout-ms 60000]  # fetch a finished answer (deep research reports too) from a thread whose send timed out`
     : "prodex pro browser recover [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] --target-url <thread-url> [--timeout-ms 60000]  # fetch a finished answer (deep research reports too) from a thread whose send timed out";
@@ -282,6 +288,8 @@ Commands:
   ${modelsUsage}
   ${projectsUsage}
   ${projectDeleteUsage}
+  ${chatsUsage}
+  ${chatDeleteUsage}
   ${askUsage}
   ${recoverUsage}
 

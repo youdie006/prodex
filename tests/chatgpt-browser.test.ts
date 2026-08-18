@@ -39,11 +39,13 @@ import {
   powerLabelMatches,
   deepResearchStartButtonRectExpression,
   conversationIdFromThreadUrl,
+  deleteConversationExpression,
   deleteProjectExpression,
   deepResearchReportExpression,
   resolveTranscriptCitations,
   pickLandedConversation,
   recentConversationsExpression,
+  resolveConversationToDelete,
   resolveProjectToDelete,
   transcriptAnswerExpression,
   classifyTranscriptRead,
@@ -631,6 +633,42 @@ describe("ChatGPT browser adapter", () => {
     const unauth = await new Function("fetch", `return ${deepResearchReportExpression("conv-1")}`)(denied);
     expect(unauth.ok).toBe(false);
     expect(unauth.reason).toBe("session_http_401");
+  });
+
+  it("refuses to delete a conversation it cannot identify beyond doubt", () => {
+    // Titles repeat far more often than project names do - ChatGPT writes them
+    // - so an exact title that matches two chats is refused with both ids.
+    const chats = [
+      { id: "c-aaa", title: "Faultprobe Request" },
+      { id: "c-bbb", title: "Faultprobe Request" },
+      { id: "c-ccc", title: "CLEANBUILD" }
+    ];
+
+    expect(resolveConversationToDelete(chats, { title: "CLEANBUILD" })).toEqual({ ok: true, id: "c-ccc", title: "CLEANBUILD" });
+    expect(resolveConversationToDelete(chats, { id: "c-bbb" })).toEqual({ ok: true, id: "c-bbb", title: "Faultprobe Request" });
+
+    const ambiguous = resolveConversationToDelete(chats, { title: "Faultprobe Request" });
+    expect(ambiguous.ok).toBe(false);
+    expect(ambiguous.reason).toContain("c-aaa");
+    expect(ambiguous.reason).toContain("c-bbb");
+
+    expect(resolveConversationToDelete(chats, { title: "nothing like it" }).ok).toBe(false);
+    expect(resolveConversationToDelete(chats, {}).ok).toBe(false);
+  });
+
+  it("hides a conversation through the call ChatGPT reports success for", async () => {
+    const calls: Array<{ url: string; method?: string; body?: string }> = [];
+    const fakeFetch = async (url: string, init?: { method?: string; body?: string }) => {
+      calls.push({ url, ...(init?.method ? { method: init.method } : {}), ...(init?.body ? { body: init.body } : {}) });
+      if (url.includes("/api/auth/session")) return { ok: true, status: 200, json: async () => ({ accessToken: "tok" }) };
+      return { ok: true, status: 200, text: async () => JSON.stringify({ success: true }) };
+    };
+    const result = await new Function("fetch", `return ${deleteConversationExpression("c-ccc")}`)(fakeFetch);
+
+    expect(result).toEqual({ ok: true, reason: "" });
+    expect(calls[1].url).toBe("/backend-api/conversation/c-ccc");
+    expect(calls[1].method).toBe("PATCH");
+    expect(JSON.parse(calls[1].body ?? "{}")).toEqual({ is_visible: false });
   });
 
   it("refuses to delete a project it cannot identify beyond doubt", () => {
