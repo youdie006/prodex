@@ -26,8 +26,15 @@ jobs:
 
       - name: Install system dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y ripgrep
+          # The runner image usually ships ripgrep already; installing it again
+          # cost two runs their entire budget when apt-get update hung and the
+          # job was killed at the 20-minute timeout with nothing built.
+          if command -v rg >/dev/null 2>&1; then
+            echo "ripgrep already present: $(rg --version | head -1)"
+            exit 0
+          fi
+          timeout 300 sudo apt-get update || echo "apt-get update timed out; trying the install anyway"
+          timeout 300 sudo apt-get install -y ripgrep
 
       - name: Install dependencies
         run: npm ci

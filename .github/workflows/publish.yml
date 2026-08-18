@@ -41,8 +41,12 @@ jobs:
 
       - name: Install system dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y ripgrep
+          if command -v rg >/dev/null 2>&1; then
+            echo "ripgrep already present: $(rg --version | head -1)"
+            exit 0
+          fi
+          timeout 300 sudo apt-get update || echo "apt-get update timed out; trying the install anyway"
+          timeout 300 sudo apt-get install -y ripgrep
 
       - name: Upgrade npm for trusted publishing (OIDC)
         # Pinned to the 11.x line: OIDC trusted publishing needs npm >= 11.5.1,
