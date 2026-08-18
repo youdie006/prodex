@@ -107,9 +107,46 @@ describe("waitForChatGptLoginReady", () => {
     });
 
     expect(ready).toBe(true);
-    // Opened once, not once per poll: a tab per second would bury the user.
-    expect(opened).toEqual([9333]);
+    // Retried while the tab was still missing rather than giving up after one
+    // silent attempt, and every try names the port it went to.
+    expect(opened.length).toBeGreaterThanOrEqual(1);
+    expect(new Set(opened)).toEqual(new Set([9333]));
     expect(lines.some((line) => /opening a ChatGPT tab/i.test(line))).toBe(true);
+  });
+
+  it("keeps trying to open the tab, and says when opening it failed", async () => {
+    // On a real machine the wait sat for 60s reporting "no chatgpt.com tab is
+    // open" and ended not-ready, with no way to tell whether prodex had tried:
+    // it opened once, ignored the result, and never said anything. One attempt
+    // that silently fails is indistinguishable from no attempt at all.
+    const lines: string[] = [];
+    const missing = {
+      ...status({ reachable: true }),
+      blocker: {
+        code: "chatgpt_page_missing",
+        message: "Chrome debug port is reachable, but no chatgpt.com tab is open.",
+        retryable: true
+      }
+    };
+    const statuses = [missing, missing, missing, missing, status({ reachable: true, loggedInLikely: true, hasComposer: true })];
+    let call = 0;
+    let attempts = 0;
+
+    const ready = await waitForChatGptLoginReady((line) => lines.push(line), { port: 9333, timeoutMs: 60_000, pollMs: 1 }, {
+      statusFn: async () => statuses[Math.min(call++, statuses.length - 1)],
+      sleepFn: async () => {},
+      // The first attempt fails, as it did on that machine.
+      openTabFn: async () => {
+        attempts += 1;
+        return attempts > 1;
+      }
+    });
+
+    expect(ready).toBe(true);
+    // It tried more than once rather than giving up after the first failure.
+    expect(attempts).toBeGreaterThan(1);
+    // And it said the attempt failed, instead of leaving the user to guess.
+    expect(lines.some((line) => /could not open a ChatGPT tab/i.test(line))).toBe(true);
   });
 
   it("does not claim a window was opened when it reused a running Chrome", async () => {

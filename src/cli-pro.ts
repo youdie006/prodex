@@ -1755,15 +1755,24 @@ export async function waitForChatGptLoginReady(
   const startedAt = now();
   stderr("login: waiting for a logged-in ChatGPT tab (finish login in the dedicated Chrome window; Ctrl+C stops waiting)...");
   let lastState = "";
-  let openedMissingTab = false;
+  let openMissingTabAttempts = 0;
   while (now() - startedAt < timeoutMs) {
     const status = await statusFn({ port: options.port, timeoutMs: 1_500 });
     // A running Chrome with no chatgpt.com tab leaves the user nothing to log
-    // into. Open the tab once rather than waiting for one to appear.
-    if (status.reachable && status.blocker?.code === "chatgpt_page_missing" && !openedMissingTab) {
-      openedMissingTab = true;
-      stderr("login: the running Chrome had no ChatGPT tab - opening a ChatGPT tab in it...");
-      await openTabFn(options.port);
+    // into, so prodex opens one. Keep trying while the tab is still missing:
+    // one silent attempt that fails looks exactly like no attempt, which is how
+    // a real machine sat for a minute reporting the missing tab and ended
+    // not-ready with nothing to go on.
+    if (status.reachable && status.blocker?.code === "chatgpt_page_missing") {
+      const attempt = openMissingTabAttempts + 1;
+      openMissingTabAttempts = attempt;
+      stderr(
+        attempt === 1
+          ? "login: the running Chrome had no ChatGPT tab - opening a ChatGPT tab in it..."
+          : `login: still no ChatGPT tab - opening one again (attempt ${attempt})...`
+      );
+      const opened = await openTabFn(options.port);
+      if (opened === false) stderr("login: could not open a ChatGPT tab through the debug port; open https://chatgpt.com/ in that window.");
       await sleepFn(pollMs);
       continue;
     }

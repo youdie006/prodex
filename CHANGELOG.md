@@ -50,7 +50,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The picker asks for attachments. Uploading a file is the only way ChatGPT can open a pdf, pptx, xlsx or image, and the interactive path had no way to say so - the capability existed only as a flag. It is asked after the prompt and skipped with enter, so the common case costs one keystroke; quoted paths are accepted because file names have spaces in them.## 0.34.0
 
 ### Added
-- `pro browser chats` lists recent conversations with their ids, and `pro browser chat-delete` removes one. Same shape as project deletion: a preview by default that deletes nothing, `--confirm-delete` to act, exact titles only, and a title shared by two chats refused with both ids - titles are written by ChatGPT and repeat far more often than project names do.
+- `pro browser chats` lists recent conversations with their ids, and `pro browser chat-delete` removes one. Same shape as project deletion: a preview by default that deletes nothing, `--confirm-delete` to act, exact titles only, and a title shared by two chats refused with both ids - titles are written by ChatGPT and repeat far more often than project names do.## 0.35.1
+
+### Fixed
+- `pro browser login` gave up after one silent attempt at opening the missing ChatGPT tab. Seen on a real machine: the wait sat for a minute reporting "no chatgpt.com tab is open" and ended not-ready, with no way to tell whether prodex had even tried - it opened once, ignored the result, and said nothing. It now retries while the tab is still missing and says so when an attempt fails.
+
 ## 0.35.0
 
 ### Added
