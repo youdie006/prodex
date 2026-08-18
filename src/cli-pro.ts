@@ -16,6 +16,7 @@ import {
   listChatGptModelOptions,
   deleteChatGptConversation,
   endWedgedBrowser,
+  browserRecoveryPlan,
   findWedgedBrowser,
   wedgedBrowserBlocker,
   deleteChatGptProject,
@@ -370,6 +371,18 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
             throw new Error(
               `A ChatGPT browser is already running on port ${port} on ${runningVirtual ? "a virtual display" : "your desktop"}, but ${wantsVirtualDisplay ? "a virtual display" : "your desktop"} was requested. Close it first (\`pkill -f "remote-debugging-port=${port}"\`), then rerun.`
             );
+          }
+        }
+        // A wedged browser is unreachable, so without this login would launch a
+        // second Chrome onto the same profile and leave the first one burning
+        // CPU - the same mistake the unattended recovery path made. Checked
+        // here, after the arguments are validated, so a bad flag still reports
+        // as a bad flag.
+        if (!alreadyRunning) {
+          const wedgedPids = findWedgedBrowser({ port, ...(profileDir ? { profileDir } : {}) });
+          if (wedgedPids.length > 0) {
+            const wedgedBlocker = wedgedBrowserBlocker(wedgedPids, port);
+            throw new Error(`${wedgedBlocker.message} ${wedgedBlocker.next_step}`);
           }
         }
         const opened: Pick<ChatGptBrowserLaunch, "profileDir" | "port"> = alreadyRunning
@@ -1623,6 +1636,17 @@ export async function performBrowserConsultForMcp(
  * flow stays intact.
  */
 export async function attemptBrowserAutoRecovery(stderr: (line: string) => void, options: { port?: number }): Promise<boolean> {
+  // Launching is right when the browser is gone and wrong when it is only deaf:
+  // a second Chrome on the same profile joins the wedged one rather than
+  // replacing it, and the wedged one keeps burning CPU while nobody looks. This
+  // runs unattended for agents, so it is the path that let four days pass.
+  const wedged = findWedgedBrowser({ ...(options.port !== undefined ? { port: options.port } : {}) });
+  if (browserRecoveryPlan({ reachable: false, wedgedPids: wedged }) === "reset-first") {
+    const blocker = wedgedBrowserBlocker(wedged, resolveCdpPort(options.port));
+    stderr(`recover: ${blocker.message}`);
+    stderr(`recover: ${blocker.next_step}`);
+    return false;
+  }
   stderr("recover: browser is not running - launching the dedicated ChatGPT browser (Ctrl+C aborts)...");
   try {
     // Reuse the profile the user last logged in with; launching the default

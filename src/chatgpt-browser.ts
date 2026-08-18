@@ -3031,7 +3031,9 @@ export function findLaunchedBrowserProcesses(psOutput: string, input: { port: nu
     return /(^|[/\\])(google[ -]?chrome|chromium|chrome)( helper)?( \([^)]*\))?$/i.test(executable.trim());
   };
   const lines = psOutput.split(/\r?\n/).filter((line) => !/\bgrep\b/.test(line) && isBrowserCommand(line));
-  const mains = lines.filter((line) => line.includes(`--remote-debugging-port=${input.port}`));
+  // Exactly this port: a plain substring test let port 9 match 9333.
+  const portFlag = new RegExp(`--remote-debugging-port=${input.port}(?!\\d)`);
+  const mains = lines.filter((line) => portFlag.test(line));
   // The port is the instance's identity. A browser sharing the profile while
   // listening on another port belongs to someone else, and treating it as ours
   // made a check against an unused port report a healthy Chrome as wedged.
@@ -3073,6 +3075,21 @@ export function endWedgedBrowser(pids: number[]): { ended: number[]; failed: num
     }
   }
   return { ended, failed };
+}
+
+export type BrowserRecoveryPlan = "reuse" | "launch" | "reset-first";
+
+/**
+ * What recovery should do when a send finds the browser unreachable.
+ *
+ * Launching is right when the browser is gone and wrong when it is merely deaf:
+ * a second Chrome on the same profile does not replace the wedged one, it joins
+ * it, and the wedged one keeps burning CPU while nobody is looking. That is the
+ * shape of the four-day incident this came from.
+ */
+export function browserRecoveryPlan(input: { reachable: boolean; wedgedPids: number[] }): BrowserRecoveryPlan {
+  if (input.reachable) return "reuse";
+  return input.wedgedPids.length > 0 ? "reset-first" : "launch";
 }
 
 export function wedgedBrowserBlocker(pids: number[], port: number): NonNullable<ChatGptBrowserStatus["blocker"]> {

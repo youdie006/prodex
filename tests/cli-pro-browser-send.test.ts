@@ -16,6 +16,9 @@ vi.mock("../src/chatgpt-browser.js", async () => {
   return {
     ...actual,
     sendChatGptPrompt: sendChatGptPromptMock,
+    // The wedged scan reads this machine's process table; a Chrome running here
+    // must not decide whether recovery is allowed to launch in a unit test.
+    findWedgedBrowser: () => [],
     listChatGptProjectsWithIds: listChatGptProjectsWithIdsMock,
     deleteChatGptProject: deleteChatGptProjectMock,
     listChatGptModelOptions: listChatGptModelOptionsMock,

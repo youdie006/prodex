@@ -48,6 +48,7 @@ import {
   recentConversationsExpression,
   resolveConversationToDelete,
   resolveProjectToDelete,
+  browserRecoveryPlan,
   wedgedBrowserBlocker,
   transcriptAnswerExpression,
   classifyTranscriptRead,
@@ -680,7 +681,22 @@ describe("ChatGPT browser adapter", () => {
     expect(findLaunchedBrowserProcesses(psOutput, { port: 65534, profileDir: "/Users/me/.local/share/prodex/chrome-chatgpt-pro" })).toEqual(
       []
     );
+    // Port 9 is not port 9333. Substring matching made a check on port 9 claim
+    // the browser on 9333 and refuse to launch.
+    expect(findLaunchedBrowserProcesses(psOutput, { port: 9, profileDir: "/Users/me/.local/share/prodex/chrome-chatgpt-pro" })).toEqual([]);
     expect(findLaunchedBrowserProcesses("", { port: 9333, profileDir: "/Users/me/.local/share/prodex/chrome-chatgpt-pro" })).toEqual([]);
+  });
+
+  it("does not stack a second browser on top of a wedged one", () => {
+    // This is the path that runs unattended: an agent's consult finds the port
+    // unreachable and recovery launches a browser. Launching while the old one
+    // is still there puts two Chromes on one profile and leaves the wedged one
+    // burning CPU, which is how four days went by unnoticed.
+    expect(browserRecoveryPlan({ reachable: false, wedgedPids: [] })).toBe("launch");
+    expect(browserRecoveryPlan({ reachable: false, wedgedPids: [26079] })).toBe("reset-first");
+    // Nothing to recover when it is answering.
+    expect(browserRecoveryPlan({ reachable: true, wedgedPids: [] })).toBe("reuse");
+    expect(browserRecoveryPlan({ reachable: true, wedgedPids: [26079] })).toBe("reuse");
   });
 
   it("says a wedged browser is wedged, not missing", () => {
