@@ -48,6 +48,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - The picker asks for attachments. Uploading a file is the only way ChatGPT can open a pdf, pptx, xlsx or image, and the interactive path had no way to say so - the capability existed only as a flag. It is asked after the prompt and skipped with enter, so the common case costs one keystroke; quoted paths are accepted because file names have spaces in them.
+## 0.33.0
+
+### Added
+- `pro browser project-delete` removes a project from the account. It previews by default - naming exactly what would go and deleting nothing - and only acts with `--confirm-delete`. Names must match exactly, and a name shared by two projects is refused with both ids rather than resolved by guessing, because the deletion cannot be undone from here. `--id` picks one in that case.
+- `pro browser projects` now prints each project's id alongside its name, which is what `project-delete --id` needs.
+
+### Fixed
+- `pro browser projects` read the rendered sidebar, which lags the account: it still listed a project that had just been deleted. It now prints the account's own listing when that is readable and falls back to the sidebar otherwise.
 
 ## 0.31.1
 

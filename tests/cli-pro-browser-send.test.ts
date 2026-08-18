@@ -4,6 +4,8 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const sendChatGptPromptMock = vi.hoisted(() => vi.fn());
+const listChatGptProjectsWithIdsMock = vi.hoisted(() => vi.fn());
+const deleteChatGptProjectMock = vi.hoisted(() => vi.fn());
 const listChatGptModelOptionsMock = vi.hoisted(() => vi.fn());
 const openChatGptBrowserMock = vi.hoisted(() => vi.fn());
 const getChatGptBrowserStatusMock = vi.hoisted(() => vi.fn());
@@ -14,6 +16,8 @@ vi.mock("../src/chatgpt-browser.js", async () => {
   return {
     ...actual,
     sendChatGptPrompt: sendChatGptPromptMock,
+    listChatGptProjectsWithIds: listChatGptProjectsWithIdsMock,
+    deleteChatGptProject: deleteChatGptProjectMock,
     listChatGptModelOptions: listChatGptModelOptionsMock,
     openChatGptBrowser: openChatGptBrowserMock,
     getChatGptBrowserStatus: getChatGptBrowserStatusMock,
@@ -163,6 +167,48 @@ describe("pro browser ask persistence", () => {
     const shown: string[] = [];
     await runCli(["pro", "show", parsed.task_id, "--json"], { cwd, stdout: (line) => shown.push(line), stderr: () => {} });
     expect(JSON.parse(shown.join("\n")).answer).toBe("the recorded answer");
+  });
+
+  it("previews a project deletion and refuses to delete without an explicit confirmation", async () => {
+    // Deleting a project cannot be undone from here, so the default is a
+    // preview: it says exactly what would go, and deletes nothing.
+    listChatGptProjectsWithIdsMock.mockResolvedValue([
+      { id: "g-p-ccc", name: "Codex" },
+      { id: "g-p-aaa", name: "prodex-smoke-2" },
+      { id: "g-p-bbb", name: "prodex-smoke-2" }
+    ]);
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-send-"));
+    const out: string[] = [];
+
+    const code = await runCli(["pro", "browser", "project-delete", "--name", "Codex"], {
+      cwd,
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    expect(code).toBe(0);
+    expect(out.join("\n")).toContain("g-p-ccc");
+    expect(out.join("\n")).toMatch(/--confirm-delete/);
+    expect(deleteChatGptProjectMock).not.toHaveBeenCalled();
+
+    // An ambiguous name is refused outright rather than resolved by guessing.
+    await expect(
+      runCli(["pro", "browser", "project-delete", "--name", "prodex-smoke-2", "--confirm-delete"], {
+        cwd,
+        stdout: () => {},
+        stderr: () => {}
+      })
+    ).rejects.toThrow(/more than one/i);
+    expect(deleteChatGptProjectMock).not.toHaveBeenCalled();
+
+    // With the confirmation and an unambiguous target, it deletes that one.
+    deleteChatGptProjectMock.mockResolvedValueOnce(undefined);
+    await runCli(["pro", "browser", "project-delete", "--id", "g-p-bbb", "--confirm-delete"], {
+      cwd,
+      stdout: () => {},
+      stderr: () => {}
+    });
+    expect(deleteChatGptProjectMock).toHaveBeenCalledWith(expect.objectContaining({ projectId: "g-p-bbb" }));
   });
 
   it("lets a chosen effort override a pinned Pro model", async () => {

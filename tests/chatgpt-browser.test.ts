@@ -39,10 +39,12 @@ import {
   powerLabelMatches,
   deepResearchStartButtonRectExpression,
   conversationIdFromThreadUrl,
+  deleteProjectExpression,
   deepResearchReportExpression,
   resolveTranscriptCitations,
   pickLandedConversation,
   recentConversationsExpression,
+  resolveProjectToDelete,
   transcriptAnswerExpression,
   classifyTranscriptRead,
   browserLostMidWaitBlocker,
@@ -629,6 +631,46 @@ describe("ChatGPT browser adapter", () => {
     const unauth = await new Function("fetch", `return ${deepResearchReportExpression("conv-1")}`)(denied);
     expect(unauth.ok).toBe(false);
     expect(unauth.reason).toBe("session_http_401");
+  });
+
+  it("refuses to delete a project it cannot identify beyond doubt", () => {
+    // Deleting is not undoable from here, so the name has to match exactly one
+    // project. This account really does have two projects sharing a name.
+    const projects = [
+      { id: "g-p-aaa", name: "prodex-smoke-2" },
+      { id: "g-p-bbb", name: "prodex-smoke-2" },
+      { id: "g-p-ccc", name: "Codex" }
+    ];
+
+    expect(resolveProjectToDelete(projects, { name: "Codex" })).toEqual({ ok: true, id: "g-p-ccc", name: "Codex" });
+    // An id wins over a name, and is the way out of an ambiguous name.
+    expect(resolveProjectToDelete(projects, { id: "g-p-bbb" })).toEqual({ ok: true, id: "g-p-bbb", name: "prodex-smoke-2" });
+
+    const ambiguous = resolveProjectToDelete(projects, { name: "prodex-smoke-2" });
+    expect(ambiguous.ok).toBe(false);
+    expect(ambiguous.reason).toMatch(/two|more than one|ambiguous/i);
+    expect(ambiguous.reason).toContain("g-p-aaa");
+
+    const missing = resolveProjectToDelete(projects, { name: "not a project" });
+    expect(missing.ok).toBe(false);
+    expect(missing.reason).toMatch(/no project/i);
+
+    // A near-miss on case or spacing is not a match: deleting the wrong project
+    // because of a typo is exactly what exactness is for.
+    expect(resolveProjectToDelete(projects, { name: "codex" }).ok).toBe(false);
+  });
+
+  it("deletes by id through the endpoint that reports it deleted", async () => {
+    const calls: Array<{ url: string; method?: string }> = [];
+    const fakeFetch = async (url: string, init?: { method?: string }) => {
+      calls.push({ url, ...(init?.method ? { method: init.method } : {}) });
+      if (url.includes("/api/auth/session")) return { ok: true, status: 200, json: async () => ({ accessToken: "tok" }) };
+      return { ok: true, status: 200, text: async () => JSON.stringify({ deleted: true }) };
+    };
+    const result = await new Function("fetch", `return ${deleteProjectExpression("g-p-ccc")}`)(fakeFetch);
+
+    expect(result).toEqual({ ok: true, reason: "" });
+    expect(calls[1]).toEqual({ url: "/backend-api/gizmos/g-p-ccc", method: "DELETE" });
   });
 
   it("reads the conversation id out of plain and project thread urls", () => {

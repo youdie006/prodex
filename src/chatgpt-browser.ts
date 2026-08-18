@@ -2956,6 +2956,69 @@ export async function navigateChatGptTabTo(url: string, options: { port?: number
 }
 
 /** Projects with the id their conversations are tagged with. */
+export type ProjectDeleteTarget =
+  | { ok: true; id: string; name: string }
+  | { ok: false; reason: string };
+
+/**
+ * Which project a delete means - or why it refuses to guess.
+ *
+ * Deleting a project is not undoable from here, so the request has to identify
+ * exactly one. Names are matched exactly (a typo must not delete a neighbour),
+ * and an id is accepted for the case this account actually has: two projects
+ * sharing a name.
+ */
+export function resolveProjectToDelete(
+  projects: Array<{ id: string; name: string }>,
+  request: { name?: string; id?: string }
+): ProjectDeleteTarget {
+  if (request.id) {
+    const byId = projects.find((project) => project.id === request.id);
+    return byId ? { ok: true, id: byId.id, name: byId.name } : { ok: false, reason: `No project has the id ${request.id}.` };
+  }
+  const name = request.name?.trim();
+  if (!name) return { ok: false, reason: "Name the project to delete with --name, or identify it with --id." };
+  const matches = projects.filter((project) => project.name === name);
+  if (matches.length === 0) {
+    return { ok: false, reason: `No project is named exactly "${name}". Run \`prodex pro browser projects\` to see the names as they are stored.` };
+  }
+  if (matches.length > 1) {
+    const ids = matches.map((project) => project.id).join(", ");
+    return {
+      ok: false,
+      reason: `More than one project is named "${name}" (${ids}). Pass --id to say which one, since deleting the wrong one cannot be undone here.`
+    };
+  }
+  return { ok: true, id: matches[0].id, name: matches[0].name };
+}
+
+/** Delete one project by id. The caller is responsible for confirming intent. */
+export function deleteProjectExpression(projectId: string): string {
+  return `(async () => {
+  let token = "";
+  try {
+    const session = await fetch("/api/auth/session", { credentials: "include" });
+    if (!session.ok) return { ok: false, reason: "session_http_" + session.status };
+    const parsed = await session.json();
+    token = (parsed && parsed.accessToken) || "";
+  } catch (error) {
+    return { ok: false, reason: "session_error" };
+  }
+  try {
+    const response = await fetch("/backend-api/gizmos/" + ${JSON.stringify(projectId)}, {
+      method: "DELETE",
+      credentials: "include",
+      headers: token ? { Authorization: "Bearer " + token, "Content-Type": "application/json" } : { "Content-Type": "application/json" }
+    });
+    const body = await response.text();
+    if (!response.ok) return { ok: false, reason: "delete_http_" + response.status + " " + body.slice(0, 120) };
+    return { ok: true, reason: "" };
+  } catch (error) {
+    return { ok: false, reason: "delete_error" };
+  }
+})()`;
+}
+
 export async function listChatGptProjectsWithIds(input: { port?: number; timeoutMs?: number } = {}): Promise<
   Array<{ id: string; name: string }>
 > {
@@ -2968,6 +3031,26 @@ export async function listChatGptProjectsWithIds(input: { port?: number; timeout
   } catch {
     return [];
   }
+}
+
+/** Delete one project. Callers must have confirmed intent before calling. */
+export async function deleteChatGptProject(input: { projectId: string; port?: number; timeoutMs?: number }): Promise<void> {
+  const port = resolveCdpPort(input.port);
+  const page = await findChatGptPage(port, input.timeoutMs ?? 3_000);
+  if (!page.ok || !page.page) {
+    throw new ChatGptBrowserBlockerError(
+      page.blocker ?? {
+        code: "browser_unreachable",
+        message: `No Chrome DevTools endpoint is reachable on 127.0.0.1:${port}.`,
+        retryable: true,
+        next_step: "Run `prodex pro browser login` to reopen the dedicated window, then retry."
+      }
+    );
+  }
+  const result = await evaluateOnPage<{ ok: boolean; reason: string }>(page.page, deleteProjectExpression(input.projectId), {
+    timeoutMs: 30_000
+  });
+  if (!result?.ok) throw new Error(`ChatGPT refused to delete the project: ${result?.reason ?? "unknown reason"}`);
 }
 
 export async function listRecentChatGptConversations(input: { port?: number; timeoutMs?: number; limit?: number } = {}): Promise<

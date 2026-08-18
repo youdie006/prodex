@@ -7,11 +7,14 @@ import {
   type SendChatGptProgressEvent,
   DEFAULT_CDP_PORT,
   resolveCdpPort,
+  resolveProjectToDelete,
   chatGptVisibilityBlocker,
   defaultChatGptProfileDir,
   formatDurationMs,
   getChatGptBrowserStatus,
   listChatGptModelOptions,
+  deleteChatGptProject,
+  listChatGptProjectsWithIds,
   listChatGptSidebarProjects,
   normalizeChatGptTargetUrl,
   openChatGptBrowser,
@@ -561,7 +564,16 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
           return 0;
         }
         io.stdout("ChatGPT sidebar projects (read-only; exact names as rendered):");
-        for (const name of listed.projects) io.stdout(`  ${name}`);
+        // The rendered sidebar can lag reality - it still showed a project that
+        // had just been deleted - so print the account's own listing when it is
+        // readable, and its ids, which `project-delete --id` needs to tell two
+        // projects of the same name apart.
+        const withIds = await listChatGptProjectsWithIds({
+          ...(projectsPort !== undefined ? { port: projectsPort } : {}),
+          ...(projectsTimeoutMs !== undefined ? { timeoutMs: projectsTimeoutMs } : {})
+        }).catch(() => []);
+        if (withIds.length > 0) for (const project of withIds) io.stdout(`  ${project.name}   ${project.id}`);
+        else for (const name of listed.projects) io.stdout(`  ${name}`);
         io.stdout("Use with `pro browser ask --project \"<name>\"` or pin one with `prodex setup --project \"<name>\"`.");
         return 0;
       }
@@ -624,7 +636,57 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
         io.stderr(`recovered: answer saved to .bridge; re-print with \`prodex pro latest --cwd ${recoverCwd}\``);
         return 0;
       }
-      throw unknownSubcommandError("pro browser", browserSubcommand, ["login", "ask", "smoke", "check", "models", "projects", "recover"]);
+      if (browserSubcommand === "project-delete") {
+        if (
+          printProBrowserHelpIfRequested(browserArgs, "pro browser project-delete", io, {
+            valueFlags: ["--cwd", "--port", "--timeout-ms", "--name", "--id", "--source-cli"],
+            booleanFlags: ["--confirm-delete"]
+          })
+        ) {
+          return 0;
+        }
+        assertOnlyOptions(
+          browserArgs,
+          "pro browser project-delete",
+          ["--cwd", "--port", "--timeout-ms", "--name", "--id", "--source-cli"],
+          ["--confirm-delete"]
+        );
+        const deletePort = readPortFlag(browserArgs, "--port");
+        const deleteTimeoutMs = readPositiveIntegerFlag(browserArgs, "--timeout-ms");
+        const projects = await listChatGptProjectsWithIds({
+          ...(deletePort !== undefined ? { port: deletePort } : {}),
+          ...(deleteTimeoutMs !== undefined ? { timeoutMs: deleteTimeoutMs } : {})
+        });
+        const target = resolveProjectToDelete(projects, {
+          ...(readFlag(browserArgs, "--name") !== undefined ? { name: readFlag(browserArgs, "--name")! } : {}),
+          ...(readFlag(browserArgs, "--id") !== undefined ? { id: readFlag(browserArgs, "--id")! } : {})
+        });
+        if (!target.ok) throw new Error(target.reason);
+        // Deleting a project is not undoable from here, so the default is a
+        // preview: say exactly what would go, and delete nothing.
+        if (!browserArgs.includes("--confirm-delete")) {
+          io.stdout(`Would delete project "${target.name}" (${target.id}) and everything filed under it.`);
+          io.stdout("Nothing was deleted. Re-run with --confirm-delete to go ahead.");
+          return 0;
+        }
+        await deleteChatGptProject({
+          projectId: target.id,
+          ...(deletePort !== undefined ? { port: deletePort } : {}),
+          ...(deleteTimeoutMs !== undefined ? { timeoutMs: deleteTimeoutMs } : {})
+        });
+        io.stdout(`deleted project "${target.name}" (${target.id})`);
+        return 0;
+      }
+      throw unknownSubcommandError("pro browser", browserSubcommand, [
+        "login",
+        "ask",
+        "smoke",
+        "check",
+        "models",
+        "projects",
+        "project-delete",
+        "recover"
+      ]);
     }
     if (subcommand === "open" || subcommand === "status" || subcommand === "smoke" || subcommand === "check" || subcommand === "doctor") {
       // Point at a subcommand that EXISTS: `pro status` used to say "use `pro

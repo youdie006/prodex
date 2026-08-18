@@ -265,6 +265,11 @@ export function printProBrowserHelp(stdout: (line: string) => void, sourceCli?: 
     : "prodex pro browser projects [--source-cli /absolute/path/to/dist/cli.js] [--port 9333] [--timeout-ms 15000]  # read-only: exact sidebar project names";
   // A send that outlives its budget is not a lost answer, but only if agents
   // know this exists - and this help is where onboarding sends them.
+  // Deleting a project takes its chats with it, so the usage line says so and
+  // the flag that actually deletes is spelled out rather than implied.
+  const projectDeleteUsage = sourceCli
+    ? `${cli} pro browser project-delete${sourceCliOption} [--name "exact name" | --id g-p-...] [--confirm-delete]  # previews unless --confirm-delete; deleting a project takes its chats with it`
+    : `prodex pro browser project-delete [--source-cli /absolute/path/to/dist/cli.js] [--name "exact name" | --id g-p-...] [--confirm-delete]  # previews unless --confirm-delete; deleting a project takes its chats with it`;
   const recoverUsage = sourceCli
     ? `${cli} pro browser recover${sourceCliOption} [--cwd /absolute/path/to/repo] [--port 9333] --target-url <thread-url> [--timeout-ms 60000]  # fetch a finished answer (deep research reports too) from a thread whose send timed out`
     : "prodex pro browser recover [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] --target-url <thread-url> [--timeout-ms 60000]  # fetch a finished answer (deep research reports too) from a thread whose send timed out";
@@ -276,6 +281,7 @@ Commands:
   ${smokeUsage}
   ${modelsUsage}
   ${projectsUsage}
+  ${projectDeleteUsage}
   ${askUsage}
   ${recoverUsage}
 
