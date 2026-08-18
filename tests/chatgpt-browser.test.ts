@@ -49,6 +49,7 @@ import {
   resolveConversationToDelete,
   resolveProjectToDelete,
   browserRecoveryPlan,
+  endWedgedBrowser,
   wedgedBrowserBlocker,
   transcriptAnswerExpression,
   classifyTranscriptRead,
@@ -687,16 +688,62 @@ describe("ChatGPT browser adapter", () => {
     expect(findLaunchedBrowserProcesses("", { port: 9333, profileDir: "/Users/me/.local/share/prodex/chrome-chatgpt-pro" })).toEqual([]);
   });
 
+  it("wakes a frozen browser before ending it, and escalates if it will not go", async () => {
+    // Measured: a Chrome held in a stopped state cannot act on SIGTERM, so it
+    // kept the profile lock and the fresh launch failed with "no reachable
+    // DevTools endpoint". Continue it first, ask it to quit, and only then
+    // insist - otherwise recovery ends where it started.
+    const sent: string[] = [];
+    let alive = new Set([26079]);
+    const outcome = await endWedgedBrowser([26079], {
+      kill: (pid, signal) => {
+        sent.push(`${signal}:${pid}`);
+        if (signal === "SIGKILL") alive.delete(pid);
+      },
+      isAlive: (pid) => alive.has(pid),
+      sleep: async () => {}
+    });
+
+    expect(sent[0]).toBe("SIGCONT:26079");
+    expect(sent[1]).toBe("SIGTERM:26079");
+    expect(sent).toContain("SIGKILL:26079");
+    expect(outcome.ended).toEqual([26079]);
+
+    // A browser that quits on SIGTERM is never forced.
+    const polite: string[] = [];
+    alive = new Set([1]);
+    await endWedgedBrowser([1], {
+      kill: (pid, signal) => {
+        polite.push(signal);
+        if (signal === "SIGTERM") alive.delete(pid);
+      },
+      isAlive: (pid) => alive.has(pid),
+      sleep: async () => {}
+    });
+    expect(polite).not.toContain("SIGKILL");
+  });
+
   it("does not stack a second browser on top of a wedged one", () => {
     // This is the path that runs unattended: an agent's consult finds the port
     // unreachable and recovery launches a browser. Launching while the old one
     // is still there puts two Chromes on one profile and leaves the wedged one
     // burning CPU, which is how four days went by unnoticed.
     expect(browserRecoveryPlan({ reachable: false, wedgedPids: [] })).toBe("launch");
-    expect(browserRecoveryPlan({ reachable: false, wedgedPids: [26079] })).toBe("reset-first");
     // Nothing to recover when it is answering.
     expect(browserRecoveryPlan({ reachable: true, wedgedPids: [] })).toBe("reuse");
     expect(browserRecoveryPlan({ reachable: true, wedgedPids: [26079] })).toBe("reuse");
+
+    // Reporting it is not enough: nobody ran a check for four days. Once the
+    // browser has been confirmed silent across several probes, clear it and
+    // carry on - that is what a person would do, and prodex owns that browser.
+    expect(browserRecoveryPlan({ reachable: false, wedgedPids: [26079], confirmedSilent: true })).toBe("clear-and-launch");
+    // One quiet probe is not proof: a browser mid-answer can miss a poll, and
+    // ending that one would throw away a consult in flight.
+    expect(browserRecoveryPlan({ reachable: false, wedgedPids: [26079], confirmedSilent: false })).toBe("reset-first");
+    // An escape hatch for anyone who would rather clear it themselves.
+    expect(browserRecoveryPlan({ reachable: false, wedgedPids: [26079], confirmedSilent: true, autoClearDisabled: true })).toBe(
+      "reset-first"
+    );
   });
 
   it("says a wedged browser is wedged, not missing", () => {

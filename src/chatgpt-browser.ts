@@ -3062,22 +3062,63 @@ export function findWedgedBrowser(input: { port?: number; profileDir?: string } 
   return findLaunchedBrowserProcesses(listed.stdout, { port, profileDir });
 }
 
-/** End a wedged instance. Callers must have confirmed intent before calling. */
-export function endWedgedBrowser(pids: number[]): { ended: number[]; failed: number[] } {
-  const ended: number[] = [];
-  const failed: number[] = [];
-  for (const pid of pids) {
-    try {
-      process.kill(pid, "SIGTERM");
-      ended.push(pid);
-    } catch {
-      failed.push(pid);
-    }
-  }
-  return { ended, failed };
+export interface ProcessSignals {
+  kill: (pid: number, signal: NodeJS.Signals) => void;
+  isAlive: (pid: number) => boolean;
+  sleep: (ms: number) => Promise<void>;
 }
 
-export type BrowserRecoveryPlan = "reuse" | "launch" | "reset-first";
+const realSignals: ProcessSignals = {
+  kill: (pid, signal) => process.kill(pid, signal),
+  isAlive: (pid) => {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  },
+  sleep: (ms) => sleep(ms)
+};
+
+/**
+ * End a wedged instance. Callers must have confirmed intent before calling.
+ *
+ * Continue it first: a browser held in a stopped state cannot act on SIGTERM,
+ * so it keeps the profile lock and the replacement launch fails with "no
+ * reachable DevTools endpoint" - measured, on exactly that. Then ask politely,
+ * and only insist on what will not go.
+ */
+export async function endWedgedBrowser(
+  pids: number[],
+  signals: ProcessSignals = realSignals
+): Promise<{ ended: number[]; failed: number[] }> {
+  const send = (pid: number, signal: NodeJS.Signals): boolean => {
+    try {
+      signals.kill(pid, signal);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  for (const pid of pids) {
+    send(pid, "SIGCONT");
+    send(pid, "SIGTERM");
+  }
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    if (!pids.some((pid) => signals.isAlive(pid))) break;
+    await signals.sleep(500);
+  }
+  for (const pid of pids.filter((pid) => signals.isAlive(pid))) send(pid, "SIGKILL");
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    if (!pids.some((pid) => signals.isAlive(pid))) break;
+    await signals.sleep(500);
+  }
+  const failed = pids.filter((pid) => signals.isAlive(pid));
+  return { ended: pids.filter((pid) => !failed.includes(pid)), failed };
+}
+
+export type BrowserRecoveryPlan = "reuse" | "launch" | "reset-first" | "clear-and-launch";
 
 /**
  * What recovery should do when a send finds the browser unreachable.
@@ -3087,9 +3128,22 @@ export type BrowserRecoveryPlan = "reuse" | "launch" | "reset-first";
  * it, and the wedged one keeps burning CPU while nobody is looking. That is the
  * shape of the four-day incident this came from.
  */
-export function browserRecoveryPlan(input: { reachable: boolean; wedgedPids: number[] }): BrowserRecoveryPlan {
+export function browserRecoveryPlan(input: {
+  reachable: boolean;
+  wedgedPids: number[];
+  /** The port stayed silent across several probes, not just one poll. */
+  confirmedSilent?: boolean;
+  autoClearDisabled?: boolean;
+}): BrowserRecoveryPlan {
   if (input.reachable) return "reuse";
-  return input.wedgedPids.length > 0 ? "reset-first" : "launch";
+  if (input.wedgedPids.length === 0) return "launch";
+  // Reporting a wedged browser is not enough - nobody ran a check for four
+  // days. prodex started this browser and it has stopped answering its own
+  // control port, so clearing it is what a person would do anyway. It waits for
+  // several silent probes first: a browser mid-answer can miss a single poll,
+  // and ending that one would throw away a consult in flight.
+  if (input.confirmedSilent === true && input.autoClearDisabled !== true) return "clear-and-launch";
+  return "reset-first";
 }
 
 export function wedgedBrowserBlocker(pids: number[], port: number): NonNullable<ChatGptBrowserStatus["blocker"]> {

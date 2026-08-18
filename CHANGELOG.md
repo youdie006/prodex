@@ -53,9 +53,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `pro browser chats` lists recent conversations with their ids, and `pro browser chat-delete` removes one. Same shape as project deletion: a preview by default that deletes nothing, `--confirm-delete` to act, exact titles only, and a title shared by two chats refused with both ids - titles are written by ChatGPT and repeat far more often than project names do.
 ## 0.35.0
 
+### Added
+- A wedged browser now heals itself. Reporting it was not enough: nobody ran a check for four days, and the point of an unattended path is that nobody is watching. When a send finds the browser silent and a prodex-launched Chrome still running, it confirms the silence across several probes, ends that browser, waits for the profile lock to clear, launches a fresh one and retries. Verified by freezing the local browser: the send recovered on its own and answered. `PRODEX_NO_AUTO_CLEAR=1` keeps the old report-only behaviour.
+
 ### Fixed
 - Recovery no longer stacks a second browser on a wedged one. When a consult found the port unreachable, the unattended path - the one agents use - launched another Chrome onto the same profile, which joins the wedged instance rather than replacing it and leaves it burning CPU. Both that path and `pro browser login` now stop and name `pro browser reset` instead.
 - A port was matched as a substring, so a check on port 9 claimed the browser listening on 9333 and refused to launch.
+- Ending a wedged browser now wakes it first. A process held in a stopped state cannot act on SIGTERM, so it kept the profile lock and the replacement launch failed with "no reachable DevTools endpoint" - measured, on exactly that. It is continued, asked to quit, and only forced if it will not go.
 
 ### Added
 - prodex now notices a browser it launched that is running but no longer answering. Found on a real machine: a Chrome prodex started sat for four days with two renderers pinned near 100% and the window server burning 75% CPU on its zombie window, while `check` reported it as simply not running - prodex only ever asked whether the debug port replied, and a dead browser answers exactly like an absent one. `check` now reports `browser_wedged` with the pids, and `pro browser reset` ends it: a preview by default, `--confirm` to act, and it refuses while the browser still answers, since that would take an in-flight consult with it.

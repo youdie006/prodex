@@ -690,7 +690,7 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
           io.stdout("Nothing was ended. Re-run with --confirm to go ahead.");
           return 0;
         }
-        const outcome = endWedgedBrowser(pids);
+        const outcome = await endWedgedBrowser(pids);
         if (outcome.ended.length > 0) io.stdout(`ended wedged browser: pid ${outcome.ended.join(", ")}`);
         if (outcome.failed.length > 0) io.stdout(`could not end: pid ${outcome.failed.join(", ")} (try again from the account that started it)`);
         io.stdout("Run `prodex pro browser login` to start a fresh one; it reuses the same profile.");
@@ -1635,17 +1635,58 @@ export async function performBrowserConsultForMcp(
  * throws) when recovery does not reach readiness, so the original blocker
  * flow stays intact.
  */
+/**
+ * Is the control port really dead, or was that one unlucky poll?
+ *
+ * A browser writing a long answer can miss a probe. Ending that one would throw
+ * away a consult in flight, so silence has to hold across several tries before
+ * anything gets killed.
+ */
+async function confirmBrowserSilence(port: number | undefined, probes = 3, gapMs = 2_000): Promise<boolean> {
+  for (let attempt = 0; attempt < probes; attempt += 1) {
+    if (attempt > 0) await sleep(gapMs);
+    const status = await getChatGptBrowserStatus({ ...(port !== undefined ? { port } : {}), timeoutMs: 2_000 });
+    if (status.reachable) return false;
+  }
+  return true;
+}
+
+function autoClearDisabledByEnv(env: Record<string, string | undefined> = process.env): boolean {
+  const raw = (env.PRODEX_NO_AUTO_CLEAR ?? "").trim().toLowerCase();
+  return raw === "1" || raw === "true" || raw === "yes";
+}
+
 export async function attemptBrowserAutoRecovery(stderr: (line: string) => void, options: { port?: number }): Promise<boolean> {
   // Launching is right when the browser is gone and wrong when it is only deaf:
   // a second Chrome on the same profile joins the wedged one rather than
   // replacing it, and the wedged one keeps burning CPU while nobody looks. This
   // runs unattended for agents, so it is the path that let four days pass.
   const wedged = findWedgedBrowser({ ...(options.port !== undefined ? { port: options.port } : {}) });
-  if (browserRecoveryPlan({ reachable: false, wedgedPids: wedged }) === "reset-first") {
-    const blocker = wedgedBrowserBlocker(wedged, resolveCdpPort(options.port));
-    stderr(`recover: ${blocker.message}`);
-    stderr(`recover: ${blocker.next_step}`);
-    return false;
+  if (wedged.length > 0) {
+    // Confirm the silence before ending anything: one missed poll is a busy
+    // browser, several in a row is a dead one.
+    const confirmedSilent = await confirmBrowserSilence(options.port);
+    const plan = browserRecoveryPlan({
+      reachable: false,
+      wedgedPids: wedged,
+      confirmedSilent,
+      autoClearDisabled: autoClearDisabledByEnv()
+    });
+    if (plan === "reset-first") {
+      const blocker = wedgedBrowserBlocker(wedged, resolveCdpPort(options.port));
+      stderr(`recover: ${blocker.message}`);
+      stderr(`recover: ${blocker.next_step}`);
+      return false;
+    }
+    stderr(`recover: the browser stopped answering; ending it (pid ${wedged.join(", ")}) and starting a fresh one...`);
+    await endWedgedBrowser(wedged);
+    // Wait for the profile lock to actually clear rather than guessing at a
+    // delay: the replacement launch fails outright if the old process still
+    // holds it, which is how the first self-heal attempt ended.
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      if (findWedgedBrowser({ ...(options.port !== undefined ? { port: options.port } : {}) }).length === 0) break;
+      await sleep(1_000);
+    }
   }
   stderr("recover: browser is not running - launching the dedicated ChatGPT browser (Ctrl+C aborts)...");
   try {
