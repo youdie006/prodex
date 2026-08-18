@@ -26,6 +26,9 @@ vi.mock("../src/chatgpt-browser.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/chatgpt-browser.js")>();
   return {
     ...actual,
+    // The wedged-browser scan reads the real process table, so leave it stubbed
+    // here: a Chrome running on this machine must not decide a unit test.
+    findWedgedBrowser: () => [],
     getChatGptBrowserStatus: vi.fn(async () => browserStatusFixture.status)
   };
 });

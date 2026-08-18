@@ -15,6 +15,9 @@ import {
   getChatGptBrowserStatus,
   listChatGptModelOptions,
   deleteChatGptConversation,
+  endWedgedBrowser,
+  findWedgedBrowser,
+  wedgedBrowserBlocker,
   deleteChatGptProject,
   listChatGptProjectsWithIds,
   listRecentChatGptConversations,
@@ -639,6 +642,47 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
         io.stderr(`recovered: answer saved to .bridge; re-print with \`prodex pro latest --cwd ${recoverCwd}\``);
         return 0;
       }
+      if (browserSubcommand === "reset") {
+        if (
+          printProBrowserHelpIfRequested(browserArgs, "pro browser reset", io, {
+            valueFlags: ["--port", "--profile-dir", "--source-cli"],
+            booleanFlags: ["--confirm"]
+          })
+        ) {
+          return 0;
+        }
+        assertOnlyOptions(browserArgs, "pro browser reset", ["--port", "--profile-dir", "--source-cli"], ["--confirm"]);
+        const resetPort = readPortFlag(browserArgs, "--port");
+        const resetProfileDir = readFlag(browserArgs, "--profile-dir");
+        const reachable = (await getChatGptBrowserStatus({ ...(resetPort !== undefined ? { port: resetPort } : {}), timeoutMs: 2_000 }))
+          .reachable;
+        const pids = findWedgedBrowser({
+          ...(resetPort !== undefined ? { port: resetPort } : {}),
+          ...(resetProfileDir ? { profileDir: resetProfileDir } : {})
+        });
+        if (pids.length === 0) {
+          io.stdout("No browser launched by prodex is running; nothing to reset.");
+          return 0;
+        }
+        // A browser that still answers is doing its job - ending it would take
+        // an in-flight consult with it.
+        if (reachable) {
+          io.stdout(`The dedicated browser is running and answering (pid ${pids.join(", ")}). Nothing was ended.`);
+          io.stdout("Close it yourself if you meant to, or run this again once it stops responding.");
+          return 0;
+        }
+        if (!browserArgs.includes("--confirm")) {
+          io.stdout(`Would end the wedged browser: pid ${pids.join(", ")}.`);
+          io.stdout("It is not answering its control port, so nothing in flight is lost; the profile and login stay on disk.");
+          io.stdout("Nothing was ended. Re-run with --confirm to go ahead.");
+          return 0;
+        }
+        const outcome = endWedgedBrowser(pids);
+        if (outcome.ended.length > 0) io.stdout(`ended wedged browser: pid ${outcome.ended.join(", ")}`);
+        if (outcome.failed.length > 0) io.stdout(`could not end: pid ${outcome.failed.join(", ")} (try again from the account that started it)`);
+        io.stdout("Run `prodex pro browser login` to start a fresh one; it reuses the same profile.");
+        return 0;
+      }
       if (browserSubcommand === "chats") {
         if (printProBrowserHelpIfRequested(browserArgs, "pro browser chats", io, { valueFlags: ["--port", "--timeout-ms", "--limit", "--source-cli"] })) return 0;
         assertOnlyOptions(browserArgs, "pro browser chats", ["--port", "--timeout-ms", "--limit", "--source-cli"]);
@@ -751,6 +795,7 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
         "project-delete",
         "chats",
         "chat-delete",
+        "reset",
         "recover"
       ]);
     }
@@ -2102,8 +2147,14 @@ export async function printProductCheck(store: BridgeStore, io: CliIO, args: str
   if (browserStatus) {
   const visibilityBlocker = chatGptVisibilityBlocker(browserStatus.visibilityState, browserStatus.url);
   if (!browserStatus.reachable) {
-    io.stdout(`chatgpt: ${browserStatus.blocker?.code ?? "unreachable"} - ${browserStatus.blocker?.message ?? "browser is not reachable"}`);
-    const nextStep = productCheckBrowserNextStep(browserStatus.blocker?.next_step, sourceCli, browserCommandOptions);
+    // An unreachable port has two very different causes, and prodex used to
+    // report both as "not running": the browser really is gone, or it is still
+    // there and has stopped answering. The second keeps burning CPU until
+    // somebody notices, and nobody notices a message that says it is absent.
+    const wedged = findWedgedBrowser({ ...(browserCommandOptions.port !== undefined ? { port: browserCommandOptions.port } : {}) });
+    const blocker = wedged.length > 0 ? wedgedBrowserBlocker(wedged, browserCommandOptions.port ?? DEFAULT_CDP_PORT) : browserStatus.blocker;
+    io.stdout(`chatgpt: ${blocker?.code ?? "unreachable"} - ${blocker?.message ?? "browser is not reachable"}`);
+    const nextStep = productCheckBrowserNextStep(blocker?.next_step, sourceCli, browserCommandOptions);
     if (nextStep) io.stdout(`next: ${nextStep}`);
   } else if (browserStatus.blocker?.code === "response_in_progress") {
     // Busy is not broken: the session is healthy and answering, and sends

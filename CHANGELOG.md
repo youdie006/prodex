@@ -51,6 +51,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - `pro browser chats` lists recent conversations with their ids, and `pro browser chat-delete` removes one. Same shape as project deletion: a preview by default that deletes nothing, `--confirm-delete` to act, exact titles only, and a title shared by two chats refused with both ids - titles are written by ChatGPT and repeat far more often than project names do.
+## 0.35.0
+
+### Added
+- prodex now notices a browser it launched that is running but no longer answering. Found on a real machine: a Chrome prodex started sat for four days with two renderers pinned near 100% and the window server burning 75% CPU on its zombie window, while `check` reported it as simply not running - prodex only ever asked whether the debug port replied, and a dead browser answers exactly like an absent one. `check` now reports `browser_wedged` with the pids, and `pro browser reset` ends it: a preview by default, `--confirm` to act, and it refuses while the browser still answers, since that would take an in-flight consult with it.
 
 ## 0.33.0
 

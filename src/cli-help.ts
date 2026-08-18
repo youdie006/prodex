@@ -276,6 +276,9 @@ export function printProBrowserHelp(stdout: (line: string) => void, sourceCli?: 
   const chatDeleteUsage = sourceCli
     ? `${cli} pro browser chat-delete${sourceCliOption} [--title "exact title" | --id <id>] [--confirm-delete]  # previews unless --confirm-delete`
     : `prodex pro browser chat-delete [--source-cli /absolute/path/to/dist/cli.js] [--title "exact title" | --id <id>] [--confirm-delete]  # previews unless --confirm-delete`;
+  const resetUsage = sourceCli
+    ? `${cli} pro browser reset${sourceCliOption} [--port 9333] [--confirm]  # end a browser that runs but stopped answering; previews unless --confirm`
+    : "prodex pro browser reset [--source-cli /absolute/path/to/dist/cli.js] [--port 9333] [--confirm]  # end a browser that runs but stopped answering; previews unless --confirm";
   const recoverUsage = sourceCli
     ? `${cli} pro browser recover${sourceCliOption} [--cwd /absolute/path/to/repo] [--port 9333] --target-url <thread-url> [--timeout-ms 60000]  # fetch a finished answer (deep research reports too) from a thread whose send timed out`
     : "prodex pro browser recover [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] --target-url <thread-url> [--timeout-ms 60000]  # fetch a finished answer (deep research reports too) from a thread whose send timed out";
@@ -290,6 +293,7 @@ Commands:
   ${projectDeleteUsage}
   ${chatsUsage}
   ${chatDeleteUsage}
+  ${resetUsage}
   ${askUsage}
   ${recoverUsage}
 

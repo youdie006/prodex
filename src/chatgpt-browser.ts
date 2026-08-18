@@ -3004,6 +3004,86 @@ export function resolveConversationToDelete(
  * Remove one conversation. ChatGPT deletes a chat by hiding it, which is the
  * same call its own UI makes; the caller is responsible for confirming intent.
  */
+/**
+ * Processes that ARE the browser prodex launched, from `ps` output.
+ *
+ * prodex only ever asked whether the debug port answered, so a Chrome that
+ * stopped answering read as "not running". Measured on a real machine: such an
+ * instance sat for four days with two renderers pinned near 100% and the
+ * window server burning 75% CPU on its zombie window, and nothing reported it.
+ * The port cannot tell a dead browser from an absent one; the process list can.
+ */
+export function findLaunchedBrowserProcesses(psOutput: string, input: { port: number; profileDir: string }): number[] {
+  // `ps -Ao user,pid,command` leads with a user NAME, not a uid.
+  const pidOf = (line: string): number | undefined => {
+    const match = /^\s*\S+\s+(\d+)\s/.exec(line);
+    return match ? Number(match[1]) : undefined;
+  };
+  // Mentioning the flag is not being the browser: a shell, an editor, or the
+  // very tool running this scan can carry it on its command line, and this list
+  // is what gets SIGTERM. Caught live - the probe matched its own node process.
+  const isBrowserCommand = (line: string): boolean => {
+    const command = line.replace(/^\s*\S+\s+\d+\s+/, "");
+    // Only the executable counts, never the arguments: a process that merely
+    // quotes a Chrome path is not Chrome. Everything up to the first flag is
+    // the program, which keeps the spaces macOS puts in "Google Chrome".
+    const executable = command.split(/\s-{1,2}\w/)[0];
+    return /(^|[/\\])(google[ -]?chrome|chromium|chrome)( helper)?( \([^)]*\))?$/i.test(executable.trim());
+  };
+  const lines = psOutput.split(/\r?\n/).filter((line) => !/\bgrep\b/.test(line) && isBrowserCommand(line));
+  const mains = lines.filter((line) => line.includes(`--remote-debugging-port=${input.port}`));
+  // The port is the instance's identity. A browser sharing the profile while
+  // listening on another port belongs to someone else, and treating it as ours
+  // made a check against an unused port report a healthy Chrome as wedged.
+  if (mains.length === 0) return [];
+  const helpers =
+    input.profileDir.length > 0 ? lines.filter((line) => line.includes(input.profileDir) && !mains.includes(line)) : [];
+  return [...mains, ...helpers].map(pidOf).filter((pid): pid is number => pid !== undefined);
+}
+
+/**
+ * A browser that is running but deaf is a different problem from one that is
+ * gone, and it needs a different instruction: relaunching on top of it stacks a
+ * second Chrome on the same profile rather than fixing anything.
+ */
+/**
+ * The wedged instance, if there is one: a browser prodex launched that is still
+ * running while its control port answers nothing.
+ */
+export function findWedgedBrowser(input: { port?: number; profileDir?: string } = {}): number[] {
+  const port = resolveCdpPort(input.port);
+  const profileDir = input.profileDir ?? defaultChatGptProfileDir();
+  // -A over every user's processes is deliberate: the browser may have been
+  // launched by another shell session than the one asking.
+  const listed = spawnSync("ps", ["-Ao", "user,pid,command"], { encoding: "utf8", timeout: 10_000 });
+  if (listed.status !== 0 || typeof listed.stdout !== "string") return [];
+  return findLaunchedBrowserProcesses(listed.stdout, { port, profileDir });
+}
+
+/** End a wedged instance. Callers must have confirmed intent before calling. */
+export function endWedgedBrowser(pids: number[]): { ended: number[]; failed: number[] } {
+  const ended: number[] = [];
+  const failed: number[] = [];
+  for (const pid of pids) {
+    try {
+      process.kill(pid, "SIGTERM");
+      ended.push(pid);
+    } catch {
+      failed.push(pid);
+    }
+  }
+  return { ended, failed };
+}
+
+export function wedgedBrowserBlocker(pids: number[], port: number): NonNullable<ChatGptBrowserStatus["blocker"]> {
+  return {
+    code: "browser_wedged",
+    message: `The dedicated ChatGPT browser is still running (pid ${pids.join(", ")}) but stopped answering on 127.0.0.1:${port}. A wedged Chrome keeps burning CPU and holding its window, so it will not recover on its own.`,
+    retryable: true,
+    next_step: "Clear it with `prodex pro browser reset --confirm` (it previews first), then run `prodex pro browser login`."
+  };
+}
+
 export function deleteConversationExpression(conversationId: string): string {
   return `(async () => {
   let token = "";

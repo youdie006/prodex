@@ -40,6 +40,7 @@ import {
   deepResearchStartButtonRectExpression,
   conversationIdFromThreadUrl,
   deleteConversationExpression,
+  findLaunchedBrowserProcesses,
   deleteProjectExpression,
   deepResearchReportExpression,
   resolveTranscriptCitations,
@@ -47,6 +48,7 @@ import {
   recentConversationsExpression,
   resolveConversationToDelete,
   resolveProjectToDelete,
+  wedgedBrowserBlocker,
   transcriptAnswerExpression,
   classifyTranscriptRead,
   browserLostMidWaitBlocker,
@@ -633,6 +635,62 @@ describe("ChatGPT browser adapter", () => {
     const unauth = await new Function("fetch", `return ${deepResearchReportExpression("conv-1")}`)(denied);
     expect(unauth.ok).toBe(false);
     expect(unauth.reason).toBe("session_http_401");
+  });
+
+  it("spots a browser prodex launched that stopped answering its own control port", () => {
+    // Measured on a real machine: a Chrome prodex started sat for four days
+    // with two renderers pinned at ~99% and the debug port answering nothing,
+    // while WindowServer burned 75% CPU on its zombie window. prodex only ever
+    // asked "is the port reachable", so it called this "not running" and no one
+    // noticed. The process is the evidence the port cannot give.
+    // The exact shape `ps -Ao user,pid,command` prints, taken from the machine
+    // this was found on: the first column is a user NAME, not a numeric uid.
+    // A fixture that guessed a uid made the matcher pass here and find nothing
+    // in reality.
+    const psOutput = [
+      "USER               PID COMMAND",
+      "bsgong            26079 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome --remote-debugging-address=127.0.0.1 --remote-debugging-port=9333 --user-data-dir=/Users/me/.local/share/prodex/chrome-chatgpt-pro",
+      "bsgong            37509 /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Helpers/Google Chrome Helper (Renderer) --user-data-dir=/Users/me/.local/share/prodex/chrome-chatgpt-pro",
+      "bsgong            40001 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+      "bsgong            40002 /usr/bin/grep --remote-debugging-port=9333",
+      // Anything can MENTION the flag - a shell, an editor, the tool running
+      // this scan. Caught live: the probe matched its own node process, and
+      // this list is what reset sends SIGTERM to.
+      "bsgong            44156 /usr/local/bin/node --input-type=module -e import ... --remote-debugging-port=9333 ...",
+      "bsgong            44166 ssh m3-raw bash -lc ... --remote-debugging-port=9333 ...",
+      // Even a command that quotes a Chrome path in its ARGUMENTS is not Chrome.
+      // Caught live twice: the probe kept matching its own node process because
+      // the fixture text it carried mentioned /Applications/Google Chrome.app.
+      "bsgong            44170 /usr/local/bin/node -e console.log(\"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome --remote-debugging-port=9333\")"
+    ].join("\n");
+
+    const found = findLaunchedBrowserProcesses(psOutput, {
+      port: 9333,
+      profileDir: "/Users/me/.local/share/prodex/chrome-chatgpt-pro"
+    });
+    // The instance and its helper, not the user's own Chrome and not the grep.
+    expect(found).toEqual([26079, 37509]);
+
+    // A different port or profile is somebody else's browser.
+    expect(findLaunchedBrowserProcesses(psOutput, { port: 9444, profileDir: "/Users/me/other" })).toEqual([]);
+    // The port is the instance's identity: sharing a profile directory with a
+    // browser listening elsewhere does not make it this port's browser, and
+    // claiming it did made a check on an unused port report a healthy Chrome
+    // as wedged.
+    expect(findLaunchedBrowserProcesses(psOutput, { port: 65534, profileDir: "/Users/me/.local/share/prodex/chrome-chatgpt-pro" })).toEqual(
+      []
+    );
+    expect(findLaunchedBrowserProcesses("", { port: 9333, profileDir: "/Users/me/.local/share/prodex/chrome-chatgpt-pro" })).toEqual([]);
+  });
+
+  it("says a wedged browser is wedged, not missing", () => {
+    const blocker = wedgedBrowserBlocker([26079, 37509], 9333);
+    expect(blocker.code).toBe("browser_wedged");
+    expect(blocker.retryable).toBe(true);
+    expect(blocker.message).toContain("26079");
+    // Relaunching on top of it is what stacks a second Chrome on the same
+    // profile, so the advice is to clear it first.
+    expect(blocker.next_step).toContain("pro browser reset");
   });
 
   it("refuses to delete a conversation it cannot identify beyond doubt", () => {
