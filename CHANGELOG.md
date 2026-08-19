@@ -2,7 +2,16 @@
 
 All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).## 0.22.0
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).## 0.36.0
+
+### Fixed
+- A shared tab could jam so that every send failed with "still generating" while nothing was generating. ChatGPT parks a thread on "which response do you prefer?" after some answers, and the composer keeps its stop control while it waits - measured unchanged over twenty seconds, and it never clears without a click. That state is now recognized by the testids on the panel (so it survives a UI in any language) and reported as what it is, with the button to press; a send that navigates away (a fresh chat, a project home) is not held back by it at all.
+- The same stop control also outlives an ordinary answer. Sampled every two seconds through a real generation: the transcript reports the turn finished about five seconds before the control disappears, and refuses to call it finished while the answer streams. The transcript now decides whether the tab is busy - and only a transcript that can be read AND says the turn ended clears the way. Before this, two concurrent sends into a project both waited five minutes and failed; now both answer.
+- Recovery could kill another browser's processes. The scan matched the main process by port but its helpers by a profile path the caller guessed at, using a plain substring test - so a second profile whose name merely starts with the first (`-alt`, `-2`) had its renderers swept into the list that receives SIGKILL, and the unattended path scanned the default profile even for someone running a custom one. The profile is now read off the browser that answered to the port.
+- The picker's progress bar promised "ctrl-c to stop" while the terminal was still in the raw mode its pickers needed, which disables the terminal's own ctrl-c. Verified against a real pty: the send could not be interrupted for the whole ten minutes a deep research run takes. The terminal is handed back before the send.
+- `prodex ui` with stdin redirected painted the alternate screen, hid the cursor and waited forever for a key that could not arrive, leaving a terminal that needed `reset`. It now says what it needs and names the flag-driven command to use instead.
+
+## 0.22.0
 
 ### Added
 - `--tool deep-research` now returns the finished report. Deep research renders as a widget app inside an iframe, so the thread looks empty in the DOM no matter how long you wait or how hard you reload - which is why the previous release could only hand back a link. prodex now reads the run from the conversation transcript (`chatgpt_sdk.widget_state`), waits for `status: completed`, and returns `report_message` as the answer. Verified against three finished runs (13k-47k characters).
