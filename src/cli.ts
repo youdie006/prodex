@@ -262,7 +262,10 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
   // A person typing `prodex` used to get the agent-facing command wall and no
   // way in. On a terminal, walk them through a consult instead; piped or
   // scripted callers still get the banner and the command list they parse.
-  if (!command && io.isInteractive === true) return runInteractiveUi(io);
+  // A keyboard as well as a screen: with stdin redirected there is nothing to
+  // answer the picker's questions with, and `prodex` alone should still print
+  // the command list rather than refuse.
+  if (!command && io.isInteractive === true && process.stdin.isTTY === true) return runInteractiveUi(io);
 
   if (!command || command === "help" || command === "--help" || command === "-h") {
     if (shouldColorize()) io.stdout(renderBanner({ color: true }));

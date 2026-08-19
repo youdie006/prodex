@@ -188,6 +188,17 @@ export interface InteractiveDeps {
  * Returns the process exit code.
  */
 export async function runInteractiveConsult(io: TuiIo, deps: InteractiveDeps): Promise<number> {
+  // Every question here is answered with a keystroke, so a stdin that cannot
+  // deliver one has to be turned away at the door. Measured with stdin
+  // redirected: the picker painted the alternate screen, hid the cursor, and
+  // waited forever for a key that could not arrive - and never returning meant
+  // the screen was never restored either, leaving a terminal that needed
+  // `reset`.
+  if (io.input.isTTY !== true) {
+    io.write("The picker reads single keystrokes, so it needs a terminal on stdin.\n");
+    io.write('Send without one: prodex pro browser ask "your prompt"\n');
+    return 1;
+  }
   const now = deps.now ?? Date.now;
   readline.emitKeypressEvents(io.input);
   io.input.setRawMode?.(true);

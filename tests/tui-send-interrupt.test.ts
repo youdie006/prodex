@@ -62,3 +62,24 @@ describe("the send phase of the interactive picker", () => {
     expect(rawModeDuringSend).toBe(false);
   });
 });
+
+describe("the picker without a terminal", () => {
+  it("says so instead of painting a screen nobody can answer", async () => {
+    // Measured: stdout on a terminal, stdin redirected. The picker painted the
+    // alternate screen, hid the cursor and waited forever for a key that could
+    // not arrive - and because it never returned, the code that restores the
+    // screen never ran either, so the terminal was left needing `reset`.
+    const { stream } = fakeInput();
+    stream.isTTY = false;
+    let out = "";
+
+    const code = await runInteractiveConsult(
+      { write: (text) => (out += text), input: stream },
+      { listProjects: async () => [], runConsult: async () => 0 }
+    );
+
+    expect(code).not.toBe(0);
+    expect(out).not.toContain("\u001b[?1049h");
+    expect(out).toContain("prodex pro browser ask");
+  });
+});
