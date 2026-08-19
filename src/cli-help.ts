@@ -297,7 +297,7 @@ Commands:
   ${askUsage}
   ${recoverUsage}
 
-Visible-browser sends require a manual browser session and stop on login, captcha, Cloudflare, permission, rate-limit, or usage-limit blockers.
+Visible-browser sends require a manual browser session and stop on login, captcha, Cloudflare, permission, rate-limit, or usage-limit blockers, plus response_choice_pending when ChatGPT is waiting for you to pick which of two answers you prefer.
 Model/project selection (ask):
   --model      Composer model to pick by its exact menu label (verified: Pro). Models whose menu entry opens a submenu of variants are rejected with a clear error for now.
   --pro-mode   Pro sub-mode: 기본 (standard) or 확장 (extended), used when the model is Pro. A Pro selection raises the default --timeout-ms to 1200000.

@@ -618,7 +618,7 @@ repo: ${cwd}
 
 Safety notes:
 - This command only prints commands; it does not start servers, open browsers, or write files.
-- Visible-browser sends require a manual, visible browser session and stop on login, captcha, Cloudflare, permission, rate-limit, or usage-limit blockers.`;
+- Visible-browser sends require a manual, visible browser session and stop on login, captcha, Cloudflare, permission, rate-limit, or usage-limit blockers, plus response_choice_pending when ChatGPT is waiting for you to pick which of two answers you prefer.`;
 }
 
 async function hasOnboardingReadme(cwd: string): Promise<boolean> {
