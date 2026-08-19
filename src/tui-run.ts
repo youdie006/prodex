@@ -346,6 +346,12 @@ export async function runInteractiveConsult(io: TuiIo, deps: InteractiveDeps): P
     // Leave the alternate screen before the send: the answer, the receipt id
     // and any blocker belong in the scrollback the user keeps.
     io.write(ALT_SCREEN_OFF + SHOW_CURSOR);
+    // Hand the terminal back too. Raw mode is what let the pickers read single
+    // keys, and it also turns off the terminal's own ctrl-c: the key arrives as
+    // a keypress nothing is waiting for. The progress bar promises "ctrl-c to
+    // stop", and under raw mode that promise was false for the whole ten
+    // minutes a deep research send runs. No key is read from here on.
+    io.input.setRawMode?.(false);
     // --target-url confirms which conversation a send means; it deliberately
     // does not navigate. Picking one from a list IS a request to go there, so
     // move the tab first and let the flag confirm it landed.
