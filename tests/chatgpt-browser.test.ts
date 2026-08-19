@@ -1131,7 +1131,7 @@ describe("ChatGPT browser adapter", () => {
   });
 
   it("reports an in-flight response as a browser busy blocker", () => {
-    const blocker = chatGptBusyBlocker(true);
+    const blocker = chatGptBusyBlocker({ generating: true });
 
     expect(blocker).toEqual(
       expect.objectContaining({

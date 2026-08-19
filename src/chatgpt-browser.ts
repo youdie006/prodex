@@ -248,6 +248,8 @@ interface ChatGptAnswerState {
   answer: string;
   modelHints: string[];
   generating: boolean;
+  /** ChatGPT is asking which of two answers is preferred, so the thread is parked. */
+  awaitingResponseChoice?: boolean;
   assistantMessageCount: number;
   userMessageCount: number;
   /** ChatGPT's own tag for the model that produced the last answer. */
@@ -269,6 +271,8 @@ interface ChatGptPageStatus extends ChatGptPageTextState {
   title: string;
   hasComposer: boolean;
   generating: boolean;
+  /** ChatGPT is asking which of two answers is preferred, so the thread is parked. */
+  awaitingResponseChoice?: boolean;
   modelHints: string[];
   url: string;
   visibilityState: string;
@@ -868,8 +872,57 @@ export function modelSelectionWarning(requestedModel: string | undefined, modelS
   return `model_mismatch: you asked for ${requestedModel}, but the answer came from "${modelSlug}". Check the model picker in the browser; the selection did not take.`;
 }
 
-export function chatGptBusyBlocker(generating: boolean): ChatGptBrowserStatus["blocker"] | undefined {
-  if (!generating) return undefined;
+/**
+ * The panel ChatGPT raises to ask which of two answers you prefer.
+ *
+ * Recognized by its testids rather than its wording, so a UI in any language
+ * still matches. Read off the live page: the title is `paragen-feedback-title`
+ * and both choices are `paragen-prefer-response-button`.
+ */
+export const CHATGPT_RESPONSE_CHOICE_SELECTOR =
+  '[data-testid="paragen-feedback-title"],[data-testid="paragen-prefer-response-button"]';
+
+/**
+ * A thread parked on that question, which no amount of waiting will clear.
+ *
+ * Measured live: both candidate answers had finished, the page had not changed
+ * in twenty seconds, and the composer's submit control was still
+ * `data-testid="stop-button"` - which prodex read as "generating". Every send
+ * afterwards waited out its whole budget and then advised waiting some more.
+ */
+export function chatGptResponseChoiceBlocker(awaitingResponseChoice: boolean): ChatGptBrowserStatus["blocker"] | undefined {
+  if (!awaitingResponseChoice) return undefined;
+  return {
+    code: "response_choice_pending",
+    message: "ChatGPT is asking which of two answers you prefer, and this thread stays locked until one is picked.",
+    retryable: true,
+    next_step:
+      "Pick one in the browser (the two \"I prefer this response\" buttons), " +
+      "or leave the thread alone and send into a new chat (`--new-chat`)."
+  };
+}
+
+/**
+ * Whether that question stands in the way of THIS send. A send that navigates
+ * away - a fresh chat, or a project home - never touches the parked thread.
+ */
+export function responseChoiceBlocksThisSend(input: {
+  awaitingResponseChoice: boolean;
+  newChat?: boolean;
+  project?: string;
+  projectNew?: string;
+}): boolean {
+  if (!input.awaitingResponseChoice) return false;
+  return !input.newChat && input.project === undefined && input.projectNew === undefined;
+}
+
+export function chatGptBusyBlocker(state: {
+  generating: boolean;
+  awaitingResponseChoice?: boolean;
+}): ChatGptBrowserStatus["blocker"] | undefined {
+  // Waiting for a choice is not generating. Conflating them turned a click
+  // away from ready into a full send budget spent on "still generating".
+  if (!state.generating || state.awaitingResponseChoice === true) return undefined;
   return {
     code: "response_in_progress",
     message: "ChatGPT is still generating a previous response in this thread.",
@@ -879,6 +932,44 @@ export function chatGptBusyBlocker(generating: boolean): ChatGptBrowserStatus["b
       "If that in-flight answer is the one you need, fetch it once it settles: `prodex pro browser recover --target-url <thread-url>`. " +
       "A new topic can go to a new chat instead."
   };
+}
+
+/**
+ * The busy verdict, re-decided against the transcript.
+ *
+ * Measured on the real page: an ordinary conversation whose answer was complete
+ * kept `data-testid="stop-button"` (aria-label "Stop answering") unchanged over
+ * thirty seconds, while the transcript for that same conversation reported
+ * finished_successfully with end_turn set. The page control is decoration once
+ * the turn is over; the transcript is the record. Only a transcript that can be
+ * read AND says the turn finished clears the blocker - an unreadable one is no
+ * evidence of anything, and typing into a live generation corrupts the thread.
+ */
+export function busyBlockerAfterTranscriptCheck(
+  busyBlocker: ChatGptBrowserStatus["blocker"] | undefined,
+  transcript: { ok: boolean; isComplete?: boolean } | undefined
+): ChatGptBrowserStatus["blocker"] | undefined {
+  if (!busyBlocker) return undefined;
+  return transcript?.ok === true && transcript.isComplete === true ? undefined : busyBlocker;
+}
+
+/**
+ * Ask the transcript whether the conversation the tab is showing has finished.
+ * Undefined when there is nothing to ask about (a fresh chat or project home
+ * carries no conversation id) or the read fails.
+ */
+async function readTranscriptCompletion(
+  page: DevtoolsPage,
+  url: string
+): Promise<{ ok: boolean; isComplete?: boolean } | undefined> {
+  const conversationId = conversationIdFromThreadUrl(url);
+  if (!conversationId) return undefined;
+  try {
+    const state = await evaluateOnPage<{ ok: boolean; isComplete?: boolean }>(page, transcriptAnswerExpression(conversationId));
+    return { ok: state.ok === true, ...(state.isComplete !== undefined ? { isComplete: state.isComplete } : {}) };
+  } catch {
+    return undefined;
+  }
 }
 
 export function isLikelyChatGptSubmitButton(label: string, dataTestId: string | null): boolean {
@@ -1196,9 +1287,14 @@ function chatGptPageMissingBlocker(): NonNullable<ChatGptBrowserStatus["blocker"
 // composer" (measured live: continue-by-default consults landing on a thread
 // still generating the previous prodex answer).
 export function assertChatGptIdleAndReadyForPrompt(
-  status: ChatGptPageTextState & { generating: boolean; hasComposer: boolean; openDialogText?: string }
+  status: ChatGptPageTextState & { generating: boolean; hasComposer: boolean; openDialogText?: string },
+  // The caller may have already weighed the page against the transcript and
+  // found the stop control stale. Re-deriving the verdict from the DOM here
+  // threw away that answer and failed the send the queue had just cleared.
+  decidedBusyBlocker?: ChatGptBrowserStatus["blocker"] | undefined,
+  busyVerdictDecided = false
 ): void {
-  const busyBlocker = chatGptBusyBlocker(status.generating);
+  const busyBlocker = busyVerdictDecided ? decidedBusyBlocker : chatGptBusyBlocker(status);
   if (busyBlocker) throw new ChatGptBrowserBlockerError(busyBlocker);
   assertChatGptReadyForPrompt(inferChatGptPageLoggedInLikely(status), status.hasComposer, status.openDialogText);
 }
@@ -1377,7 +1473,14 @@ export async function getChatGptBrowserStatus(options: { port?: number; timeoutM
     ...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {})
   });
   const loggedInLikely = inferChatGptPageLoggedInLikely(state);
-  const blocker = chatGptVisibilityBlocker(state.visibilityState, state.url) ?? detectChatGptPageBlocker(state) ?? chatGptBusyBlocker(state.generating);
+  // The busy verdict is checked against the transcript here too, so `check`
+  // does not report a finished conversation as one still being written.
+  const busyBlocker = chatGptBusyBlocker(state);
+  const blocker =
+    chatGptVisibilityBlocker(state.visibilityState, state.url) ??
+    detectChatGptPageBlocker(state) ??
+    chatGptResponseChoiceBlocker(state.awaitingResponseChoice === true) ??
+    (busyBlocker ? busyBlockerAfterTranscriptCheck(busyBlocker, await readTranscriptCompletion(page.page, state.url)) : undefined);
   return {
     reachable: true,
     loggedInLikely,
@@ -2437,7 +2540,7 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
   // timeout: consults continue threads by default, so landing on a thread
   // whose previous (often timed-out Pro) answer is still streaming is a when,
   // not an if - queueing behind it beats failing.
-  let busyBlocker = chatGptBusyBlocker(status.generating);
+  let busyBlocker = busyBlockerAfterTranscriptCheck(chatGptBusyBlocker(status), await readTranscriptCompletion(page, status.url));
   const busyWaitBudgetMs = options.busyWaitMs ?? timeoutMs;
   if (busyBlocker && busyWaitBudgetMs > 0) {
     // Queue behind the in-flight response instead of failing: shared-tab
@@ -2450,16 +2553,33 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
       status = await evaluateOnPage<ChatGptPageStatus>(page, statusExpression());
       const midBlocker = detectChatGptPageBlocker(status);
       if (midBlocker) throw new ChatGptBrowserBlockerError(midBlocker);
-      busyBlocker = chatGptBusyBlocker(status.generating);
+      busyBlocker = busyBlockerAfterTranscriptCheck(chatGptBusyBlocker(status), await readTranscriptCompletion(page, status.url));
       if (busyBlocker) emitProgress("waiting", "tab busy with another response; waiting");
     }
     if (!busyBlocker) {
       // The composer takes a moment to unlock after generation ends; settle
-      // again so the readiness assert below sees the reopened composer.
+      // again so the readiness assert below sees the reopened composer, and
+      // weigh that fresh reading the same way - a generation that started in
+      // the meantime must still hold the send back.
       status = await readSettledChatGptPageStatus(page);
+      busyBlocker = busyBlockerAfterTranscriptCheck(chatGptBusyBlocker(status), await readTranscriptCompletion(page, status.url));
     }
   }
-  assertChatGptIdleAndReadyForPrompt(status);
+  // A thread ChatGPT has parked on "which response do you prefer?" will not
+  // unpark on its own. Sends that navigate away - a fresh chat, a project home
+  // - never touch it; a send that means to continue THAT thread has to say so
+  // now, rather than type into a composer that will not post.
+  if (
+    responseChoiceBlocksThisSend({
+      awaitingResponseChoice: status.awaitingResponseChoice === true,
+      ...(options.newChat !== undefined ? { newChat: options.newChat } : {}),
+      ...(options.project !== undefined ? { project: options.project } : {}),
+      ...(options.projectNew !== undefined ? { projectNew: options.projectNew } : {})
+    })
+  ) {
+    throw new ChatGptBrowserBlockerError(chatGptResponseChoiceBlocker(true)!);
+  }
+  assertChatGptIdleAndReadyForPrompt(status, busyBlocker, true);
   if (normalizedTargetUrl) assertChatGptTargetUrlMatches(status.url, normalizedTargetUrl);
   assertVisibleChatGptTab(status.visibilityState, status.url, normalizedTargetUrl);
   emitProgress("tab_ready");
@@ -3586,6 +3706,7 @@ export function statusExpression(): string {
   const excludedTextSelector = JSON.stringify(CHATGPT_RUNTIME_BLOCKER_TEXT_EXCLUDED_ANCESTORS);
   const blockerScanExcludedSelector = JSON.stringify(CHATGPT_BLOCKER_SCAN_EXCLUDED_ANCESTORS);
   const streamingSelector = JSON.stringify(CHATGPT_STREAMING_SELECTOR);
+  const responseChoiceSelector = JSON.stringify(CHATGPT_RESPONSE_CHOICE_SELECTOR);
   const generatingControlPattern = JSON.stringify(CHATGPT_GENERATING_CONTROL_PATTERN.source);
   const generatingControlFlags = JSON.stringify(CHATGPT_GENERATING_CONTROL_PATTERN.flags);
   return `(() => {
@@ -3639,6 +3760,7 @@ export function statusExpression(): string {
       visibleButtonLabels,
       hasComposer,
       generating: placeholder || Boolean(document.querySelector(${streamingSelector})) || visibleButtonLabels.some((label) => generatingControlPattern.test(label)),
+      awaitingResponseChoice: Boolean(document.querySelector(${responseChoiceSelector})),
       modelHints: lines.filter((line) => /GPT|Pro|Thinking|ChatGPT|Extra High|Auto/i.test(line)).slice(0, 30),
       openDialogText: (([...document.querySelectorAll('[role="dialog"]')].find((d) => d.offsetWidth || d.offsetHeight || d.getClientRects().length)?.innerText) || "").trim().slice(0, 200)
     };
@@ -4568,6 +4690,7 @@ export function answerExpression(): string {
   const excludedTextSelector = JSON.stringify(CHATGPT_RUNTIME_BLOCKER_TEXT_EXCLUDED_ANCESTORS);
   const blockerScanExcludedSelector = JSON.stringify(CHATGPT_BLOCKER_SCAN_EXCLUDED_ANCESTORS);
   const streamingSelector = JSON.stringify(CHATGPT_STREAMING_SELECTOR);
+  const responseChoiceSelector = JSON.stringify(CHATGPT_RESPONSE_CHOICE_SELECTOR);
   const generatingControlPattern = JSON.stringify(CHATGPT_GENERATING_CONTROL_PATTERN.source);
   const generatingControlFlags = JSON.stringify(CHATGPT_GENERATING_CONTROL_PATTERN.flags);
   return `(() => {
@@ -4632,6 +4755,7 @@ export function answerExpression(): string {
       blockerScanTextSample: visibleTextOutsideMessages(blockerScanExcludedSelector).slice(0, 12000),
       visibleButtonLabels: buttons,
       generating: placeholder || Boolean(document.querySelector(${streamingSelector})) || buttons.some((label) => generatingControlPattern.test(label)),
+      awaitingResponseChoice: Boolean(document.querySelector(${responseChoiceSelector})),
       assistantMessageCount: assistantMessages.length,
       userMessageCount: userMessages.length,
       // ChatGPT tags each assistant message with the model that produced it -
