@@ -654,6 +654,9 @@ describe("ChatGPT browser adapter", () => {
       "bsgong            26079 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome --remote-debugging-address=127.0.0.1 --remote-debugging-port=9333 --user-data-dir=/Users/me/.local/share/prodex/chrome-chatgpt-pro",
       "bsgong            37509 /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Helpers/Google Chrome Helper (Renderer) --user-data-dir=/Users/me/.local/share/prodex/chrome-chatgpt-pro",
       "bsgong            40001 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+      // A second profile whose name merely STARTS with ours. Its helpers are
+      // another browser's, and this list is what gets SIGKILL.
+      "bsgong            37777 /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Helpers/Google Chrome Helper (Renderer) --user-data-dir=/Users/me/.local/share/prodex/chrome-chatgpt-pro-alt",
       "bsgong            40002 /usr/bin/grep --remote-debugging-port=9333",
       // Anything can MENTION the flag - a shell, an editor, the tool running
       // this scan. Caught live: the probe matched its own node process, and
@@ -686,6 +689,24 @@ describe("ChatGPT browser adapter", () => {
     // the browser on 9333 and refuse to launch.
     expect(findLaunchedBrowserProcesses(psOutput, { port: 9, profileDir: "/Users/me/.local/share/prodex/chrome-chatgpt-pro" })).toEqual([]);
     expect(findLaunchedBrowserProcesses("", { port: 9333, profileDir: "/Users/me/.local/share/prodex/chrome-chatgpt-pro" })).toEqual([]);
+  });
+
+  it("takes the profile from the browser it found, not from what the caller guessed", () => {
+    // The caller usually cannot know which profile the wedged browser is on -
+    // `check` has only a port. Matching helpers against the DEFAULT profile
+    // then missed this browser's own renderers and collected a stranger's,
+    // and this list is what gets SIGKILL. The main process states its profile;
+    // that is the answer, so stop guessing.
+    const psOutput = [
+      "USER               PID COMMAND",
+      "bsgong            26079 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome --remote-debugging-port=9333 --user-data-dir=/Users/me/custom-profile",
+      "bsgong            37509 /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Helpers/Google Chrome Helper (Renderer) --user-data-dir=/Users/me/custom-profile",
+      "bsgong            50001 /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Helpers/Google Chrome Helper (Renderer) --user-data-dir=/Users/me/.local/share/prodex/chrome-chatgpt-pro"
+    ].join("\n");
+
+    expect(findLaunchedBrowserProcesses(psOutput, { port: 9333, profileDir: "/Users/me/.local/share/prodex/chrome-chatgpt-pro" })).toEqual([
+      26079, 37509
+    ]);
   });
 
   it("wakes a frozen browser before ending it, and escalates if it will not go", async () => {

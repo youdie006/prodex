@@ -1661,7 +1661,16 @@ export async function attemptBrowserAutoRecovery(stderr: (line: string) => void,
   // a second Chrome on the same profile joins the wedged one rather than
   // replacing it, and the wedged one keeps burning CPU while nobody looks. This
   // runs unattended for agents, so it is the path that let four days pass.
-  const wedged = findWedgedBrowser({ ...(options.port !== undefined ? { port: options.port } : {}) });
+  // The same record the relaunch below reads, read once and used for both: the
+  // scan matches the main process by port but its helpers by profile, so
+  // scanning the DEFAULT profile for a custom-profile user put a second,
+  // healthy browser's renderers on the list this function kills.
+  const lastLogin = await readLastBrowserLoginLaunch().catch(() => undefined);
+  const scanFor = {
+    ...(options.port !== undefined ? { port: options.port } : {}),
+    ...(lastLogin?.profile_dir ? { profileDir: lastLogin.profile_dir } : {})
+  };
+  const wedged = findWedgedBrowser(scanFor);
   if (wedged.length > 0) {
     // Confirm the silence before ending anything: one missed poll is a busy
     // browser, several in a row is a dead one.
@@ -1684,7 +1693,7 @@ export async function attemptBrowserAutoRecovery(stderr: (line: string) => void,
     // delay: the replacement launch fails outright if the old process still
     // holds it, which is how the first self-heal attempt ended.
     for (let attempt = 0; attempt < 10; attempt += 1) {
-      if (findWedgedBrowser({ ...(options.port !== undefined ? { port: options.port } : {}) }).length === 0) break;
+      if (findWedgedBrowser(scanFor).length === 0) break;
       await sleep(1_000);
     }
   }
@@ -1693,7 +1702,6 @@ export async function attemptBrowserAutoRecovery(stderr: (line: string) => void,
     // Reuse the profile the user last logged in with; launching the default
     // profile for a custom-profile user would wait on the wrong (logged-out)
     // profile or, worse, silently send to a different account.
-    const lastLogin = await readLastBrowserLoginLaunch();
     // Relaunch in the SAME window mode the user chose: silently reopening a
     // visible window for someone running headless would be exactly the
     // surprise window they turned headless to avoid.

@@ -3038,8 +3038,15 @@ export function findLaunchedBrowserProcesses(psOutput: string, input: { port: nu
   // listening on another port belongs to someone else, and treating it as ours
   // made a check against an unused port report a healthy Chrome as wedged.
   if (mains.length === 0) return [];
-  const helpers =
-    input.profileDir.length > 0 ? lines.filter((line) => line.includes(input.profileDir) && !mains.includes(line)) : [];
+  // Which profile the helpers belong to is the browser's answer, not the
+  // caller's: `check` has only a port, and matching against the profile it
+  // assumed both missed this browser's renderers and collected a stranger's.
+  // Read it off the process that answered to the port; fall back to what the
+  // caller passed only when the command line does not say.
+  // Stop at the next flag, so a profile path containing spaces survives.
+  const profileOf = (line: string): string | undefined => /--user-data-dir=(.*?)(?=\s+-{1,2}\w|\s*$)/.exec(line)?.[1];
+  const profileDir = profileOf(mains[0]) ?? input.profileDir;
+  const helpers = profileDir.length > 0 ? lines.filter((line) => profileOf(line) === profileDir && !mains.includes(line)) : [];
   return [...mains, ...helpers].map(pidOf).filter((pid): pid is number => pid !== undefined);
 }
 
