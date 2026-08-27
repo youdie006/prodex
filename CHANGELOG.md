@@ -2,7 +2,15 @@
 
 All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).## 0.36.0
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).## 0.36.1
+
+### Fixed
+- `pro browser models` said the model picker could not be used, while selection through it was working. ChatGPT stopped listing models there: the picker now has an "Advanced" row, a "Model" row reading GPT-5.6 Sol and an "Effort" row reading Pro, with the last two opening a submenu - and Pro moved from being a model to being an effort. The listing read only each row's first line, so it printed the bare word "Model" and appended "not selectable via --model yet" to both. Measured against that same picker, `--model Pro`, `--effort 즉시` and `--pro-mode 확장` all selected and answered; selection walks into the submenu even though the listing could not. It now reads the value line and prints it after an arrow.
+
+### Added
+- An FAQ entry for the blocker that needs a person: ChatGPT sometimes parks a thread on "which response do you prefer?", and the two places that enumerate what a send stops on now name `response_choice_pending` alongside login, captcha and the rest.
+
+## 0.36.0
 
 ### Fixed
 - A shared tab could jam so that every send failed with "still generating" while nothing was generating. ChatGPT parks a thread on "which response do you prefer?" after some answers, and the composer keeps its stop control while it waits - measured unchanged over twenty seconds, and it never clears without a click. That state is now recognized by the testids on the panel (so it survives a UI in any language) and reported as what it is, with the button to press; a send that navigates away (a fresh chat, a project home) is not held back by it at all.
