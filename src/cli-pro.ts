@@ -13,6 +13,7 @@ import {
   defaultChatGptProfileDir,
   formatDurationMs,
   getChatGptBrowserStatus,
+  formatModelMenuOption,
   listChatGptModelOptions,
   deleteChatGptConversation,
   endWedgedBrowser,
@@ -552,11 +553,9 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
         }
         io.stdout("Model menu options in the visible ChatGPT tab (read-only; nothing was selected):");
         for (const option of listed.options) {
-          const marker = option.checked ? "*" : " ";
-          const suffix = option.kind === "submenu" ? "  (has sub-variants; not selectable via --model yet)" : "";
-          io.stdout(`${marker} ${option.label}${suffix}`);
+          io.stdout(formatModelMenuOption(option));
         }
-        io.stdout("Use radio entries with `pro browser ask --model/--effort` (e.g. --model Pro).");
+        io.stdout("An arrow shows what that row is set to now; --model / --effort reach into those submenus (e.g. --model Pro).");
         return 0;
       }
       if (browserSubcommand === "projects") {

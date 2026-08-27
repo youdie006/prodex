@@ -2995,6 +2995,27 @@ export interface ChatGptModelOption {
   label: string;
   kind: "radio" | "submenu";
   checked: boolean;
+  /**
+   * What a submenu row currently shows. The picker stopped listing models: it
+   * has a "Model" row reading GPT-5.6 Sol and an "Effort" row reading Pro, each
+   * one line of label above one line of value.
+   */
+  value?: string;
+}
+
+/**
+ * One line of `pro browser models`.
+ *
+ * The listing used to append "not selectable via --model yet" to every submenu
+ * row, which is now every row that matters - and it is not true: measured
+ * against this same picker, --model Pro, --effort 즉시 and --pro-mode 확장 all
+ * selected, because selection walks into the submenu. Saying what the row is
+ * set to is the useful half; the false warning was the harmful half.
+ */
+export function formatModelMenuOption(option: ChatGptModelOption): string {
+  const marker = option.checked ? "*" : " ";
+  const value = option.kind === "submenu" && option.value ? `  ->  ${option.value}` : "";
+  return `${marker} ${option.label}${value}`;
 }
 
 export interface ListChatGptModelOptionsResult {
@@ -3007,11 +3028,21 @@ export function modelMenuOptionsExpression(): string {
     const m = document.querySelector('[data-testid="composer-intelligence-picker-content"]');
     if (!m) return [];
     return [...m.querySelectorAll('[role="menuitemradio"],[role="menuitem"]')]
-      .map((it) => ({
-        label: (((it.innerText || it.textContent || "").trim().split(String.fromCharCode(10))[0]) || "").trim(),
-        kind: it.getAttribute("aria-haspopup") === "menu" ? "submenu" : "radio",
-        checked: it.getAttribute("aria-checked") === "true"
-      }))
+      .map((it) => {
+        // A submenu row renders as label over value ("Model" / "GPT-5.6 Sol"),
+        // and the value is the part a person actually wants to read.
+        const lines = (it.innerText || it.textContent || "")
+          .split(String.fromCharCode(10))
+          .map((line) => line.trim())
+          .filter((line) => line.length > 0);
+        const value = lines[1] || "";
+        return {
+          label: lines[0] || "",
+          kind: it.getAttribute("aria-haspopup") === "menu" ? "submenu" : "radio",
+          checked: it.getAttribute("aria-checked") === "true",
+          ...(value ? { value } : {})
+        };
+      })
       .filter((o) => o.label.length > 0);
   })()`;
 }

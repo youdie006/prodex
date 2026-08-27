@@ -2219,7 +2219,8 @@ describe("pro browser ask model/project selection", () => {
       options: [
         { label: "높음", kind: "radio", checked: false },
         { label: "Pro", kind: "radio", checked: true },
-        { label: "GPT-5.5", kind: "submenu", checked: false }
+        { label: "Model", kind: "submenu", checked: false, value: "GPT-5.6 Sol" },
+        { label: "Effort", kind: "submenu", checked: false }
       ]
     });
     const out: string[] = [];
@@ -2230,7 +2231,12 @@ describe("pro browser ask model/project selection", () => {
     expect(listChatGptModelOptionsMock).toHaveBeenCalledWith({ port: undefined, timeoutMs: undefined });
     expect(text).toContain("* Pro");
     expect(text).toContain("  높음");
-    expect(text).toContain("GPT-5.5  (has sub-variants; not selectable via --model yet)");
+    // The picker stopped listing models: the row says "Model" and the value it
+    // is set to is the second line. Calling that row unselectable was also
+    // wrong - measured against the same UI, --model Pro selects through it.
+    expect(text).toContain("  Model  ->  GPT-5.6 Sol");
+    expect(text).toContain("  Effort");
+    expect(text).not.toMatch(/not selectable/i);
     expect(sendChatGptPromptMock).not.toHaveBeenCalled();
   });
 
