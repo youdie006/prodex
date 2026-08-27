@@ -2,7 +2,12 @@
 
 All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).## 0.36.2
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).## 0.36.3
+
+### Fixed
+- A saved answer could lose a sentence to a citation marker. Caught by diffing a receipt against the thread it came from: a web-search reply ended at a dangling "Source:", because the line had been `Source: <E200>url<E202>Timeanddate.com — World Clock<E202>turn0search0<E201>` - a marker whose reference carried type `url` and an empty `items` array. Replacements were built only out of `items`, so an empty list became an empty string and took the visible title with it, silently. A marker with nothing to link to now leaves the words it was wrapping. Segments are sorted by shape rather than position, so a `cite` marker carrying several reference ids still resolves to nothing (there is no prose in it) while a title survives - including a title from a marker kind not seen yet.
+
+## 0.36.2
 
 ### Fixed
 - A requested Pro sub-mode was dropped without a word. The current picker is one five-step power slider (measured `{ok:true, position:4, max:4, model:"GPT-5.6 Sol", effort:"Pro"}`) where Pro is the top EFFORT rather than a model, and selection takes that branch and returns before the sub-mode code runs. A `--model Pro --pro-mode 확장` send finished clean, recorded `gpt-5-6-pro` and an empty warnings list, having never applied 확장 - while the older picker still live on another machine refuses the same request out loud. It now warns, in the receipt as well as on stderr, naming the slider step the send actually used.
