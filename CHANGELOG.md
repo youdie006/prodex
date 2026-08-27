@@ -2,7 +2,13 @@
 
 All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).## 0.36.1
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).## 0.36.2
+
+### Fixed
+- A requested Pro sub-mode was dropped without a word. The current picker is one five-step power slider (measured `{ok:true, position:4, max:4, model:"GPT-5.6 Sol", effort:"Pro"}`) where Pro is the top EFFORT rather than a model, and selection takes that branch and returns before the sub-mode code runs. A `--model Pro --pro-mode 확장` send finished clean, recorded `gpt-5-6-pro` and an empty warnings list, having never applied 확장 - while the older picker still live on another machine refuses the same request out loud. It now warns, in the receipt as well as on stderr, naming the slider step the send actually used.
+- `--model` and `--effort` together silently discarded the model. One slider carries both, so naming each asks for two positions of it, and the send took the effort: measured, `--model Pro --effort 중간` answered from `gpt-5-6-thinking` with no warning at all. Asking for Pro and quietly getting a cheaper model now produces a `model_ignored` warning that says which one was used.
+
+## 0.36.1
 
 ### Fixed
 - `pro browser models` said the model picker could not be used, while selection through it was working. ChatGPT stopped listing models there: the picker now has an "Advanced" row, a "Model" row reading GPT-5.6 Sol and an "Effort" row reading Pro, with the last two opening a submenu - and Pro moved from being a model to being an effort. The listing read only each row's first line, so it printed the bare word "Model" and appended "not selectable via --model yet" to both. Measured against that same picker, `--model Pro`, `--effort 즉시` and `--pro-mode 확장` all selected and answered; selection walks into the submenu even though the listing could not. It now reads the value line and prints it after an arrow.
