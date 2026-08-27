@@ -4581,8 +4581,18 @@ const CITATION_MARKER_PATTERN = /\uE200[^\uE200-\uE206]*(?:[\uE202\uE204-\uE206]
  * dangling "Source:" because the title had been deleted along with the marker.
  */
 export function citationMarkerText(marker: string): string {
+  // The first segment is the kind and the rest are a mix of reference tokens and,
+  // for some kinds, prose. Sorting them by SHAPE rather than by kind keeps a
+  // title from a kind not seen yet: `cite` can carry several ids
+  // (`cite<E202>turn0search19<E202>turn0search5`), and dropping every
+  // id-shaped segment leaves nothing there, which is right.
+  const referenceToken = /^turn\d+[a-z]+\d+$/i;
   const segments = marker.replace(/^[\uE200-\uE206]|[\uE200-\uE206]$/g, "").split(/[\uE200-\uE206]/);
-  return segments.length > 2 ? segments.slice(1, -1).join(" ").trim() : "";
+  return segments
+    .slice(1)
+    .filter((segment) => segment.length > 0 && !referenceToken.test(segment))
+    .join(" ")
+    .trim();
 }
 
 /**
