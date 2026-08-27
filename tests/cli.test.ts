@@ -3361,16 +3361,23 @@ describe("runCli", () => {
     const destination = await mkdtemp(path.join(tmpdir(), "prodex-cli-release-pack-dest-"));
     const out: string[] = [];
 
+    // Keep stderr: this command shells out to real `npm pack` subprocesses, and
+    // discarding their output meant a failure here read as "expected 0 to be 1"
+    // with the reason thrown away. Seen once in a full-suite run and never
+    // reproduced across seven clean runs or a sixteen-way concurrent pack storm,
+    // so the next occurrence has to explain itself.
+    const errors: string[] = [];
     const code = await runCli(["release", "pack", "--cwd", cwd, "--pack-destination", destination], {
       cwd: "/tmp",
       stdout: (line) => out.push(line),
-      stderr: () => {}
+      stderr: (line) => errors.push(line)
     });
 
     const text = out.join("\n");
     const tarballs = (await readdir(destination)).filter((entry) => entry.endsWith(".tgz"));
-    expect(code).toBe(0);
-    expect(tarballs).toHaveLength(1);
+    const why = () => `stderr:\n${errors.join("\n") || "(none)"}\nstdout:\n${text || "(none)"}`;
+    expect(code, why()).toBe(0);
+    expect(tarballs, why()).toHaveLength(1);
     expect(text).toContain("release_pack=ok");
     expect(text).toContain(`tarball=${path.join(destination, tarballs[0])}`);
     expect(text).toContain("release_pack_verify: npm publish --dry-run");
@@ -3387,14 +3394,18 @@ describe("runCli", () => {
     await writeFile(sourceCli, "#!/usr/bin/env node\n", "utf8");
     const out: string[] = [];
 
+    const errors: string[] = [];
     await runCli(["release", "pack", "--cwd", cwd, "--pack-destination", destination, "--source-cli", sourceCli], {
       cwd: "/tmp",
       stdout: (line) => out.push(line),
-      stderr: () => {}
+      stderr: (line) => errors.push(line)
     });
 
     const text = out.join("\n");
-    expect(text).toContain(`release_pack_next: run \`npm run release:verify\` and \`node ${sourceCli} release status --source-cli ${sourceCli} --cwd ${cwd}\``);
+    // Same reason as the sibling test: a real npm subprocess failure must not
+    // arrive as a bare string mismatch.
+    const why = `stderr:\n${errors.join("\n") || "(none)"}\nstdout:\n${text || "(none)"}`;
+    expect(text, why).toContain(`release_pack_next: run \`npm run release:verify\` and \`node ${sourceCli} release status --source-cli ${sourceCli} --cwd ${cwd}\``);
     expect(text).toContain(
       `release_pack_publish_blocked: fix git readiness before npm publish; run \`node ${sourceCli} release status --source-cli ${sourceCli} --cwd ${cwd}\``
     );
