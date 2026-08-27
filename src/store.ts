@@ -145,6 +145,11 @@ export async function assertUsableBridgeRoot(root: string): Promise<void> {
   );
 }
 
+// How many record files to read at once. High enough to hide per-file latency
+// on a slow mount, low enough that a big store cannot run the process out of
+// file descriptors.
+const READ_ALL_CONCURRENCY = 32;
+
 export class BridgeStore {
   readonly root: string;
   readonly bridgeDir: string;
@@ -1031,13 +1036,36 @@ export class BridgeStore {
   ): Promise<T[]> {
     const dir = this.dir(kind);
     const entries = await readdir(dir, { withFileTypes: true });
-    const items: T[] = [];
-    for (const entry of entries) {
-      if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
-      const id = entry.name.replace(/\.json$/, "");
-      if (!isBridgeRecordId(kind, id)) continue;
-      items.push(this.parseRecord(kind, id, await this.readRecordJson(kind, id, options), parseRecord));
-    }
+    const ids = entries
+      .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
+      .map((entry) => entry.name.replace(/\.json$/, ""))
+      .filter((id) => isBridgeRecordId(kind, id));
+    // Read them together. The records are independent, but this loop used to
+    // await each one, so the cost was the file count times the filesystem's
+    // latency: measured on a Windows mount at ~24ms a file, 505 receipts took
+    // 12s, and `pro latest` paid it on every call because verifying ONE result
+    // reads every receipt. Bounded so a large store cannot exhaust the fd table.
+    const items: T[] = new Array(ids.length);
+    // The sequential loop threw on the FIRST bad record and never reached the
+    // rest, so that is the error callers were told about. Keep reporting the
+    // earliest one rather than whichever read happens to lose the race.
+    let failure: { index: number; error: unknown } | undefined;
+    let next = 0;
+    const readOne = async (): Promise<void> => {
+      for (;;) {
+        const index = next;
+        next += 1;
+        if (index >= ids.length) return;
+        const id = ids[index]!;
+        try {
+          items[index] = this.parseRecord(kind, id, await this.readRecordJson(kind, id, options), parseRecord);
+        } catch (error) {
+          if (!failure || index < failure.index) failure = { index, error };
+        }
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(READ_ALL_CONCURRENCY, ids.length) }, readOne));
+    if (failure) throw failure.error;
     return items;
   }
 
