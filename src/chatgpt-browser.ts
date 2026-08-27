@@ -4571,6 +4571,21 @@ const CITATION_DELIMITER_PATTERN = /[\uE200-\uE206]/;
 const CITATION_MARKER_PATTERN = /\uE200[^\uE200-\uE206]*(?:[\uE202\uE204-\uE206][^\uE200-\uE206]*)*[\uE201\uE203]/g;
 
 /**
+ * The words a citation marker was wrapping, if any.
+ *
+ * The markers come in two shapes. `<E200>cite<E202>turn0search0<E201>` is a
+ * bare anchor - kind then reference id, nothing a reader would miss. But
+ * `<E200>url<E202>Timeanddate.com — World Clock<E202>turn0search0<E201>` puts a
+ * visible title in the middle, and that title is part of the sentence. Caught by
+ * diffing a saved answer against its thread: a web-search reply ended at a
+ * dangling "Source:" because the title had been deleted along with the marker.
+ */
+export function citationMarkerText(marker: string): string {
+  const segments = marker.replace(/^[\uE200-\uE206]|[\uE200-\uE206]$/g, "").split(/[\uE200-\uE206]/);
+  return segments.length > 2 ? segments.slice(1, -1).join(" ").trim() : "";
+}
+
+/**
  * Turn those markers into ordinary markdown links, so a saved answer keeps the
  * sources instead of the private-use noise (or, as in the rendered DOM, nothing
  * at all). Markers with no matching reference are dropped.
@@ -4599,11 +4614,13 @@ export function resolveTranscriptCitations(text: string, references: TranscriptC
   };
   let resolved = text;
   for (const [marker, reference] of byMarker) {
-    resolved = resolved.split(marker).join(linksFor(reference));
+    // No items to link is not permission to delete the sentence: fall back to
+    // whatever the marker was wrapping.
+    resolved = resolved.split(marker).join(linksFor(reference) || citationMarkerText(marker));
   }
-  // Anything still delimited had no reference to restore: strip it so private-use
-  // characters never reach a receipt.
-  return resolved.replace(CITATION_MARKER_PATTERN, "");
+  // Anything still delimited had no reference to restore. The delimiters must not
+  // reach a receipt, but the words between them still belong to the answer.
+  return resolved.replace(CITATION_MARKER_PATTERN, (marker) => citationMarkerText(marker));
 }
 
 export interface DeepResearchReportState {
