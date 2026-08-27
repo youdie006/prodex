@@ -916,6 +916,49 @@ export function responseChoiceBlocksThisSend(input: {
   return !input.newChat && input.project === undefined && input.projectNew === undefined;
 }
 
+/**
+ * Why a requested Pro sub-mode did not make it onto a power-slider picker.
+ *
+ * The current picker is one five-step slider whose top step IS Pro, and it has
+ * no 기본/확장 anywhere - measured: `{ok:true, position:4, max:4, model:"GPT-5.6
+ * Sol", effort:"Pro"}`. The send takes that branch and returns, reading
+ * `effort ?? model`, so a sub-mode request was dropped on the way past. A run
+ * with `--model Pro --pro-mode 확장` finished clean and recorded no warning at
+ * all, having never applied 확장. The older picker refuses the same request
+ * out loud; silence on one machine and an error on another, for one command,
+ * is the half worth fixing. The send is still a correct Pro send, so this is a
+ * warning and not a refusal.
+ */
+export function proModeNotAppliedWarning(proMode: string | undefined, sliderEffort: string | undefined): string | undefined {
+  if (!proMode) return undefined;
+  const step = sliderEffort ? `the slider's "${sliderEffort}" step` : "the slider's current step";
+  return (
+    `pro_mode_not_applied: this ChatGPT picker is a power slider with no "Pro ${proMode}" step, ` +
+    `so --pro-mode ${proMode} was not applied and the send used ${step}. ` +
+    "Drop --pro-mode here, or clear a saved default with `prodex setup --clear-pro-mode`."
+  );
+}
+
+/**
+ * Which of two flags the slider actually obeyed.
+ *
+ * On this picker one control carries both: "Pro" is the top EFFORT step, not a
+ * model. Naming a model AND an effort therefore asks for two positions of the
+ * same slider, and the send takes `effort ?? model` - so the model is dropped.
+ * Measured: `--model Pro --effort 중간` answered from gpt-5-6-thinking with an
+ * empty warnings list. Asking for Pro and quietly getting a cheaper model is
+ * the kind of thing a receipt exists to catch.
+ */
+export function modelIgnoredForEffortWarning(model: string | undefined, effort: string | undefined): string | undefined {
+  if (!model || !effort) return undefined;
+  if (model.trim().toLowerCase() === effort.trim().toLowerCase()) return undefined;
+  return (
+    `model_ignored: this ChatGPT picker sets the model and the effort with one slider, ` +
+    `so --model ${model} and --effort ${effort} name two positions of it. The send used ${effort}. ` +
+    `Pass only one of them to say which you meant.`
+  );
+}
+
 export function chatGptBusyBlocker(state: {
   generating: boolean;
   awaitingResponseChoice?: boolean;
@@ -2014,6 +2057,12 @@ async function selectModelReasoning(
       if (wanted) {
         await selectPowerStep(cdp, wanted);
       }
+      // This branch cannot honour a sub-mode, and used to return without
+      // saying so - the caller got a clean receipt for a 확장 it never got.
+      const proModeWarning = proModeNotAppliedWarning(options.proMode, sliderState.effort ?? undefined);
+      if (proModeWarning) selectionWarnings.push(proModeWarning);
+      const modelWarning = modelIgnoredForEffortWarning(options.model, options.effort);
+      if (modelWarning) selectionWarnings.push(modelWarning);
       await dispatchEscapeKey(cdp);
       return;
     }
