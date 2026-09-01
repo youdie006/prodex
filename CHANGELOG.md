@@ -2,7 +2,13 @@
 
 All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).## 0.36.3
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).## 0.36.4
+
+### Fixed
+- `pro latest` - the command every send prints as its follow-up - took 17s in a repo with real history, and grew with it. Store records were read one file at a time (`await` per file inside a loop), so the cost was the file count times the filesystem's latency: 505 receipts took 12.0s, 146 tasks 4.8s, and verifying a single result reads every receipt. The records are independent, so they are now read 32 at a time: the same work takes 2.1s and 0.4s, and the whole latest-consult path went from ~15s to 1.5-2.0s. What a caller is told is unchanged - the sequential loop reported the earliest corrupt record, and so does this.
+- `npm run release:verify` failed on a clean tree for anyone whose umask is 002. The packaging gate asserted an exact 644/755 on installed files, which encodes the INSTALLING user's umask rather than anything about the package, so a developer saw "installed release-pack tarball LICENSE expected mode 644, got 664" while CI at umask 022 passed. It now checks the execute bit, which is the contract the rest of the repo already states.
+
+## 0.36.3
 
 ### Fixed
 - A saved answer could lose a sentence to a citation marker. Caught by diffing a receipt against the thread it came from: a web-search reply ended at a dangling "Source:", because the line had been `Source: <E200>url<E202>Timeanddate.com — World Clock<E202>turn0search0<E201>` - a marker whose reference carried type `url` and an empty `items` array. Replacements were built only out of `items`, so an empty list became an empty string and took the visible title with it, silently. A marker with nothing to link to now leaves the words it was wrapping. Segments are sorted by shape rather than position, so a `cite` marker carrying several reference ids still resolves to nothing (there is no prose in it) while a title survives - including a title from a marker kind not seen yet.

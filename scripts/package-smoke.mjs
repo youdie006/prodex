@@ -1519,8 +1519,11 @@ async function assertInstalledReleasePackTarballModes(tarballPath, packedFiles, 
   const binPaths = packageBinPaths(installedPackageJson);
   for (const file of packedFiles) {
     const packagePath = normalizePackagePath(file.path);
-    const expectedMode = binPaths.has(packagePath) ? 0o755 : 0o644;
-    await assertFileMode(path.join(installedRoot, ...packagePath.split("/")), expectedMode, `${label} ${packagePath}`);
+    await assertExecutableBit(
+      path.join(installedRoot, ...packagePath.split("/")),
+      binPaths.has(packagePath),
+      `${label} ${packagePath}`
+    );
   }
 }
 
@@ -1556,10 +1559,20 @@ async function assertNpmPublishDryRun(tarballPath, cwd, label, version = rootPac
   assertIncludes(output, "(dry-run)", `${label} npm publish dry-run output`);
 }
 
-async function assertFileMode(filePath, expectedMode, label) {
-  const actualMode = (await stat(filePath)).mode & 0o777;
-  if (actualMode !== expectedMode) {
-    throw new Error(`${label} expected mode ${expectedMode.toString(8)}, got ${actualMode.toString(8)}`);
+// The contract is the execute bit, not an exact mode - the same one
+// tests/release-pack.test.ts and scripts/release-check.mjs already state. An
+// exact 644/755 also encodes the INSTALLING user's umask: npm applies it when
+// unpacking, so a developer at umask 002 gets 664 and this gate failed on a
+// clean tree ("installed release-pack tarball LICENSE expected mode 644, got
+// 664") while CI at umask 022 passed. That is the developer's umask failing the
+// build, not the package.
+async function assertExecutableBit(filePath, shouldBeExecutable, label) {
+  const mode = (await stat(filePath)).mode & 0o777;
+  const executable = (mode & 0o111) !== 0;
+  if (executable !== shouldBeExecutable) {
+    throw new Error(
+      `${label} should ${shouldBeExecutable ? "be" : "not be"} executable, got mode ${mode.toString(8)}`
+    );
   }
 }
 

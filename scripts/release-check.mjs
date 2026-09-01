@@ -133,7 +133,23 @@ async function readRequiredPackageJson(packageJsonPath) {
   }
 }
 
+// Budgets sized from what each check actually does, not from one number for all
+// of them. Measured on a developer machine whose repo sits on a 9p mount:
+// smoke:package takes 244s because it packs, installs and drives the package
+// end to end, and the suite takes ~50s. A single 180s cap killed smoke:package
+// mid-run and reported "release verification failed" with only npm's banner as
+// evidence, because the process died before it printed anything - while running
+// the same command directly passed every check. CI runs this same path before
+// publishing, so the cap was a thin margin in the release path too.
 async function runFullReleaseVerification(rootDir) {
+  // Declared here, not at module scope: this file runs its entry point during
+  // module evaluation, so a top-level const is still in its temporal dead zone
+  // by the time this is called.
+  const CHECK_TIMEOUT_MS = {
+    default: 300_000,
+    "npm test": 900_000,
+    "npm run smoke:package": 1_800_000
+  };
   const checks = [
     ["npm", ["test"]],
     ["npm", ["run", "typecheck"]],
@@ -142,7 +158,8 @@ async function runFullReleaseVerification(rootDir) {
     ["node", ["dist/cli.js", "doctor"]]
   ];
   for (const [command, commandArgs] of checks) {
-    await run(commandForPlatform(command), commandArgs, rootDir);
+    const key = [command, ...commandArgs].join(" ");
+    await run(commandForPlatform(command), commandArgs, rootDir, CHECK_TIMEOUT_MS[key] ?? CHECK_TIMEOUT_MS.default);
   }
 }
 
@@ -328,13 +345,13 @@ function formatPathList(paths) {
   return paths.length > 8 ? `${shown}, ... (${paths.length} files)` : shown;
 }
 
-async function run(command, commandArgs, cwd) {
+async function run(command, commandArgs, cwd, timeoutMs = 300_000) {
   const commandLine = [command, ...commandArgs].join(" ");
   console.log(`release_check: ${commandLine}`);
   try {
     await execFileAsync(command, commandArgs, {
       cwd,
-      timeout: 180_000,
+      timeout: timeoutMs,
       maxBuffer: 20 * 1024 * 1024
     });
   } catch (error) {

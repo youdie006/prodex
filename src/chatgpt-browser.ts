@@ -939,24 +939,44 @@ export function proModeNotAppliedWarning(proMode: string | undefined, sliderEffo
   );
 }
 
+export interface PickerSelectionPlan {
+  /** Label to drive the power slider to, when an effort was asked for. */
+  sliderLabel?: string;
+  /** Model radio to click, when a model was asked for. */
+  modelLabel?: string;
+  warning?: string;
+}
+
 /**
- * Which of two flags the slider actually obeyed.
+ * Which control each request belongs to.
  *
- * On this picker one control carries both: "Pro" is the top EFFORT step, not a
- * model. Naming a model AND an effort therefore asks for two positions of the
- * same slider, and the send takes `effort ?? model` - so the model is dropped.
- * Measured: `--model Pro --effort 중간` answered from gpt-5-6-thinking with an
- * empty warnings list. Asking for Pro and quietly getting a cheaper model is
- * the kind of thing a receipt exists to catch.
+ * The picker holds two of them: a `role="slider"` for effort (Instant..Pro) and
+ * `menuitemradio` rows for the models. Selection used to send both through the
+ * slider (`effort ?? model`), so a model name walked the slider looking for a
+ * step it could never be - and the refusal quoted the slider's TEXT, which
+ * contains the model names, so the message read as "it is right there in the
+ * list". `--model Pro` only ever worked when the slider happened to sit on its
+ * top step; once it moved to Instant the same command failed.
+ *
+ * Pro stopped being a model and became that top step, but it is the pinned
+ * default in every repo configured before the change, so it is honoured where
+ * it now lives rather than failing every one of them - out loud.
  */
-export function modelIgnoredForEffortWarning(model: string | undefined, effort: string | undefined): string | undefined {
-  if (!model || !effort) return undefined;
-  if (model.trim().toLowerCase() === effort.trim().toLowerCase()) return undefined;
-  return (
-    `model_ignored: this ChatGPT picker sets the model and the effort with one slider, ` +
-    `so --model ${model} and --effort ${effort} name two positions of it. The send used ${effort}. ` +
-    `Pass only one of them to say which you meant.`
-  );
+export function pickerSelectionPlan(input: { model?: string; effort?: string }): PickerSelectionPlan {
+  const plan: PickerSelectionPlan = {};
+  const modelIsNowAnEffort = input.model !== undefined && /^\s*pro\s*$/i.test(input.model);
+  if (input.effort !== undefined) plan.sliderLabel = input.effort;
+  else if (modelIsNowAnEffort) plan.sliderLabel = input.model;
+  if (input.model !== undefined && !modelIsNowAnEffort) plan.modelLabel = input.model;
+  if (modelIsNowAnEffort) {
+    plan.warning =
+      `model_is_now_an_effort: ChatGPT's picker lists Pro as an effort step, not a model, so --model ${input.model} was ` +
+      (input.effort === undefined
+        ? "applied to the effort slider instead. Say --effort Pro to be explicit"
+        : `ignored in favour of --effort ${input.effort}`) +
+      ", or clear a saved default with `prodex setup --model \"\"`.";
+  }
+  return plan;
 }
 
 export function chatGptBusyBlocker(state: {
@@ -1948,6 +1968,18 @@ const POWER_SLIDER_APPEAR_ATTEMPTS = 5;
  * menu must already be open. Returns the quota line so the caller can warn
  * when Pro runs are nearly spent.
  */
+// Click a model row. They are ordinary `menuitemradio` entries in the same
+// menu as the effort slider, so the existing by-label lookup reaches them; what
+// was missing is anything routing a model here instead of into the slider.
+async function selectPickerModel(cdp: CdpConnection, requested: string): Promise<void> {
+  const hit = await cdp.evaluate<RectHit>(menuItemRectExpression(requested));
+  if (!hit.ok || hit.x === undefined || hit.y === undefined) {
+    const available = hit.available?.length ? ` The picker offers: ${hit.available.join(", ")}.` : "";
+    throw new Error(`ChatGPT's model picker has no "${requested}" model.${available}`);
+  }
+  await verifiedClickWithRetry(cdp, () => cdp.evaluate<RectHit>(menuItemRectExpression(requested)), requested);
+}
+
 async function selectPowerStep(cdp: CdpConnection, requested: string): Promise<{ effort?: string | null }> {
   // The menu paints a moment after it opens, and on a page that has just been
   // built - a project created seconds ago - that moment is longer. Failing the
@@ -2053,16 +2085,24 @@ async function selectModelReasoning(
     // it is not, so both UI generations work.
     const sliderState = await cdp.evaluate<PowerSliderState>(powerSliderStateExpression());
     if (sliderState?.ok) {
-      const wanted = options.effort ?? options.model;
-      if (wanted) {
-        await selectPowerStep(cdp, wanted);
+      // The slider is the EFFORT control and the models are radios beside it.
+      // Sending a model name into the slider made it walk every step looking
+      // for one it could never be.
+      const plan = pickerSelectionPlan({
+        ...(options.model !== undefined ? { model: options.model } : {}),
+        ...(options.effort !== undefined ? { effort: options.effort } : {})
+      });
+      if (plan.warning) selectionWarnings.push(plan.warning);
+      if (plan.sliderLabel) {
+        await selectPowerStep(cdp, plan.sliderLabel);
+      }
+      if (plan.modelLabel) {
+        await selectPickerModel(cdp, plan.modelLabel);
       }
       // This branch cannot honour a sub-mode, and used to return without
       // saying so - the caller got a clean receipt for a 확장 it never got.
       const proModeWarning = proModeNotAppliedWarning(options.proMode, sliderState.effort ?? undefined);
       if (proModeWarning) selectionWarnings.push(proModeWarning);
-      const modelWarning = modelIgnoredForEffortWarning(options.model, options.effort);
-      if (modelWarning) selectionWarnings.push(modelWarning);
       await dispatchEscapeKey(cdp);
       return;
     }
