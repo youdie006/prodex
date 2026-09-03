@@ -32,6 +32,7 @@ Ask / consult commands:
   prodex pro latest [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--json]
   prodex pro list [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--json]
   prodex pro show <task-id|latest> [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--json]
+  prodex pro report-issue [--cwd /absolute/path/to/repo] [--task <task-id>] [--repo owner/name] [--confirm]  # bug report from a failed consult's receipt; previews unless --confirm, never carries the prompt or the answer
 
 Bridge ledger (durable tasks/results/receipts/sessions under .bridge/):
   prodex init [--cwd /absolute/path/to/repo]
@@ -173,6 +174,7 @@ Commands:
   prodex pro latest [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--json]
   prodex pro list [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--json]
   prodex pro show <task-id|latest> [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--json]
+  prodex pro report-issue [--cwd /absolute/path/to/repo] [--task <task-id>] [--repo owner/name] [--confirm]  # bug report from a failed consult's receipt; previews unless --confirm, never carries the prompt or the answer
 
 Use \`prodex pro ask\` for dry-run/manual previews.
 Use \`prodex pro browser ask\` only when you want an explicit visible-browser send.

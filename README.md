@@ -424,6 +424,47 @@ During local development, you can run the TypeScript source directly:
 npm run dev -- tasks list
 ```
 
+## When a send breaks
+
+prodex drives a web UI that changes underneath it, so the interesting question is what you have when that happens.
+
+**Report it from the receipt, not from memory.** A blocked consult already records the blocker, the version and the platform, so `prodex pro report-issue` builds the report out of that:
+
+```bash
+prodex pro report-issue              # prints it, files nothing
+prodex pro report-issue --confirm    # opens it as a GitHub issue, through `gh`
+```
+
+The prompt, the answer and the summary never travel - a public issue is not where a private consult should leak - and filing is deduplicated by blocker code, so something that stays broken adds to one issue instead of opening a new one every time.
+
+**Capture what the page looked like.** With diagnostics on, a failing send leaves a screenshot and a snapshot of the picker and composer next to each other:
+
+```bash
+PRODEX_BROWSER_DIAGNOSTICS=1 prodex ask "..."
+# .bridge/diagnostics/<when>/{screen.png,page-shape.json}
+```
+
+The snapshot carries roles, testids, rects, `aria-value*` and `pointer-events`. Those last two are what identified a model row that no coordinate could click and a slider step prodex could not read. Captures stay on your machine and are never attached to a report; a screenshot of ChatGPT shows the conversation.
+
+**Notice before a person does.** `scripts/ui-watchdog.mjs` sends a token and checks the reply - a real round trip rather than a guess from the page's shape - and can file what it finds:
+
+```bash
+node scripts/ui-watchdog.mjs                 # says ok or broken
+node scripts/ui-watchdog.mjs --file-issue    # and reports it
+```
+
+It needs the logged-in browser, so it belongs on a machine that has one rather than in CI. A daily cron entry is enough.
+
+## Sending without leaving a trace
+
+`--temporary` sends into a ChatGPT Temporary Chat, which leaves your chat list untouched:
+
+```bash
+prodex ask --new-chat --temporary "..."
+```
+
+It costs something, and prodex says so on every such send: an unsaved chat is not in the transcript API, so the answer is read off the page, where tables and citation links can be lost - and neither `pro browser recover` nor `--target-url` can reach it afterwards. It requires `--new-chat`, because a throwaway chat cannot be continued.
+
 ## FAQ
 
 **A send failed with `send_ui_changed` / "the ChatGPT web UI may have changed".** prodex drives the visible ChatGPT web UI, so an OpenAI redesign of the composer or send control can break sends. When a send times out without the prompt ever posting (the composer still holds the text, or no send button was found), prodex reports this as a likely UI change instead of a misleading "slow model" timeout. Fix: update prodex (`npm i -g @youdie006/prodex@latest`); if it persists, open an issue at https://github.com/youdie006/prodex/issues, and paste the prompt manually in the visible browser in the meantime.

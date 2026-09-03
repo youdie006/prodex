@@ -618,7 +618,9 @@ repo: ${cwd}
 
 Safety notes:
 - This command only prints commands; it does not start servers, open browsers, or write files.
-- Visible-browser sends require a manual, visible browser session and stop on login, captcha, Cloudflare, permission, rate-limit, or usage-limit blockers, plus response_choice_pending when ChatGPT is waiting for you to pick which of two answers you prefer.`;
+- Visible-browser sends require a manual, visible browser session and stop on login, captcha, Cloudflare, permission, rate-limit, or usage-limit blockers, plus response_choice_pending when ChatGPT is waiting for you to pick which of two answers you prefer.
+- When a send is blocked, \`prodex pro report-issue\` turns that receipt into a bug report (prints it; --confirm files it). It carries the blocker, version and platform, never the prompt or the answer.
+- PRODEX_BROWSER_DIAGNOSTICS=1 makes a failing send leave a screenshot and a page snapshot under .bridge/diagnostics for whoever debugs it. They stay local.`;
 }
 
 async function hasOnboardingReadme(cwd: string): Promise<boolean> {
