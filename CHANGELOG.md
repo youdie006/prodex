@@ -2,7 +2,12 @@
 
 All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).## 0.37.1
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).## 0.38.0
+
+### Added
+- `pro browser models` lists every step of the effort slider, not just the one it happens to show. The slider reveals a single step at a time, and that lone label was the whole listing - which is how a machine on this account concluded "Pro does not exist here" from five listings that each read Instant / GPT-5.6 Sol / GPT-5.5 with the slider parked on Instant, and how prodex's own pinned-default check cried about a Pro the very next send used to answer. The listing now walks the control and puts it back, so the answer is definite. Live: `Instant / Medium / High / Extra High / Pro`. The model rows above it read "Pro" while the slider sits there and "Instant" when it does not, which is the mechanism that misled both readers. Walking someone's setting is only acceptable if it is returned, so the walk always ends where it started, and bounds that do not look like this control are refused rather than turned into thousands of keystrokes.
+
+## 0.37.1
 
 ### Fixed
 - `--effort` could not name Pro, the step it was meant to set. The picker's slider has five steps and prodex knew four names for them - measured at both ends of the live control, position 0 of 4 reads "Instant, 1 of 5" and position 4 reads "Pro, 5 of 5". The top was reachable only through `--model Pro`, which answered with a warning advising `--effort Pro`, and that command failed on the spot. Pro is now an effort value in the parser, its aliases, the menu labels, the saved-config schema and the usage lines, so `setup --clear-model --effort Pro` pins it with no warning on any send.
