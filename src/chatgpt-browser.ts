@@ -1990,11 +1990,38 @@ const POWER_SLIDER_APPEAR_ATTEMPTS = 5;
 // Click a model row. They are ordinary `menuitemradio` entries in the same
 // menu as the effort slider, so the existing by-label lookup reaches them; what
 // was missing is anything routing a model here instead of into the slider.
-async function selectPickerModel(cdp: CdpConnection, requested: string): Promise<void> {
+/**
+ * Whether a model selection failure is the picker not offering it at all.
+ *
+ * Those two cases - the row is absent, or it is inert - are the UI declining to
+ * provide the choice, and they must not kill a send that is otherwise fine. It
+ * is the same answer prodex already gives for a Pro sub-mode it cannot apply.
+ * Anything else (a menu that would not open, a click that would not land) is a
+ * real failure and stays one, so a genuine break is not buried under a warning.
+ */
+export function modelSelectionUnavailableWarning(
+  requested: string,
+  reason: string,
+  available?: readonly string[]
+): string | undefined {
+  if (!/menu item not found|not clickable/i.test(reason)) return undefined;
+  const offers = available?.length ? ` It offers: ${available.join(", ")}.` : "";
+  return (
+    `model_not_applied: this ChatGPT picker does not offer "${requested}" as a selectable model, ` +
+    `so the send used whatever the composer already had.${offers} ` +
+    'Pick an effort with --effort instead, or clear a saved default with `prodex setup --model ""`.'
+  );
+}
+
+async function selectPickerModel(cdp: CdpConnection, requested: string, warnings: string[] = []): Promise<void> {
   const hit = await cdp.evaluate<RectHit>(menuItemRectExpression(requested));
   if (!hit.ok || hit.x === undefined || hit.y === undefined) {
-    const available = hit.available?.length ? ` The picker offers: ${hit.available.join(", ")}.` : "";
-    throw new Error(`ChatGPT's model picker has no "${requested}" model.${available}`);
+    const unavailable = modelSelectionUnavailableWarning(requested, hit.reason ?? "", hit.available);
+    if (unavailable) {
+      warnings.push(unavailable);
+      return;
+    }
+    throw new Error(hit.reason ?? `ChatGPT's model picker has no "${requested}" model.`);
   }
   await verifiedClickWithRetry(cdp, () => cdp.evaluate<RectHit>(menuItemRectExpression(requested)), requested);
 }
@@ -2116,7 +2143,7 @@ async function selectModelReasoning(
         await selectPowerStep(cdp, plan.sliderLabel);
       }
       if (plan.modelLabel) {
-        await selectPickerModel(cdp, plan.modelLabel);
+        await selectPickerModel(cdp, plan.modelLabel, selectionWarnings);
       }
       // This branch cannot honour a sub-mode, and used to return without
       // saying so - the caller got a clean receipt for a 확장 it never got.

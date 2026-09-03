@@ -2,7 +2,13 @@
 
 All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).## 0.36.4
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).## 0.36.5
+
+### Fixed
+- A model the picker cannot offer no longer kills the send. ChatGPT's picker stopped listing "Pro" as a model and made its remaining model rows inert (measured: `pointer-events: none`, and laid out outside the menu's own box, so no coordinate reaches them) - while `model=Pro` is the pinned default in every repo configured before that. The result was that a plain `prodex ask` failed in those repos every time, for a selection the UI no longer supports. `--model Pro` is now applied where Pro actually lives, the effort slider, and answers from `gpt-5-6-pro`; any other model the picker will not offer warns and the send proceeds with whatever the composer had. A menu that will not open, or a click that will not land, is still an error - only "this picker has no such thing" is not.
+- `--effort` works again. The slider state was read by scanning for the line after "Model"/"Effort", which the current picker does not produce, so it returned nothing and the step walk could never match its own position. It now reads the checked model radio and the menu item that owns the slider: `--effort 즉시` / `중간` / `매우 높음` send and answer where they failed with "did not commit".
+
+## 0.36.4
 
 ### Fixed
 - A model name was sent to the effort slider. ChatGPT's composer picker holds two controls - a `role="slider"` for effort (Instant..Pro) and `menuitemradio` rows for the models - and selection drove both through the slider, so a model name walked every step looking for one it could never be. Reported from another machine and reproduced here word for word: `--model "GPT-5.6 Sol"` failed with `has no "GPT-5.6 Sol" step. It showed: Instant / Instant, 1 of 5. / ... / GPT-5.6 Sol / GPT-5.5`, which reads as if the name were selectable - it was in the slider's text, not among its steps. `--model Pro` appeared to work only while the slider happened to sit on its top step. An effort now drives the slider and a model clicks its radio; `Pro`, which became that top step rather than a model, is honoured there with a warning instead of failing every repo that has it pinned. This fixes the routing only - clicking a model radio and committing a slider step are still refused by the current UI, and remain open.
