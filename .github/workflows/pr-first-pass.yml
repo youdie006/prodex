@@ -1,0 +1,58 @@
+name: pr first pass
+
+# Posts what a pull request touches, whether it carries tests, and which paths
+# deserve a careful read. It states findings and never approves - CI is the gate
+# and a person decides. The judgement lives in scripts/gh-bot.mjs so it is
+# testable without GitHub.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  pull-requests: write
+  contents: read
+
+jobs:
+  first-pass:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read the changed files
+        id: files
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" \
+            --paginate --jq '[.[] | {path: .filename, additions: .additions, deletions: .deletions}]' > files.json
+          echo "count=$(node -p 'JSON.parse(require("fs").readFileSync("files.json","utf8")).length')" >> "$GITHUB_OUTPUT"
+
+      - name: Write the first pass
+        id: pass
+        run: |
+          node --input-type=module -e '
+            import { appendFileSync, readFileSync } from "node:fs";
+            const { reviewPullRequest } = await import("./scripts/gh-bot.mjs");
+            const files = JSON.parse(readFileSync("files.json", "utf8"));
+            const review = reviewPullRequest(files);
+            appendFileSync(process.env.GITHUB_OUTPUT, `body<<EOF_BODY\n${review.body}\nEOF_BODY\n`);
+          '
+
+      - name: Post it, replacing the previous one
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BODY: ${{ steps.pass.outputs.body }}
+        run: |
+          # One comment per PR rather than one per push: a thread of near-identical
+          # bot comments buries the human discussion it is meant to support.
+          marker="<!-- prodex-first-pass -->"
+          existing=$(gh api "repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
+            --paginate --jq "[.[] | select(.body | startswith(\"$marker\")) | .id] | first // empty")
+          if [ -n "$existing" ]; then
+            gh api --method PATCH "repos/${{ github.repository }}/issues/comments/$existing" -f body="$marker
+          $BODY" > /dev/null
+          else
+            gh pr comment "${{ github.event.pull_request.number }}" --repo "${{ github.repository }}" --body "$marker
+          $BODY"
+          fi

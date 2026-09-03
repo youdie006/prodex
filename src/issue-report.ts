@@ -77,6 +77,28 @@ export function buildIssueReport(consult: BlockedConsultLike, environment: Repor
   };
 }
 
+export interface OpenIssueSummary {
+  number: number;
+  title: string;
+}
+
+/**
+ * Whether this report is news.
+ *
+ * A watchdog that files on every run turns one broken thing into a daily pile of
+ * identical issues, and the pile is what makes people stop reading them. Same
+ * blocker code, still open: add to it instead of opening another.
+ */
+export function chooseIssueAction(
+  openIssues: readonly OpenIssueSummary[],
+  report: IssueReport
+): { action: "create" } | { action: "comment"; number: number } {
+  const code = report.title.split(":")[0]?.trim();
+  if (!code) return { action: "create" };
+  const existing = openIssues.find((issue) => issue.title.split(":")[0]?.trim() === code);
+  return existing ? { action: "comment", number: existing.number } : { action: "create" };
+}
+
 /** The repository a report goes to when the caller does not name one. */
 export const PRODEX_ISSUE_REPO = "youdie006/prodex";
 
@@ -89,9 +111,20 @@ export async function fileGitHubIssue(repo: string, report: IssueReport): Promis
   const { execFile } = await import("node:child_process");
   const { promisify } = await import("node:util");
   const run = promisify(execFile);
-  const args = ["issue", "create", "--repo", repo, "--title", report.title, "--body", report.body];
-  for (const label of report.labels) args.push("--label", label);
   try {
+    const open = await run("gh", ["issue", "list", "--repo", repo, "--state", "open", "--limit", "100", "--json", "number,title"], {
+      timeout: 60_000
+    }).then(
+      ({ stdout }) => JSON.parse(stdout || "[]") as OpenIssueSummary[],
+      () => [] as OpenIssueSummary[]
+    );
+    const decision = chooseIssueAction(open, report);
+    if (decision.action === "comment") {
+      await run("gh", ["issue", "comment", String(decision.number), "--repo", repo, "--body", report.body], { timeout: 60_000 });
+      return `commented on existing #${decision.number}`;
+    }
+    const args = ["issue", "create", "--repo", repo, "--title", report.title, "--body", report.body];
+    for (const label of report.labels) args.push("--label", label);
     const { stdout } = await run("gh", args, { timeout: 60_000 });
     return stdout.trim().split(/\r?\n/).filter(Boolean).pop() ?? "(no url returned)";
   } catch (error) {

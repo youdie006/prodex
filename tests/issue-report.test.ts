@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buildIssueReport } from "../src/issue-report.js";
+import { buildIssueReport, chooseIssueAction } from "../src/issue-report.js";
 
 const environment = { version: "0.36.5", platform: "linux", nodeVersion: "v22.22.0" };
 
@@ -58,5 +58,29 @@ describe("a bug report built from a blocked consult", () => {
     expect(
       buildIssueReport({ ...blocked, blocker: { ...blocked.blocker, code: "bridge_store_corrupt" } }, environment).labels
     ).toContain("area:bridge");
+  });
+});
+
+// A watchdog runs on a schedule, so a broken thing would file the same report
+// every run. The pile is what makes people stop reading them.
+describe("filing the same failure twice", () => {
+  const report = buildIssueReport(
+    {
+      task_id: "task_x",
+      status: "blocked",
+      blocker: { code: "browser_send_failed", message: "model selector button not found" }
+    },
+    environment
+  );
+
+  it("adds to the open issue about that blocker instead of opening another", () => {
+    expect(
+      chooseIssueAction([{ number: 7, title: "browser_send_failed: something slightly different" }], report)
+    ).toEqual({ action: "comment", number: 7 });
+  });
+
+  it("opens one when nothing about that blocker is open", () => {
+    expect(chooseIssueAction([{ number: 7, title: "response_choice_pending: waiting" }], report)).toEqual({ action: "create" });
+    expect(chooseIssueAction([], report)).toEqual({ action: "create" });
   });
 });

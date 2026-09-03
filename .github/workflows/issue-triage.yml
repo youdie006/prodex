@@ -1,0 +1,47 @@
+name: issue triage
+
+# Labels a new issue and asks for the repro fields it is missing. The judgement
+# lives in scripts/gh-bot.mjs so it can be tested without GitHub; this file only
+# feeds it the issue and applies what it decides.
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  triage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Decide labels and any missing-repro comment
+        id: decide
+        env:
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+        run: |
+          node --input-type=module -e '
+            import { appendFileSync } from "node:fs";
+            const { triageIssue } = await import("./scripts/gh-bot.mjs");
+            const result = triageIssue({ title: process.env.ISSUE_TITLE, body: process.env.ISSUE_BODY });
+            const out = process.env.GITHUB_OUTPUT;
+            appendFileSync(out, `labels=${result.labels.join(",")}\n`);
+            appendFileSync(out, `comment<<EOF_COMMENT\n${result.comment ?? ""}\nEOF_COMMENT\n`);
+          '
+
+      - name: Apply labels
+        if: steps.decide.outputs.labels != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh issue edit "${{ github.event.issue.number }}" --repo "${{ github.repository }}" --add-label "${{ steps.decide.outputs.labels }}"
+
+      - name: Ask for what is missing
+        if: steps.decide.outputs.comment != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          COMMENT: ${{ steps.decide.outputs.comment }}
+        run: gh issue comment "${{ github.event.issue.number }}" --repo "${{ github.repository }}" --body "$COMMENT"
