@@ -94,6 +94,8 @@ import {
 import { getTokenExpiryStatus, loadBrowserDefaults, loadLocalConfig } from "./config.js";
 import { withBrowserSendLock } from "./browser-send-lock.js";
 import { BridgeStore, MAX_FETCHABLE_RESULT_ARTIFACT_BYTES } from "./store.js";
+import { CLI_VERSION } from "./cli-help.js";
+import { PRODEX_ISSUE_REPO, buildIssueReport, fileGitHubIssue } from "./issue-report.js";
 import type { CliIO } from "./cli.js";
 
 export type RunCliFn = (args: string[], io: CliIO) => Promise<number>;
@@ -854,6 +856,44 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
           io.stdout(`${entry.consult.task.id}\t${entry.consult.result.status}\t${formatProListSummary(entry.consult, sourceCli, answerOptions)}`);
         }
       }
+      return 0;
+    }
+    if (subcommand === "report-issue") {
+      if (printHelpIfRequested(proArgs, "pro report-issue", io.stdout, printProHelp, { valueFlags: ["--cwd", "--task", "--repo"] })) return 0;
+      assertOnlyOptions(proArgs, "pro report-issue", ["--cwd", "--task", "--repo"], ["--confirm"]);
+      const targetCwd = resolveCwdFlag(io.cwd, proArgs);
+      const targetStore = new BridgeStore(targetCwd);
+      const wantedTask = readFlag(proArgs, "--task");
+      const record = wantedTask
+        ? await (async () => {
+            const result = await targetStore.getResultReadOnly(wantedTask);
+            const task = await targetStore.getTaskReadOnly(wantedTask);
+            return { task, result };
+          })()
+        : await latestBlockedConsult(targetStore);
+      if (!record) throw new Error("No blocked consult found to report. Nothing failed, so there is nothing to file.");
+      const report = buildIssueReport(
+        {
+          task_id: record.result.task_id,
+          status: record.result.status,
+          ...(record.result.blocker ? { blocker: record.result.blocker } : {})
+        },
+        { version: CLI_VERSION, platform: process.platform, nodeVersion: process.version }
+      );
+      io.stdout(`title: ${report.title}`);
+      io.stdout(`labels: ${report.labels.join(", ")}`);
+      io.stdout("");
+      io.stdout(report.body);
+      io.stdout("");
+      // Filing is outward-facing and public, so it never happens as a side
+      // effect of looking. The preview above is the whole report.
+      if (!proArgs.includes("--confirm")) {
+        io.stdout("Nothing was filed. Re-run with --confirm to open this as a GitHub issue.");
+        return 0;
+      }
+      const repo = readFlag(proArgs, "--repo") ?? PRODEX_ISSUE_REPO;
+      const filed = await fileGitHubIssue(repo, report);
+      io.stdout(`filed: ${filed}`);
       return 0;
     }
     if (subcommand === "latest") {
@@ -2030,6 +2070,17 @@ export async function latestTrustedConsult(store: BridgeStore, options: { readOn
   }
   if (firstUntrusted) throw firstUntrusted;
   return undefined;
+}
+
+/**
+ * The newest consult that FAILED, which is what a bug report is about.
+ *
+ * latestTrustedConsult deliberately walks past blocked records looking for an
+ * answer; a report wants the opposite.
+ */
+export async function latestBlockedConsult(store: BridgeStore): Promise<ConsultRecord | undefined> {
+  const records = await listConsultRecordsNewestFirst(store);
+  return records.find((record) => record.result.status === "blocked");
 }
 
 export function legacyChatGptNamespaceError(subcommand?: string): Error {
