@@ -6,6 +6,8 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
 
+import { readPowerSliderSelection } from "./picker-interaction.js";
+
 export interface ChatGptBrowserOptions {
   port?: number;
   profileDir?: string;
@@ -1679,6 +1681,14 @@ const CLICK_POINT_SNIPPET = `
       el.scrollIntoView({ block: "center", inline: "nearest" });
       const r = el.getBoundingClientRect();
       if (r.width < 1 || r.height < 1) return { ok: false, reason: "target element has no visible area" };
+      // An inert row cannot be clicked at ANY point, so say that instead of
+      // blaming whatever hit-testing returns instead. Measured on the current
+      // picker: the model rows carry pointer-events:none and sit outside the
+      // menu's own box, so every coordinate on them resolves to the effort
+      // control and the refusal read as "another element covers it".
+      if (getComputedStyle(el).pointerEvents === "none") {
+        return { ok: false, reason: "target element is not clickable (pointer-events: none)" };
+      }
       el.setAttribute('data-prodex-click', '1');
       const x = Math.round(r.x + r.width / 2);
       const y = Math.round(r.y + (yCap ? Math.min(r.height / 2, yCap) : r.height / 2));
@@ -1770,15 +1780,24 @@ export function powerSliderStateExpression(): string {
     const slider = document.querySelector('[role="slider"]');
     const menu = document.querySelector('[data-testid="composer-intelligence-picker-content"]');
     const lines = menu ? (menu.innerText || "").split(String.fromCharCode(10)).map((l) => l.trim()).filter(Boolean) : [];
-    const after = (label) => { const i = lines.indexOf(label); return i >= 0 ? lines[i + 1] : null; };
     if (!slider) return { ok: false, reason: "power slider not found", lines };
+    const readPowerSliderSelection = ${readPowerSliderSelection.toString()};
+    const selection = readPowerSliderSelection({
+      sliderValueText: slider.getAttribute("aria-valuetext"),
+      items: menu ? [...menu.querySelectorAll('[role="menuitemradio"],[role="menuitem"]')].map((item) => ({
+        role: item.getAttribute("role"),
+        text: item.innerText || item.textContent || "",
+        checked: item.getAttribute("aria-checked") === "true",
+        containsSlider: item.contains(slider)
+      })) : []
+    });
     return {
       ok: true,
       position: Number(slider.getAttribute("aria-valuenow")),
       min: Number(slider.getAttribute("aria-valuemin")),
       max: Number(slider.getAttribute("aria-valuemax")),
-      model: after("Model"),
-      effort: after("Effort"),
+      model: selection.model,
+      effort: selection.effort,
       lines
     };
   })()`;
