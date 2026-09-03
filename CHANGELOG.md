@@ -2,7 +2,19 @@
 
 All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).## 0.36.5
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).## 0.37.0
+
+### Added
+- A repository bot, in three parts. `pro report-issue` builds a bug report from a blocked consult's receipt - blocker, version, platform, the next step it gave - and never carries the prompt, the answer or the summary; filing is `--confirm` only and goes through `gh`, so prodex stores no token. An issue-triage workflow labels a new issue and asks for exactly the repro fields it is missing. A PR first-pass workflow says what a change touches, whether it carries tests, and which paths deserve a careful read; it never approves. Filing is deduplicated by blocker code, so something that stays broken adds to one issue instead of opening another every run.
+- `scripts/ui-watchdog.mjs` notices when ChatGPT's UI stops working, by sending a token and checking the reply rather than inspecting the picker's shape - shape is a proxy, and this project was bitten by a picker that looked right and could not be driven. It needs the logged-in browser, so it runs on a machine that has one, not in CI.
+- `PRODEX_BROWSER_DIAGNOSTICS=1` leaves a screenshot and a shape snapshot behind when a send fails: roles, testids, rects, aria-value* and pointer-events for the picker and composer - the last two are what identified an inert row and an unreadable slider step. Captures stay local and are never attached to a report.
+- `--temporary` sends into a ChatGPT Temporary Chat, which leaves the account's chat list byte-identical. It warns what that costs: the transcript API does not hold an unsaved chat, so the answer is read from the page, where tables and citation links can be lost, and it cannot be recovered later. It requires `--new-chat`, because a throwaway chat cannot be continued.
+- `setup` now asks the picker whether it can provide the default being pinned. Pinning something it cannot is how prodex broke for someone else for weeks. It reports only what it saw: the effort slider shows one step at a time, and reading the others would mean moving it.
+
+### Fixed
+- A step the slider does not have warns instead of blocking the send, matching the rule the model path already followed. One account's picker has no "Pro" step at all, so a pinned default of model=Pro killed every plain send there.
+
+## 0.36.5
 
 ### Fixed
 - A model the picker cannot offer no longer kills the send. ChatGPT's picker stopped listing "Pro" as a model and made its remaining model rows inert (measured: `pointer-events: none`, and laid out outside the menu's own box, so no coordinate reaches them) - while `model=Pro` is the pinned default in every repo configured before that. The result was that a plain `prodex ask` failed in those repos every time, for a selection the UI no longer supports. `--model Pro` is now applied where Pro actually lives, the effort slider, and answers from `gpt-5-6-pro`; any other model the picker will not offer warns and the send proceeds with whatever the composer had. A menu that will not open, or a click that will not land, is still an error - only "this picker has no such thing" is not.

@@ -232,6 +232,11 @@ export interface SendChatGptPromptOptions {
   /** When the tab is busy with another response, wait up to this long for it
    * to finish instead of failing immediately (0/omitted = fail fast). */
   busyWaitMs?: number;
+  /**
+   * Send into a ChatGPT Temporary Chat, which is not saved to the account's
+   * history. Nothing about the consult can be fetched again afterwards.
+   */
+  temporary?: boolean;
   /** Where a diagnostics capture is written when PRODEX_BROWSER_DIAGNOSTICS is set. */
   diagnosticsCwd?: string;
   /** Progress callback so long sends can report phase + elapsed instead of staying silent. */
@@ -2035,6 +2040,24 @@ export function modelSelectionUnavailableWarning(
  * knows what it offers, so asking it once - when the default is set - beats
  * finding out on every send for weeks.
  */
+/**
+ * What a temporary chat costs.
+ *
+ * Measured: the chat list is byte-identical before and after, which is the
+ * point - but the answer arrives without the "(transcript ...)" a normal send
+ * reports, because the transcript API does not hold a chat that was never
+ * saved. So the answer is read off the page, which is where prodex loses
+ * markdown tables and citation urls. Trading fidelity for privacy is a fine
+ * trade to offer and a bad one to make silently.
+ */
+export function temporaryChatWarning(temporary: boolean | undefined): string | undefined {
+  if (!temporary) return undefined;
+  return (
+    "temporary_chat: this chat is not saved, so the answer was read from the page rather than the transcript - " +
+    "tables and citation links can be lost - and neither `pro browser recover` nor `--target-url` can reach it later."
+  );
+}
+
 export function pinnedSelectionWarning(
   pinned: { model?: string; effort?: string },
   offered: readonly string[]
@@ -2724,7 +2747,11 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
     // thread silently lands outside the project (measured live: --new-chat
     // --project threads appeared in the root chat list, --project-only
     // threads appeared inside the project).
-    await evaluateOnPage(page, `location.assign("https://chatgpt.com/")`);
+    // A temporary chat is reached by url rather than by clicking the control:
+    // the same navigation this already does, one query parameter different, and
+    // nothing to find on a page whose buttons keep moving.
+    const freshUrl = options.temporary ? "https://chatgpt.com/?temporary-chat=true" : "https://chatgpt.com/";
+    await evaluateOnPage(page, `location.assign(${JSON.stringify(freshUrl)})`);
     await waitForFreshChatGptPage(page, 8_000);
   }
   let status = await readSettledChatGptPageStatus(page);
@@ -2803,6 +2830,8 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
   let submitButtonFound = false;
   let wantsDeepResearch = false;
   const sendWarnings: string[] = [];
+  const temporaryNote = temporaryChatWarning(options.temporary);
+  if (temporaryNote) sendWarnings.push(temporaryNote);
   const cdp = await connectCdp(page.webSocketDebuggerUrl);
   // With diagnostics on, a send that fails leaves behind what the page looked
   // like: the shape prodex reads plus a screenshot. Every UI break in this

@@ -256,6 +256,7 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
         "--pro-mode",
         "--effort",
         "--new-chat",
+        "--temporary",
         "--auto-login",
         "--no-auto-login"
       ].find((flag) => proArgs.includes(flag));
@@ -1150,6 +1151,14 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
       );
     }
     const newChat = parsedAskPro.optionArgs.includes("--new-chat");
+    // A temporary chat is not saved, so there is nothing to come back to: the
+    // recovery path every timeout message points at cannot fetch it later.
+    // Requiring --new-chat keeps that explicit rather than quietly turning a
+    // continuation into a throwaway.
+    const temporary = parsedAskPro.optionArgs.includes("--temporary");
+    if (temporary && !newChat) {
+      throw new Error("--temporary starts a throwaway chat, so it needs --new-chat. A temporary chat cannot be continued or recovered later.");
+    }
     if (newChat && normalizedTargetUrl) {
       throw new Error(
         "ask-pro cannot combine --new-chat with --target-url: --new-chat navigates to a fresh chat while --target-url pins the confirmed tab."
@@ -1283,6 +1292,8 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
           ...(attachments.length > 0 ? { attachments } : {}),
           ...(tools.length > 0 ? { tools } : {}),
           ...(newChat ? { newChat: true } : {}),
+          ...(temporary ? { temporary: true } : {}),
+          diagnosticsCwd: targetCwd,
           ...(busyWaitMs !== undefined ? { busyWaitMs } : {}),
           project: selectionProject,
           projectNew: selectionProjectNew,

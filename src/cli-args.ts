@@ -253,6 +253,7 @@ export function assertNoExtraArgs(args: string[], command: string, maxPositional
   }
 }
 export const ASK_PRO_BOOLEAN_FLAGS = new Set([
+  "--temporary",
   "--dry-run",
   "--send",
   "--confirm-target",

@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
+import { temporaryChatWarning } from "../src/chatgpt-browser.js";
 import {
   captureBrowserDiagnostics,
   diagnosticsDir,
@@ -81,5 +82,24 @@ describe("capturing a failed send", () => {
     expect(expression).toContain("pointerEvents");
     expect(expression).toContain("aria-valuenow");
     expect(expression).toContain("composer-intelligence-picker-content");
+  });
+});
+
+// Measured: the chat list is byte-identical before and after a temporary send,
+// which is the point - but the answer arrives without the "(transcript ...)" a
+// normal send reports, because the transcript API does not hold a chat that was
+// never saved. The answer is read off the page instead, which is where prodex
+// loses markdown tables and citation urls.
+describe("a temporary chat", () => {
+  it("says what it costs, because trading fidelity for privacy must not be silent", () => {
+    const warning = temporaryChatWarning(true);
+    expect(warning).toMatch(/not saved/i);
+    expect(warning).toMatch(/page rather than the transcript/i);
+    expect(warning).toMatch(/recover/i);
+  });
+
+  it("says nothing for an ordinary send", () => {
+    expect(temporaryChatWarning(false)).toBeUndefined();
+    expect(temporaryChatWarning(undefined)).toBeUndefined();
   });
 });
