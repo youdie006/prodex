@@ -76,8 +76,29 @@ export async function runSetupCommand(rest: string[], io: CliIO): Promise<number
     io.stdout("The token is stored (once) in .bridge/config.local.json; print the full URL with `prodex status --show-token --url-only`.");
     if (config.browser_defaults) {
       io.stdout(`Browser send defaults: ${formatBrowserDefaults(config.browser_defaults)}`);
+      // Ask the picker whether it can actually provide what was just pinned.
+      // Pinning something it does not offer is how prodex broke for someone
+      // else: model=Pro was pinned when Pro was a model, ChatGPT made it an
+      // effort step and dropped it from some accounts, and every plain send
+      // failed there afterwards. Best effort - no browser is not a verdict.
+      const warning = await pinnedSelectionCheck(config.browser_defaults).catch(() => undefined);
+      if (warning) io.stdout(warning);
     }
     return 0;
+}
+
+/** What the picker currently offers, compared against what was just pinned. */
+async function pinnedSelectionCheck(defaults: { model?: string; effort?: string }): Promise<string | undefined> {
+  const { listChatGptModelOptions, pinnedSelectionWarning } = await import("./chatgpt-browser.js");
+  const listed = await listChatGptModelOptions({ timeoutMs: 8_000 });
+  const offered = listed.options.flatMap((option) => [option.label, ...(option.value ? [option.value] : [])]);
+  return pinnedSelectionWarning(
+    {
+      ...(defaults.model !== undefined ? { model: defaults.model } : {}),
+      ...(defaults.effort !== undefined ? { effort: defaults.effort } : {})
+    },
+    offered
+  );
 }
 
 export async function runStartCommand(rest: string[], io: CliIO): Promise<number> {

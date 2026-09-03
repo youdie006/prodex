@@ -2022,6 +2022,36 @@ export function modelSelectionUnavailableWarning(
  * The picker declining to offer something is not prodex breaking, so it reads
  * the same way the model case does: warn, and let the send go.
  */
+/**
+ * A pinned default the picker does not offer.
+ *
+ * This is how prodex broke for someone else: model=Pro was pinned back when Pro
+ * was a model, ChatGPT turned it into an effort step and dropped it from some
+ * accounts entirely, and every plain send there failed afterwards. The picker
+ * knows what it offers, so asking it once - when the default is set - beats
+ * finding out on every send for weeks.
+ */
+export function pinnedSelectionWarning(
+  pinned: { model?: string; effort?: string },
+  offered: readonly string[]
+): string | undefined {
+  // An unreadable picker is not evidence that the pin is wrong.
+  if (offered.length === 0) return undefined;
+  const has = (wanted: string): boolean =>
+    offered.some((label) => label.trim().toLowerCase() === wanted.trim().toLowerCase());
+  const missing = [pinned.model, pinned.effort].find((wanted) => wanted !== undefined && !has(wanted));
+  if (missing === undefined) return undefined;
+  // Say only what was seen. The picker lists its models, but the effort slider
+  // shows one step at a time - reading the others means moving it, which would
+  // change the user's setting just to look. So this reports that the pin was not
+  // among what the picker LISTED, not that the account cannot provide it.
+  return (
+    `pinned_selection_check: "${missing}" was not among what the picker listed (${offered.join(", ")}). ` +
+    "The effort slider only shows its current step, so a step by that name may still exist. " +
+    "If sends start warning that it was not applied, pin one of the listed names or clear it with `prodex setup --clear-model`."
+  );
+}
+
 export function stepSelectionUnavailableWarning(requested: string | undefined, offered: readonly string[]): string | undefined {
   if (!requested) return undefined;
   // Quote what the page said. The browser that hit this runs in Korean, so the
