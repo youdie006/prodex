@@ -12,7 +12,8 @@ const BRIDGE_DIRECTORY_MODE = 0o700;
 const BrowserDefaultsSchema = z.object({
   model: z.string().min(1).optional(),
   pro_mode: z.enum(["기본", "확장"]).optional(),
-  effort: z.enum(["즉시", "중간", "높음", "매우 높음"]).optional(),
+  // Pro is the slider's fifth step, so a saved default may name it.
+  effort: z.enum(["즉시", "중간", "높음", "매우 높음", "Pro"]).optional(),
   project: z.string().min(1).optional()
 });
 
@@ -52,7 +53,7 @@ export interface WriteLocalConfigInput {
   browserDefaults?: {
     model?: string;
     proMode?: "기본" | "확장";
-    effort?: "즉시" | "중간" | "높음" | "매우 높음";
+    effort?: "즉시" | "중간" | "높음" | "매우 높음" | "Pro";
     project?: string;
   };
 }

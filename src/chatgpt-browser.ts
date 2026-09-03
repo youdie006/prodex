@@ -71,10 +71,15 @@ export class ChatGptBrowserBlockerError extends Error {
   }
 }
 
-export type ChatGptReasoningEffort = "즉시" | "중간" | "높음" | "매우 높음";
+export type ChatGptReasoningEffort = "즉시" | "중간" | "높음" | "매우 높음" | "Pro";
 export type ChatGptProMode = "기본" | "확장";
 
-const REASONING_EFFORTS: readonly ChatGptReasoningEffort[] = ["즉시", "중간", "높음", "매우 높음"];
+// Five steps, not four. Measured at both ends of the live slider: position 0 of
+// 4 reads "Instant, 1 of 5" and position 4 reads "Pro, 5 of 5", so Pro is a step
+// of this control rather than a model. Leaving it out meant --effort could not
+// reach the top of the slider at all, and the only route there - --model Pro -
+// answered with advice to "say --effort Pro", which then failed.
+const REASONING_EFFORTS: readonly ChatGptReasoningEffort[] = ["즉시", "중간", "높음", "매우 높음", "Pro"];
 const PRO_MODES: readonly ChatGptProMode[] = ["기본", "확장"];
 
 // Aliases map friendly CLI input onto the exact Korean menu labels the picker
@@ -85,7 +90,9 @@ const REASONING_EFFORT_ALIASES: Record<string, ChatGptReasoningEffort> = {
   medium: "중간",
   high: "높음",
   max: "매우 높음",
-  extrahigh: "매우 높음"
+  extrahigh: "매우 높음",
+  pro: "Pro",
+  "프로": "Pro"
 };
 
 // Menu labels per canonical value, verified live in both the Korean and the
@@ -94,7 +101,8 @@ const EFFORT_MENU_LABELS: Record<ChatGptReasoningEffort, readonly string[]> = {
   "즉시": ["즉시", "Instant"],
   "중간": ["중간", "Medium"],
   "높음": ["높음", "High"],
-  "매우 높음": ["매우 높음", "Extra High"]
+  "매우 높음": ["매우 높음", "Extra High"],
+  Pro: ["Pro", "프로"]
 };
 
 const PRO_MODE_SUBMENU_LABELS: Record<ChatGptProMode, readonly string[]> = {

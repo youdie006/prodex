@@ -433,7 +433,7 @@ export async function runBrowserDefaultsWizard(
   stdout("Browser send defaults (press Enter to skip a question; labels match the Korean ChatGPT UI):");
   const model = await askChoice(prompt, "Default model — 1) Pro [Enter=skip]: ", ["Pro"]);
   let proMode: "기본" | "확장" | undefined;
-  let effort: "즉시" | "중간" | "높음" | "매우 높음" | undefined;
+  let effort: "즉시" | "중간" | "높음" | "매우 높음" | "Pro" | undefined;
   if (model === "Pro") {
     proMode = (await askChoice(prompt, "Pro sub-mode — 1) 기본  2) 확장 [Enter=skip]: ", ["기본", "확장"])) as
       | "기본"
@@ -445,7 +445,7 @@ export async function runBrowserDefaultsWizard(
       "중간",
       "높음",
       "매우 높음"
-    ])) as "즉시" | "중간" | "높음" | "매우 높음" | undefined;
+    ])) as "즉시" | "중간" | "높음" | "매우 높음" | "Pro" | undefined;
   }
   const projectRaw = (await prompt('Default project name (existing sidebar project) [Enter=skip]: ')).trim();
   const project = projectRaw === "" ? undefined : projectRaw;
