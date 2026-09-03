@@ -2074,7 +2074,22 @@ export function pinnedSelectionWarning(
   if (offered.length === 0) return undefined;
   const has = (wanted: string): boolean =>
     offered.some((label) => label.trim().toLowerCase() === wanted.trim().toLowerCase());
-  const missing = [pinned.model, pinned.effort].find((wanted) => wanted !== undefined && !has(wanted));
+  // A value prodex already knows to be a slider step needs no listing to
+  // vouch for it: the slider shows one step at a time, so a listing that
+  // happens to read "Extra High" says nothing about Pro. Warning there was a
+  // false alarm about a setting the very next send used successfully, and an
+  // alarm that cries about known-good settings is one people learn to skip.
+  const knownStep = (wanted: string): boolean => {
+    try {
+      parseReasoningEffort(wanted);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  const missing = [pinned.model, pinned.effort].find(
+    (wanted) => wanted !== undefined && !has(wanted) && !knownStep(wanted)
+  );
   if (missing === undefined) return undefined;
   // Say only what was seen. The picker lists its models, but the effort slider
   // shows one step at a time - reading the others means moving it, which would

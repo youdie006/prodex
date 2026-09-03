@@ -10,10 +10,21 @@ import { pinnedSelectionWarning } from "../src/chatgpt-browser.js";
 describe("pinning a default the picker does not offer", () => {
   const offered = ["Instant", "GPT-5.6 Sol", "GPT-5.5"];
 
-  it("says so, and names what is actually there", () => {
-    const warning = pinnedSelectionWarning({ model: "Pro" }, offered);
+  it("stays quiet about a value prodex knows the slider has", () => {
+    // Pro IS a slider step - measured "Pro, 5 of 5" - and the slider reveals
+    // only its current one, so a listing that happens to show "Extra High"
+    // proves nothing about Pro. Warning there was a false alarm on a value the
+    // very next send used successfully, and an alarm that cries about known-good
+    // settings is one people learn to skip.
+    expect(pinnedSelectionWarning({ effort: "Pro" }, ["Extra High", "GPT-5.6 Sol", "GPT-5.5"])).toBeUndefined();
+    expect(pinnedSelectionWarning({ model: "Pro" }, ["Extra High", "GPT-5.6 Sol", "GPT-5.5"])).toBeUndefined();
+    expect(pinnedSelectionWarning({ effort: "매우 높음" }, ["Instant", "GPT-5.6 Sol"])).toBeUndefined();
+  });
+
+  it("says so for something it has no reason to expect, and names what is there", () => {
+    const warning = pinnedSelectionWarning({ model: "GPT-4 Turbo" }, offered);
     expect(warning).toBeDefined();
-    expect(warning).toContain("Pro");
+    expect(warning).toContain("GPT-4 Turbo");
     expect(warning).toContain("Instant, GPT-5.6 Sol, GPT-5.5");
     // The slider shows one step at a time, and reading the others means moving
     // it - which would change the user's setting just to look. So this may not
