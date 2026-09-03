@@ -2013,6 +2013,27 @@ export function modelSelectionUnavailableWarning(
   );
 }
 
+/**
+ * A step the slider does not have.
+ *
+ * Reported from another machine: that account's picker has no "Pro" step at all
+ * - five attempts, the same list every time - so a pinned default of model=Pro
+ * became a step request the slider could not satisfy and every plain send died.
+ * The picker declining to offer something is not prodex breaking, so it reads
+ * the same way the model case does: warn, and let the send go.
+ */
+export function stepSelectionUnavailableWarning(requested: string | undefined, offered: readonly string[]): string | undefined {
+  if (!requested) return undefined;
+  // Quote what the page said. The browser that hit this runs in Korean, so the
+  // steps come back translated and an English label prodex expected would be
+  // useless to the person reading the warning.
+  const list = offered.length ? ` It offers: ${offered.join(", ")}.` : "";
+  return (
+    `step_not_applied: this ChatGPT picker has no "${requested}" step, so the send used the slider's current setting.${list} ` +
+    'Pick one of those with --effort, or clear a saved default with `prodex setup --clear-model`.'
+  );
+}
+
 async function selectPickerModel(cdp: CdpConnection, requested: string, warnings: string[] = []): Promise<void> {
   const hit = await cdp.evaluate<RectHit>(menuItemRectExpression(requested));
   if (!hit.ok || hit.x === undefined || hit.y === undefined) {
@@ -2140,7 +2161,17 @@ async function selectModelReasoning(
       });
       if (plan.warning) selectionWarnings.push(plan.warning);
       if (plan.sliderLabel) {
-        await selectPowerStep(cdp, plan.sliderLabel);
+        try {
+          await selectPowerStep(cdp, plan.sliderLabel);
+        } catch (error) {
+          // Only "this slider has no such step" is the picker declining. A
+          // slider that will not open, or will not move, is a real failure.
+          const message = error instanceof Error ? error.message : String(error);
+          const noSuchStep = /has no "[^"]*" step/.test(message);
+          if (!noSuchStep) throw error;
+          const offered = /It showed: (.*)$/.exec(message)?.[1]?.split(" / ").map((part) => part.trim()) ?? [];
+          selectionWarnings.push(stepSelectionUnavailableWarning(plan.sliderLabel, offered)!);
+        }
       }
       if (plan.modelLabel) {
         await selectPickerModel(cdp, plan.modelLabel, selectionWarnings);

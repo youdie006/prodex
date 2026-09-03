@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { modelSelectionUnavailableWarning } from "../src/chatgpt-browser.js";
+import { modelSelectionUnavailableWarning, stepSelectionUnavailableWarning } from "../src/chatgpt-browser.js";
 
 // A model this picker does not offer must not kill an otherwise valid send.
 // Measured on the live picker: the model rows carry pointer-events:none and sit
@@ -32,5 +32,32 @@ describe("a model the picker cannot offer", () => {
       modelSelectionUnavailableWarning("GPT-5.5", 'Refusing to click "GPT-5.5": another element covers its click point')
     ).toBeUndefined();
     expect(modelSelectionUnavailableWarning("GPT-5.5", "reasoning/model menu did not open")).toBeUndefined();
+  });
+});
+
+// The same rule has to hold for the slider. Reported from another machine: that
+// account's picker has no "Pro" step at all - five attempts, the same list every
+// time - so a pinned default of model=Pro turned into a step request the slider
+// could not satisfy, and every plain send failed. A selection the picker cannot
+// provide is the UI declining, not prodex breaking.
+describe("an effort step the slider does not have", () => {
+  it("warns and lets the send go, naming what the slider does offer", () => {
+    const warning = stepSelectionUnavailableWarning("Pro", ["Instant", "Medium", "High"]);
+    expect(warning).toBeDefined();
+    expect(warning).toContain("step_not_applied");
+    expect(warning).toContain("Pro");
+    expect(warning).toContain("Instant, Medium, High");
+  });
+
+  it("works the same when the labels are localized", () => {
+    // The browser reporting this runs in Korean, so the steps come back
+    // translated. The warning has to quote what the page said, not an English
+    // label prodex expected to see.
+    const warning = stepSelectionUnavailableWarning("Pro", ["즉시", "중간", "높음", "매우 높음"]);
+    expect(warning).toContain("매우 높음");
+  });
+
+  it("says nothing when no step was requested", () => {
+    expect(stepSelectionUnavailableWarning(undefined, ["Instant"])).toBeUndefined();
   });
 });
