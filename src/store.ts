@@ -1,6 +1,7 @@
 import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { registerBridgeRoot } from "./registry.js";
-import { constants, existsSync } from "node:fs";
+import { closeSync, constants, existsSync, openSync, readdirSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { link, lstat, mkdir, open, readdir, realpath, rename, rm, stat } from "node:fs/promises";
 import type { FileHandle } from "node:fs/promises";
 import path from "node:path";
@@ -1748,11 +1749,47 @@ function directoryFdPath(fd: number): string {
   return `${base}/${fd}`;
 }
 
+// Whether a base can be USED, not merely whether it exists. macOS has /dev/fd,
+// so an existence check accepted it, and every record write then failed with
+// ENOENT on a path like /dev/fd/12/receipts - measured there, /dev/fd exists and
+// is not traversable, which took down the whole bridge write surface while the
+// same checks pass on Linux. Existence was never the property being relied on.
+let directoryFdBaseProbe: { base: string | undefined } | undefined;
+
+function probeDirectoryFdBase(): string | undefined {
+  for (const base of ["/proc/self/fd", "/dev/fd"]) {
+    if (!existsSync(base)) continue;
+    let fd: number | undefined;
+    try {
+      fd = openSync(tmpdir(), constants.O_RDONLY | (constants.O_DIRECTORY ?? 0));
+      // Reading the directory THROUGH the rendered path is exactly what the
+      // writes do, so that is what gets tested.
+      readdirSync(`${base}/${fd}`);
+      return base;
+    } catch {
+      // this base cannot be walked here; try the next
+    } finally {
+      if (fd !== undefined) {
+        try {
+          closeSync(fd);
+        } catch {
+          // best effort
+        }
+      }
+    }
+  }
+  return undefined;
+}
+
+/** Exported so a test can hold the probe to what the running platform can do. */
+export function directoryFdPathsUsable(): boolean {
+  return hasStableDirectoryFdPaths();
+}
+
 function directoryFdPathBase(): string | undefined {
   if (storeTestHooks.disableDirectoryFdPaths) return undefined;
-  if (existsSync("/proc/self/fd")) return "/proc/self/fd";
-  if (existsSync("/dev/fd")) return "/dev/fd";
-  return undefined;
+  directoryFdBaseProbe ??= { base: probeDirectoryFdBase() };
+  return directoryFdBaseProbe.base;
 }
 
 function assertBridgeRecordId(kind: BridgeRecordKind, id: string): void {
