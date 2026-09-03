@@ -558,7 +558,16 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
         for (const option of listed.options) {
           io.stdout(formatModelMenuOption(option));
         }
-        io.stdout("An arrow shows what that row is set to now; --model / --effort reach into those submenus (e.g. --model Pro).");
+        if (listed.effortSteps) {
+          io.stdout("");
+          io.stdout("Effort steps on this account (the slider was walked and put back):");
+          for (const label of listed.effortSteps.labels) {
+            io.stdout(`${label === listed.effortSteps.current ? "*" : " "} ${label}`);
+          }
+          io.stdout("Pass any of these to --effort. The list is complete: the slider shows one step at a time, so reading it any other way sees only the current one.");
+        } else {
+          io.stdout("An arrow shows what that row is set to now; --model / --effort reach into those submenus (e.g. --model Pro).");
+        }
         return 0;
       }
       if (browserSubcommand === "projects") {

@@ -2172,6 +2172,38 @@ async function dispatchArrowKey(cdp: CdpConnection, key: "ArrowLeft" | "ArrowRig
   await cdp.send("Input.dispatchKeyEvent", { type: "keyUp", key, code, windowsVirtualKeyCode: virtualKey });
 }
 
+export interface SliderWalk {
+  /** Presses of ArrowLeft to reach the bottom step. */
+  toBottom: number;
+  /** Presses of ArrowRight to read every step from there. */
+  climb: number;
+  /** Presses of ArrowLeft to put the slider back where it was found. */
+  back: number;
+}
+
+/**
+ * How to read every step of the slider and leave it as it was.
+ *
+ * The control shows one step at a time, and that single visible label was all
+ * `pro browser models` ever reported - which is how a machine on this same
+ * account concluded "Pro does not exist here" from five listings that each read
+ * Instant / GPT-5.6 Sol / GPT-5.5, with the slider parked on Instant every
+ * time. Seeing the rest means walking it, and walking someone's setting is only
+ * acceptable if it is put back, so the plan always ends where it started.
+ *
+ * Refuses bounds that do not look like this control, so a misread never becomes
+ * thousands of keystrokes in someone's browser.
+ */
+export function sliderWalkPlan(state: { position?: number; min?: number; max?: number }): SliderWalk | undefined {
+  const { position, min, max } = state;
+  if (!Number.isInteger(position) || !Number.isInteger(min) || !Number.isInteger(max)) return undefined;
+  const steps = (max as number) - (min as number);
+  if (steps < 1 || steps > 12) return undefined;
+  if ((position as number) < (min as number) || (position as number) > (max as number)) return undefined;
+  const offset = (position as number) - (min as number);
+  return { toBottom: offset, climb: steps, back: offset };
+}
+
 async function selectModelReasoning(
   cdp: CdpConnection,
   options: Pick<SendChatGptPromptOptions, "model" | "proMode" | "effort">,
@@ -3304,6 +3336,8 @@ export function formatModelMenuOption(option: ChatGptModelOption): string {
 export interface ListChatGptModelOptionsResult {
   url: string;
   options: ChatGptModelOption[];
+  /** Every step of the effort slider, in order, when it could be walked. */
+  effortSteps?: { labels: string[]; current: string | null };
 }
 
 export function modelMenuOptionsExpression(): string {
@@ -3772,6 +3806,48 @@ export async function listChatGptSidebarProjects(input: { port?: number; timeout
   return { url: status.url, projects };
 }
 
+/**
+ * Every step of the effort slider, read by walking it and putting it back.
+ *
+ * Best effort: a slider that cannot be focused, read or walked leaves the
+ * listing exactly as it was rather than failing a read-only command.
+ */
+async function readEffortSteps(cdp: CdpConnection): Promise<{ labels: string[]; current: string | null } | undefined> {
+  try {
+    const focused = await cdp.evaluate<{ ok: boolean }>(focusPowerSliderExpression());
+    if (!focused?.ok) return undefined;
+    const start = await cdp.evaluate<PowerSliderState>(powerSliderStateExpression());
+    if (!start?.ok) return undefined;
+    const plan = sliderWalkPlan({ position: start.position, min: start.min, max: start.max });
+    if (!plan) return undefined;
+    const current = start.effort ?? null;
+    for (let i = 0; i < plan.toBottom; i += 1) {
+      await dispatchArrowKey(cdp, "ArrowLeft");
+      await sleep(120);
+    }
+    const labels: string[] = [];
+    const record = async (): Promise<void> => {
+      const state = await cdp.evaluate<PowerSliderState>(powerSliderStateExpression());
+      const label = state?.effort?.trim();
+      if (label && !labels.includes(label)) labels.push(label);
+    };
+    await record();
+    for (let i = 0; i < plan.climb; i += 1) {
+      await dispatchArrowKey(cdp, "ArrowRight");
+      await sleep(120);
+      await record();
+    }
+    // Put it back. Reading someone's setting must not change it.
+    for (let i = 0; i < plan.climb - plan.back; i += 1) {
+      await dispatchArrowKey(cdp, "ArrowLeft");
+      await sleep(120);
+    }
+    return labels.length > 0 ? { labels, current } : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export async function listChatGptModelOptions(input: { port?: number; timeoutMs?: number } = {}): Promise<ListChatGptModelOptionsResult> {
   const port = resolveCdpPort(input.port);
   const timeoutMs = input.timeoutMs ?? 15_000;
@@ -3802,7 +3878,8 @@ export async function listChatGptModelOptions(input: { port?: number; timeoutMs?
       const opened = await waitForExpressionTrue(cdp, menuOpenExpression(), MENU_OPEN_TIMEOUT_MS);
       if (!opened) throw new Error("ChatGPT model menu did not open after clicking the selector");
       const options = await cdp.evaluate<ChatGptModelOption[]>(modelMenuOptionsExpression());
-      return { url: status.url, options };
+      const effortSteps = await readEffortSteps(cdp);
+      return { url: status.url, options, ...(effortSteps ? { effortSteps } : {}) };
     } finally {
       try {
         await dispatchEscapeKey(cdp);
