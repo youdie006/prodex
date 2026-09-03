@@ -2,7 +2,16 @@
 
 All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).## 0.37.0
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).## 0.37.1
+
+### Fixed
+- `--effort` could not name Pro, the step it was meant to set. The picker's slider has five steps and prodex knew four names for them - measured at both ends of the live control, position 0 of 4 reads "Instant, 1 of 5" and position 4 reads "Pro, 5 of 5". The top was reachable only through `--model Pro`, which answered with a warning advising `--effort Pro`, and that command failed on the spot. Pro is now an effort value in the parser, its aliases, the menu labels, the saved-config schema and the usage lines, so `setup --clear-model --effort Pro` pins it with no warning on any send.
+- The pinned-default check warned about settings it had no way to judge. `setup --effort Pro` reported that Pro "was not among what the picker listed" - about a value the very next send used to answer from gpt-5-6-pro - because the slider shows one step at a time and happened to be on Extra High. Values already known to be slider steps are exempt; anything unexpected is still named.
+
+### Added
+- Documentation for what 0.37.0 shipped. `pro report-issue` appeared in no help output at all, and the diagnostics variable and the watchdog script were mentioned nowhere. The README now covers reporting from a receipt, capturing the page, noticing a break before a person does, and what a temporary chat costs; the notes agents read at onboarding name the report command and the diagnostics variable.
+
+## 0.37.0
 
 ### Added
 - A repository bot, in three parts. `pro report-issue` builds a bug report from a blocked consult's receipt - blocker, version, platform, the next step it gave - and never carries the prompt, the answer or the summary; filing is `--confirm` only and goes through `gh`, so prodex stores no token. An issue-triage workflow labels a new issue and asks for exactly the repro fields it is missing. A PR first-pass workflow says what a change touches, whether it carries tests, and which paths deserve a careful read; it never approves. Filing is deduplicated by blocker code, so something that stays broken adds to one issue instead of opening another every run.
