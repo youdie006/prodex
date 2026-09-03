@@ -112,6 +112,14 @@ export async function fileGitHubIssue(repo: string, report: IssueReport): Promis
   const { promisify } = await import("node:util");
   const run = promisify(execFile);
   try {
+    // Only ask for labels the repository has. A label it lacks makes `gh` refuse
+    // the whole issue ("could not add label: 'area:browser' not found"), so a
+    // missing label would cost the report rather than cost the label.
+    const known = await run("gh", ["label", "list", "--repo", repo, "--limit", "100", "--json", "name"], { timeout: 60_000 }).then(
+      ({ stdout }) => new Set((JSON.parse(stdout || "[]") as { name: string }[]).map((label) => label.name)),
+      () => undefined
+    );
+    const labels = known ? report.labels.filter((label) => known.has(label)) : report.labels;
     const open = await run("gh", ["issue", "list", "--repo", repo, "--state", "open", "--limit", "100", "--json", "number,title"], {
       timeout: 60_000
     }).then(
@@ -124,11 +132,17 @@ export async function fileGitHubIssue(repo: string, report: IssueReport): Promis
       return `commented on existing #${decision.number}`;
     }
     const args = ["issue", "create", "--repo", repo, "--title", report.title, "--body", report.body];
-    for (const label of report.labels) args.push("--label", label);
+    for (const label of labels) args.push("--label", label);
     const { stdout } = await run("gh", args, { timeout: 60_000 });
     return stdout.trim().split(/\r?\n/).filter(Boolean).pop() ?? "(no url returned)";
   } catch (error) {
-    const detail = error instanceof Error ? error.message.split(/\r?\n/)[0] : String(error);
+    // `gh` puts the reason on stderr and Node puts the command line in
+    // error.message, so reporting message first hid every real cause behind the
+    // command that produced it.
+    const stderr = (error as { stderr?: unknown }).stderr;
+    const detail =
+      (typeof stderr === "string" ? stderr.split(/\r?\n/).map((line) => line.trim()).find(Boolean) : undefined) ??
+      (error instanceof Error ? error.message.split(/\r?\n/)[0] : String(error));
     throw new Error(
       `Could not file the issue with \`gh\`: ${detail}. Check \`gh auth status\`, or copy the report above into a new issue by hand.`
     );
