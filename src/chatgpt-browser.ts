@@ -4,6 +4,8 @@ import { accessSync, constants, readFileSync, statSync } from "node:fs";
 import net from "node:net";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+
+import { captureBrowserDiagnostics, diagnosticsEnabled, diagnosticsNote } from "./browser-diagnostics.js";
 import os from "node:os";
 
 import { readPowerSliderSelection } from "./picker-interaction.js";
@@ -230,6 +232,8 @@ export interface SendChatGptPromptOptions {
   /** When the tab is busy with another response, wait up to this long for it
    * to finish instead of failing immediately (0/omitted = fail fast). */
   busyWaitMs?: number;
+  /** Where a diagnostics capture is written when PRODEX_BROWSER_DIAGNOSTICS is set. */
+  diagnosticsCwd?: string;
   /** Progress callback so long sends can report phase + elapsed instead of staying silent. */
   onProgress?: (event: SendChatGptProgressEvent) => void;
 }
@@ -1835,7 +1839,7 @@ export function menuItemRectExpression(label: string | readonly string[]): strin
     if (!m) return { ok: false, reason: "reasoning/model menu did not open" };
     const items = [...m.querySelectorAll('[role="menuitemradio"],[role="menuitem"]')];
     const it = items.find(${menuLabelMatchPredicate(label)});
-    if (!it) return { ok: false, reason: "menu item not found", available: items.map((r) => ((r.innerText || r.textContent || "").trim().split(String.fromCharCode(10))[0] || "").trim()).slice(0, 12) };
+    if (!it) return { ok: false, reason: "menu item not found", available: items.map((r) => ((r.innerText || r.textContent || "").trim().split(String.fromCharCode(10))[0] || "").trim()).filter((label) => label.length > 0).slice(0, 12) };
     const point = clickPoint(it);
     if (!point.ok) return point;
     return { ...point, role: it.getAttribute("role"), haspopup: it.getAttribute("aria-haspopup") };
@@ -2800,6 +2804,31 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
   let wantsDeepResearch = false;
   const sendWarnings: string[] = [];
   const cdp = await connectCdp(page.webSocketDebuggerUrl);
+  // With diagnostics on, a send that fails leaves behind what the page looked
+  // like: the shape prodex reads plus a screenshot. Every UI break in this
+  // project has otherwise cost a live debugging session, and a report from
+  // another machine can carry none of that. Local only - see browser-diagnostics.
+  const captureOnFailure = async (label: string): Promise<void> => {
+    if (!diagnosticsEnabled()) return;
+    const capture = await captureBrowserDiagnostics(
+      {
+        evaluate: (expression) => evaluateOnPage(page, expression),
+        // cdp.send resolves with the whole CDP message; the command's own result
+        // is one level in. Passing the envelope through meant the screenshot
+        // bytes were never found and the capture silently held only the shape.
+        send: async (method, params) => (await cdp.send(method, params ?? {})).result
+      },
+      { cwd: options.diagnosticsCwd ?? process.cwd(), label }
+    ).catch(() => undefined);
+    const note = diagnosticsNote(capture);
+    // Warnings only reach the caller on success, and this runs when the send is
+    // about to throw - so the note goes out through progress, which the CLI
+    // prints as it happens.
+    if (note) {
+      sendWarnings.push(note);
+      emitProgress("waiting", note);
+    }
+  };
   try {
     await cdp.send("Runtime.enable");
     await selectProject(cdp, options);
@@ -2896,6 +2925,12 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
         );
       }
     }
+  } catch (error) {
+    // Capture before the connection closes: this is the moment the page still
+    // looks the way it looked when it refused, and the selection failures this
+    // project keeps hitting are invisible in the error text alone.
+    await captureOnFailure(`send-${new Date().toISOString().replace(/[:.]/g, "-")}`);
+    throw error;
   } finally {
     cdp.close();
   }
