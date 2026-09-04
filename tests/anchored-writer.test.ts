@@ -74,3 +74,30 @@ describe("anchoring the writer's working directory", () => {
     expect(() => anchorCurrentDirectory({ dev: truth.dev, ino: "1" }, [])).toThrow(/was not started in the directory/i);
   });
 });
+
+// Artifacts are written by absolute path, so only their removal went through
+// the descriptor path - and it sits deeper than a record, under
+// .bridge/artifacts/<role>/, so the descent is more than one segment.
+describe("removing an artifact without traversable directory fd paths", () => {
+  afterEach(() => {
+    setBridgeStoreTestHooks({});
+  });
+
+  it("descends to the artifact's own directory and removes only it", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-anchored-"));
+    const store = new BridgeStore(root);
+    await store.ensure();
+    setBridgeStoreTestHooks({ disableDirectoryFdPaths: true });
+
+    const kept = await store.writeArtifactText(".bridge/artifacts/results/kept.md", "kept");
+    const doomed = await store.writeArtifactText(".bridge/artifacts/results/doomed.md", "x".repeat(400_000));
+    expect(await store.readArtifactText(doomed)).toHaveLength(400_000);
+
+    await store.deleteArtifactTextIfPresent(doomed);
+    expect(await store.hasArtifactText(doomed)).toBe(false);
+    expect(await store.hasArtifactText(kept)).toBe(true);
+
+    // Removing what is already gone is how cleanup paths call this.
+    await expect(store.deleteArtifactTextIfPresent(doomed)).resolves.toBeUndefined();
+  });
+});
