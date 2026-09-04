@@ -1,10 +1,14 @@
 import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
+import { createRequire } from "node:module";
 import { registerBridgeRoot } from "./registry.js";
 import { closeSync, constants, existsSync, openSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { link, lstat, mkdir, open, readdir, realpath, rename, rm, stat } from "node:fs/promises";
 import type { FileHandle } from "node:fs/promises";
 import path from "node:path";
+import { spawn } from "node:child_process";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import type { AnchoredWriteJob, AnchoredWriteOutcome } from "./store-writer.js";
 import { assertRepoRelativePath } from "./repo.js";
 import { readVerifiedUtf8File, writeVerifiedUtf8File } from "./safe-file.js";
 import {
@@ -799,6 +803,16 @@ export class BridgeStore {
     const artifactPath = this.resolveArtifactPath(relativePath);
     const parentPath = path.dirname(artifactPath);
     await this.assertArtifactParentDirectory(parentPath);
+    if (!hasStableDirectoryFdPaths()) {
+      const segments = path.relative(this.bridgeDir, parentPath).split(path.sep).filter((part) => part.length > 0);
+      await runAnchoredWrite(this.bridgeDir, segments, {
+        op: "deleteIfPresent",
+        fileName: path.basename(artifactPath),
+        mode: BRIDGE_FILE_MODE
+      });
+      await this.assertArtifactParentDirectory(parentPath);
+      return;
+    }
     const parentHandle = await openNoFollowDirectory(parentPath, "Artifact directory");
     try {
       const targetPath = path.join(directoryFdPath(parentHandle.fd), path.basename(artifactPath));
@@ -1133,14 +1147,37 @@ export class BridgeStore {
       await this.writeTextByStableStorageRename(kind, filePath, content);
       return;
     }
-    throw new Error("Bridge record writes require stable directory file descriptor paths on this platform.");
+    await this.runAnchoredRecordJob(kind, filePath, { op: "writeByRename", content });
   }
 
   private async writeTextByCreateExclusive(kind: BridgeRecordKind, filePath: string, content: string): Promise<boolean> {
     if (hasStableDirectoryFdPaths()) {
       return await this.writeTextByStableStorageLinkIfAbsent(kind, filePath, content);
     }
-    throw new Error("Bridge record writes require stable directory file descriptor paths on this platform.");
+    const outcome = await this.runAnchoredRecordJob(kind, filePath, { op: "linkIfAbsent", content });
+    return outcome.created !== false;
+  }
+
+  /**
+   * Run one record operation in the anchored child, with the same storage
+   * directory checks the in-process path makes on either side of it.
+   */
+  private async runAnchoredRecordJob(
+    kind: BridgeRecordKind,
+    filePath: string,
+    job: { op: AnchoredWriteJob["op"]; content?: string }
+  ): Promise<{ created?: boolean }> {
+    if (path.dirname(filePath) !== this.dir(kind)) {
+      throw new Error(`Bridge record path must stay under .bridge/${kind}`);
+    }
+    await this.assertStorageDirIsRealDirectory(kind);
+    const outcome = await runAnchoredWrite(this.bridgeDir, [kind], {
+      ...job,
+      fileName: path.basename(filePath),
+      mode: BRIDGE_FILE_MODE
+    });
+    await this.assertStorageDirIsRealDirectory(kind);
+    return outcome.ok ? outcome : {};
   }
 
   private async deleteRecordIfPresent(kind: BridgeRecordKind, id: string): Promise<void> {
@@ -1149,6 +1186,10 @@ export class BridgeStore {
     const expectedDir = this.dir(kind);
     if (path.dirname(filePath) !== expectedDir) {
       throw new Error(`Bridge record path must stay under .bridge/${kind}`);
+    }
+    if (!hasStableDirectoryFdPaths()) {
+      await this.runAnchoredRecordJob(kind, filePath, { op: "deleteIfPresent" });
+      return;
     }
     const bridgeHandle = await openNoFollowDirectory(this.bridgeDir, "Bridge directory");
     try {
@@ -1274,6 +1315,10 @@ export class BridgeStore {
     const expectedDir = this.dir(kind);
     if (path.dirname(filePath) !== expectedDir) {
       throw new Error(`Bridge record path must stay under .bridge/${kind}`);
+    }
+    if (!hasStableDirectoryFdPaths()) {
+      await this.runAnchoredRecordJob(kind, filePath, { op: "cleanupTempHardLinks" });
+      return;
     }
     const bridgeHandle = await openNoFollowDirectory(this.bridgeDir, "Bridge directory");
     try {
@@ -1784,6 +1829,71 @@ function probeDirectoryFdBase(): string | undefined {
 /** Exported so a test can hold the probe to what the running platform can do. */
 export function directoryFdPathsUsable(): boolean {
   return hasStableDirectoryFdPaths();
+}
+
+// Running the write in a child process whose cwd the kernel has pinned is how
+// platforms without a traversable /proc/self/fd keep the guarantee the fd path
+// gives everywhere else. See src/store-writer.ts for what the child checks.
+function anchoredWriterCommand(): { command: string; args: string[] } {
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const built = path.join(here, "store-writer.js");
+  if (existsSync(built)) return { command: process.execPath, args: [built] };
+  const source = path.join(here, "store-writer.ts");
+  if (existsSync(source)) {
+    // Only reachable when running from TypeScript sources. The child's cwd is
+    // the bridge directory, so tsx has to be named by absolute URL or Node
+    // looks for it next to the records.
+    const tsx = pathToFileURL(createRequire(import.meta.url).resolve("tsx/esm")).href;
+    return { command: process.execPath, args: ["--import", tsx, source] };
+  }
+  throw new Error("Bridge record writes need the anchored writer, which is missing from this installation.");
+}
+
+async function runAnchoredWrite(
+  bridgeDir: string,
+  segments: string[],
+  job: Omit<AnchoredWriteJob, "anchor" | "segments">
+): Promise<AnchoredWriteOutcome> {
+  const bridgeHandle = await openNoFollowDirectory(bridgeDir, "Bridge directory");
+  let anchor: { dev: string; ino: string };
+  try {
+    const stat = await bridgeHandle.stat({ bigint: true });
+    anchor = { dev: stat.dev.toString(), ino: stat.ino.toString() };
+  } finally {
+    await bridgeHandle.close();
+  }
+  const { command, args } = anchoredWriterCommand();
+  // cwd is resolved by path here, which is exactly the lookup an attacker could
+  // redirect - so the child refuses to proceed unless the directory it landed in
+  // is the inode just measured through the no-follow handle.
+  const child = spawn(command, args, { cwd: bridgeDir, stdio: ["pipe", "pipe", "pipe"] });
+  const stdout: Buffer[] = [];
+  const stderr: Buffer[] = [];
+  child.stdout.on("data", (chunk: Buffer) => stdout.push(chunk));
+  child.stderr.on("data", (chunk: Buffer) => stderr.push(chunk));
+  const finished = new Promise<void>((resolve, reject) => {
+    child.once("error", reject);
+    child.once("close", () => resolve());
+  });
+  child.stdin.end(JSON.stringify({ ...job, anchor, segments }));
+  await finished;
+  const text = Buffer.concat(stdout).toString("utf8").trim();
+  let outcome: AnchoredWriteOutcome | undefined;
+  try {
+    outcome = text.length > 0 ? (JSON.parse(text) as AnchoredWriteOutcome) : undefined;
+  } catch {
+    outcome = undefined;
+  }
+  if (!outcome) {
+    const detail = Buffer.concat(stderr).toString("utf8").trim() || text || "no output";
+    throw new Error(`Bridge record write helper failed: ${detail}`);
+  }
+  if (!outcome.ok) {
+    const error = new Error(outcome.error) as Error & { code?: string };
+    if (outcome.code) error.code = outcome.code;
+    throw error;
+  }
+  return outcome;
 }
 
 function directoryFdPathBase(): string | undefined {

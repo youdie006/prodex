@@ -1499,25 +1499,6 @@ describe("BridgeStore", () => {
       setBridgeStoreTestHooks({});
     }
   });
-
-  it("fails closed when stable directory fd paths are unavailable", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "prodex-store-"));
-    const store = new BridgeStore(root);
-    await store.ensure();
-    const originalPlatform = process.platform;
-    Object.defineProperty(process, "platform", { value: "darwin" });
-    setBridgeStoreTestHooks({ disableDirectoryFdPaths: true });
-
-    try {
-      await expect(store.writeReceipt({ kind: "consult_preview", summary: "Should fail closed" })).rejects.toThrow(
-        /stable directory file descriptor paths/i
-      );
-      await expect(readdir(path.join(root, ".bridge", "receipts"))).resolves.toEqual([]);
-    } finally {
-      Object.defineProperty(process, "platform", { value: originalPlatform });
-      setBridgeStoreTestHooks({});
-    }
-  });
 });
 
 async function expectMode(filePath: string, expectedMode: number): Promise<void> {

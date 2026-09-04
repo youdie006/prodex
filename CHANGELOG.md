@@ -2,7 +2,13 @@
 
 All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).## 0.38.0
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).## 0.38.1
+
+### Fixed
+- The bridge ledger could not be written at all on macOS. Every write - tasks, results, receipts - died with `ENOENT: no such file or directory, open '/dev/fd/11/tasks'`, and `prodex doctor` failed both `mcp_write_smoke` and `http_mcp_smoke` there while passing on Linux. The store writes through an open directory handle rendered as a path, so a record lands in the directory that was validated rather than in one a symlink swap redirected, and it picked that path by asking only whether `/proc/self/fd` or `/dev/fd` exists. macOS has `/dev/fd`, so the check accepted it, but `/dev/fd/N` there stands in for the descriptor and not for a walkable directory. Measured on two Macs: `/proc/self/fd` absent, `/dev/fd` present and not traversable. The base is now chosen by traversing it.
+- Writes work on platforms with no traversable descriptor directory, instead of refusing. The record operation runs in a child process started in the target directory, which refuses to continue unless `.` is the inode the parent validated through a no-symlink handle and then descends one non-symlink segment at a time, re-checking the inode after each step. The kernel pins the working directory, so relative paths cannot be redirected afterwards - the same guarantee the descriptor path gives elsewhere. Verified on macOS: the ledger writes, both doctor smokes pass with all 18 tools, and a storage directory swapped for a symlink to somewhere else is still refused with nothing written outside.
+
+## 0.38.0
 
 ### Added
 - `pro browser models` lists every step of the effort slider, not just the one it happens to show. The slider reveals a single step at a time, and that lone label was the whole listing - which is how a machine on this account concluded "Pro does not exist here" from five listings that each read Instant / GPT-5.6 Sol / GPT-5.5 with the slider parked on Instant, and how prodex's own pinned-default check cried about a Pro the very next send used to answer. The listing now walks the control and puts it back, so the answer is definite. Live: `Instant / Medium / High / Extra High / Pro`. The model rows above it read "Pro" while the slider sits there and "Instant" when it does not, which is the mechanism that misled both readers. Walking someone's setting is only acceptable if it is returned, so the walk always ends where it started, and bounds that do not look like this control are refused rather than turned into thousands of keystrokes.
