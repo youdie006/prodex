@@ -2,7 +2,16 @@
 
 All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).## 0.39.0
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).## 0.39.1
+
+### Fixed
+- prodex could be driving a picker that has no Pro in it without anything saying so. ChatGPT grew a Chat/Work toggle and the two surfaces carry different pickers - measured on one account minutes apart, Chat offers Latest / GPT-5.6 Sol / GPT-5.5 with Pro at the top of a five-step slider, while Work offers Default / GPT-6 Astra / GPT-5.6 Sol / Terra / Luna / GPT-5.5 with a six-step slider whose top is Ultra and which contains no Pro at all. A browser that had drifted onto Work is what convinced two machines that Pro had been removed from the account. Sends now put the browser back on Chat before looking for a model or an effort, and say so in the receipt; `pro browser models` names the surface it read rather than switching, because it is read-only.
+- Reading the ladder walks the slider, and the walk was put back by replaying a precomputed number of presses - which an interruption skipped, leaving the setting wherever the walk stopped. One run left a slider on High that had been on Pro. It is now returned by measuring the position and correcting until it matches, so a walk that dies part way still ends where it started.
+
+### Changed
+- The Max and Ultra steps added in 0.39.0 are Work's slider, not Chat's. They stay in the vocabulary because that surface is real and reachable, but Chat's top step is Pro and that is what `--effort Pro` selects.
+
+## 0.39.0
 
 ### Fixed
 - The composer picker was read wrong after ChatGPT replaced it. One slider now walks a ladder of model-and-effort pairs together, and the row naming the current pick sits beside the slider rather than owning it, so prodex read that row's first line - the model - as the effort. `pro browser models` announced "Extra High" as a model, listed a model named "Latest" that does not exist, and missed GPT-6 Astra, GPT-5.6 Terra and GPT-5.6 Luna entirely. The pick is now read from the pair row, models are listed from the radios alone, and the walk records every rung instead of collapsing repeats - measured live, six positions carrying only three distinct effort names, which the old listing reported as three steps.

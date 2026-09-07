@@ -97,3 +97,31 @@ export function menuKeyboardStep(input: MenuKeyboardStepInput): "select" | "down
   }
   return pressed < limit ? "down" : "exhausted";
 }
+
+/**
+ * One move towards putting the power slider back where the walk found it.
+ *
+ * Driven by the position actually read rather than by a replayed count, so an
+ * interrupted walk still converges instead of abandoning the setting wherever
+ * it stopped.
+ */
+export function sliderRestoreStep(input: { current?: number; target?: number }): "left" | "right" | "done" {
+  const { current, target } = input;
+  if (!Number.isInteger(current) || !Number.isInteger(target)) return "done";
+  if (current === target) return "done";
+  return (current as number) > (target as number) ? "left" : "right";
+}
+
+/**
+ * Decide whether the browser needs putting back on ChatGPT's Chat surface.
+ *
+ * Chat and Work have different model pickers - Work's has no Pro at all - so a
+ * browser that has drifted onto Work silently drives the wrong one.
+ */
+export function chatSurfaceChoice(
+  surfaces: readonly { label: string; checked: boolean }[]
+): "already-chat" | "switch-to-chat" | "no-toggle" {
+  const chat = surfaces.find((surface) => surface.label.trim().toLowerCase() === "chat");
+  if (!chat) return "no-toggle";
+  return chat.checked ? "already-chat" : "switch-to-chat";
+}

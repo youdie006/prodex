@@ -554,6 +554,9 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
           });
           throw new Error(blocker.next_step ? `${blocker.message} Next: ${blocker.next_step}` : errorMessage(error));
         }
+        if (listed.surface) {
+          io.stdout(`Read from ChatGPT's ${listed.surface} surface. Chat and Work have different pickers - only one of them offers Pro.`);
+        }
         io.stdout("Model menu options in the visible ChatGPT tab (read-only; nothing was selected):");
         for (const option of listed.options) {
           io.stdout(formatModelMenuOption(option));

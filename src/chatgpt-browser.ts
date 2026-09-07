@@ -8,7 +8,7 @@ import path from "node:path";
 import { captureBrowserDiagnostics, diagnosticsEnabled, diagnosticsNote } from "./browser-diagnostics.js";
 import os from "node:os";
 
-import { menuKeyboardStep, readPowerSliderSelection } from "./picker-interaction.js";
+import { chatSurfaceChoice, menuKeyboardStep, readPowerSliderSelection, sliderRestoreStep } from "./picker-interaction.js";
 
 export interface ChatGptBrowserOptions {
   port?: number;
@@ -81,6 +81,8 @@ export type ChatGptProMode = "기본" | "확장";
 // answered with advice to "say --effort Pro", which then failed.
 /** A full trip round the menu is far more than any real picker needs. */
 const MENU_KEYBOARD_WALK_LIMIT = 16;
+/** Enough presses to cross any slider this code accepts, twice over. */
+const POWER_SLIDER_RESTORE_ATTEMPTS = 26;
 // Two more rungs than before. Measured live: with the model row chosen rather
 // than the recommended set, the slider reads Light / Medium / High / Extra High
 // / Max / Ultra, and Ultra is the top of the machine. Pro is kept because older
@@ -1844,6 +1846,21 @@ export function activeMenuItemExpression(): string {
   })()`;
 }
 
+export function chatWorkSurfaceExpression(): string {
+  return `(() => {${CLICK_POINT_SNIPPET}
+    const buttons = [...document.querySelectorAll('[role="radio"],[role="tab"]')].filter((el) => {
+      const t = ((el.innerText || el.textContent || "").trim());
+      return t === "Chat" || t === "Work";
+    });
+    const surfaces = buttons.map((el) => ({
+      label: ((el.innerText || el.textContent || "").trim()),
+      checked: el.getAttribute("aria-checked") === "true" || el.getAttribute("aria-selected") === "true"
+    }));
+    const chat = buttons.find((el) => ((el.innerText || el.textContent || "").trim()) === "Chat");
+    return { surfaces, chat: chat ? clickPoint(chat) : { ok: false, reason: "no Chat toggle" } };
+  })()`;
+}
+
 export function powerSliderPresentExpression(): string {
   return `Boolean(document.querySelector('[data-testid="composer-intelligence-picker-content"] [role="slider"]'))`;
 }
@@ -2227,6 +2244,31 @@ async function selectPickerModel(cdp: CdpConnection, requested: string, warnings
  * without this the step that follows reported "the picker did not expose its
  * power slider" on a picker that was simply shut.
  */
+/**
+ * Put the browser back on ChatGPT's Chat surface when it has drifted onto Work.
+ *
+ * The two have different pickers - Work's offers no Pro at all - and nothing on
+ * the page announces which one is live, so a drifted browser silently drives
+ * the wrong picker. Returns a warning to carry to the caller when it moved.
+ */
+async function ensureChatSurface(cdp: CdpConnection): Promise<string | undefined> {
+  let probe: { surfaces: { label: string; checked: boolean }[]; chat: RectHit } | undefined;
+  try {
+    probe = await cdp.evaluate(chatWorkSurfaceExpression());
+  } catch {
+    return undefined;
+  }
+  if (!probe) return undefined;
+  if (chatSurfaceChoice(probe.surfaces ?? []) !== "switch-to-chat") return undefined;
+  const chat = probe.chat;
+  if (!chat?.ok || chat.x === undefined || chat.y === undefined) {
+    return "ChatGPT is on its Work surface, whose picker offers different models and no Pro, and the Chat toggle could not be clicked.";
+  }
+  await verifiedClickAt(cdp, chat.x, chat.y, "Chat surface toggle");
+  await sleep(1_500);
+  return "ChatGPT was on its Work surface, whose picker offers different models and no Pro. Switched back to Chat.";
+}
+
 async function ensurePickerOpen(cdp: CdpConnection): Promise<boolean> {
   // The slider, not the menu, is what the caller needs - and an open menu that
   // has not painted its slider yet looks identical to one that has.
@@ -2324,6 +2366,10 @@ async function selectModelReasoning(
   selectionWarnings: string[] = []
 ): Promise<void> {
   if (!options.model && !options.proMode && !options.effort) return;
+  // Which surface is live decides which picker exists at all, so settle that
+  // before looking for anything in it.
+  const surfaceWarning = await ensureChatSurface(cdp);
+  if (surfaceWarning) selectionWarnings.push(surfaceWarning);
   // --pro-mode selects a Pro sub-mode, so it is meaningless with a non-Pro
   // --model. Fail loudly instead of silently dropping the requested sub-mode.
   if (options.proMode && options.model && !/pro/i.test(options.model)) {
@@ -3462,6 +3508,8 @@ export interface ListChatGptModelOptionsResult {
   options: ChatGptModelOption[];
   /** Every step of the effort slider, in order, when it could be walked. */
   effortSteps?: { rungs: PowerLadderRung[]; current: string | null };
+  /** Which of ChatGPT's surfaces this was read from - they have different pickers. */
+  surface?: string;
 }
 
 export function modelMenuOptionsExpression(): string {
@@ -3941,22 +3989,22 @@ export async function listChatGptSidebarProjects(input: { port?: number; timeout
  * listing exactly as it was rather than failing a read-only command.
  */
 async function readEffortSteps(cdp: CdpConnection): Promise<{ rungs: PowerLadderRung[]; current: string | null } | undefined> {
+  const focused = await cdp.evaluate<{ ok: boolean }>(focusPowerSliderExpression());
+  if (!focused?.ok) return undefined;
+  const start = await cdp.evaluate<PowerSliderState>(powerSliderStateExpression());
+  if (!start?.ok) return undefined;
+  const plan = sliderWalkPlan({ position: start.position, min: start.min, max: start.max });
+  if (!plan) return undefined;
+  const current = start.effort ?? null;
+  const startedAt = start.position;
   try {
-    const focused = await cdp.evaluate<{ ok: boolean }>(focusPowerSliderExpression());
-    if (!focused?.ok) return undefined;
-    const start = await cdp.evaluate<PowerSliderState>(powerSliderStateExpression());
-    if (!start?.ok) return undefined;
-    const plan = sliderWalkPlan({ position: start.position, min: start.min, max: start.max });
-    if (!plan) return undefined;
-    const current = start.effort ?? null;
     for (let i = 0; i < plan.toBottom; i += 1) {
       await dispatchArrowKey(cdp, "ArrowLeft");
       await sleep(120);
     }
-    // Every position is recorded, including repeats. One slider now walks a
-    // ladder of model-and-effort pairs, so "Light" is three different rungs -
-    // collapsing by label turned six positions into three and lost which model
-    // each one sends with.
+    // Every position is recorded, including repeats. The slider can walk a
+    // ladder of model-and-effort pairs, so one effort name is several rungs -
+    // collapsing by label lost which model each one would send with.
     const rungs: PowerLadderRung[] = [];
     const record = async (): Promise<void> => {
       const state = await cdp.evaluate<PowerSliderState>(powerSliderStateExpression());
@@ -3971,14 +4019,34 @@ async function readEffortSteps(cdp: CdpConnection): Promise<{ rungs: PowerLadder
       await sleep(220);
       await record();
     }
-    // Put it back. Reading someone's setting must not change it.
-    for (let i = 0; i < plan.climb - plan.back; i += 1) {
-      await dispatchArrowKey(cdp, "ArrowLeft");
-      await sleep(120);
-    }
     return rungs.length > 0 ? { rungs, current } : undefined;
   } catch {
     return undefined;
+  } finally {
+    // Whatever happened above, the setting goes back. Replaying a precomputed
+    // count skipped this whenever the walk was interrupted, and one run left a
+    // slider on High that had been on Pro.
+    await restorePowerSlider(cdp, startedAt);
+  }
+}
+
+async function restorePowerSlider(cdp: CdpConnection, target?: number): Promise<void> {
+  for (let guard = 0; guard < POWER_SLIDER_RESTORE_ATTEMPTS; guard += 1) {
+    let state: PowerSliderState | undefined;
+    try {
+      state = await cdp.evaluate<PowerSliderState>(powerSliderStateExpression());
+    } catch {
+      return;
+    }
+    if (!state?.ok) return;
+    const move = sliderRestoreStep({ ...(state.position !== undefined ? { current: state.position } : {}), ...(target !== undefined ? { target } : {}) });
+    if (move === "done") return;
+    try {
+      await dispatchArrowKey(cdp, move === "left" ? "ArrowLeft" : "ArrowRight");
+    } catch {
+      return;
+    }
+    await sleep(150);
   }
 }
 
@@ -4013,7 +4081,17 @@ export async function listChatGptModelOptions(input: { port?: number; timeoutMs?
       if (!opened) throw new Error("ChatGPT model menu did not open after clicking the selector");
       const options = await cdp.evaluate<ChatGptModelOption[]>(modelMenuOptionsExpression());
       const effortSteps = await readEffortSteps(cdp);
-      return { url: status.url, options, ...(effortSteps ? { effortSteps } : {}) };
+      // Chat and Work have different pickers - Work's offers no Pro - and a
+      // listing that does not say which one it read is how a browser sitting on
+      // Work convinced two machines that Pro had been removed from the account.
+      let surface: string | undefined;
+      try {
+        const probe = await cdp.evaluate<{ surfaces?: { label: string; checked: boolean }[] }>(chatWorkSurfaceExpression());
+        surface = probe?.surfaces?.find((entry) => entry.checked)?.label;
+      } catch {
+        // the toggle predates some builds; saying nothing is right there
+      }
+      return { url: status.url, options, ...(effortSteps ? { effortSteps } : {}), ...(surface ? { surface } : {}) };
     } finally {
       try {
         await dispatchEscapeKey(cdp);
