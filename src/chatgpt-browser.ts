@@ -96,9 +96,9 @@ const REASONING_EFFORT_ALIASES: Record<string, ChatGptReasoningEffort> = {
   medium: "중간",
   high: "높음",
   extrahigh: "매우 높음",
+  max: "매우 높음",
   light: "즉시",
   "가벼움": "즉시",
-  max: "Max",
   "최대": "Max",
   ultra: "Ultra",
   "울트라": "Ultra",
@@ -115,7 +115,7 @@ const EFFORT_MENU_LABELS: Record<ChatGptReasoningEffort, readonly string[]> = {
   "매우 높음": ["매우 높음", "Extra High"],
   Max: ["Max", "최대"],
   Ultra: ["Ultra", "울트라"],
-  Pro: ["Pro", "프로"]
+  Pro: ["Pro", "프로", "6-pro", "GPT-6 Pro", "6 Pro"]
 };
 
 const PRO_MODE_SUBMENU_LABELS: Record<ChatGptProMode, readonly string[]> = {

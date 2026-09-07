@@ -126,8 +126,8 @@ describe("parseReasoningEffort", () => {
     expect(parseReasoningEffort("instant")).toBe("즉시");
     expect(parseReasoningEffort("Medium")).toBe("중간");
     expect(parseReasoningEffort("HIGH")).toBe("높음");
-    expect(parseReasoningEffort("max")).toBe("Max");
-    expect(parseReasoningEffort("extrahigh")).toBe("매우 높음");
+    expect(parseReasoningEffort("max")).toBe("매우 높음");
+    expect(parseReasoningEffort("Max")).toBe("Max");
   });
 
   it("accepts the English menu labels as verified in the English UI", () => {
