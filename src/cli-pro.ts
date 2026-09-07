@@ -560,11 +560,18 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
         }
         if (listed.effortSteps) {
           io.stdout("");
-          io.stdout("Effort steps on this account (the slider was walked and put back):");
-          for (const label of listed.effortSteps.labels) {
-            io.stdout(`${label === listed.effortSteps.current ? "*" : " "} ${label}`);
+          // One slider walks a ladder of model-and-effort pairs, so the same
+          // effort name appears at more than one rung with a different model
+          // behind it. Printing bare names hid that.
+          io.stdout("Power slider on this account (the slider was walked and put back):");
+          const rungs = listed.effortSteps.rungs;
+          const width = String(rungs.length).length;
+          for (const rung of rungs) {
+            const here = rung.effort === listed.effortSteps.current ? "*" : " ";
+            const step = String(rung.position + 1).padStart(width, " ");
+            io.stdout(`${here} ${step}/${rungs.length}  ${rung.model ?? "?"}  -  ${rung.effort}`);
           }
-          io.stdout("Pass any of these to --effort. The list is complete: the slider shows one step at a time, so reading it any other way sees only the current one.");
+          io.stdout("Each row is one position of that single slider: it sets the model and the effort together, so they cannot be chosen apart. The list is complete - the slider shows one position at a time, so reading it any other way sees only the current one.");
         } else {
           io.stdout("An arrow shows what that row is set to now; --model / --effort reach into those submenus (e.g. --model Pro).");
         }

@@ -8,7 +8,7 @@ import path from "node:path";
 import { captureBrowserDiagnostics, diagnosticsEnabled, diagnosticsNote } from "./browser-diagnostics.js";
 import os from "node:os";
 
-import { readPowerSliderSelection } from "./picker-interaction.js";
+import { menuKeyboardStep, readPowerSliderSelection } from "./picker-interaction.js";
 
 export interface ChatGptBrowserOptions {
   port?: number;
@@ -71,7 +71,7 @@ export class ChatGptBrowserBlockerError extends Error {
   }
 }
 
-export type ChatGptReasoningEffort = "즉시" | "중간" | "높음" | "매우 높음" | "Pro";
+export type ChatGptReasoningEffort = "즉시" | "중간" | "높음" | "매우 높음" | "Max" | "Ultra" | "Pro";
 export type ChatGptProMode = "기본" | "확장";
 
 // Five steps, not four. Measured at both ends of the live slider: position 0 of
@@ -79,7 +79,13 @@ export type ChatGptProMode = "기본" | "확장";
 // of this control rather than a model. Leaving it out meant --effort could not
 // reach the top of the slider at all, and the only route there - --model Pro -
 // answered with advice to "say --effort Pro", which then failed.
-const REASONING_EFFORTS: readonly ChatGptReasoningEffort[] = ["즉시", "중간", "높음", "매우 높음", "Pro"];
+/** A full trip round the menu is far more than any real picker needs. */
+const MENU_KEYBOARD_WALK_LIMIT = 16;
+// Two more rungs than before. Measured live: with the model row chosen rather
+// than the recommended set, the slider reads Light / Medium / High / Extra High
+// / Max / Ultra, and Ultra is the top of the machine. Pro is kept because older
+// pickers still name the top step that way.
+const REASONING_EFFORTS: readonly ChatGptReasoningEffort[] = ["즉시", "중간", "높음", "매우 높음", "Max", "Ultra", "Pro"];
 const PRO_MODES: readonly ChatGptProMode[] = ["기본", "확장"];
 
 // Aliases map friendly CLI input onto the exact Korean menu labels the picker
@@ -89,8 +95,13 @@ const REASONING_EFFORT_ALIASES: Record<string, ChatGptReasoningEffort> = {
   instant: "즉시",
   medium: "중간",
   high: "높음",
-  max: "매우 높음",
   extrahigh: "매우 높음",
+  light: "즉시",
+  "가벼움": "즉시",
+  max: "Max",
+  "최대": "Max",
+  ultra: "Ultra",
+  "울트라": "Ultra",
   pro: "Pro",
   "프로": "Pro"
 };
@@ -98,10 +109,12 @@ const REASONING_EFFORT_ALIASES: Record<string, ChatGptReasoningEffort> = {
 // Menu labels per canonical value, verified live in both the Korean and the
 // English (US) ChatGPT UI. Matching tries every candidate so either UI works.
 const EFFORT_MENU_LABELS: Record<ChatGptReasoningEffort, readonly string[]> = {
-  "즉시": ["즉시", "Instant"],
+  "즉시": ["즉시", "Instant", "Light"],
   "중간": ["중간", "Medium"],
   "높음": ["높음", "High"],
   "매우 높음": ["매우 높음", "Extra High"],
+  Max: ["Max", "최대"],
+  Ultra: ["Ultra", "울트라"],
   Pro: ["Pro", "프로"]
 };
 
@@ -122,7 +135,7 @@ export function parseReasoningEffort(raw: string): ChatGptReasoningEffort {
   if (match) return match;
   const alias = REASONING_EFFORT_ALIASES[trimmed.toLowerCase().replace(/\s+/g, "")];
   if (alias) return alias;
-  throw new Error(`--effort must be one of ${REASONING_EFFORTS.join(", ")} (English aliases: instant, medium, high, max)`);
+  throw new Error(`--effort must be one of ${REASONING_EFFORTS.join(", ")} (English aliases: instant/light, medium, high, extrahigh, max, ultra)`);
 }
 
 /** Normalize a CLI Pro sub-mode value onto the exact ChatGPT menu label. */
@@ -1820,6 +1833,42 @@ export function powerSliderStateExpression(): string {
   })()`;
 }
 
+export function activeMenuItemExpression(): string {
+  return `(() => {
+    const a = document.activeElement;
+    if (!a) return null;
+    const menu = document.querySelector('[data-testid="composer-intelligence-picker-content"]');
+    if (menu && !menu.contains(a)) return null;
+    const label = ((a.innerText || a.textContent || "").trim().split(String.fromCharCode(10))[0] || "").trim();
+    return { role: a.getAttribute("role"), label };
+  })()`;
+}
+
+export function powerSliderPresentExpression(): string {
+  return `Boolean(document.querySelector('[data-testid="composer-intelligence-picker-content"] [role="slider"]'))`;
+}
+
+export function pickerClosedExpression(): string {
+  return `!document.querySelector('[data-testid="composer-intelligence-picker-content"]')`;
+}
+
+export function focusPickerMenuExpression(): string {
+  return `(() => {
+    const menu = document.querySelector('[data-testid="composer-intelligence-picker-content"]');
+    if (!menu) return { ok: false, reason: "picker menu not open" };
+    // Leave the focus the menu gave itself. It opens on the checked model row,
+    // and ArrowDown from there walks the model list. Focusing the first item
+    // instead lands on the label row above the slider, where ArrowDown only
+    // cycles that row's own widgets - measured as four steps that repeat
+    // forever and never reach a radio.
+    if (menu.contains(document.activeElement)) return { ok: true };
+    const radios = [...menu.querySelectorAll('[role="menuitemradio"]')];
+    const target = radios.find((r) => r.getAttribute("aria-checked") === "true") || radios[0];
+    if (target && typeof target.focus === "function") target.focus();
+    return { ok: menu.contains(document.activeElement) };
+  })()`;
+}
+
 export function focusPowerSliderExpression(): string {
   return `(() => {
     const slider = document.querySelector('[role="slider"]');
@@ -1985,6 +2034,13 @@ async function assertSelectionCommitted(cdp: CdpConnection, label: string): Prom
 }
 
 
+/** One position of the composer's power slider: which model, at what effort. */
+export interface PowerLadderRung {
+  position: number;
+  model: string | null;
+  effort: string;
+}
+
 interface PowerSliderState {
   ok: boolean;
   reason?: string;
@@ -2114,7 +2170,44 @@ export function stepSelectionUnavailableWarning(requested: string | undefined, o
   );
 }
 
+/**
+ * Choose a model row through the menu's roving focus.
+ *
+ * The rows carry pointer-events: none and sit outside the menu's box, so
+ * verifiedClickAt refuses them and .focus() is declined. ArrowDown from the row
+ * the menu opens on does reach them, and Enter commits. Doing this BEFORE the
+ * slider matters: with the recommended set active the slider walks a short
+ * mixed ladder ending at Extra High, and picking the model swaps in that
+ * model's own ladder, which continues past it.
+ */
+async function selectPickerModelByKeyboard(cdp: CdpConnection, candidates: readonly string[]): Promise<boolean> {
+  const focused = await cdp.evaluate<{ ok: boolean }>(focusPickerMenuExpression());
+  if (!focused?.ok) return false;
+  const limit = MENU_KEYBOARD_WALK_LIMIT;
+  for (let pressed = 0; ; pressed += 1) {
+    const active = await cdp.evaluate<{ role: string | null; label: string } | null>(activeMenuItemExpression());
+    const move = menuKeyboardStep({ active, requested: candidates, pressed, limit });
+    if (move === "exhausted") return false;
+    if (move === "select") {
+      await dispatchMenuKey(cdp, "Enter", 13);
+      // Committing closes the menu. Waiting for it to finish closing keeps the
+      // reopen below from landing mid-animation and toggling it shut again.
+      await waitForExpressionTrue(cdp, pickerClosedExpression(), 3_000);
+      return true;
+    }
+    await dispatchMenuKey(cdp, "ArrowDown", 40);
+    await sleep(140);
+  }
+}
+
+async function dispatchMenuKey(cdp: CdpConnection, key: string, code: number): Promise<void> {
+  for (const type of ["keyDown", "keyUp"] as const) {
+    await cdp.send("Input.dispatchKeyEvent", { type, key, code: key, windowsVirtualKeyCode: code });
+  }
+}
+
 async function selectPickerModel(cdp: CdpConnection, requested: string, warnings: string[] = []): Promise<void> {
+  if (await selectPickerModelByKeyboard(cdp, [requested])) return;
   const hit = await cdp.evaluate<RectHit>(menuItemRectExpression(requested));
   if (!hit.ok || hit.x === undefined || hit.y === undefined) {
     const unavailable = modelSelectionUnavailableWarning(requested, hit.reason ?? "", hit.available);
@@ -2125,6 +2218,27 @@ async function selectPickerModel(cdp: CdpConnection, requested: string, warnings
     throw new Error(hit.reason ?? `ChatGPT's model picker has no "${requested}" model.`);
   }
   await verifiedClickWithRetry(cdp, () => cdp.evaluate<RectHit>(menuItemRectExpression(requested)), requested);
+}
+
+/**
+ * Make sure the composer picker is open, reopening it if it is not.
+ *
+ * Committing a model row closes the menu, and the slider lives inside it - so
+ * without this the step that follows reported "the picker did not expose its
+ * power slider" on a picker that was simply shut.
+ */
+async function ensurePickerOpen(cdp: CdpConnection): Promise<boolean> {
+  // The slider, not the menu, is what the caller needs - and an open menu that
+  // has not painted its slider yet looks identical to one that has.
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    if (await cdp.evaluate<boolean>(powerSliderPresentExpression())) return true;
+    await waitForExpressionTrue(cdp, pickerClosedExpression(), 1_500);
+    const button = await cdp.evaluate<RectHit>(modelButtonRectExpression());
+    if (!button.ok || button.x === undefined || button.y === undefined) return false;
+    await verifiedClickAt(cdp, button.x, button.y, "model selector");
+    if (await waitForExpressionTrue(cdp, powerSliderPresentExpression(), MENU_OPEN_TIMEOUT_MS)) return true;
+  }
+  return false;
 }
 
 async function selectPowerStep(cdp: CdpConnection, requested: string): Promise<{ effort?: string | null }> {
@@ -2244,7 +2358,11 @@ async function selectModelReasoning(
     // the whole send). Retry briefly with FRESH coordinates; a persistent
     // cover still fails with the refusal message.
     const clickDeadline = Date.now() + 5_000;
-    for (;;) {
+    // Clicking the trigger TOGGLES the picker, so clicking one that is already
+    // open shuts it and the next step reports "power slider not found" about a
+    // control that was on screen a moment earlier.
+    const alreadyOpen = await cdp.evaluate<boolean>(powerSliderPresentExpression());
+    for (; !alreadyOpen; ) {
       try {
         await verifiedClickAt(cdp, button.x!, button.y!, "model selector");
         break;
@@ -2272,7 +2390,16 @@ async function selectModelReasoning(
         ...(options.effort !== undefined ? { effort: options.effort } : {})
       });
       if (plan.warning) selectionWarnings.push(plan.warning);
+      // The model goes first: choosing it replaces the ladder the slider walks,
+      // so a step picked before it would be a step of the old ladder.
+      if (plan.modelLabel) {
+        await selectPickerModel(cdp, plan.modelLabel, selectionWarnings);
+      }
       if (plan.sliderLabel) {
+        // Committing the model closed the menu; the slider is inside it.
+        if (!(await ensurePickerOpen(cdp))) {
+          throw new Error("ChatGPT's model picker would not reopen after the model was chosen.");
+        }
         try {
           await selectPowerStep(cdp, plan.sliderLabel);
         } catch (error) {
@@ -2284,9 +2411,6 @@ async function selectModelReasoning(
           const offered = /It showed: (.*)$/.exec(message)?.[1]?.split(" / ").map((part) => part.trim()) ?? [];
           selectionWarnings.push(stepSelectionUnavailableWarning(plan.sliderLabel, offered)!);
         }
-      }
-      if (plan.modelLabel) {
-        await selectPickerModel(cdp, plan.modelLabel, selectionWarnings);
       }
       // This branch cannot honour a sub-mode, and used to return without
       // saying so - the caller got a clean receipt for a 확장 it never got.
@@ -3337,14 +3461,18 @@ export interface ListChatGptModelOptionsResult {
   url: string;
   options: ChatGptModelOption[];
   /** Every step of the effort slider, in order, when it could be walked. */
-  effortSteps?: { labels: string[]; current: string | null };
+  effortSteps?: { rungs: PowerLadderRung[]; current: string | null };
 }
 
 export function modelMenuOptionsExpression(): string {
   return `(() => {
     const m = document.querySelector('[data-testid="composer-intelligence-picker-content"]');
     if (!m) return [];
-    return [...m.querySelectorAll('[role="menuitemradio"],[role="menuitem"]')]
+    // Only the radios are models. The plain menuitems above them are the power
+    // slider's own rows - its track, and the label pair naming the current model
+    // and effort - and listing those put GPT-6 Astra in twice and Extra High in
+    // as if it were a model.
+    return [...m.querySelectorAll('[role="menuitemradio"]')]
       .map((it) => {
         // A submenu row renders as label over value ("Model" / "GPT-5.6 Sol"),
         // and the value is the part a person actually wants to read.
@@ -3812,7 +3940,7 @@ export async function listChatGptSidebarProjects(input: { port?: number; timeout
  * Best effort: a slider that cannot be focused, read or walked leaves the
  * listing exactly as it was rather than failing a read-only command.
  */
-async function readEffortSteps(cdp: CdpConnection): Promise<{ labels: string[]; current: string | null } | undefined> {
+async function readEffortSteps(cdp: CdpConnection): Promise<{ rungs: PowerLadderRung[]; current: string | null } | undefined> {
   try {
     const focused = await cdp.evaluate<{ ok: boolean }>(focusPowerSliderExpression());
     if (!focused?.ok) return undefined;
@@ -3825,16 +3953,22 @@ async function readEffortSteps(cdp: CdpConnection): Promise<{ labels: string[]; 
       await dispatchArrowKey(cdp, "ArrowLeft");
       await sleep(120);
     }
-    const labels: string[] = [];
+    // Every position is recorded, including repeats. One slider now walks a
+    // ladder of model-and-effort pairs, so "Light" is three different rungs -
+    // collapsing by label turned six positions into three and lost which model
+    // each one sends with.
+    const rungs: PowerLadderRung[] = [];
     const record = async (): Promise<void> => {
       const state = await cdp.evaluate<PowerSliderState>(powerSliderStateExpression());
-      const label = state?.effort?.trim();
-      if (label && !labels.includes(label)) labels.push(label);
+      if (!state?.ok) return;
+      const effort = state.effort?.trim();
+      if (!effort) return;
+      rungs.push({ position: state.position ?? rungs.length, model: state.model?.trim() || null, effort });
     };
     await record();
     for (let i = 0; i < plan.climb; i += 1) {
       await dispatchArrowKey(cdp, "ArrowRight");
-      await sleep(120);
+      await sleep(220);
       await record();
     }
     // Put it back. Reading someone's setting must not change it.
@@ -3842,7 +3976,7 @@ async function readEffortSteps(cdp: CdpConnection): Promise<{ labels: string[]; 
       await dispatchArrowKey(cdp, "ArrowLeft");
       await sleep(120);
     }
-    return labels.length > 0 ? { labels, current } : undefined;
+    return rungs.length > 0 ? { rungs, current } : undefined;
   } catch {
     return undefined;
   }

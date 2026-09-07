@@ -13,7 +13,7 @@ const BrowserDefaultsSchema = z.object({
   model: z.string().min(1).optional(),
   pro_mode: z.enum(["기본", "확장"]).optional(),
   // Pro is the slider's fifth step, so a saved default may name it.
-  effort: z.enum(["즉시", "중간", "높음", "매우 높음", "Pro"]).optional(),
+  effort: z.enum(["즉시", "중간", "높음", "매우 높음", "Max", "Ultra", "Pro"]).optional(),
   project: z.string().min(1).optional()
 });
 
@@ -53,7 +53,7 @@ export interface WriteLocalConfigInput {
   browserDefaults?: {
     model?: string;
     proMode?: "기본" | "확장";
-    effort?: "즉시" | "중간" | "높음" | "매우 높음" | "Pro";
+    effort?: "즉시" | "중간" | "높음" | "매우 높음" | "Max" | "Ultra" | "Pro";
     project?: string;
   };
 }

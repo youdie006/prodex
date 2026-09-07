@@ -2,7 +2,22 @@
 
 All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).## 0.38.1
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).## 0.39.0
+
+### Fixed
+- The composer picker was read wrong after ChatGPT replaced it. One slider now walks a ladder of model-and-effort pairs together, and the row naming the current pick sits beside the slider rather than owning it, so prodex read that row's first line - the model - as the effort. `pro browser models` announced "Extra High" as a model, listed a model named "Latest" that does not exist, and missed GPT-6 Astra, GPT-5.6 Terra and GPT-5.6 Luna entirely. The pick is now read from the pair row, models are listed from the radios alone, and the walk records every rung instead of collapsing repeats - measured live, six positions carrying only three distinct effort names, which the old listing reported as three steps.
+- `--effort` reached for a menu item that is now a slider position, which dragged the control to the bottom of the ladder. Measured after one send: the slider sat at 1 of 6 (GPT-5.6 Terra, Light) when Extra High had been asked for.
+- Clicking the picker's trigger toggles it, so a picker that was already open was shut by the click meant to open it, and the next step reported "power slider not found" about a control that had been on screen. The trigger is only clicked when the slider is not already there.
+
+### Added
+- `pro browser models` prints the ladder by position - `4/6  GPT-6 Astra  -  Extra High` - because the same effort name appears at more than one rung with a different model behind it, and bare names hid which model a rung would send with.
+- `--effort` accepts `Max` and `Ultra`, the two rungs above Extra High. They appear once a model row is chosen rather than the recommended set: with the set active the slider walks a short mixed ladder that ends at Extra High, and choosing the model swaps in that model's own ladder, which continues past it. Verified live at the top: `thinking_effort: ultra` on `gpt-6-astra-wm`. `max` now aliases the step that carries its name; `extrahigh` still reaches 매우 높음.
+- A test that every expression prodex evaluates in the page parses as JavaScript. One built with `\n` inside a comment shipped and turned the rest of the sentence into code, and every `pro browser models` run died with a bare "Runtime.evaluate failed" that named neither the expression nor the error.
+
+### Known limitation
+- Choosing a model row is still not possible from prodex. The rows carry `pointer-events: none`, sit outside the menu's box, refuse `.focus()`, and ignore a synthesised pointer sequence; menu focus entered from the trigger cycles the slider row's own widgets without ever reaching them. Since the top rungs only exist under an explicitly chosen model, reaching them needs that model picked in the browser once by hand - after which `--effort Ultra` drives the slider to it.
+
+## 0.38.1
 
 ### Fixed
 - The bridge ledger could not be written at all on macOS. Every write - tasks, results, receipts - died with `ENOENT: no such file or directory, open '/dev/fd/11/tasks'`, and `prodex doctor` failed both `mcp_write_smoke` and `http_mcp_smoke` there while passing on Linux. The store writes through an open directory handle rendered as a path, so a record lands in the directory that was validated rather than in one a symlink swap redirected, and it picked that path by asking only whether `/proc/self/fd` or `/dev/fd` exists. macOS has `/dev/fd`, so the check accepted it, but `/dev/fd/N` there stands in for the descriptor and not for a walkable directory. Measured on two Macs: `/proc/self/fd` absent, `/dev/fd` present and not traversable. The base is now chosen by traversing it.

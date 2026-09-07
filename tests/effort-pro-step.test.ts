@@ -20,18 +20,23 @@ describe("Pro as a step of the effort slider", () => {
   it("still accepts the four it always did", () => {
     expect(parseReasoningEffort("즉시")).toBe("즉시");
     expect(parseReasoningEffort("매우 높음")).toBe("매우 높음");
-    expect(parseReasoningEffort("max")).toBe("매우 높음");
+    // "max" used to be the alias for the old top step. The slider grew two
+    // rungs above it - measured live as Max then Ultra - so the alias now
+    // reaches the step that carries its name, and 매우 높음 keeps "extrahigh".
+    expect(parseReasoningEffort("max")).toBe("Max");
+    expect(parseReasoningEffort("extrahigh")).toBe("매우 높음");
+    expect(parseReasoningEffort("ultra")).toBe("Ultra");
     expect(parseReasoningEffort("extrahigh")).toBe("매우 높음");
   });
 
   it("still refuses something the slider does not have", () => {
-    expect(() => parseReasoningEffort("Ultra")).toThrow(/must be one of/i);
+    expect(() => parseReasoningEffort("Turbo")).toThrow(/must be one of/i);
   });
 
   it("names Pro among the accepted values when it refuses", () => {
     // The message is where someone learns what they may pass; leaving Pro out
     // of it is what made the advice in the warning unfollowable.
-    expect(() => parseReasoningEffort("Ultra")).toThrow(/Pro/);
+    expect(() => parseReasoningEffort("Turbo")).toThrow(/Pro/);
   });
 
   it("sends an explicit --effort Pro straight to the slider, with nothing to warn about", () => {
