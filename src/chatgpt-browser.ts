@@ -16,7 +16,9 @@ import {
   menuKeyboardStep,
   readPowerSliderSelection,
   sliderRestoreStep,
-  surfaceFromProbe
+  surfaceFromProbe,
+  sliderPressOutcome,
+  sliderDidNotRespond
 } from "./picker-interaction.js";
 
 export interface ChatGptBrowserOptions {
@@ -2226,6 +2228,10 @@ interface PowerSliderState {
 
 // Roughly three seconds of grace for a menu that is still painting.
 const POWER_SLIDER_APPEAR_ATTEMPTS = 5;
+// Presses the walk will wait out while the focused slider ignores them: on a
+// page built moments ago the key handler attaches after focus is possible.
+// About six seconds all told, which is more than the measured gap.
+const POWER_SLIDER_SWALLOWED_PRESS_RETRIES = 6;
 
 /**
  * Move the power slider until its Effort readout is the requested step. The
@@ -2518,19 +2524,68 @@ async function selectPowerStep(cdp: CdpConnection, requested: string): Promise<{
   }
   if (!state?.ok) throw new Error(state?.reason ?? "Could not read ChatGPT's power slider");
   const steps = (state.max ?? 4) - (state.min ?? 0) + 1;
-  for (let attempt = 0; attempt <= steps * 2; attempt += 1) {
+  let presses = 0;
+  let swallowed = 0;
+  let everMoved = false;
+  while (presses <= steps * 2) {
     if (state.effort && powerLabelMatches(requested, state.effort)) return { effort: state.effort };
     // Walk upward first, then back down: the labels are ordered, but their
     // exact set can change, so this never assumes a fixed index for a name.
     const atTop = (state.position ?? 0) >= (state.max ?? 4);
-    const key = attempt < steps && !atTop ? "ArrowRight" : "ArrowLeft";
+    const key: "ArrowLeft" | "ArrowRight" = presses < steps && !atTop ? "ArrowRight" : "ArrowLeft";
+    const before = state.position ?? 0;
     await dispatchArrowKey(cdp, key);
     await sleep(400);
     state = await cdp.evaluate<PowerSliderState>(powerSliderStateExpression());
     if (!state?.ok) throw new Error(state?.reason ?? "Could not read ChatGPT's power slider");
+    const outcome = sliderPressOutcome({
+      before,
+      after: state.position ?? before,
+      key,
+      ...(state.min !== undefined ? { min: state.min } : {}),
+      ...(state.max !== undefined ? { max: state.max } : {})
+    });
+    if (outcome === "swallowed") {
+      // Focus succeeded but the press did nothing with room to move: the
+      // handler is not attached yet. Two consults were blocked with "has no
+      // Pro step. It showed: Instant, 1 of 5" after ten such presses, and a
+      // build that treats that as the picker declining would send at Instant
+      // instead. Wait for the handler rather than counting the press.
+      swallowed += 1;
+      if (swallowed <= POWER_SLIDER_SWALLOWED_PRESS_RETRIES) {
+        await sleep(600);
+        continue;
+      }
+      break;
+    }
+    if (outcome === "moved") everMoved = true;
+    presses += 1;
+  }
+  if (!everMoved) {
+    throw new Error(
+      `ChatGPT's power slider did not respond to arrow keys: it stayed at "${state.effort ?? "?"}" ` +
+        `(${(state.position ?? 0) + 1} of ${(state.max ?? 4) + 1}) while the picker was still hydrating, ` +
+        `so the "${requested}" step could not be reached.`
+    );
   }
   const available = (state.lines ?? []).join(" / ");
   throw new Error(`ChatGPT's model picker has no "${requested}" step. It showed: ${available}`);
+}
+
+/**
+ * The slider walk, with one more try when the first found a slider that
+ * ignored every press: by then the handler has had seconds to attach.
+ */
+async function selectPowerStepWithGrace(cdp: CdpConnection, requested: string): Promise<{ effort?: string | null }> {
+  try {
+    return await selectPowerStep(cdp, requested);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (!sliderDidNotRespond(message)) throw error;
+    await sleep(1_500);
+    if (!(await ensurePickerOpen(cdp))) throw error;
+    return await selectPowerStep(cdp, requested);
+  }
 }
 
 async function dispatchArrowKey(cdp: CdpConnection, key: "ArrowLeft" | "ArrowRight"): Promise<void> {
@@ -2655,10 +2710,12 @@ async function selectModelReasoning(
           throw new Error("ChatGPT's model picker would not reopen after the model was chosen.");
         }
         try {
-          await selectPowerStep(cdp, plan.sliderLabel);
+          await selectPowerStepWithGrace(cdp, plan.sliderLabel);
         } catch (error) {
           // Only "this slider has no such step" is the picker declining. A
-          // slider that will not open, or will not move, is a real failure.
+          // slider that will not open, or will not move - the hydrating case,
+          // which reads as "did not respond to arrow keys" - is a real
+          // failure, and must not turn into a send at whatever step it was on.
           const message = error instanceof Error ? error.message : String(error);
           const noSuchStep = /has no "[^"]*" step/.test(message);
           if (!noSuchStep) throw error;

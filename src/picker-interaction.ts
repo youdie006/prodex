@@ -215,3 +215,30 @@ export function surfaceFromProbe(
   if (stored === "work") return "Work";
   return undefined;
 }
+
+/**
+ * What one arrow press on the power slider did. "swallowed" is the case the
+ * walk has to wait out: on a page built moments ago the slider takes focus
+ * before its key handler is attached, so a press with room to move does
+ * nothing - and a walk that counted those presses as steps reported a step
+ * that exists as missing ("has no Pro step. It showed: Instant, 1 of 5").
+ */
+export function sliderPressOutcome(input: {
+  before: number;
+  after: number;
+  key: "ArrowLeft" | "ArrowRight";
+  min?: number;
+  max?: number;
+}): "moved" | "at-edge" | "swallowed" {
+  if (input.after !== input.before) return "moved";
+  const min = input.min ?? 0;
+  const max = input.max ?? 4;
+  if (input.key === "ArrowRight" && input.before >= max) return "at-edge";
+  if (input.key === "ArrowLeft" && input.before <= min) return "at-edge";
+  return "swallowed";
+}
+
+/** The slider-walk failure that means "hydrating", as opposed to "no such step". */
+export function sliderDidNotRespond(message: string): boolean {
+  return /power slider did not respond to arrow keys/.test(message);
+}

@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.39.3
+
+### Fixed
+- The power slider walk pressed arrow keys that did nothing. On a page built moments earlier - a project or chat created seconds before the send - the slider takes focus before its key handler is attached, so every press was swallowed and the walk never left rung 1. Two consults were blocked with "has no Pro step. It showed: Instant, 1 of 5" for a step that was right there, and the person who opened the browser moved the slider on the first try. Worse, a build that treats "no such step" as the picker declining would have sent at Instant when Pro was asked for, with only a warning. A press that changes nothing with room to move is now recognised as swallowed and waited out (about six seconds of grace, then one more walk after reopening the picker), a slider that never moves is reported as `picker_not_responding` - retryable, nothing sent - rather than as a missing step, and only a slider that moved and still never showed the step counts as the picker declining.
+
 ## 0.39.2
 
 ### Fixed

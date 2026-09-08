@@ -2000,6 +2000,18 @@ export function browserSendBlockerFromError(error: unknown): { code: string; mes
         "Another prodex send holds the browser. Wait for it to finish and retry, or pass a longer --timeout-ms, which is also the queue budget."
     };
   }
+  // The picker's slider took focus before its key handler was attached and
+  // ignored every press. Retrying is the cure; nothing in the browser is
+  // broken, so the generic "resolve it manually" pointed at nothing.
+  if (/power slider did not respond to arrow keys/.test(message)) {
+    return {
+      code: "picker_not_responding",
+      message,
+      retryable: true,
+      next_step:
+        "ChatGPT's picker had not finished loading when prodex tried to move its slider, so the requested step was never reached and nothing was sent. Retry the send. If it repeats on a page that has been open for a while, open the picker once in the visible browser and move the slider by hand, then retry."
+    };
+  }
   // The tab's DevTools connection went away mid-send with no timeout behind
   // it: the tab was closed, navigated from outside, or the browser exited.
   if (/Chrome DevTools websocket (closed|is not open)/.test(message)) {
