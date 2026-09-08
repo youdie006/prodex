@@ -277,6 +277,12 @@ export interface SendChatGptPromptOptions {
   diagnosticsCwd?: string;
   /** Progress callback so long sends can report phase + elapsed instead of staying silent. */
   onProgress?: (event: SendChatGptProgressEvent) => void;
+  /**
+   * Send even when the requested model/effort could not be applied. Off by
+   * default: an answer from a step nobody asked for is not a lesser version of
+   * the request, it is one the caller usually throws away.
+   */
+  allowSelectionFallback?: boolean;
 }
 
 export interface SendChatGptPromptResult {
@@ -912,11 +918,35 @@ export function hasChatGptPromptAcceptance(
  * they were getting Pro reasoning when they were not.
  */
 export function modelSelectionWarning(requestedModel: string | undefined, modelSlug: string | undefined): string | undefined {
-  if (!requestedModel || !modelSlug) return undefined;
-  const wantsPro = /\bpro\b/i.test(requestedModel);
-  if (!wantsPro) return undefined;
-  if (/pro/i.test(modelSlug)) return undefined;
-  return `model_mismatch: you asked for ${requestedModel}, but the answer came from "${modelSlug}". Check the model picker in the browser; the selection did not take.`;
+  return selectionMismatchWarning({
+    ...(requestedModel !== undefined ? { model: requestedModel } : {}),
+    ...(modelSlug !== undefined ? { modelSlug } : {})
+  });
+}
+
+/** Whether a requested label names ChatGPT's Pro step, in either locale. */
+export function namesPro(label: string | undefined): boolean {
+  if (!label) return false;
+  return /\bpro\b/i.test(label) || label.includes("프로");
+}
+
+/**
+ * Compare what was asked for against the model that actually answered.
+ *
+ * Pro can be asked for on either axis - `--model Pro` or `--effort Pro` - and
+ * this only ever looked at the model, so an effort-shaped Pro request answered
+ * by a lesser model passed without a word. Measured: a consult asking for Pro
+ * came back from gpt-5-6-thinking and was recorded as a clean success.
+ */
+export function selectionMismatchWarning(input: {
+  model?: string;
+  effort?: string;
+  modelSlug?: string;
+}): string | undefined {
+  const asked = namesPro(input.model) ? input.model : namesPro(input.effort) ? input.effort : undefined;
+  if (!asked || !input.modelSlug) return undefined;
+  if (/pro/i.test(input.modelSlug)) return undefined;
+  return `model_mismatch: you asked for ${asked}, but the answer came from "${input.modelSlug}". Check the model picker in the browser; the selection did not take.`;
 }
 
 /**
@@ -2629,7 +2659,7 @@ export function sliderWalkPlan(state: { position?: number; min?: number; max?: n
 
 async function selectModelReasoning(
   cdp: CdpConnection,
-  options: Pick<SendChatGptPromptOptions, "model" | "proMode" | "effort">,
+  options: Pick<SendChatGptPromptOptions, "model" | "proMode" | "effort" | "allowSelectionFallback">,
   selectionWarnings: string[] = []
 ): Promise<void> {
   if (!options.model && !options.proMode && !options.effort) return;
@@ -2719,6 +2749,13 @@ async function selectModelReasoning(
           const message = error instanceof Error ? error.message : String(error);
           const noSuchStep = /has no "[^"]*" step/.test(message);
           if (!noSuchStep) throw error;
+          // Asking for a step is a contract. Sending at whatever the slider
+          // happened to be on is not a lesser version of that contract, it is
+          // a different answer that the caller cannot use: measured, a Pro
+          // request came back from gpt-5-6-thinking after minutes of waiting
+          // and was thrown away. A caller that would rather have any answer
+          // says so with --allow-model-fallback.
+          if (!options.allowSelectionFallback) throw error;
           const offered = /It showed: (.*)$/.exec(message)?.[1]?.split(" / ").map((part) => part.trim()) ?? [];
           selectionWarnings.push(stepSelectionUnavailableWarning(plan.sliderLabel, offered)!);
         }
@@ -3618,7 +3655,7 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
       answer: transcript.answer,
       modelHints: finalState?.modelHints ?? [],
       ...(transcript.modelSlug ? { modelSlug: transcript.modelSlug } : finalState?.modelSlug ? { modelSlug: finalState.modelSlug } : {}),
-      warnings: withDialogNote([...sendWarnings, modelSelectionWarning(options.model, transcript.modelSlug || finalState?.modelSlug)]).filter(
+      warnings: withDialogNote([...sendWarnings, selectionMismatchWarning({ ...(options.model !== undefined ? { model: options.model } : {}), ...(options.effort !== undefined ? { effort: options.effort } : {}), ...((transcript.modelSlug || finalState?.modelSlug) ? { modelSlug: (transcript.modelSlug || finalState?.modelSlug) as string } : {}) })]).filter(
         (warning): warning is string => Boolean(warning)
       )
     };
@@ -3760,7 +3797,7 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
       answer: completed.answer.trim(),
       modelHints: completed.modelHints,
       ...(completed.modelSlug ? { modelSlug: completed.modelSlug } : {}),
-      warnings: withDialogNote([...sendWarnings, modelSelectionWarning(options.model, completed.modelSlug)]).filter(
+      warnings: withDialogNote([...sendWarnings, selectionMismatchWarning({ ...(options.model !== undefined ? { model: options.model } : {}), ...(options.effort !== undefined ? { effort: options.effort } : {}), ...(completed.modelSlug !== undefined ? { modelSlug: completed.modelSlug } : {}) })]).filter(
         (warning): warning is string => Boolean(warning)
       )
     };
@@ -3778,7 +3815,7 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
       ...(completed.modelSlug ? { modelSlug: completed.modelSlug } : {}),
       warnings: withDialogNote([
         ...sendWarnings,
-        ...(modelSelectionWarning(options.model, completed.modelSlug) ? [modelSelectionWarning(options.model, completed.modelSlug) as string] : []),
+        ...(selectionMismatchWarning({ ...(options.model !== undefined ? { model: options.model } : {}), ...(options.effort !== undefined ? { effort: options.effort } : {}), ...(completed.modelSlug !== undefined ? { modelSlug: completed.modelSlug } : {}) }) ? [selectionMismatchWarning({ ...(options.model !== undefined ? { model: options.model } : {}), ...(options.effort !== undefined ? { effort: options.effort } : {}), ...(completed.modelSlug !== undefined ? { modelSlug: completed.modelSlug } : {}) }) as string] : []),
         `answer_incomplete: ChatGPT was still generating after ${formatDurationMs(timeoutMs)} (${timeoutMs}ms), so the answer below may be truncated. Raise --timeout-ms and retry for the full response.`
       ])
     };

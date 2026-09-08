@@ -263,7 +263,11 @@ export const ASK_PRO_BOOLEAN_FLAGS = new Set([
   "--auto-login",
   "--no-auto-login",
   // Send outside any project for once, overriding a pinned default.
-  "--no-project"
+  "--no-project",
+  // Send even when the requested model/effort could not be applied, rather
+  // than stopping. Off by default: an answer from a step nobody asked for is
+  // usually thrown away.
+  "--allow-model-fallback"
 ]);
 export const ASK_PRO_SELECTION_VALUE_FLAGS = ["--project", "--project-new", "--model", "--pro-mode", "--effort"] as const;
 export const ASK_PRO_VALUE_FLAGS = new Set([

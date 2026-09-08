@@ -39,7 +39,8 @@ import {
   recordBrowserLoginLaunch,
   recoverChatGptAnswerFromThread,
   sendChatGptPrompt,
-  statusMeansBrowserDead
+  statusMeansBrowserDead,
+  namesPro
 } from "./chatgpt-browser.js";
 import {
   ASK_PRO_BOOLEAN_FLAGS,
@@ -1243,13 +1244,22 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
     };
     const browserPort = hasSendMode ? resolveCdpPort(readPortFlag(parsedAskPro.optionArgs, "--port")) : undefined;
     const busyWaitMs = readNonNegativeIntegerFlag(parsedAskPro.optionArgs, "--busy-wait-ms");
+    const allowSelectionFallback = parsedAskPro.optionArgs.includes("--allow-model-fallback");
     // Pro extended can legitimately think for minutes, so its default timeout is
     // higher; an explicit --timeout-ms always wins.
     // Pro reasoning routinely runs for many minutes (a real consult measured
     // ~13 minutes). The elevated default used to be keyed to the removed
     // --pro-mode, so --model Pro sends fell back to 90s and chronically timed
     // out. Any effective Pro selection now defaults to 15 minutes.
-    const effectiveProSelection = selectionProMode !== undefined || (selectionModel !== undefined && /pro/i.test(selectionModel));
+    // Pro can be asked for on either axis. Keying the raised budget to the
+    // model alone gave `--effort Pro` five minutes for reasoning this file's
+    // own comment calls 6-20 minutes, which manufactured send_timeout
+    // blockers - 55 of the 267 blockers measured on one machine.
+    const effectiveProSelection = isProSelection({
+      ...(selectionModel !== undefined ? { model: selectionModel } : {}),
+      ...(selectionProMode !== undefined ? { proMode: selectionProMode } : {}),
+      ...(selectionEffort !== undefined ? { effort: selectionEffort } : {})
+    });
     // Pro reasoning routinely runs 6-20 minutes; 15 min was still cutting long
     // answers off (field report), so a Pro selection defaults to 20 minutes.
     // With NO model selection at all (no flag, no saved default) the UI's
@@ -1338,6 +1348,7 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
           model: selectionModel,
           proMode: selectionProMode,
           effort: selectionEffort,
+          ...(allowSelectionFallback ? { allowSelectionFallback: true } : {}),
           onProgress: createBrowserSendProgressPrinter(io.stderr)
         }));
       // One-command recovery: interactive terminals (or explicit --auto-login)
@@ -1446,6 +1457,15 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
       // would otherwise treat a cut-off answer as complete.
       for (const warning of persistenceWarnings) io.stderr(warning);
       if (consult.modelSlug) io.stderr(`model_used: ${consult.modelSlug}`);
+      // "Can I count this as a Pro review?" - answered here rather than left
+      // for whoever reads the receipt to work out from two other fields.
+      const proVerified = proSelectionVerified({
+        ...(selectionModel !== undefined ? { model: selectionModel } : {}),
+        ...(selectionProMode !== undefined ? { proMode: selectionProMode } : {}),
+        ...(selectionEffort !== undefined ? { effort: selectionEffort } : {}),
+        ...(consult.modelSlug !== undefined ? { modelSlug: consult.modelSlug } : {})
+      });
+      if (proVerified !== undefined) io.stderr(`pro_verified: ${proVerified ? "yes" : "no"}`);
       let answerArtifactPath: string | undefined;
       const answerArtifactBytes = Buffer.byteLength(answerArtifactText, "utf8");
       if (answerArtifactBytes > MAX_FETCHABLE_RESULT_ARTIFACT_BYTES) {
@@ -1474,6 +1494,7 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
             // What actually answered, straight from ChatGPT's own tag - the
             // receipt used to record only what prodex asked for.
             ...(consult.modelSlug ? { model_used: consult.modelSlug } : {}),
+            ...(proVerified !== undefined ? { pro_verified: proVerified } : {}),
             warnings: persistenceWarnings
           }
         });
@@ -1617,6 +1638,8 @@ export interface BrowserConsultInput {
   tools?: string[];
   /** Send into a fresh chat; recommended for agent loops and debates. */
   new_chat?: boolean;
+  /** Send even when the requested model/effort could not be applied. Off by default. */
+  allow_model_fallback?: boolean;
 }
 
 export interface BrowserConsultOutcome {
@@ -1696,6 +1719,7 @@ export async function performBrowserConsultForMcp(
     ...(input.attach ?? []).flatMap((file: string) => ["--attach", file]),
     ...(input.tools ?? []).flatMap((tool: string) => ["--tool", tool]),
     ...(input.new_chat ? ["--new-chat"] : []),
+    ...(input.allow_model_fallback ? ["--allow-model-fallback"] : []),
     "--",
     input.prompt
   ];
@@ -1930,6 +1954,33 @@ export async function assertBrowserLaunchStayedAlive(opened: ChatGptBrowserLaunc
   );
 }
 
+/** Whether a send asked for ChatGPT's Pro step, on either axis that can name it. */
+export function isProSelection(selection: { model?: string; effort?: string; proMode?: string }): boolean {
+  if (selection.proMode !== undefined) return true;
+  return namesPro(selection.model) || namesPro(selection.effort);
+}
+
+/**
+ * Whether a Pro request was actually answered by Pro, per ChatGPT's own tag on
+ * the message. Undefined when Pro was not asked for, or when no tag came back
+ * to check against - there is nothing to certify in either case.
+ *
+ * The receipt already carried the request and the answering model separately,
+ * leaving the comparison to whoever read it later. The question a caller has
+ * is "can I count this as a Pro review?", and a consult that asked for Pro and
+ * was answered by gpt-5-6-thinking was recorded as a clean success.
+ */
+export function proSelectionVerified(selection: {
+  model?: string;
+  effort?: string;
+  proMode?: string;
+  modelSlug?: string;
+}): boolean | undefined {
+  if (!isProSelection(selection)) return undefined;
+  if (!selection.modelSlug) return undefined;
+  return /pro/i.test(selection.modelSlug);
+}
+
 export function browserSendBlockerFromError(error: unknown): { code: string; message: string; retryable: boolean; next_step?: string; thread?: string } {
   const blocker = typeof error === "object" && error !== null && "blocker" in error ? (error as { blocker?: unknown }).blocker : undefined;
   if (
@@ -1998,6 +2049,18 @@ export function browserSendBlockerFromError(error: unknown): { code: string; mes
       retryable: true,
       next_step:
         "Another prodex send holds the browser. Wait for it to finish and retry, or pass a longer --timeout-ms, which is also the queue budget."
+    };
+  }
+  // The picker could not provide the step that was asked for. Retrying asks
+  // the same picker the same question, so this is not retryable; the caller
+  // either picks a step it offers or opts into whatever the slider is on.
+  if (/has no "[^"]*" step/.test(message)) {
+    return {
+      code: "selection_not_applied",
+      message,
+      retryable: false,
+      next_step:
+        "ChatGPT's picker could not provide the model or effort that was asked for, so nothing was sent. Run `prodex pro browser models` to see the steps this account offers and ask for one of those, or pass --allow-model-fallback to send at whatever the picker is currently set to."
     };
   }
   // The picker's slider took focus before its key handler was attached and

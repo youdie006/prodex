@@ -4,6 +4,18 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.39.5
+
+### Fixed
+- A Pro request made with `--effort Pro` was budgeted like an ordinary send. The raised budget keyed off `--model` and `--pro-mode` only, so the form the README recommends for reaching Pro got five minutes for reasoning this code's own comment calls "6-20 minutes", and cut good answers off as timeouts. Measured across 236 bridge roots: `send_timeout` is 55 of the 267 blockers. Pro is now recognised on either axis, in both locales.
+- The answer's model tag was only ever checked against `--model`, so an `--effort Pro` request answered by a lesser model passed without a word. Both axes are checked now.
+
+### Changed
+- A picker that cannot provide the requested model or effort now stops the send instead of sending at whatever step the slider was on. Measured: a consult that asked for Pro was answered by gpt-5-6-thinking, recorded as a clean success, and thrown away by the caller who could not cite it as a Pro review - minutes and quota spent on an answer nobody could use. That is reported as `selection_not_applied` (not retryable: the same picker will answer the same way) and nothing is sent. A caller that would rather have any answer passes `--allow-model-fallback`, or `allow_model_fallback: true` on `pro_consult`.
+
+### Added
+- A consult that asked for Pro records whether Pro actually answered, as `pro_verified` on the receipt and a `pro_verified: yes|no` line on stderr. The receipt already carried the request and the answering model separately and left the comparison to whoever read it later; the question a caller has is whether the answer counts as a Pro review.
+
 ## 0.39.4
 
 ### Added
