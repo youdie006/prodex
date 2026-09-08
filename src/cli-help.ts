@@ -30,6 +30,7 @@ Ask / consult commands:
   prodex pro browser recover [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] --target-url <thread-url> [--timeout-ms 60000]  # recover a finished answer from a thread whose send timed out
   prodex pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 300000] [--busy-wait-ms 600000] [--target-url url --confirm-target] [--new-chat] [--temporary] [--allow-model-fallback] [--stdin] [--json] [--auto-login|--no-auto-login] [--file path] [--attach path] [--tool deep-research|web-search|create-image] [--model Pro] [--pro-mode 기본|확장] [--effort 즉시|중간|높음|"매우 높음"|Max|Ultra|Pro] [--project "name" | --project-new "name"] "prompt"  # explicit visible-browser send
   prodex pro latest [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--json]
+  prodex pro blockers [--cwd /absolute/path/to/repo] [--since 7d] [--limit 10] [--json]  # what actually blocks consults, ranked, across every bridge root on this machine
   prodex pro list [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--json]
   prodex pro show <task-id|latest> [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--json]
   prodex pro report-issue [--cwd /absolute/path/to/repo] [--task <task-id>] [--repo owner/name] [--confirm]  # bug report from a failed consult's receipt; previews unless --confirm, never carries the prompt or the answer
@@ -173,6 +174,7 @@ Commands:
   prodex pro browser models [--source-cli /absolute/path/to/dist/cli.js]
   prodex pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--target-url url --confirm-target] [--new-chat] [--temporary] [--allow-model-fallback] [--stdin] [--json] [--auto-login|--no-auto-login] [--file path] [--attach path] [--tool deep-research|web-search|create-image] [--model Pro] [--pro-mode 기본|확장] [--effort 즉시|중간|높음|"매우 높음"|Max|Ultra|Pro] [--project "name" | --project-new "name"] "prompt"
   prodex pro latest [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--json]
+  prodex pro blockers [--cwd /absolute/path/to/repo] [--since 7d] [--limit 10] [--json]  # what actually blocks consults, ranked, across every bridge root on this machine
   prodex pro list [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--json]
   prodex pro show <task-id|latest> [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--json]
   prodex pro report-issue [--cwd /absolute/path/to/repo] [--task <task-id>] [--repo owner/name] [--confirm]  # bug report from a failed consult's receipt; previews unless --confirm, never carries the prompt or the answer

@@ -95,6 +95,8 @@ import {
 } from "./cli-shared.js";
 import { getTokenExpiryStatus, loadBrowserDefaults, loadLocalConfig } from "./config.js";
 import { withBrowserSendLock } from "./browser-send-lock.js";
+import { blockerCause, buildBlockerReport, type BlockerConsult } from "./blocker-report.js";
+import { readBridgeRoots } from "./registry.js";
 import { BridgeStore, MAX_FETCHABLE_RESULT_ARTIFACT_BYTES } from "./store.js";
 import { CLI_VERSION } from "./cli-help.js";
 import { PRODEX_ISSUE_REPO, buildIssueReport, fileGitHubIssue } from "./issue-report.js";
@@ -859,6 +861,47 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
       // a two-hop dead end that made an agent abandon the diagnosis.
       throw new Error(`Use \`prodex pro browser ${legacyBrowserSubcommandReplacement(subcommand)}\` for explicit browser automation.`);
     }
+    if (subcommand === "blockers") {
+      if (printHelpIfRequested(proArgs, "pro blockers", io.stdout, printProHelp, { valueFlags: ["--cwd", "--since", "--limit"] })) return 0;
+      assertOnlyOptions(proArgs, "pro blockers", ["--cwd", "--since", "--limit"], ["--json"]);
+      const scopedToOneRepo = readFlag(proArgs, "--cwd") !== undefined;
+      // Default to every bridge root: the failures are spread across the repos
+      // consults were run from, and `pro list` already covers just this one.
+      const roots = scopedToOneRepo ? [resolveCwdFlag(io.cwd, proArgs)] : await readBridgeRoots();
+      const since = readSinceFlag(proArgs);
+      const limit = readPositiveIntegerFlag(proArgs, "--limit") ?? 10;
+      const consults: BlockerConsult[] = [];
+      let readable = 0;
+      for (const root of roots) {
+        try {
+          const results = await new BridgeStore(root).listResultsReadOnly();
+          readable += 1;
+          for (const result of results) {
+            if (!result.task_id.includes("gpt-pro-consult")) continue;
+            consults.push({
+              repo: path.basename(root),
+              createdAt: result.created_at,
+              ...(result.blocker ? { blocker: { code: result.blocker.code, message: result.blocker.message } } : {})
+            });
+          }
+        } catch {
+          // A root that has been deleted or is unreadable is not a failure of
+          // the report; it just has nothing to contribute.
+        }
+      }
+      const report = buildBlockerReport({
+        consults,
+        roots: readable,
+        ...(since ? { since } : {}),
+        limit
+      });
+      if (proArgs.includes("--json")) {
+        io.stdout(JSON.stringify(report, null, 2));
+        return 0;
+      }
+      io.stdout(formatBlockerReport(report, { since, scopedToOneRepo }));
+      return 0;
+    }
     if (subcommand === "list") {
       if (printHelpIfRequested(proArgs, "pro list", io.stdout, printProHelp, { valueFlags: ["--cwd", "--source-cli"] })) return 0;
       assertOnlyOptions(proArgs, "pro list", ["--cwd", "--source-cli"], ["--json"]);
@@ -1000,7 +1043,7 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
       io.stdout(formatDebatePrompt({ topic: readFlag(proArgs, "--topic"), rounds, sourceCli }));
       return 0;
     }
-    throw unknownSubcommandError("pro", subcommand, ["ask", "browser", "debate-prompt", "list", "latest", "show"]);
+    throw unknownSubcommandError("pro", subcommand, ["ask", "blockers", "browser", "debate-prompt", "list", "latest", "show"]);
 }
 
 export async function runConsultsCommand(rest: string[], io: CliIO): Promise<number> {
@@ -2183,6 +2226,68 @@ export function formatProConsultArtifact(consult: Awaited<ReturnType<typeof send
   }
   lines.push("## Answer", "", consult.answer.trim(), "");
   return lines.join("\n");
+}
+
+/**
+ * `--since 7d`, `--since 24h`, or a plain date. A window is how you ask whether
+ * a fix landed, so it has to be quick to type.
+ */
+export function readSinceFlag(args: string[]): string | undefined {
+  const raw = readFlag(args, "--since");
+  if (raw === undefined) return undefined;
+  const relative = /^(\d+)\s*([dh])$/i.exec(raw.trim());
+  if (relative) {
+    const amount = Number(relative[1]);
+    const hours = relative[2]?.toLowerCase() === "d" ? amount * 24 : amount;
+    return new Date(Date.now() - hours * 3_600_000).toISOString();
+  }
+  const parsed = Date.parse(raw);
+  if (!Number.isFinite(parsed)) {
+    throw new Error(`--since expects a date or an age like 7d or 24h, not "${raw}".`);
+  }
+  return new Date(parsed).toISOString();
+}
+
+/** The ranked report as a table, widest column first so the counts line up. */
+export function formatBlockerReport(
+  report: { totalConsults: number; blocked: number; roots: number; groups: readonly { code: string; count: number; share: number; lastSeen: string; example: string; repos: readonly string[] }[] },
+  options: { since?: string; scopedToOneRepo?: boolean } = {}
+): string {
+  const scope = options.scopedToOneRepo ? "this repo" : `${report.roots} bridge root${report.roots === 1 ? "" : "s"}`;
+  const window = options.since ? ` since ${options.since.slice(0, 10)}` : "";
+  if (report.totalConsults === 0) {
+    return `No consults recorded in ${scope}${window}.`;
+  }
+  const share = report.totalConsults > 0 ? Math.round((report.blocked / report.totalConsults) * 100) : 0;
+  const head = `Consult blockers: ${report.blocked} of ${report.totalConsults} consults (${share}%) across ${scope}${window}`;
+  if (report.groups.length === 0) return `${head}\n\nNothing was blocked.`;
+  // A split catch-all carries the first sentence in its own name, so the
+  // example would repeat it; only a bare code needs one.
+  const clip = (text: string, max: number) => (text.length > max ? `${text.slice(0, max - 1)}\u2026` : text);
+  const rows = report.groups.map((group) => {
+    const example = group.example.replace(/\s+/g, " ").trim();
+    // Compare through the same normalisation the cause went through: the code
+    // says `has no "..." step` where the message says `has no "Pro" step`.
+    const causePart = group.code.includes(": ") ? group.code.split(": ").slice(1).join(": ") : undefined;
+    const redundant = causePart !== undefined && blockerCause(example) === causePart;
+    return {
+      count: String(group.count),
+      share: `${Math.round(group.share * 100)}%`,
+      code: clip(group.code, 58),
+      lastSeen: group.lastSeen ? group.lastSeen.slice(0, 10) : "-",
+      example: redundant ? "" : clip(example, 58)
+    };
+  });
+  const width = (pick: (row: (typeof rows)[number]) => string, header: string) =>
+    Math.max(header.length, ...rows.map((row) => pick(row).length));
+  const wCount = width((r) => r.count, "COUNT");
+  const wShare = width((r) => r.share, "SHARE");
+  const wCode = width((r) => r.code, "CAUSE");
+  const wLast = width((r) => r.lastSeen, "LAST SEEN");
+  const line = (count: string, sharePct: string, code: string, lastSeen: string, example: string) =>
+    `  ${count.padStart(wCount)}  ${sharePct.padStart(wShare)}  ${code.padEnd(wCode)}  ${lastSeen.padEnd(wLast)}  ${example}`;
+  const body = rows.map((row) => line(row.count, row.share, row.code, row.lastSeen, row.example).trimEnd());
+  return [head, "", line("COUNT", "SHARE", "CAUSE", "LAST SEEN", "EXAMPLE"), ...body].join("\n");
 }
 
 export function formatProListSummary(consult: ConsultRecord, sourceCli?: string, options: BrowserCommandOptions = {}): string {

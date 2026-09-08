@@ -84,7 +84,7 @@ describe("runCli", () => {
       {
         args: ["pro", "brower"],
         expected:
-          "Unknown pro subcommand: brower. Did you mean `prodex pro browser`? Expected one of: ask, browser, debate-prompt, list, latest, show. Run `prodex pro --help`."
+          "Unknown pro subcommand: brower. Did you mean `prodex pro browser`? Expected one of: ask, blockers, browser, debate-prompt, list, latest, show. Run `prodex pro --help`."
       },
       {
         args: ["pro", "browser", "chek"],
@@ -4341,7 +4341,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
       },
       {
         args: ["pro", "verify"],
-        expected: "Unknown pro subcommand: verify. Expected one of: ask, browser, debate-prompt, list, latest, show. Run `prodex pro --help`."
+        expected: "Unknown pro subcommand: verify. Expected one of: ask, blockers, browser, debate-prompt, list, latest, show. Run `prodex pro --help`."
       }
     ];
 

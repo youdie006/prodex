@@ -48,6 +48,34 @@ async function directoryExists(dir: string): Promise<boolean> {
   }
 }
 
+/**
+ * Every bridge root this machine knows about. The registry has only ever been
+ * written; reading it is what lets a report span the repos where the failures
+ * actually are, instead of the one the command happens to run in.
+ *
+ * Advisory like the rest of the registry: a missing or corrupt file is an
+ * empty list, not an error, and roots that have since been deleted are
+ * dropped rather than reported.
+ */
+export async function readBridgeRoots(): Promise<string[]> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(await fs.readFile(bridgesRegistryPath(), "utf8"));
+  } catch {
+    return [];
+  }
+  const raw = (parsed as { roots?: unknown })?.roots;
+  if (!Array.isArray(raw)) return [];
+  const roots: string[] = [];
+  for (const entry of raw.slice(0, MAX_REGISTRY_ROOTS)) {
+    const value = typeof entry === "string" ? entry : (entry as { path?: unknown })?.path;
+    if (typeof value !== "string" || value.length === 0) continue;
+    if (!(await directoryExists(path.join(value, ".bridge")))) continue;
+    if (!roots.includes(value)) roots.push(value);
+  }
+  return roots;
+}
+
 export function registerBridgeRoot(root: string): Promise<void> {
   const next = registryQueue.then(() => registerBridgeRootInner(root));
   // Keep the chain alive even if an inner registration rejects.

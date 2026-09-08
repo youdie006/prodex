@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.40.0
+
+### Added
+- `prodex pro blockers` ranks what actually blocks consults, across every bridge root on the machine. Half of every consult here ends in a blocker, and asking which failure dominates meant writing a throwaway script: `pro list` reads one repo, and the registry that knows where the others are was write-only until now. It also splits the catch-all code by cause, because `browser_send_failed` held 165 of 267 blockers and counting it whole reports that the catch-all is biggest and names nothing to fix; the split normalises the varying parts, so `has no "Pro" step` and `has no "GPT-5.6 Sol" step` are one cause. `--since 7d` (or `24h`, or a date) is how you ask whether a fix landed, `--cwd` narrows it to one repo, `--limit` and `--json` do the obvious. Blocker messages were already redacted when they were written, and the report prints only the cause, the count, when it was last seen and a clipped example - never a prompt or an answer.
+
 ## 0.39.5
 
 ### Fixed
