@@ -1,11 +1,6 @@
 <div align="center">
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/youdie006/prodex/main/assets/logo-wordmark-dark.png">
-  <img src="https://raw.githubusercontent.com/youdie006/prodex/main/assets/logo-wordmark.png" width="300" alt="PROdex">
-</picture>
-
-**Ask ChatGPT Pro from your terminal, or let Codex, Claude and other coding agents ask it for you, through the logged-in browser you already have, with a receipt for every answer.**
+<img src="https://raw.githubusercontent.com/youdie006/prodex/main/assets/cli-banner.png" alt="prodex - ChatGPT Pro for your terminal and your coding agents, local, with receipts" width="760" />
 
 [![CI](https://github.com/youdie006/prodex/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/youdie006/prodex/actions/workflows/ci.yml)
 [![npm](https://img.shields.io/npm/v/%40youdie006%2Fprodex?logo=npm&color=b91c1c)](https://www.npmjs.com/package/@youdie006/prodex)
