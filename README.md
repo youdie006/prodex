@@ -1,616 +1,256 @@
 <div align="center">
 
-<img src="assets/cli-banner.png" alt="PROdex — local bridge so Codex, Claude and other agents share ChatGPT Pro" width="820" />
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/youdie006/prodex/main/assets/logo-wordmark-dark.png">
+  <img src="https://raw.githubusercontent.com/youdie006/prodex/main/assets/logo-wordmark.png" width="300" alt="PROdex">
+</picture>
 
-**Local bridge so Codex, Claude, and other coding agents can share your logged-in ChatGPT Pro — with durable receipts.**
+**Ask ChatGPT Pro from your terminal, or let Codex, Claude and other coding agents ask it for you, through the logged-in browser you already have, with a receipt for every answer.**
 
-[![license](https://img.shields.io/badge/license-MIT-111111.svg)](LICENSE)
-[![node](https://img.shields.io/badge/node-%E2%89%A5%2020-111111.svg)](package.json)
 [![CI](https://github.com/youdie006/prodex/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/youdie006/prodex/actions/workflows/ci.yml)
-[![status](https://img.shields.io/badge/status-pre--release-111111.svg)](#)
+[![npm](https://img.shields.io/npm/v/%40youdie006%2Fprodex?logo=npm&color=b91c1c)](https://www.npmjs.com/package/@youdie006/prodex)
+[![node](https://img.shields.io/badge/node-%E2%89%A5%2020-1e1d1a.svg)](package.json)
+[![license](https://img.shields.io/badge/license-MIT-1e1d1a.svg)](LICENSE)
+[![browser: visible, yours](https://img.shields.io/badge/browser-visible%2C%20yours-b91c1c.svg)](#what-it-will-not-do)
+
+[Install](#install) &middot; [Quick start](#quick-start) &middot; [Agents over MCP](#agents-over-mcp) &middot; [Model, effort, project](#model-effort-and-project) &middot; [No window](#running-without-a-window) &middot; [Receipts](#receipts) &middot; [FAQ](#faq)
+
+<img src="https://raw.githubusercontent.com/youdie006/prodex/main/docs/demo-cli.webp" width="780" alt="Terminal recording: prodex ask sends a question to ChatGPT Pro, prints progress while Pro reasons for two and a half minutes, prints the answer and where it was saved; pro latest re-prints it; pro browser models reads the picker's five rungs ending in Pro; claude config prints the MCP config for an agent">
 
 </div>
 
----
+You pay for ChatGPT Pro. The reasoning that makes it worth paying for lives behind a web page, and the coding agent you actually spend the day with cannot reach it. prodex closes that gap without an API key, a proxy, or a stealth bot: it drives a real, visible Chrome that you logged into once, types into the same composer you would, and reads the answer back from the conversation transcript.
 
-`prodex` is a local receipt bus plus MCP bridge for coordinating Codex execution with ChatGPT Pro/Projects and Claude.
+```console
+$ prodex ask --new-chat --effort Pro "A CLI drives a logged-in browser over the Chrome DevTools Protocol and holds a cross-process file lock while a send is in flight. What failure modes must the lock's expiry rule handle, and which single rule would you ship? Under 150 words."
+progress: connecting to browser (port 9333)
+progress: applying selection (effort=Pro project=set)
+progress: prompt sent, waiting for answer (budget 20 min)
+progress: waiting 1m 21s (generating)
+progress: answer received after 2m 32s (transcript (1235 chars))
+model_used: gpt-6-pro
 
-The goal is not to turn ChatGPT Pro into a public API. The goal is to make Codex the main workbench while keeping durable receipts for every outside consult or handoff:
+Handle slow legitimate sends, hung or suspended owners, sleep/reboot, clock jumps,
+crashes leaving stale files, PID reuse, incomplete metadata, competing reclaimers,
+...
+I'd ship: reclaim only a provably dead original owner's lock - never expire a live
+or unverifiable owner by age.
 
-- Ask ChatGPT Pro from Codex when a stronger planning/review pass is useful.
-- Let ChatGPT Projects hand structured tasks to Codex/local tools through an optional HTTP MCP bridge.
-- Let Claude create/fetch the same tasks through stdio MCP.
-- Keep durable records of what was asked, what was returned, and what Codex did with it.
-
-## Quickstart: a Pro second opinion from your terminal
-
-The most common way to use `prodex` is standalone — get a ChatGPT Pro answer on a file or question without leaving the terminal, using the Pro reasoning you already pay for. No MCP setup required.
-
-```bash
-npm install -g @youdie006/prodex          # needs Node 20+, git, ripgrep
-
-prodex pro browser login                  # opens a dedicated Chrome and waits until your ChatGPT login is READY
-prodex ask --file src/auth.ts "Review this for security holes"
+saved: .bridge/artifacts/pro-consults/task_20260908_032750_gpt-pro-consult.md
 ```
 
-`prodex ask` is the short form of `prodex pro browser ask`; the full form and every flag work identically. In an interactive terminal, `login` keeps watching the opened window and tells you exactly which manual step is still missing (log in, clear a check, open a chat) until it reports READY. If you skip `login` and the browser is not running, an interactive `ask` recovers on its own: it launches the dedicated browser, waits for your saved session to be READY, and retries the send once (disable with `--no-auto-login`; scripts opt in with `--auto-login`). While ChatGPT thinks, `prodex` prints progress to stderr (connecting, prompt sent, elapsed seconds while generating), so a multi-minute Pro answer never looks frozen.
+That is a real run, timings included. Every consult lands as a task, a result and an HMAC-signed receipt under `.bridge/` in your repo, so `prodex pro latest` re-prints it, your agent can fetch it over MCP, and a week later you can still answer "what did Pro say about the lock?".
 
-Prefer to drive it yourself instead of remembering flags? `prodex ui` - or just `prodex` in a terminal - asks for the prompt, where the consult should land (the open chat, an existing project, a new one, or no project at all), which composer tools to turn on, and then shows a progress bar while Pro writes; it prints the equivalent command so the flags are learnable from it. The answer prints to your terminal and is saved under `.bridge/` for later (`prodex pro latest` re-prints it). It is read from the conversation transcript rather than scraped off the page, so markdown tables and fenced code arrive intact, citations keep their links, and a tab that drifts to another conversation mid-wait no longer costs you the answer; the rendered page stays as a fallback. Add `--new-chat` to send into a fresh chat (recommended for repeated consults - long threads eventually confuse send detection). For a structured second-opinion debate between your coding agent and GPT Pro, `prodex pro debate-prompt --topic "..."` prints a ready-to-paste orchestration prompt. `prodex` drives the picker you can see and will not send into a tab it cannot read, so leave the dedicated window on a ChatGPT tab; it sends quietly in the background without stealing focus. Prefer no window at all? See [virtual display](#no-window-at-all-virtual-display-recommended). Pin per-repo defaults once - `prodex setup --model Pro --project "your-project"` - so every ask runs Pro (20-minute timeout) inside that project instead of whatever the ChatGPT UI last had selected; list exact sidebar project names with `prodex pro browser projects`. Pass `--file` more than once to inline several files. `--file` puts a text file's CONTENTS into the prompt; `--attach` uploads the file itself, which is the only way to hand ChatGPT a pdf, pptx, xlsx or image and let it parse the original (`prodex ask --attach deck.pptx "Review slides 40-60"`). Both are restricted to paths inside the repo, so an agent cannot upload `~/.ssh` by asking nicely. The upload happens before the prompt is submitted and prodex waits for ChatGPT to finish accepting the file - the browser process reads the path, so the file has to live on the machine running the browser. `--tool` turns on a ChatGPT composer tool for that send: `--tool deep-research` (a browsed report - the timeout rises to 30 minutes automatically; prodex presses the start control, waits out the run and returns the full report. The report is read from the conversation transcript rather than the page, because deep research renders inside a widget iframe that leaves the thread looking empty - which also means `prodex pro browser recover --target-url <thread>` fetches a research report that finished after a timeout), `--tool web-search` (current facts with sources), `--tool create-image`. Any other label the menu shows works too, so a tool ChatGPT adds later needs no prodex release. When the thread is still generating a previous answer (common right after a timed-out Pro send), the send automatically queues behind it up to the timeout budget; tune that with `--busy-wait-ms` (0 fails fast with a `response_in_progress` blocker). See [First Pro Login](#first-pro-login) for the full flow, and the [FAQ](#faq) if a send stops.
+## What you can do with it
 
-## Core Shape
+- **Ask from the terminal.** `prodex ask` with a question, a file's contents (`--file`), an uploaded pdf, deck, sheet or image (`--attach`), or anything piped in (`--stdin`). Deep research, web search and image creation are one flag away (`--tool`).
+- **Let your agent ask.** `prodex mcp` is a stdio MCP server with a `pro_consult` tool; Claude Code, Codex, Cursor and Gemini CLI call it like any other tool. ChatGPT Projects can hand work back the other way over a loopback HTTP MCP bridge.
+- **Pick the model and effort per ask.** The picker ChatGPT shows is the picker prodex drives: `--effort Pro` reaches the top rung, `--project` sends inside a sidebar project, and `prodex setup` pins defaults per repo.
+- **Keep every answer.** Tasks, results, sessions and receipts are versioned JSON on disk, signed with a local key. Nothing is stored anywhere else.
+- **Run it with no window at all.** One headed login, then a virtual display: a real browser that Cloudflare treats as one, and nothing on your desktop.
+- **Stop where a person should.** Login, captcha, Cloudflare, usage limits and permission prompts halt the send with a named blocker and a next step. prodex solves none of them for you.
 
-```text
-Codex
-  | pro ask preview / tasks / mcp
-  v
-prodex local bridge + .bridge receipts
-  |                         ^
-  | optional explicit       | optional HTTP/stdin MCP
-  | pro browser consult     |
-  v                         |
-ChatGPT Pro              ChatGPT Projects / Claude
-```
+## Install
 
-## Operating Rules
+Node 20 or newer, `git`, and `ripgrep` (`rg`) on PATH. A Chromium-family browser for the visible adapter: Chrome, Chromium, Edge or Brave on PATH, in the standard macOS and Windows locations, or on the Windows host under WSL are all found automatically; anything else via `PRODEX_CHROME=/path/to/browser`.
 
-- Manual-first: each ChatGPT Pro consult should be user-initiated or clearly tied to the current task.
-- Browser automation is optional and explicit: use it only through `pro browser ...`, with a real visible logged-in browser session.
-- Stop on blockers: login, captcha, rate limit, Cloudflare, permission, and model-limit states stop the workflow.
-- No bypass: no hidden API, cookie extraction, stealth automation, proxies, or captcha solving.
-- Low volume: no batch prompting or recurring loops that make ChatGPT Pro behave like an API server. Visible-browser sends are auto-throttled to human pace (one every 10s by default; tune with `PRODEX_MIN_SEND_INTERVAL_MS`, `0` to disable).
-- Local only: do not expose account access, browser sessions, or bridge endpoints to other users.
-- Local debug port: the visible-browser adapter uses Chrome's `--remote-debugging-port`, which is unauthenticated but bound to `127.0.0.1` only and live only while that browser is open.
-
-## Components
-
-- `docs/clients.md`: connect Cursor, Gemini CLI, Codex, Claude, and other MCP agents to the ChatGPT Pro bridge.
-- `docs/http-mcp.md`: ChatGPT Project HTTP MCP setup and safety notes.
-- `docs/claude.md`: Claude stdio MCP setup and tool notes.
-- `.bridge/`: local task/result/session/artifact/receipt storage.
-
-## Works with
-
-Two sibling local-first tools by the same author understand prodex's on-disk
-ledger (prodex >=0.11.0 registers every bridge root in
-`~/.local/share/prodex/bridges.json` so they can find it):
-
-- [sessionwiki](https://github.com/youdie006/sessionwiki) (>=0.19.0) indexes
-  every consult as a searchable session - the task is the question, the
-  answer artifact is the answer. "What did GPT Pro say about the retry loop
-  last week?" is `sessionwiki search "retry"`, and `sessionwiki resume <id>`
-  prints the ChatGPT thread the consult ran in.
-- [swapdex](https://github.com/youdie006/swapdex) switches Claude Code / Codex
-  login accounts; its `ui` lists recent sessions (including consults, via
-  sessionwiki) after every switch.
-
-Nothing changes if they are not installed - the registry is advisory, holds
-paths only, and a registry failure never breaks a bridge operation.
-
-## Package Surface
-
-The npm package is CLI-only for now. The supported public surfaces are the `prodex` command, the stdio MCP server, and the optional HTTP MCP server. JavaScript imports from `prodex` or `prodex/dist/*` are intentionally not exported until a library API is designed and documented.
-
-## Status
-
-Implemented:
-
-- Versioned `.bridge` ledger schemas for tasks, results, sessions, and receipts.
-- CLI commands for task creation/listing/inspection/claiming/completion/blocking and result display.
-- `pro ask` and `pro latest` for Codex-first consult previews and review receipts.
-- `sessions list` and `sessions show` for inspecting dry-run, running, done, or blocked consult sessions.
-- `receipts list` and `receipts show` for inspecting the local action ledger without exposing legacy inline write payloads.
-- Ledger MCP tools for creating, claiming, completing, blocking, and inspecting task/result/session/receipt records from Claude or ChatGPT Projects.
-- Read-only result artifact fetch for Pro consult and generic MCP handoff artifacts explicitly listed on result records.
-- Explicit local reseal for legacy signed result receipts after reviewing the current result payload.
-- `pro browser login/check/smoke/ask` for the optional visible browser adapter.
-- Claude-compatible stdio MCP server through `prodex mcp`.
-- ChatGPT Developer Mode-style Streamable HTTP MCP server through `prodex setup` and `prodex start`.
-- Read-only repo tools for bounded file reads and ripgrep search.
-- Receipt-gated repo write/stage tools for existing text files: dry-run first, apply only with matching git HEAD and preimage hash, then stage only reviewed applied receipts.
-- `doctor` local health check for `.bridge`, redacted config loading, receipt-backed write/apply/stage, and the real HTTP MCP tool catalog.
-
-Not implemented:
-
-- Hidden ChatGPT endpoints.
-- Cookie, token, localStorage, or sessionStorage extraction.
-- Direct ungated write tools.
-- Shell execution tools.
-- Automatic public tunnel setup.
-
-## Agent Bridge Quick Start
-
-This section connects coding agents (Claude, Codex, ChatGPT Projects) to the bridge over MCP. It is not required for the standalone terminal flow above — if you only want Pro answers in your terminal, the [Quickstart](#quickstart-a-pro-second-opinion-from-your-terminal) is complete on its own.
-
-Requires Node.js 20 or newer, `git`, and `ripgrep` (`rg`) on PATH. The optional visible-browser adapter needs a Chromium-family browser: PATH binaries (`google-chrome`, `chromium`, `chromium-browser`, `microsoft-edge`, `brave-browser`), standard macOS app bundles, Windows Program Files/LOCALAPPDATA installs, and Windows-host browsers under WSL are all probed automatically; anything else via `PRODEX_CHROME=/path/to/browser`.
-
-Install from npm — **note the scope**. The unscoped `prodex` on npm is an unrelated third-party package; do **not** install it. Use the scoped name:
-
-```bash
+```sh
 npm install -g @youdie006/prodex
 ```
 
-The `prodex` command is then on your PATH:
+Mind the scope: the unscoped `prodex` on npm is an unrelated package.
 
-```bash
-prodex onboard
-prodex init
-prodex doctor
-prodex pro ask --cwd /absolute/path/to/your/repo "Review the project positioning"
+## Quick start
+
+```sh
+prodex pro browser login          # opens a dedicated Chrome; sign in once, it waits until READY
+prodex ask "Explain this stack trace"
+prodex ask --file src/auth.ts "Review this for security holes"
+git diff | prodex ask --stdin "Review this diff"
+prodex pro latest                 # re-print the last answer
 ```
 
-For a source checkout:
+`prodex ask` is the short form of `prodex pro browser ask`; every flag works on both. The login opens its own Chrome profile (`~/.local/share/prodex/chrome-chatgpt-pro`), never your daily browser, and in a terminal it keeps watching the window and names the manual step still missing (sign in, clear a check, open a chat) until it reports READY.
 
-```bash
-cd /absolute/path/to/prodex
-npm install
-npm run build
-SOURCE_CLI="/absolute/path/to/prodex/dist/cli.js"
-node "$SOURCE_CLI" onboard --source-cli "$SOURCE_CLI"
-node "$SOURCE_CLI" init
-node "$SOURCE_CLI" doctor --source-cli "$SOURCE_CLI"
-node "$SOURCE_CLI" pro ask --cwd /absolute/path/to/your/repo "Review the project positioning"
-```
+While Pro thinks, progress goes to stderr: connecting, prompt sent, elapsed time while generating. A Pro selection raises the send budget to twenty minutes on its own; `--timeout-ms` overrides it. The answer is read from the conversation transcript rather than scraped off the page, so tables and fenced code arrive intact and citations keep their links. If the dedicated browser is not running, an interactive `ask` starts it, waits for your saved session, and retries once (`--no-auto-login` turns that off; scripts opt in with `--auto-login`).
 
-The examples below use the installed `prodex` binary. In a source checkout, replace `prodex` with `node /absolute/path/to/prodex/dist/cli.js` after building, and pass `--source-cli /absolute/path/to/prodex/dist/cli.js` to onboarding, browser, prompt, and local MCP troubleshooting commands so their follow-up guidance stays in source-checkout form.
-`onboard` prints the Claude, ChatGPT Project, and optional ChatGPT Pro consult commands without changing local state.
+Useful flags on every send:
 
-`init` creates the local `.bridge/` ledger directories and ignore rules. On a source checkout it may also add `node_modules/` and `dist/` to the repo root `.gitignore` so local dependencies and build output stay out of git.
-Run `init` from the repo root, or use `prodex init --cwd /absolute/path/to/your/repo` from elsewhere.
+| Flag | What it does |
+|---|---|
+| `--new-chat` | Send into a fresh chat. Recommended for repeated consults; very long threads eventually confuse send detection. |
+| `--file path` | Inline a text file's contents into the prompt. Repeatable. |
+| `--attach path` | Upload the file itself: the only way to hand ChatGPT a pdf, pptx, xlsx or image. Paths must live inside the repo. |
+| `--tool deep-research` | Run a browsed report; the budget rises to thirty minutes and the full report comes back through the transcript. Also `web-search`, `create-image`, or any label the menu shows. |
+| `--project "name"` | Send inside an existing sidebar project. `--project-new` creates one first. `prodex pro browser projects` lists exact names. |
+| `--temporary` | A ChatGPT Temporary Chat: nothing in your chat list, but the answer is read off the page and cannot be recovered later. |
+| `--json` | Structured output on stdout, progress on stderr. |
+| `--target-url url --confirm-target` | Send into a specific thread the dedicated browser already has open. |
 
-`pro ask` is a dry-run/manual preview. It does not drive a logged-in browser; `pro ask --send` is rejected so accidental sends do not happen through the preview alias. Use `pro browser ask` when you explicitly want the visible browser adapter.
-Run `pro ask` and `pro browser ask` from the repo root, or pass `--cwd /absolute/path/to/your/repo` so `--file` paths and `.bridge` records resolve to the intended project. If you generated commands with `onboard --cwd`, those commands already include the target cwd.
-Bridge inspection and task handoff commands such as `pro browser check`, `pro latest`, `pro show`, `tasks create/list/show/claim/complete/block`, `results show`, `results artifact`, `receipts show`, and `sessions show` can also be run from elsewhere with `--cwd /absolute/path/to/your/repo`.
-When the file exists and you want it included, add it explicitly, for example `prodex pro ask --cwd /absolute/path/to/your/repo --file README.md "Review the project positioning"`.
-If your prompt itself starts with flag-like text, put `--` before the prompt. This applies to both preview and visible-browser sends, for example `prodex pro ask -- --strict mode review` or `prodex pro browser ask -- --strict mode review`.
+Prefer prompts to flags? `prodex ui` (or a bare `prodex` in a terminal) asks what to send and where, shows a progress bar, and prints the equivalent command so the flags are learnable.
 
-## First Pro Login
+## Agents over MCP
 
-Use this only when you explicitly want to use your logged-in ChatGPT Pro web session.
+**Claude Code, Codex, Cursor, Gemini CLI** talk to prodex over stdio. For Claude:
 
-```bash
-prodex pro browser login --dry-run
-prodex pro browser login
-prodex pro browser help
-prodex pro browser check
-prodex pro browser smoke --cwd /absolute/path/to/your/repo
-```
-
-If you use a non-default debug port or Chrome profile, pass it to `login`; the printed follow-up `check` and `smoke` commands keep the matching `--port`. To stop repeating `--port` on every command, export `PRODEX_CDP_PORT=<port>` once — explicit `--port` still wins. If you launch from outside the repo you want to inspect, pass `--cwd /absolute/path/to/your/repo` to `login`, `check`, or `smoke` so the command targets the same bridge. On slower first launches, add `--launch-timeout-ms 12000`.
-
-For a source checkout, keep the follow-up commands in source-checkout form too:
-
-```bash
-cd /absolute/path/to/prodex
-SOURCE_CLI="/absolute/path/to/prodex/dist/cli.js"
-node "$SOURCE_CLI" pro browser login --dry-run --source-cli "$SOURCE_CLI"
-node "$SOURCE_CLI" pro browser login --source-cli "$SOURCE_CLI"
-node "$SOURCE_CLI" pro browser help --source-cli "$SOURCE_CLI"
-node "$SOURCE_CLI" pro browser check --source-cli "$SOURCE_CLI"
-node "$SOURCE_CLI" pro browser smoke --source-cli "$SOURCE_CLI" --cwd /absolute/path/to/your/repo
-```
-
-What happens:
-
-- `login --dry-run` prints the dedicated Chrome profile, debug URL, and next commands without opening a browser.
-- `login` opens that dedicated Chrome profile at ChatGPT. In an interactive terminal it then waits (default 5 minutes; `--no-wait` skips, `--wait-timeout-ms` tunes) and narrates which manual step is still missing until it reports READY; scripts and agents get the immediate return unless they pass `--wait`.
-- You log in manually in the visible browser.
-- If ChatGPT asks for captcha, Cloudflare/human verification, permission, or account verification, handle it in that browser.
-- If ChatGPT shows a usage limit, message limit, model limit, or rate limit, wait for the reset or choose an available model in the browser.
-- Open a normal ChatGPT chat or the intended Project/thread so the prompt composer is visible.
-- Pick the Pro/Thinking model you want in the ChatGPT UI.
-- The login stays in the dedicated profile:
-
-```text
-~/.local/share/prodex/chrome-chatgpt-pro
-```
-
-You can close that Chrome window after check/smoke or when you are done. The next time you need it, run `pro browser login` or `pro browser check` again. `check` will tell you what to do if the browser is closed.
-
-Actual explicit visible-browser consult (`prodex ask` is the short form of `prodex pro browser ask`):
-
-```bash
-cd /absolute/path/to/your/repo
-prodex ask --file README.md "Review the project positioning"
-prodex pro latest
-prodex results show latest
-prodex results artifact latest
-prodex sessions show latest
-```
-
-This uses the currently available ChatGPT web session and model selection. It is not a hidden API client, and it does not read cookies, tokens, localStorage, or sessionStorage.
-
-#### Choosing the model, reasoning effort, and project
-
-The visible-browser send drives the same composer picker you use by hand, so you can pick the model, reasoning effort, or a sidebar project per ask:
-
-```bash
-# Pro extended sub-mode, inside an existing sidebar project
-prodex pro browser ask --model Pro --project "my-project" "Review the migration plan"
-
-# A non-Pro model at a specific reasoning effort
-prodex pro browser ask --effort "매우 높음" "Draft the release notes"
-```
-
-Selection matches menu items by their visible text and is verified in both the **Korean** (즉시/중간/높음/매우 높음, Pro 기본/확장) and the **English (US)** ChatGPT UI (Instant/Medium/High/Extra High, Pro Standard/Extended) — every canonical flag value matches either locale's labels automatically. For other display languages, use the escape hatch: `--model "<exact label>"` clicks any radio entry in the picker by the exact text your UI shows (run `pro browser models` to list them).
-
-To see the labels your account currently shows, list them read-only (opens the menu, reads it, presses Escape — nothing is selected):
-
-```bash
-prodex pro browser models
-```
-
-- `--model` picks the composer model by its exact menu label. `Pro` is verified end-to-end. Models whose menu entry opens a submenu of variants (for example GPT-5.5) are rejected with a clear error instead of silently keeping the previous model; direct variant selection is planned.
-- `--pro-mode 기본|확장` selects the Pro sub-mode where the ChatGPT picker exposes one: sub-modes belong to the GPT-5.5 generation ("Pro Standard/Extended use GPT-5.5 Pro" per OpenAI docs), so with the GPT-5.6 generation selected the picker shows a single Pro and this flag fails with guidance. Any effective Pro selection (`--model Pro` or a sub-mode) raises the default `--timeout-ms` to 1200000 - Pro reasoning routinely runs for many minutes (an explicit `--timeout-ms` always wins).
-- `--effort 즉시|중간|높음|"매우 높음"` sets the reasoning effort. English aliases `instant`/`medium`/`high`/`max` are accepted. The effort options and Pro share one radio group in ChatGPT, so picking an effort switches the composer to the standard reasoning model and deselects Pro; for the same reason `--pro-mode` and `--effort` cannot be combined.
-- `--project "name"` enters an existing sidebar project before sending. `--project-new "name"` creates a new project (sidebar 새 프로젝트 popover, committed with Enter) and sends inside it. Neither can be combined with `--target-url` (the project step would navigate away from the confirmed tab), and `--project-new` never comes from saved defaults — creating a project is always an explicit per-ask choice.
-
-Selection clicks are guarded: prodex refuses to click a control that is covered or out of view, waits for the menu to actually open instead of sleeping a fixed delay, and treats a menu that stays open after a pick as a failed selection. If any step fails, it backs out with Escape and reports a blocker instead of sending with the wrong model. Note that an applied selection stays active in your ChatGPT session after the send — switch back manually if you were on a different model.
-
-Persist defaults so you can omit these flags on routine asks; a per-ask flag always overrides the saved default. View saved defaults with `prodex status`, clear one with the matching `--clear-*` flag, or answer a short wizard instead of remembering flags:
-
-```bash
-prodex setup --model Pro --project "my-project"
-prodex setup --clear-project
-prodex setup --interactive   # asks model / Pro sub-mode or effort / project
-```
-
-The saved default above lives in the repo's `.bridge/config.local.json`, so it only applies when `prodex` runs from that repo. A coding agent often starts the MCP as `prodex mcp` with no `--cwd` (it reads whatever directory the agent launched in), so a per-repo default is missed and consults land in the general chat. For a default that applies from **any** directory, set environment variables instead — `PRODEX_DEFAULT_PROJECT` and `PRODEX_DEFAULT_MODEL` (also `PRODEX_DEFAULT_PRO_MODE`, `PRODEX_DEFAULT_EFFORT`) — in the agent's MCP `env` block or your shell. Use your own project name (list them with `prodex pro browser projects`); with no project set, consults simply go to the general chat. A per-repo config still wins field-by-field over the env fallback.
-
-### No window at all: virtual display (recommended)
-
-Log in once, then never see the browser again:
-
-```bash
-prodex pro browser login                    # once, headed - sign in
-prodex pro browser login --virtual-display  # from now on: no window anywhere
-```
-
-`--virtual-display` (or `PRODEX_VIRTUAL_DISPLAY=1`, which also covers the MCP server and its auto-recovery) starts an X virtual framebuffer and runs the dedicated Chrome on it. It is a **real headed browser**, so Cloudflare treats it as an ordinary one — measured end to end: the signed-in profile loaded chatgpt.com with no challenge and a real Pro send returned in 31 seconds, with nothing on the desktop and nothing in the taskbar. Headless, by contrast, never gets past Cloudflare at all (see below).
-
-Requires `Xvfb` and `xauth` (`sudo apt install -y xvfb x11-xkb-utils xauth`); prodex names the package if they are missing. Linux and WSL only. The display is served over loopback TCP because WSLg mounts `/tmp/.X11-unix` read-only, and it is protected by a per-display xauth cookie under `~/.local/share/prodex/xvfb/` — never `-ac`, so no other process can watch your signed-in window. The X server outlives the CLI on purpose (the browser runs on it) and is reused by later commands; `PRODEX_VIRTUAL_DISPLAY_NUM` picks the display number if `:99` is taken.
-
-A browser already running on your desktop cannot be moved onto a virtual display by reusing it, so prodex refuses the switch and tells you to close it first (`pkill -f "remote-debugging-port=9333"`).
-
-### Keeping the window, just out of the way
-
-`prodex pro browser login --minimized` (or `PRODEX_MINIMIZE_WINDOW=1`) launches the dedicated browser and then minimizes it. It stays a **real headed Chrome** — which is the point, because Cloudflare admits headed browsers and rejects headless ones — but nothing sits on your desktop.
-
-The catch is what "minimized" means to your desktop. Under WSLg a minimized Chrome still reports `visibilityState: "visible"`, so consults keep working (measured: a real Pro send completed in 26s with the window minimized). A normal Linux desktop instead marks minimized windows hidden, and prodex refuses to send into a tab it cannot read — so it restores the window and tells you, rather than leaving you a browser it cannot use. Try it; the login says which case you are in.
-
-### Headless mode (not usable against ChatGPT today)
-
-`prodex pro browser login --headless` (or `PRODEX_HEADLESS=1`, which also covers the MCP server and its auto-recovery) runs the dedicated browser with no visible window. Two constraints are real, not cosmetic:
-
-- **Sign in headed first.** Nobody can log in to a window that does not exist, so headless reuses a profile you already signed into. The headless login verifies the saved session and tells you to run the headed login once if it is not there.
-- **One mode at a time.** A single Chrome profile cannot serve a headed and a headless instance simultaneously; close the running one before switching (prodex refuses the switch instead of silently reusing the wrong mode).
-
-**Cloudflare is the catch, and it is not theoretical.** Measured on a real signed-in profile: headless Chrome lands on the "Just a moment..." interstitial and stays there past 60 seconds, so ChatGPT never loads. A signed-in profile does not buy a pass — the challenge keys on the headless browser itself. Treat `--headless` as available-but-unproven against ChatGPT: try it, and if `prodex pro browser check` reports the challenge, run headed. Only the window is optional; the login is not.
-
-If a consult finds the browser closed, prodex now relaunches it in the same mode you last used and retries once — including from the MCP server, which has no terminal to prompt in. `PRODEX_NO_AUTO_LOGIN=1` turns that off.
-
-Whatever selection is applied is recorded on the consult receipt (`metadata.selection`); receipt display output redacts the project name, keeping only the model axes visible. `prodex` only clicks the picker you can see; it never selects a model, effort, or project silently outside the visible browser.
-
-For a source checkout, keep the explicit send and inspection commands source-aware too:
-
-```bash
-cd /absolute/path/to/prodex
-SOURCE_CLI="/absolute/path/to/prodex/dist/cli.js"
-node "$SOURCE_CLI" pro browser ask --source-cli "$SOURCE_CLI" --cwd /absolute/path/to/your/repo --file README.md "Review the project positioning"
-node "$SOURCE_CLI" pro latest --source-cli "$SOURCE_CLI"
-```
-
-Pass `--source-cli /absolute/path/to/prodex/dist/cli.js` to `pro browser ask`, `pro list`, `pro latest`, or `pro show <task-id|latest>` so blocked consults display source-checkout retry commands instead of installed-binary commands.
-
-Each explicit browser consult creates a `.bridge` task and `.bridge/sessions` record before sending. If the visible browser is blocked by login, captcha, permission, or usage limits, the task is completed as a blocked consult so `prodex pro latest` still shows what happened, including the blocker code and next step; the failed command also prints the recorded task id plus `pro show`/`pro latest` inspection commands. Successful answers are normally saved as result artifacts under `.bridge/artifacts/pro-consults/` before the task result is finalized; if artifact or receipt recording fails after an answer is received, the answer is still completed as the result summary with a warning, and fatal finalization failures print the received answer before exiting. If a Pro answer is too large for `bridge_fetch_result_artifact`, it stays in the result summary with `answer_artifact_warning` and no unfetchable artifact is listed. Generic MCP handoff result artifacts can be stored under `.bridge/artifacts/results/`; `bridge_fetch_result_artifact` only reads artifacts explicitly listed on the result record, and newly finalized result artifacts are checked against the sha256 recorded at finalization time.
-
-If an older local result is reported as untrusted because a locally signed legacy `task_completed` receipt is missing `result_sha256`, review `.bridge/results/<task-id>.json` yourself first, then run:
-
-```bash
-prodex results reseal <task-id> --confirm-current-result
-```
-
-This writes a new local `task_completed` receipt for the current result payload. Prefer the explicit task id you just reviewed; `latest` is accepted for convenience but resolves from the current raw result list at execution time. It does not reseal unsigned receipts, forged receipts, or receipts that already point at a different result digest.
-
-Receipts are HMAC-signed with a local key in `.bridge/receipt-key.local`. If you suspect the key was exposed, rotate it:
-
-```bash
-prodex receipts rotate-key
-```
-
-New receipts are signed with the fresh key; previous keys stay in the file (verification only) so receipts signed before the rotation remain trusted.
-
-To send into a specific visible Project or thread, open that ChatGPT URL in the dedicated browser first, confirm it is the right destination, then pass the same URL:
-
-```bash
-prodex pro browser ask --cwd /absolute/path/to/your/repo --target-url "https://chatgpt.com/c/..." --confirm-target --file README.md "Review this in this thread"
-```
-
-`prodex` does not silently switch Projects or threads. If the visible ChatGPT tab is not already on the confirmed URL, the send is refused.
-If more than one ChatGPT tab or window is visible or visibility cannot be verified for extra ChatGPT tabs, an untargeted browser send is also refused; close the extra ChatGPT windows or use `--target-url ... --confirm-target`.
-
-For optional ChatGPT Project -> local handoff, start the HTTP MCP bridge:
-
-```bash
-prodex setup --token-ttl-hours 24
-prodex start
-```
-
-`setup` writes `.bridge/config.local.json` and ensures `.bridge/.gitignore` covers local task/result/session/receipt/artifact/config files. `setup`, `start`, and `status` redact the URL token by default.
-The HTTP MCP listener is loopback-only: `setup --host` accepts local loopback hosts such as `127.0.0.1` or `localhost`, not public interfaces like `0.0.0.0`.
-`start` reads the saved setup profile when the server process starts. If you rerun `setup` to change the listener or rotate the token, restart `prodex start` so the running server uses the new profile. `status --show-token --url-only` prints the saved local MCP URL, while `tunnel url` formats your supplied public tunnel URL with the saved token; it does not create or inspect the tunnel.
-
-Run these commands from the repo root, or add `--cwd /absolute/path/to/your/repo` to `setup`, `start`, `status`, `doctor`, `tunnel url`, and bridge inspection commands. For example:
-
-```bash
-prodex setup --cwd /absolute/path/to/your/repo --token-ttl-hours 24
-prodex start --cwd /absolute/path/to/your/repo
-```
-
-For a source checkout, keep the source CLI path on runtime/status commands too so recovery hints stay copyable:
-
-```bash
-node dist/cli.js start --cwd /absolute/path/to/your/repo --source-cli /absolute/path/to/prodex/dist/cli.js
-node dist/cli.js status --cwd /absolute/path/to/your/repo --source-cli /absolute/path/to/prodex/dist/cli.js --show-token --url-only
-```
-
-Token-bearing MCP URLs are secrets. They authorize all enabled bridge tools, including repo read, search, write dry-run/apply, and stage-reviewed-paths tools. Use the next command only when you are ready to paste the URL into your own trusted private ChatGPT Project/App configuration:
-
-```bash
-prodex status --show-token --url-only
-```
-
-`status --show-token` requires a token with an expiry, so run `setup --token-ttl-hours <hours>` before asking for a paste-ready URL. The URL token is stored only in `.bridge/config.local.json`, which is ignored by git. Rotate it with `setup` when you no longer need that URL. If you intentionally created a non-expiring token for local-only debugging, `status --show-token` refuses to reveal it unless you also pass `--unsafe-show-non-expiring-token`. `doctor` and `pro browser check` also print `config_warning` when the saved token is non-expiring.
-
-After adding the MCP URL to ChatGPT, generate a paste-ready verification prompt:
-
-```bash
-prodex project prompt
-```
-
-For a source checkout, pass the same built CLI path so the prompt's local follow-up commands are also source-checkout commands:
-
-```bash
-node dist/cli.js project prompt --cwd /absolute/path/to/your/repo --source-cli /absolute/path/to/prodex/dist/cli.js
-```
-
-Paste that prompt into the ChatGPT Project. It asks ChatGPT to call `bridge_create_task`, `bridge_list_tasks`, and `bridge_get_task`, then wait while you complete the verification task locally:
-
-```bash
-prodex tasks list --status new --cwd /absolute/path/to/your/repo
-prodex tasks show <task-id> --cwd /absolute/path/to/your/repo
-prodex tasks complete <task-id> --cwd /absolute/path/to/your/repo --summary "prodex MCP verification result" --artifact .bridge/artifacts/results/mcp-verification.md="prodex MCP verification artifact"
-```
-
-After the local completion command succeeds, reply to ChatGPT with `local completion done`. The generated prompt then asks ChatGPT to call `bridge_fetch_result` for the same task id, call `bridge_fetch_result_artifact` for every listed result artifact path, and report whether it can read both the verification result summary and artifact content.
-
-The generated prompt also includes local `status --cwd ...` and `doctor --cwd ...` troubleshooting commands in case the Project cannot see or call the MCP tools. Source-checkout prompts keep `--source-cli` on those troubleshooting commands too.
-
-If ChatGPT cannot reach `127.0.0.1` from its app runtime, keep `prodex start` local and put your own tunnel in front of it only after creating a short-lived token. `prodex` does not create the tunnel for you, but it can format the public MCP URL safely.
-
-Public tunnel MCP URLs are also secrets. They authorize all enabled bridge tools, including repo read, search, write dry-run/apply, and stage-reviewed-paths tools. Use the next command only when you are ready to paste the public URL into your own trusted private MCP client configuration:
-
-```bash
-prodex tunnel url --public-url "https://your-tunnel.example" --show-token --url-only
-```
-
-See [docs/http-mcp.md](docs/http-mcp.md) for the full ChatGPT Project HTTP MCP setup flow and safety notes.
-
-The MCP write path is intentionally narrow:
-
-- `repo_write_file_dry_run` previews an existing repo-relative text-file replacement, stores hashes/diff in a receipt, and stores replacement text under `.bridge/artifacts/repo-writes/`.
-- `repo_write_file_apply` applies that receipt only when the current git HEAD and file preimage hash still match.
-- `repo_stage_reviewed_paths` stages only files whose applied write receipts still match the current git HEAD and file content.
-- Sensitive local paths are rejected by both the read and write tools: `.bridge`, `.git`, `.env*`, `node_modules`, `dist`, and a set of common in-repo credential/key files (for example `.npmrc`, `.netrc`, `id_rsa`/`id_ed25519`, `*.pem`, `*.key`, `*.p12`/`*.pfx`/`*.jks`, `*.tfstate`, `credentials.*`, `service-account.*`, and the `.ssh`/`.aws`/`.gnupg` directories). This blocklist is defense in depth, not an exhaustive secret scanner — traversal and symlink escapes are separately blocked, but keep genuine secrets out of the repo and treat a token-bearing MCP URL as authorizing everything the tools can reach.
-- No shell execution or direct ungated staging tool is exposed.
-
-For local task-bus smoke tests:
-
-```bash
-cd /absolute/path/to/your/repo
-prodex doctor
-prodex tasks create --cwd /absolute/path/to/your/repo --title "Review plan" --prompt "Review this architecture"
-prodex tasks list --cwd /absolute/path/to/your/repo
-prodex tasks show latest --cwd /absolute/path/to/your/repo
-prodex tasks block <task-id> --cwd /absolute/path/to/your/repo --summary "Blocked reason" --code manual_blocker --next-step "What to do next" --retryable
-prodex pro ask --dry-run --cwd /absolute/path/to/your/repo --file README.md "Review the project positioning"
-prodex sessions list
-```
-
-`doctor` stays local: it does not open ChatGPT or a browser. It creates isolated temp workspaces for the write/apply/stage smoke and HTTP MCP smoke, then confirms the expected bridge/repo tools are visible and that task create/list/get/claim/complete/block/fetch/list-results works over the MCP protocol.
-
-During local development, you can run the TypeScript source directly:
-
-```bash
-npm run dev -- tasks list
-```
-
-## When a send breaks
-
-prodex drives a web UI that changes underneath it, so the interesting question is what you have when that happens.
-
-**Report it from the receipt, not from memory.** A blocked consult already records the blocker, the version and the platform, so `prodex pro report-issue` builds the report out of that:
-
-```bash
-prodex pro report-issue              # prints it, files nothing
-prodex pro report-issue --confirm    # opens it as a GitHub issue, through `gh`
-```
-
-The prompt, the answer and the summary never travel - a public issue is not where a private consult should leak - and filing is deduplicated by blocker code, so something that stays broken adds to one issue instead of opening a new one every time.
-
-**Capture what the page looked like.** With diagnostics on, a failing send leaves a screenshot and a snapshot of the picker and composer next to each other:
-
-```bash
-PRODEX_BROWSER_DIAGNOSTICS=1 prodex ask "..."
-# .bridge/diagnostics/<when>/{screen.png,page-shape.json}
-```
-
-The snapshot carries roles, testids, rects, `aria-value*` and `pointer-events`. Those last two are what identified a model row that no coordinate could click and a slider step prodex could not read. Captures stay on your machine and are never attached to a report; a screenshot of ChatGPT shows the conversation.
-
-**Notice before a person does.** `scripts/ui-watchdog.mjs` sends a token and checks the reply - a real round trip rather than a guess from the page's shape - and can file what it finds:
-
-```bash
-node scripts/ui-watchdog.mjs                 # says ok or broken
-node scripts/ui-watchdog.mjs --file-issue    # and reports it
-```
-
-It needs the logged-in browser, so it belongs on a machine that has one rather than in CI. A daily cron entry is enough.
-
-## Sending without leaving a trace
-
-`--temporary` sends into a ChatGPT Temporary Chat, which leaves your chat list untouched:
-
-```bash
-prodex ask --new-chat --temporary "..."
-```
-
-It costs something, and prodex says so on every such send: an unsaved chat is not in the transcript API, so the answer is read off the page, where tables and citation links can be lost - and neither `pro browser recover` nor `--target-url` can reach it afterwards. It requires `--new-chat`, because a throwaway chat cannot be continued.
-
-## FAQ
-
-**A send failed with `send_ui_changed` / "the ChatGPT web UI may have changed".** prodex drives the visible ChatGPT web UI, so an OpenAI redesign of the composer or send control can break sends. When a send times out without the prompt ever posting (the composer still holds the text, or no send button was found), prodex reports this as a likely UI change instead of a misleading "slow model" timeout. Fix: update prodex (`npm i -g @youdie006/prodex@latest`); if it persists, open an issue at https://github.com/youdie006/prodex/issues, and paste the prompt manually in the visible browser in the meantime.
-
-**A send stopped or "won't send" — why?** A tab counts as watchable only while its window is non-minimized and it is the active tab in that window. If you minimized the dedicated Chrome or switched it to another tab, the send stops with a `tab_not_visible` blocker rather than sending where you cannot watch. Leaving that window non-minimized behind your other apps is fine — it still sends in the background. By design `prodex` does not steal focus; if you'd rather it pull the tab to the front on a stopped send, set `PRODEX_ACTIVATE_TAB=1` (off by default so background loops aren't interrupted). Other stops (login, captcha, Cloudflare, rate/usage limit) are reported with a blocker code and next step, and recorded so `prodex pro latest` shows what happened.
-
-**I run consults in the background while working elsewhere — will the window keep popping up?** No. By default `prodex` never brings the window forward. Dedicate a Chrome window to the ChatGPT tab, leave it non-minimized behind your editor, and sends run silently. (On macOS a fully occluded window can report itself hidden even when not minimized; if that bites you, keep a sliver visible or accept the occasional blocker.)
-
-**Why did it pause before sending?** Visible-browser sends are throttled to human pace (default one every 10 seconds) so an agent loop can't hammer ChatGPT at machine speed. You'll see a `send_pacing: waiting Ns` note on stderr. Tune it with `PRODEX_MIN_SEND_INTERVAL_MS` (milliseconds; `0` disables). Pacing is tracked per repo via `.bridge/last-browser-send`.
-
-**The browser was closed — do I have to run `login` again?** Not in a terminal: an interactive `ask` notices `browser_unreachable`, relaunches the dedicated browser, waits for your saved session to report READY, and retries the send once. Scripts opt in with `--auto-login`; `--no-auto-login` disables it. Only a missing browser triggers this — login/captcha/limit blockers still stop and report.
-
-**The answer timed out.** Pro reasoning can take many minutes. A Pro selection already raises the default budget to 900s; the `send_timeout` blocker suggests a paste-ready rerun command with a doubled `--timeout-ms`. If the answer was mid-stream when time ran out, prodex salvages the partial text and records an `answer_incomplete` warning instead of discarding it.
-
-**Sends started failing after many consults in one chat.** Long accumulated threads eventually confuse prompt-acceptance detection (measured live around ten-plus messages). Send repeated consults into fresh chats with `--new-chat` (`new_chat: true` on the MCP tool) — the answer still lands in your account and in `.bridge/` receipts either way.
-
-**Every send says "still generating" but nothing is being written.** ChatGPT sometimes parks a thread on "You're giving feedback on a new version of ChatGPT - which response do you prefer?", and while it waits the composer keeps its stop control. prodex reports that as a `response_choice_pending` blocker naming the two "I prefer this response" buttons, because waiting will never clear it. Sends that navigate away (`--new-chat`, or any send into a project) are unaffected. A stop control can also linger for a few seconds after an ordinary answer finishes; prodex checks the conversation transcript before believing it, so a finished thread is not mistaken for a busy one.
-
-**"menu item not found" on `--effort`/`--pro-mode`/`--project`.** Selection matches the visible menu labels, verified in the Korean and English (US) ChatGPT UI. On another display language, run `prodex pro browser models` to see your labels and pass `--model "<exact label>"`, which clicks any picker radio by exact text.
-
-**Does this risk my ChatGPT account?** `prodex` is deliberately not a stealth bot: it uses a real visible browser, you log in manually, and it stops on captcha/verification instead of solving it. It does drive chatgpt.com, though, so keep usage at the human, occasional-consult volume the auto-pacing enforces — do not build tight recurring loops on top of it. Automating a paid account is your responsibility under OpenAI's terms.
-
-**Does it read my cookies or tokens?** No. It talks to the browser only through Chrome's local `--remote-debugging-port` (loopback-only, live only while that browser is open) and never reads cookies, tokens, localStorage, or sessionStorage.
-
-**Windows / macOS?** The code targets all three platforms, but the visible-browser adapter is exercised most on Linux; open an issue with details if a browser step misbehaves on macOS or Windows.
-
-## Releasing
-
-Publishing to npm runs entirely in CI with **no long-lived token** — auth is npm [trusted publishing](https://docs.npmjs.com/trusted-publishers) (OIDC), so nothing needs to store or paste an `NPM_TOKEN`, and every release carries a verifiable `--provenance` attestation.
-
-Release flow:
-
-```bash
-# 1. bump version + update CHANGELOG on main, commit, push main
-# 2. tag the release and push the tag — CI publishes it
-git tag v0.8.2
-git push origin v0.8.2
-```
-
-`.github/workflows/publish.yml` fires on a `v*.*.*` tag: it checks out, installs, verifies the tag equals `package.json`'s version, runs `release:verify`, and publishes with `npm publish --provenance --access public`. The tag/version guard prevents publishing a mismatched version.
-
-One-time setup (owner, on npmjs.com): open the package → Settings → Trusted Publishing → add a GitHub Actions publisher for repo `youdie006/prodex` and workflow `publish.yml`. After that, no npm tokens are needed anywhere; revoke any previously issued automation tokens.
-
-## Release Checks
-
-GitHub Actions runs `npm ci`, `npm run build`, `npm run release:check`, and `npm run release:verify` on pushes to `main` and pull requests. The workflow installs `ripgrep` because the repo-search smoke checks require `rg`. It verifies release readiness only; it does not publish anything.
-
-Before sharing a package tarball, run:
-
-```bash
-npm run smoke:package
-```
-
-This packs the project, installs the tarball into a temporary consumer project, runs the installed `prodex` binary, verifies HTTP MCP onboarding through installed token-TTL `setup`/`status`/configured `doctor`/`tunnel url`/`start`, checks `/health`, connects to the installed `/mcp` endpoint, lists tools, calls `bridge_create_task`, verifies explicit `--cwd` task storage, exercises the installed HTTP MCP repo write dry-run/apply/stage flow, exercises the installed HTTP MCP task completion/blocking/result/artifact fetch flow including tampered artifact rejection, verifies installed HTTP MCP receipt/session list/fetch tools, verifies the installed `release-pack` script and `prodex release pack` CLI success paths for normalized publish tarballs, runs `npm publish --dry-run` against those normalized tarballs, verifies git-ready release-pack output includes the tarball publish lifecycle warning and guarded `release_pack_publish` command, verifies installed release git blockers for no remote, dirty worktrees, detached HEAD, no upstream, unpushed, upstream gone, behind, and diverged states, verifies `release pack` blocks publish guidance for those unsafe git states, verifies the package is CLI-only by blocking unsupported deep imports, verifies the installed stdio MCP server exposes the expected tool catalog, exercises the installed stdio MCP repo write dry-run/apply/stage flow, verifies installed stdio oversized repo_search failure output, verifies installed stdio non-git write failure output, exercises the installed stdio MCP task completion/blocking/result/artifact fetch flow including tampered artifact rejection, and verifies installed stdio MCP receipt/session list/fetch tools.
-
-To run the full release verification sequence:
-
-```bash
-npm run release:verify
-```
-
-This runs tests, typecheck, build, package smoke, and `doctor` without weakening the publish guard.
-
-If direct `npm pack` is blocked because a WSL/Windows mount reports normal source files as executable, build the publish tarball from a temporary Linux staging directory:
-
-```bash
-prodex release pack --pack-destination /tmp/prodex-release
-```
-
-For a source checkout, use the built CLI with `--source-cli` so follow-up commands stay in source-checkout form:
-
-```bash
-cd /absolute/path/to/prodex
-SOURCE_CLI="/absolute/path/to/prodex/dist/cli.js"
-node "$SOURCE_CLI" release pack --source-cli "$SOURCE_CLI" --pack-destination /tmp/prodex-release
-node "$SOURCE_CLI" release status --source-cli "$SOURCE_CLI"
-```
-
-The npm script is equivalent when you only need the tarball:
-
-```bash
-npm run release:pack -- --pack-destination /tmp/prodex-release
-```
-
-For source-checkout release commands, prefer the CLI wrapper when you want follow-up guidance to stay in `node dist/cli.js ... --source-cli` form. The npm script creates the same normalized tarball, but it cannot know which source CLI path should appear in later recovery commands.
-
-`release pack` does not publish anything. It still refuses missing publish metadata, non-regular or hard-linked packed files, and missing package release checks; it only normalizes packed file modes in the staging copy so package `bin` entries remain executable and other packed files become regular `0644` files. Run `npm run release:verify` and the matching status command before publishing the tarball it creates: `prodex release status` for installed-package use, or `node /absolute/path/to/prodex/dist/cli.js release status --source-cli /absolute/path/to/prodex/dist/cli.js` from a source checkout. When the tarball is ready, `release pack` prints `release_pack_git` and `release_pack_git_next` lines before publish guidance so git remote/upstream blockers stay visible. It always prints `npm publish --dry-run <tarball>` for inspecting the exact tarball. Tarball publish commands bypass npm `prepublishOnly`, so `release pack` prints `release_pack_publish_guard` before `npm publish <tarball>`; run the dry-run command first, then publish only that verified tarball if it succeeds. If git readiness is blocked, it prints `release_pack_publish_blocked` instead.
-
-Add `--keep-workdir` to `prodex release pack`, `node /absolute/path/to/prodex/dist/cli.js release pack --source-cli /absolute/path/to/prodex/dist/cli.js --pack-destination <dir>`, or `npm run release:pack -- ...` when you need to inspect the temporary normalized staging directory.
-
-To see the current publish blocker and next step from the CLI:
-
-```bash
-prodex release status
-```
-
-It reports package metadata blockers, pack file-mode, non-regular file, or hard-link blockers when package identity is readable, and local git readiness, including a dirty worktree, detached HEAD, missing git remote, branch without upstream tracking, upstream is gone, branch divergence, unpushed local commits, or a branch behind upstream. For a new public repo, create the remote yourself, then run `git remote add origin <git-url>` and `git push -u origin <branch>`; `release status` prints those handoff commands when the local git state is missing a remote or upstream.
-
-Before publishing to npm, make sure `package.json` has an npm-publishable `name` and valid semver `version`, keep the explicit MIT `license` metadata and matching `LICENSE` regular file, and make sure `package.json` does not have `private: true`. `release:check` treats missing or malformed package identity and `private: true` as publish blockers because npm will refuse to publish those packages. It also rejects a `LICENSE` path that is a directory, symlink, or hard link, rejects non-regular or symlinked packed files, blocks packed files with unexpected executable modes outside package `bin` entries, and rejects hard-linked packed files. If you are on a WSL/Windows mount that reports every file as executable, publish from a Linux filesystem, fix mount metadata/chmod first, or use `prodex release pack --pack-destination <dir>` after release verification to create the tarball from normalized staging files. From a source checkout, use `node /absolute/path/to/prodex/dist/cli.js release pack --source-cli /absolute/path/to/prodex/dist/cli.js --pack-destination <dir>` for the same normalized tarball plus source-aware follow-up guidance. Source-tree `npm publish` is intentionally guarded by `prepublishOnly`; it runs:
-
-```bash
-npm run release:check
-```
-
-If package metadata stops being publishable, `release:check` fails with a metadata error instead of letting an accidental public publish proceed. Use `npm run release:verify` when you only want local verification without claiming publish readiness.
-
-## Claude MCP
-
-If `prodex` is installed and on your PATH, generate the Claude MCP config JSON:
-
-```bash
+```sh
 prodex claude config --cwd /absolute/path/to/your/repo
 ```
 
-It prints this token-free config:
+prints a token-free config that points Claude at `prodex mcp --cwd /absolute/path/to/your/repo`:
 
 ```json
-{
-  "mcpServers": {
-    "prodex": {
-      "command": "prodex",
-      "args": ["mcp", "--cwd", "/absolute/path/to/your/repo"]
-    }
-  }
-}
+{ "mcpServers": { "prodex": { "command": "prodex", "args": ["mcp", "--cwd", "/absolute/path/to/your/repo"] } } }
 ```
 
-For a source checkout, first run `npm install && npm run build`, then generate a `node dist/cli.js` config:
+The server exposes `pro_consult` (a visible-browser send, with the same model, effort, project and tool choices as the CLI), `pro_recover` (fetch an answer that finished after a timeout), the bridge ledger tools (`bridge_create_task`, `bridge_list_tasks`, `bridge_fetch_result`, receipts, sessions), bounded `repo_read_file` and `repo_search`, and a receipt-gated write path: `repo_write_file_dry_run` first, `repo_write_file_apply` only while git HEAD and the file's preimage hash still match, `repo_stage_reviewed_paths` for applied receipts only. No shell tool, no ungated write. `prodex claude prompt` prints a paste-ready prompt that verifies the wiring. [docs/claude.md](docs/claude.md) covers Claude Desktop and Claude Code; [docs/clients.md](docs/clients.md) covers the others, including the per-call approval and `tool_timeout_sec` Codex needs.
 
-```bash
-node dist/cli.js claude config --cwd /absolute/path/to/your/repo --source-cli /absolute/path/to/prodex/dist/cli.js
+An MCP server usually starts without `--cwd`, so a per-repo default can be missed. For defaults that apply from any directory, set `PRODEX_DEFAULT_PROJECT`, `PRODEX_DEFAULT_MODEL`, `PRODEX_DEFAULT_EFFORT` or `PRODEX_DEFAULT_PRO_MODE` in the agent's MCP `env` block; a per-repo config still wins field by field.
+
+**ChatGPT Projects** can hand structured tasks back to your machine over a loopback-only HTTP MCP bridge:
+
+```sh
+prodex setup --token-ttl-hours 24
+prodex start
+prodex status --show-token --url-only   # the URL is a secret: it authorizes every enabled tool
+prodex project prompt                   # a paste-ready verification prompt for the Project
 ```
 
-See [docs/claude.md](docs/claude.md) for Claude Desktop and Claude Code notes.
-Both generated configs point Claude at the same `mcp --cwd /absolute/path/to/your/repo` server args.
+The listener binds loopback only; put your own tunnel in front of it if ChatGPT cannot reach `127.0.0.1`, and only with a short-lived token (`prodex tunnel url --public-url https://... --show-token --url-only` formats the URL). [docs/http-mcp.md](docs/http-mcp.md) has the full flow and the safety notes.
 
-After adding the MCP server in Claude, generate a paste-ready verification prompt:
+## Model, effort and project
 
-```bash
-prodex claude prompt --cwd /absolute/path/to/your/repo
+ChatGPT's composer picker is one slider that walks model and effort together. prodex drives that slider, and reads it back before every send:
+
+```console
+$ prodex pro browser models
+Model menu options in the visible ChatGPT tab (read-only; nothing was selected):
+* Latest
+  GPT-5.6 Sol
+  GPT-5.5
+
+Power slider on this account (the slider was walked and put back):
+  1/5  Latest  -  Instant
+  2/5  Latest  -  Medium
+  3/5  Latest  -  High
+  4/5  Latest  -  Extra High
+* 5/5  6  -  Pro
 ```
 
-For a source checkout, include the built CLI path:
+- `--effort 즉시|중간|높음|"매우 높음"|Pro` picks a rung; English aliases `instant`, `medium`, `high`, `extrahigh` and `max` are accepted, and `--model Pro` reaches the same top rung. Korean and English (US) ChatGPT labels are both matched; on another display language, pass the exact label `models` shows.
+- ChatGPT now has two surfaces, Chat and Work, with different pickers; Work's ladder ends in Max and Ultra and offers no Pro. prodex puts the browser back on Chat before a send (and says so on the receipt), so a drifted browser cannot quietly send on the wrong picker. `Max` and `Ultra` are accepted for a browser already on Work.
+- The model rows themselves (Latest, GPT-5.6 Sol, GPT-5.5) cannot be clicked by automation in the current picker; the slider is the lever, and prodex says so rather than pretending a row was chosen.
+- Selection is guarded: a control that is covered or off screen is not clicked, a menu that stays open after a pick counts as a failed pick, and any failure backs out with Escape and reports a blocker instead of sending with the wrong model. What was applied is recorded on the receipt (`metadata.selection`, project name redacted).
 
-```bash
-node dist/cli.js claude prompt --cwd /absolute/path/to/your/repo --source-cli /absolute/path/to/prodex/dist/cli.js
+Pin defaults once per repo so routine asks need no flags; a per-ask flag always wins:
+
+```sh
+prodex setup --effort Pro --project "your-project"
+prodex setup --clear-project
+prodex setup --interactive        # a short wizard instead of flags
+prodex status                     # shows the saved defaults
 ```
 
-The generated prompt asks Claude to create and read a bridge task only; it does not request write, stage, shell, browser, or tunnel actions. It also includes local `claude config --cwd ...` and `doctor --cwd ...` troubleshooting commands in case Claude cannot see or call the MCP tools. Source-checkout prompts keep `--source-cli` on those troubleshooting commands too.
+## Running without a window
+
+```sh
+prodex pro browser login                    # once, headed: sign in
+prodex pro browser login --virtual-display  # from then on: no window anywhere
+```
+
+`--virtual-display` (or `PRODEX_VIRTUAL_DISPLAY=1`, which the MCP server and its auto-recovery honour too) starts an X virtual framebuffer and runs the dedicated Chrome on it. It is a real headed browser, so Cloudflare treats it as one: measured end to end, the signed-in profile loaded chatgpt.com with no challenge and a Pro send returned normally, with nothing on the desktop. Linux and WSL; needs `xvfb` and `xauth`, and the display is protected by a per-display xauth cookie rather than opened to every process.
+
+`--minimized` keeps a window but minimizes it. Under WSLg a minimized Chrome still reports itself visible and consults keep working; a normal Linux desktop marks it hidden, and prodex refuses to send into a tab it cannot read, restores the window, and tells you.
+
+`--headless` exists and is not usable against ChatGPT today: measured on a signed-in profile, headless Chrome stays on Cloudflare's interstitial past sixty seconds. Only the window is optional; the login is not.
+
+A browser that stops answering its control port mid-send is ended and started fresh before the send, and the receipt says so (`PRODEX_NO_AUTO_CLEAR=1` turns that off). A browser that is merely slow is left alone.
+
+## Receipts
+
+Everything a consult touches is written under `.bridge/` in the repo it ran from:
+
+```text
+.bridge/
+  tasks/        what was asked, by whom, with which files and tools
+  results/      the answer's summary and the artifacts it produced
+  sessions/     preview, running, done or blocked, per consult
+  receipts/     HMAC-signed records of every action, keyed by .bridge/receipt-key.local
+  artifacts/    pro-consults/ answers, results/ handoff artifacts, repo-writes/ staged text
+  diagnostics/  screenshots and page-shape snapshots from failed sends, when enabled
+```
+
+`prodex pro latest`, `pro show`, `results show`, `results artifact`, `receipts show` and `sessions show` read them; `--json` on the list commands gives structured output. Result artifacts are checked against the sha256 recorded when they were finalized. A blocked consult is completed as blocked with its code and next step, so `pro latest` shows what happened even when nothing was sent. `prodex receipts rotate-key` signs new receipts with a fresh key while older ones stay verifiable; `prodex results reseal <task-id> --confirm-current-result` re-signs a legacy result you have reviewed.
+
+Two sibling tools read the same ledger, found through the bridge registry prodex keeps in `~/.local/share/prodex/bridges.json`: [sessionwiki](https://github.com/youdie006/sessionwiki) indexes every consult as a searchable session, and [swapdex](https://github.com/youdie006/swapdex) lists recent consults after an account switch. Neither is required.
+
+## How it works
+
+```text
+you / prodex ask ---------+
+                          |          Chrome DevTools Protocol (loopback)
+Claude, Codex, Cursor ----+--> prodex ------------------------------------> dedicated Chrome, your login
+   stdio MCP: pro_consult |        |                                              |
+                          |        | tasks, results, sessions, receipts           | chatgpt.com, the same
+ChatGPT Projects ---------+        v                                              | composer you would use
+   loopback HTTP MCP           .bridge/  (in your repo, HMAC-signed)              v
+                                                                                ChatGPT Pro
+```
+
+The browser is a real Chrome launched with `--remote-debugging-port` on `127.0.0.1`, live only while that window is open. prodex checks the page state, confirms the tab is on a ChatGPT conversation it can read, applies the picker selection, types the prompt, waits for the answer to finish, and reads it from the transcript. Sends are paced to human speed (one every ten seconds by default, `PRODEX_MIN_SEND_INTERVAL_MS` tunes it) and take a cross-process lock, so two agents on one machine queue rather than fight over the composer.
+
+### What it will not do
+
+- No hidden ChatGPT endpoints, no cookie, token, localStorage or sessionStorage extraction. It never reads a credential; the browser holds your login.
+- No captcha solving, Cloudflare bypass, proxies or stealth. Login, captcha, verification, usage and model limits stop the send with a named blocker.
+- No batch prompting or recurring loops. It is built for the occasional consult a person would make, and the pacing enforces that.
+- No shell tool and no ungated write over MCP. Reads and searches are bounded to the repo and refuse `.bridge`, `.git`, `.env*`, `node_modules`, `dist` and common credential files.
+- Nothing leaves your machine except what you type into ChatGPT. Bridge endpoints bind loopback; exposing them is your call and your tunnel.
+
+Automating a paid ChatGPT account is your responsibility under OpenAI's terms; prodex keeps it visible and slow so that it looks like what it is.
+
+## When a send breaks
+
+prodex drives a web UI that changes underneath it, so the tooling assumes it will.
+
+```sh
+prodex pro report-issue              # a GitHub issue drafted from the blocked consult's receipt
+prodex pro report-issue --confirm    # files it through gh; the prompt and the answer never travel
+PRODEX_BROWSER_DIAGNOSTICS=1 prodex ask "..."   # leaves a screenshot and a page-shape snapshot in .bridge/diagnostics/
+node scripts/ui-watchdog.mjs         # a real round trip that says ok or broken; --file-issue reports it
+```
+
+Reports are deduplicated by blocker code, so something that stays broken adds to one issue. Captures stay on your machine.
+
+## FAQ
+
+**A send failed with `send_ui_changed`.** ChatGPT redesigned the composer or send control. Update (`npm i -g @youdie006/prodex@latest`); if it persists, `prodex pro report-issue`, and paste the prompt by hand meanwhile.
+
+**It stopped with `tab_not_visible`.** A tab counts as watchable only while its window is not minimized and it is the active tab. Leave the dedicated window behind your editor and it sends in the background; prodex never steals focus (`PRODEX_ACTIVATE_TAB=1` if you want the tab pulled forward on a stopped send).
+
+**Why the pause before sending?** Pacing: `send_pacing: waiting Ns` on stderr. `PRODEX_MIN_SEND_INTERVAL_MS=0` disables it.
+
+**The answer timed out.** Pro can take many minutes; the `send_timeout` blocker prints a rerun command with a doubled budget, and a partial answer is kept with an `answer_incomplete` warning. If the thread finished after the timeout, `prodex pro browser recover --target-url <thread>` fetches it, deep research reports included.
+
+**Sends started failing after many consults in one chat.** Long threads confuse prompt-acceptance detection. Use `--new-chat` (`new_chat: true` on the MCP tool).
+
+**Every send says "still generating" and nothing is being written.** ChatGPT parked the thread on "which response do you prefer?". prodex reports `response_choice_pending` and names the buttons; pick one, or send with `--new-chat`.
+
+**Does it read my cookies or tokens?** No. It talks to the browser only over the loopback DevTools port, and only while that browser is open.
+
+**Windows and macOS?** All three platforms are targeted; the visible-browser adapter is exercised most on Linux and WSL. Open an issue with details if a browser step misbehaves elsewhere.
+
+## Development
+
+```sh
+npm install
+npm run build
+npm test                   # 1000+ tests; none of them touch a real browser
+npm run release:verify     # tests, typecheck, build, package smoke, doctor
+```
+
+The npm package is CLI-only: the `prodex` command, the stdio MCP server and the HTTP MCP server are the supported surfaces, and deep imports are blocked on purpose. [docs/releasing.md](docs/releasing.md) describes the tag-driven publish (npm trusted publishing, no long-lived token) and the release checks.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
