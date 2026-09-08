@@ -58,7 +58,7 @@ Node 20 or newer, `git`, and `ripgrep` (`rg`) on PATH. A Chromium-family browser
 npm install -g @youdie006/prodex
 ```
 
-Mind the scope: the unscoped `prodex` on npm is an unrelated package.
+Note the scope: the unscoped `prodex` on npm is an unrelated package.
 
 ## Quick start
 
@@ -107,12 +107,12 @@ The server exposes `pro_consult` (a visible-browser send, with the same model, e
 
 An MCP server usually starts without `--cwd`, so a per-repo default can be missed. For defaults that apply from any directory, set `PRODEX_DEFAULT_PROJECT`, `PRODEX_DEFAULT_MODEL`, `PRODEX_DEFAULT_EFFORT` or `PRODEX_DEFAULT_PRO_MODE` in the agent's MCP `env` block; a per-repo config still wins field by field.
 
-**ChatGPT Projects** can hand structured tasks back to your machine over a loopback-only HTTP MCP bridge:
+**ChatGPT Projects** can hand structured tasks back to your machine over a loopback-only HTTP MCP bridge. Token-bearing MCP URLs are secrets: the URL authorizes every enabled tool, so it is printed only on request and belongs only in your own trusted Project configuration.
 
 ```sh
 prodex setup --token-ttl-hours 24
 prodex start
-prodex status --show-token --url-only   # the URL is a secret: it authorizes every enabled tool
+prodex status --show-token --url-only   # the paste-ready URL, token included
 prodex project prompt                   # a paste-ready verification prompt for the Project
 ```
 
@@ -180,7 +180,7 @@ Everything a consult touches is written under `.bridge/` in the repo it ran from
   diagnostics/  screenshots and page-shape snapshots from failed sends, when enabled
 ```
 
-`prodex pro latest`, `pro show`, `results show`, `results artifact`, `receipts show` and `sessions show` read them; `--json` on the list commands gives structured output. Result artifacts are checked against the sha256 recorded when they were finalized. A blocked consult is completed as blocked with its code and next step, so `pro latest` shows what happened even when nothing was sent. `prodex receipts rotate-key` signs new receipts with a fresh key while older ones stay verifiable; `prodex results reseal <task-id> --confirm-current-result` re-signs a legacy result you have reviewed.
+`prodex init` creates the ledger (a browser send creates it on first use too). `prodex pro latest`, `pro show`, `results show`, `results artifact`, `receipts show` and `sessions show` read them; `--json` on the list commands gives structured output. Result artifacts are checked against the sha256 recorded when they were finalized. A blocked consult is completed as blocked with its code and next step, so `pro latest` shows what happened even when nothing was sent. `prodex receipts rotate-key` signs new receipts with a fresh key while older ones stay verifiable; `prodex results reseal <task-id> --confirm-current-result` re-signs a legacy result you have reviewed.
 
 Two sibling tools read the same ledger, found through the bridge registry prodex keeps in `~/.local/share/prodex/bridges.json`: [sessionwiki](https://github.com/youdie006/sessionwiki) indexes every consult as a searchable session, and [swapdex](https://github.com/youdie006/swapdex) lists recent consults after an account switch. Neither is required.
 
@@ -249,7 +249,7 @@ npm test                   # 1000+ tests; none of them touch a real browser
 npm run release:verify     # tests, typecheck, build, package smoke, doctor
 ```
 
-The npm package is CLI-only: the `prodex` command, the stdio MCP server and the HTTP MCP server are the supported surfaces, and deep imports are blocked on purpose. [docs/releasing.md](docs/releasing.md) describes the tag-driven publish (npm trusted publishing, no long-lived token) and the release checks.
+The npm package is CLI-only: the `prodex` command, the stdio MCP server and the HTTP MCP server are the supported surfaces, and deep imports are blocked on purpose. [docs/cli-reference.md](docs/cli-reference.md) carries the full operational detail: every command in installed and source-checkout form, the first login step by step, the HTTP bridge setup, and the local smoke tests. [docs/releasing.md](docs/releasing.md) describes the tag-driven publish (npm trusted publishing, no long-lived token) and the release checks.
 
 ## License
 

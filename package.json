@@ -36,6 +36,8 @@
     "docs/claude.md",
     "docs/clients.md",
     "docs/http-mcp.md",
+    "docs/releasing.md",
+    "docs/cli-reference.md",
     "scripts/release-check.mjs",
     "scripts/release-pack.mjs"
   ],

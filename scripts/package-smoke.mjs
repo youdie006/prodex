@@ -1491,6 +1491,8 @@ function assertPackageFileScope(files) {
     "docs/claude.md",
     "docs/clients.md",
     "docs/http-mcp.md",
+    "docs/cli-reference.md",
+    "docs/releasing.md",
     "package.json",
     "scripts/release-check.mjs",
     "scripts/release-pack.mjs"
@@ -1578,11 +1580,15 @@ async function assertExecutableBit(filePath, shouldBeExecutable, label) {
 
 async function assertInstalledDocsArePortable(consumerDir) {
   const packageDir = path.join(consumerDir, "node_modules", "@youdie006", "prodex");
-  const readme = await readFile(path.join(packageDir, "README.md"), "utf8");
+  const readmeOnly = await readFile(path.join(packageDir, "README.md"), "utf8");
+  const cliReferenceDoc = await readFile(path.join(packageDir, "docs", "cli-reference.md"), "utf8");
+  const releasingDoc = await readFile(path.join(packageDir, "docs", "releasing.md"), "utf8");
   const httpMcpDoc = await readFile(path.join(packageDir, "docs", "http-mcp.md"), "utf8");
   const claudeDoc = await readFile(path.join(packageDir, "docs", "claude.md"), "utf8");
   const installedDocs = [
-    ["installed README", readme],
+    ["installed README", readmeOnly],
+    ["installed CLI reference", cliReferenceDoc],
+    ["installed releasing docs", releasingDoc],
     ["installed HTTP MCP docs", httpMcpDoc],
     ["installed Claude docs", claudeDoc]
   ];
@@ -1591,6 +1597,10 @@ async function assertInstalledDocsArePortable(consumerDir) {
       assertNotIncludes(text, leakedPath, label);
     }
   }
+  // The README introduces the tool; the operational detail it used to carry
+  // lives in docs/cli-reference.md and docs/releasing.md, which ship with the
+  // package. The guidance below has to be somewhere in that set.
+  const readme = [readmeOnly, cliReferenceDoc, releasingDoc].join("\n");
   assertIncludes(readme, "note the scope", "installed README");
   assertIncludes(readme, "prodex onboard", "installed README");
   assertIncludes(readme, "onboard --source-cli", "installed README");
