@@ -125,3 +125,93 @@ export function chatSurfaceChoice(
   if (!chat) return "no-toggle";
   return chat.checked ? "already-chat" : "switch-to-chat";
 }
+
+/**
+ * Which surface is live, using the visible toggle where there is one and the
+ * value ChatGPT persists where there is not.
+ *
+ * The toggle is only rendered on the home screen, but threads and project pages
+ * keep the surface that was chosen - so a send into a project can be driving
+ * Work's picker with nothing on the page to say so.
+ */
+export function chatSurfaceState(input: {
+  storedMode?: string;
+  surfaces: readonly { label: string; checked: boolean }[];
+}): "already-chat" | "switch-to-chat" | "unknown" {
+  const fromToggle = chatSurfaceChoice(input.surfaces);
+  if (fromToggle !== "no-toggle") return fromToggle;
+  const stored = (input.storedMode ?? "").trim().replace(/^"|"$/g, "").toLowerCase();
+  if (stored === "chat") return "already-chat";
+  // Only a value that names Work is a reason to move. Anything else - "null",
+  // a mode this code has never heard of - is not evidence, and acting on it
+  // would rewrite the preference and reload the page on every send.
+  if (stored === "work") return "switch-to-chat";
+  return "unknown";
+}
+
+/** Steps that exist only on ChatGPT's Work surface, so asking for one means staying there. */
+const WORK_ONLY_EFFORTS = new Set(["max", "ultra"]);
+
+/**
+ * Whether the requested effort only exists on the Work surface.
+ *
+ * Sends otherwise put the browser back on Chat, which would make these two
+ * impossible to apply while still being offered by the help.
+ */
+export function effortNeedsWorkSurface(effort: string | undefined): boolean {
+  return effort ? WORK_ONLY_EFFORTS.has(effort.trim().toLowerCase()) : false;
+}
+
+/**
+ * How to answer a JavaScript dialog that appeared in the driven browser.
+ *
+ * A dialog halts the page's main thread, so every evaluate after it hangs -
+ * and a client that had not enabled the Page domain beforehand cannot dismiss
+ * it at all. Answering one is therefore about getting out of the way, not about
+ * agreeing to whatever it asked: only beforeunload is accepted, because that is
+ * the page questioning a navigation prodex itself requested.
+ */
+export function javascriptDialogResponse(type: string | undefined): { accept: boolean } {
+  return { accept: type === "beforeunload" };
+}
+
+/**
+ * A note that prodex answered a dialog in the driven browser.
+ *
+ * Answering one is a button pressed in someone's real session, and it is also
+ * the likeliest explanation for a send that behaved strangely around it, so it
+ * belongs in the receipt rather than in nobody's notes.
+ */
+export function answeredDialogWarning(types: readonly string[]): string | undefined {
+  if (types.length === 0) return undefined;
+  const counts = new Map<string, number>();
+  for (const type of types) counts.set(type, (counts.get(type) ?? 0) + 1);
+  const listed = [...counts]
+    .map(([type, count]) => (count > 1 ? `${type} x${count}` : type))
+    .join(", ");
+  const accepted = types.some((type) => type === "beforeunload");
+  const action = accepted
+    ? "accepted the page's leave prompt and dismissed the rest"
+    : "dismissed without agreeing to it";
+  return (
+    `dialog_answered: a JavaScript dialog appeared in the ChatGPT window during this send (${listed}) and prodex ${action}, ` +
+    "because a dialog left open halts the page and nothing after it would have run."
+  );
+}
+
+/**
+ * The surface a picker listing was read from: the checked toggle where one is
+ * drawn (the home screen), else the choice ChatGPT persists - which is what the
+ * app itself reads on the pages that draw no toggle. Undefined when neither
+ * says anything.
+ */
+export function surfaceFromProbe(
+  probe: { surfaces?: { label: string; checked: boolean }[]; storedMode?: string } | undefined
+): string | undefined {
+  const checked = probe?.surfaces?.find((entry) => entry.checked)?.label;
+  if (checked) return checked;
+  const stored = (probe?.storedMode ?? "").trim().replace(/^"|"$/g, "").toLowerCase();
+  if (stored === "chat") return "Chat";
+  if (stored === "work") return "Work";
+  return undefined;
+}

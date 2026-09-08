@@ -93,6 +93,11 @@ describe("composer picker interaction decisions", () => {
     }));
     const menu = {
       innerText: "Instant\nGPT-5.6 Sol\nGPT-5.5",
+      // The reader looks for the slider inside the menu now, so that any other
+      // slider on the page cannot become the one it reads and drives.
+      querySelector(selector: string) {
+        return selector.includes("slider") ? slider : null;
+      },
       querySelectorAll() {
         return items;
       }

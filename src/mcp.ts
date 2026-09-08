@@ -336,7 +336,7 @@ export function createServer(cwd = process.cwd(), options: CreateMcpServerOption
       "pro_recover",
       {
         description:
-          "Fetch a ChatGPT answer that finished AFTER a consult stopped waiting, and record it as a normal consult receipt. Use this whenever pro_consult came back with a timeout or a still-running blocker: those carry the thread URL, and the answer is almost always sitting in that thread. This is also how a deep research report is collected - a research run takes about ten minutes and keeps going even when the consult that started it has already returned. Reading is cheap and does not send anything, so it is safe to retry.",
+          "Fetch a ChatGPT answer that finished AFTER a consult stopped waiting, and record it as a normal consult receipt. Use this whenever pro_consult came back with a timeout or a still-running blocker: those carry the thread URL, and the answer is almost always sitting in that thread. This is also how a deep research report is collected - a research run takes about ten minutes and keeps going even when the consult that started it has already returned. It sends no prompt, but it does navigate the visible tab to that thread, so it waits for any consult still streaming rather than walking the browser off it.",
         inputSchema: {
           thread: McpShortTextSchema.min(1).describe("The ChatGPT conversation URL from the blocker (its `thread` field)."),
           timeout_ms: z.number().int().positive().max(600_000).optional()

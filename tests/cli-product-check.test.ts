@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { BridgeStore } from "../src/store.js";
+import { useDefaultCdpPort } from "./helpers/default-cdp-port.js";
 
 const browserStatusFixture = vi.hoisted(() => ({
   status: {
@@ -153,6 +154,7 @@ describe("browser product check", () => {
   });
 
   it("prints a source-checkout smoke retry command for manual ChatGPT blockers", async () => {
+    useDefaultCdpPort();
     const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-product-check-source-"));
     const sourceCli = path.join(cwd, "dist", "cli.js");
     await mkdir(path.dirname(sourceCli), { recursive: true });
@@ -182,6 +184,7 @@ describe("browser product check", () => {
   });
 
   it("prints a source-checkout target-url ask command for ambiguous ChatGPT tabs", async () => {
+    useDefaultCdpPort();
     const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-product-check-source-"));
     const sourceCli = path.join(cwd, "dist", "cli.js");
     await mkdir(path.dirname(sourceCli), { recursive: true });

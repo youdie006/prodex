@@ -12,6 +12,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { parsePackedFiles, runCli } from "../src/cli.js";
 import { setSafeFileTestHooks } from "../src/safe-file.js";
 import { BridgeStore } from "../src/store.js";
+import { useDefaultCdpPort } from "./helpers/default-cdp-port.js";
 
 const requireFromTest = createRequire(import.meta.url);
 const execFileAsync = promisify(execFile);
@@ -2396,7 +2397,7 @@ describe("runCli", () => {
       "prodex pro browser smoke [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 90000]"
     );
     expect(text).toContain(
-      'prodex pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 300000] [--busy-wait-ms 600000] [--target-url url --confirm-target] [--new-chat] [--temporary] [--stdin] [--json] [--auto-login|--no-auto-login] [--file path] [--attach path] [--tool deep-research|web-search|create-image] [--model Pro] [--pro-mode 기본|확장] [--effort 즉시|중간|높음|"매우 높음"|Pro] [--project "name" | --project-new "name"] "prompt"  # explicit visible-browser send'
+      'prodex pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 300000] [--busy-wait-ms 600000] [--target-url url --confirm-target] [--new-chat] [--temporary] [--stdin] [--json] [--auto-login|--no-auto-login] [--file path] [--attach path] [--tool deep-research|web-search|create-image] [--model Pro] [--pro-mode 기본|확장] [--effort 즉시|중간|높음|"매우 높음"|Max|Ultra|Pro] [--project "name" | --project-new "name"] "prompt"  # explicit visible-browser send'
     );
     expect(text).toContain("prodex pro latest [--source-cli /absolute/path/to/dist/cli.js]");
     expect(text).toContain("prodex pro list [--source-cli /absolute/path/to/dist/cli.js]");
@@ -4370,6 +4371,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
   });
 
   it("prints a friendly browser login guide without implying an opened Chrome window in dry-run mode", async () => {
+    useDefaultCdpPort();
     const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     const out: string[] = [];
 
@@ -4398,6 +4400,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
   });
 
   it("prints source-checkout browser login commands when source-cli is supplied", async () => {
+    useDefaultCdpPort();
     const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     const sourceCli = path.join(cwd, "dist", "cli.js");
     await mkdir(path.dirname(sourceCli), { recursive: true });
@@ -4423,6 +4426,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
   });
 
   it("keeps explicit --cwd in browser login follow-up commands", async () => {
+    useDefaultCdpPort();
     const launcherCwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-launcher-"));
     const targetCwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-target-"));
     const sourceCli = path.join(launcherCwd, "dist", "cli.js");
@@ -4507,7 +4511,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     expect(text).toContain("prodex pro browser check [--source-cli /absolute/path/to/dist/cli.js]");
     expect(text).toContain("prodex pro browser smoke [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]");
     expect(text).toContain(
-      'prodex pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 300000] [--busy-wait-ms 600000] [--target-url url --confirm-target] [--new-chat] [--temporary] [--stdin] [--json] [--auto-login|--no-auto-login] [--file path] [--attach path] [--tool deep-research|web-search|create-image] [--model Pro] [--pro-mode 기본|확장] [--effort 즉시|중간|높음|"매우 높음"|Pro] [--project "name" | --project-new "name"] "prompt"'
+      'prodex pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 300000] [--busy-wait-ms 600000] [--target-url url --confirm-target] [--new-chat] [--temporary] [--stdin] [--json] [--auto-login|--no-auto-login] [--file path] [--attach path] [--tool deep-research|web-search|create-image] [--model Pro] [--pro-mode 기본|확장] [--effort 즉시|중간|높음|"매우 높음"|Max|Ultra|Pro] [--project "name" | --project-new "name"] "prompt"'
     );
     expect(text).toContain("Use `prodex pro ask` for dry-run/manual previews.");
     expect(text).toContain("`prodex pro browser ask` always attempts an explicit visible-browser send.");
@@ -4532,7 +4536,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     expect(text).toContain(`${sourcePrefix} pro browser check --source-cli ${sourceCli}`);
     expect(text).toContain(`${sourcePrefix} pro browser smoke --source-cli ${sourceCli} [--cwd /absolute/path/to/repo]`);
     expect(text).toContain(
-      `${sourcePrefix} pro browser ask --source-cli ${sourceCli} [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 300000] [--busy-wait-ms 600000] [--target-url url --confirm-target] [--new-chat] [--temporary] [--stdin] [--json] [--auto-login|--no-auto-login] [--file path] [--attach path] [--tool deep-research|web-search|create-image] [--model Pro] [--pro-mode 기본|확장] [--effort 즉시|중간|높음|"매우 높음"|Pro] [--project "name" | --project-new "name"] "prompt"`
+      `${sourcePrefix} pro browser ask --source-cli ${sourceCli} [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 300000] [--busy-wait-ms 600000] [--target-url url --confirm-target] [--new-chat] [--temporary] [--stdin] [--json] [--auto-login|--no-auto-login] [--file path] [--attach path] [--tool deep-research|web-search|create-image] [--model Pro] [--pro-mode 기본|확장] [--effort 즉시|중간|높음|"매우 높음"|Max|Ultra|Pro] [--project "name" | --project-new "name"] "prompt"`
     );
     expect(text).toContain(`Use \`${sourcePrefix} pro ask\` for dry-run/manual previews.`);
     expect(text).toContain(`\`${sourcePrefix} pro browser ask --source-cli ${sourceCli}\` always attempts an explicit visible-browser send.`);
@@ -5944,6 +5948,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     const out: string[] = [];
     // Pin the CDP probe to a dead port so a real browser on the developer's
     // machine cannot flip this test between not-connected and partial.
+    const isolatedCdpPort = process.env.PRODEX_CDP_PORT;
     process.env.PRODEX_CDP_PORT = "9";
     try {
       const code = await runCli(["doctor"], {
@@ -5961,7 +5966,10 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
       expect(chatgptLine).toContain("pro browser login");
       expect(text).toContain("optional");
     } finally {
-      delete process.env.PRODEX_CDP_PORT;
+      // Put the suite's isolation value back rather than deleting it: a delete
+      // here sent every later test in this file to the real default port.
+      if (isolatedCdpPort === undefined) delete process.env.PRODEX_CDP_PORT;
+      else process.env.PRODEX_CDP_PORT = isolatedCdpPort;
     }
   });
 

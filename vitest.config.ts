@@ -5,7 +5,7 @@ export default defineConfig({
     // Keep every test hermetic: BridgeStore.ensure() registers its root in
     // the machine-wide bridges registry, which must never be polluted with
     // throwaway test directories.
-    setupFiles: ["./tests/setup-registry-isolation.ts"],
+    setupFiles: ["./tests/setup-registry-isolation.ts", "./tests/setup-browser-isolation.ts"],
     // Vitest defaults to 5s, which this suite outgrew. Measured spend against
     // that budget: release-pack's sanitized-tarball test 4225ms (85% of it),
     // the browser-send lock test 3202ms, release pack via the CLI 2251ms and

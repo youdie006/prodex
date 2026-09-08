@@ -28,7 +28,7 @@ Ask / consult commands:
   prodex pro browser models [--source-cli /absolute/path/to/dist/cli.js] [--port 9333] [--timeout-ms 15000]  # read-only list of model menu options
   prodex pro browser projects [--source-cli /absolute/path/to/dist/cli.js] [--port 9333] [--timeout-ms 15000]  # read-only list of sidebar project names (for --project)
   prodex pro browser recover [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] --target-url <thread-url> [--timeout-ms 60000]  # recover a finished answer from a thread whose send timed out
-  prodex pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 300000] [--busy-wait-ms 600000] [--target-url url --confirm-target] [--new-chat] [--temporary] [--stdin] [--json] [--auto-login|--no-auto-login] [--file path] [--attach path] [--tool deep-research|web-search|create-image] [--model Pro] [--pro-mode 기본|확장] [--effort 즉시|중간|높음|"매우 높음"|Pro] [--project "name" | --project-new "name"] "prompt"  # explicit visible-browser send
+  prodex pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 300000] [--busy-wait-ms 600000] [--target-url url --confirm-target] [--new-chat] [--temporary] [--stdin] [--json] [--auto-login|--no-auto-login] [--file path] [--attach path] [--tool deep-research|web-search|create-image] [--model Pro] [--pro-mode 기본|확장] [--effort 즉시|중간|높음|"매우 높음"|Max|Ultra|Pro] [--project "name" | --project-new "name"] "prompt"  # explicit visible-browser send
   prodex pro latest [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--json]
   prodex pro list [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--json]
   prodex pro show <task-id|latest> [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--json]
@@ -54,7 +54,7 @@ Bridge ledger (durable tasks/results/receipts/sessions under .bridge/):
 
 Agent / MCP integration:
   prodex mcp [--cwd /absolute/path/to/repo]
-  prodex setup [--cwd /absolute/path/to/repo] [--host 127.0.0.1] [--port 8787] [--token-ttl-hours <hours>] [--model Pro] [--pro-mode 기본|확장] [--effort 즉시|중간|높음|"매우 높음"|Pro] [--project "name"] [--clear-model|--clear-pro-mode|--clear-effort|--clear-project] [--interactive]
+  prodex setup [--cwd /absolute/path/to/repo] [--host 127.0.0.1] [--port 8787] [--token-ttl-hours <hours>] [--model Pro] [--pro-mode 기본|확장] [--effort 즉시|중간|높음|"매우 높음"|Max|Ultra|Pro] [--project "name"] [--clear-model|--clear-pro-mode|--clear-effort|--clear-project] [--interactive]
   prodex start [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]
   prodex status [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js] [--show-token] [--url-only] [--unsafe-show-non-expiring-token]
   prodex tunnel url [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js] --public-url https://... [--show-token] [--url-only]
@@ -82,14 +82,14 @@ export function printSetupHelp(stdout: (line: string) => void): void {
   stdout(`prodex setup
 
 Commands:
-  prodex setup [--cwd /absolute/path/to/repo] [--host 127.0.0.1] [--port 8787] [--token-ttl-hours <hours>] [--model Pro] [--pro-mode 기본|확장] [--effort 즉시|중간|높음|"매우 높음"|Pro] [--project "name"] [--clear-model|--clear-pro-mode|--clear-effort|--clear-project] [--interactive]
+  prodex setup [--cwd /absolute/path/to/repo] [--host 127.0.0.1] [--port 8787] [--token-ttl-hours <hours>] [--model Pro] [--pro-mode 기본|확장] [--effort 즉시|중간|높음|"매우 높음"|Max|Ultra|Pro] [--project "name"] [--clear-model|--clear-pro-mode|--clear-effort|--clear-project] [--interactive]
 
 Save a loopback-only HTTP MCP profile in .bridge/config.local.json. Use --token-ttl-hours before tunnels or ChatGPT Project use.
 
 Optional visible-browser send defaults (applied by \`pro browser ask\` when the matching per-ask flag is omitted):
-  --model      Composer model to pick by its exact menu label (verified: Pro)
+  --model      Composer model by its exact menu label. Only Pro applies on the current picker: it is a slider step, and the model rows cannot be clicked
   --pro-mode   Pro sub-mode: 기본 (standard) or 확장 (extended)
-  --effort     Reasoning effort: 즉시 / 중간 / 높음 / 매우 높음 (English aliases: instant/medium/high/max); picking one deselects Pro
+  --effort     Reasoning effort: 즉시 / 중간 / 높음 / 매우 높음 / Max / Ultra / Pro. Max and Ultra are rungs of ChatGPT's Work surface and only apply when the browser is already on Work (prodex does not switch to Work for them); every other value is sent on Chat, whose top step is Pro
   --project    Sidebar project to enter before sending
 Clear a saved default with --clear-model / --clear-pro-mode / --clear-effort / --clear-project.
 --pro-mode and --effort are different model axes and cannot be combined. View saved defaults with \`prodex status\`.`);
@@ -170,7 +170,7 @@ Commands:
   prodex pro browser check [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]
   prodex pro browser smoke [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]
   prodex pro browser models [--source-cli /absolute/path/to/dist/cli.js]
-  prodex pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--target-url url --confirm-target] [--new-chat] [--temporary] [--stdin] [--json] [--auto-login|--no-auto-login] [--file path] [--attach path] [--tool deep-research|web-search|create-image] [--model Pro] [--pro-mode 기본|확장] [--effort 즉시|중간|높음|"매우 높음"|Pro] [--project "name" | --project-new "name"] "prompt"
+  prodex pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--target-url url --confirm-target] [--new-chat] [--temporary] [--stdin] [--json] [--auto-login|--no-auto-login] [--file path] [--attach path] [--tool deep-research|web-search|create-image] [--model Pro] [--pro-mode 기본|확장] [--effort 즉시|중간|높음|"매우 높음"|Max|Ultra|Pro] [--project "name" | --project-new "name"] "prompt"
   prodex pro latest [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--json]
   prodex pro list [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--json]
   prodex pro show <task-id|latest> [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--json]
@@ -181,7 +181,7 @@ Use \`prodex pro browser ask\` only when you want an explicit visible-browser se
 Model/project selection (visible-browser send):
   --model "label"              Pick the composer model by its exact menu label (verified: Pro). Submenu models (e.g. the GPT-5.6 Sol variants) are rejected for now.
   --pro-mode 기본 | 확장          Pro sub-mode (only when the model is Pro); a Pro selection raises the default timeout to 1200000 ms
-  --effort 즉시|중간|높음|매우 높음   Reasoning effort (aliases: instant/medium/high/max); picking one deselects Pro
+  --effort 즉시|중간|높음|매우 높음|Max|Ultra|Pro   Reasoning effort (aliases: instant/light, medium, high, extrahigh/max, ultra); picking one moves the single power slider
   --project "name"             Enter an existing sidebar project first (cannot combine with --target-url)
 Labels are matched in both the Korean and English (US) UI; run \`prodex pro browser models\` to list what your account shows.
 Persist defaults with \`prodex setup --model/--pro-mode/--effort/--project\`; clear them with setup --clear-model/--clear-pro-mode/--clear-effort/--clear-project.
@@ -255,7 +255,7 @@ export function printProBrowserHelp(stdout: (line: string) => void, sourceCli?: 
   const smokeUsage = sourceCli
     ? `${cli} pro browser smoke${sourceCliOption} [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 90000]`
     : "prodex pro browser smoke [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 90000]";
-  const selectionUsage = '[--model Pro] [--pro-mode 기본|확장] [--effort 즉시|중간|높음|"매우 높음"|Pro] [--project "name" | --project-new "name"]';
+  const selectionUsage = '[--model Pro] [--pro-mode 기본|확장] [--effort 즉시|중간|높음|"매우 높음"|Max|Ultra|Pro] [--project "name" | --project-new "name"]';
   const askUsage = sourceCli
     ? `${cli} pro browser ask${sourceCliOption} [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 300000] [--busy-wait-ms 600000] [--target-url url --confirm-target] [--new-chat] [--temporary] [--stdin] [--json] [--auto-login|--no-auto-login] [--file path] [--attach path] [--tool deep-research|web-search|create-image] ${selectionUsage} "prompt"`
     : `prodex pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 300000] [--busy-wait-ms 600000] [--target-url url --confirm-target] [--new-chat] [--temporary] [--stdin] [--json] [--auto-login|--no-auto-login] [--file path] [--attach path] [--tool deep-research|web-search|create-image] ${selectionUsage} "prompt"`;
@@ -301,9 +301,9 @@ Commands:
 
 Visible-browser sends require a manual browser session and stop on login, captcha, Cloudflare, permission, rate-limit, or usage-limit blockers, plus response_choice_pending when ChatGPT is waiting for you to pick which of two answers you prefer.
 Model/project selection (ask):
-  --model      Composer model to pick by its exact menu label (verified: Pro). Models whose menu entry opens a submenu of variants are rejected with a clear error for now.
+  --model      Composer model by its exact menu label. On the current picker only Pro applies - it is a step of the power slider, while the model rows carry pointer-events: none and no coordinate reaches them, so any other name warns and the send goes out on whatever the composer already had. Models whose menu entry opens a submenu of variants are rejected with a clear error for now.
   --pro-mode   Pro sub-mode: 기본 (standard) or 확장 (extended), used when the model is Pro. A Pro selection raises the default --timeout-ms to 1200000.
-  --effort     Reasoning effort: 즉시 / 중간 / 높음 / 매우 높음 (aliases: instant/medium/high/max). Picking an effort switches the composer to the standard reasoning model, deselecting Pro.
+  --effort     Reasoning effort: 즉시 / 중간 / 높음 / 매우 높음 / Max / Ultra / Pro (aliases: instant/light, medium, high, extrahigh/max, ultra). One power slider sets the model and the effort together, so picking an effort moves off Pro. Max and Ultra are rungs of the Work surface and only apply when the browser is already on Work; everything else is sent on Chat.
   --project    Enter an existing sidebar project before sending. Cannot be combined with --target-url.
 --pro-mode and --effort cannot be combined. Labels are matched in both the Korean and English (US) ChatGPT UI (e.g. 높음/High, Pro 확장/Pro Extended).
 Run \`${cli} pro browser models${sourceCliOption}\` to list the labels your account currently shows.

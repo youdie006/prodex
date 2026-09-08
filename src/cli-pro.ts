@@ -38,7 +38,8 @@ import {
   resolveHeadlessPreference,
   recordBrowserLoginLaunch,
   recoverChatGptAnswerFromThread,
-  sendChatGptPrompt
+  sendChatGptPrompt,
+  statusMeansBrowserDead
 } from "./chatgpt-browser.js";
 import {
   ASK_PRO_BOOLEAN_FLAGS,
@@ -541,10 +542,19 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
         const modelsResolvedPort = resolveCdpPort(modelsPort);
         let listed: Awaited<ReturnType<typeof listChatGptModelOptions>>;
         try {
-          listed = await listChatGptModelOptions({
-            port: modelsPort,
-            timeoutMs: modelsTimeoutMs
-          });
+          // Reading the ladder WALKS the slider, so it must not interleave with
+          // a send: two processes driving one browser is how a listing ended up
+          // changing the model a consult was about to use. Waits for a send in
+          // flight rather than barging in.
+          listed = await withBrowserSendLock(
+            modelsTimeoutMs ?? 60_000,
+            (detail) => io.stderr(`progress: ${detail}`),
+            () =>
+              listChatGptModelOptions({
+                port: modelsPort,
+                timeoutMs: modelsTimeoutMs
+              })
+          );
         } catch (error) {
           // Keep the next step actionable for a custom port: the raw blocker
           // suggests the default-port login command, which would not fix a
@@ -633,7 +643,16 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
         const recoverResolvedPort = resolveCdpPort(recoverPort);
         let consult: Awaited<ReturnType<typeof recoverChatGptAnswerFromThread>>;
         try {
-          consult = await recoverChatGptAnswerFromThread({ port: recoverPort, targetUrl, timeoutMs: recoverTimeoutMs });
+          // Recovery NAVIGATES the tab to the thread it is reading. Doing that
+          // under a send in flight walks the browser off the conversation that
+          // send is streaming into, which is the consult it would destroy - and
+          // recovery is exactly what gets run after a send appears to hang, so
+          // the two meeting is a when rather than an if.
+          consult = await withBrowserSendLock(
+            recoverTimeoutMs ?? 60_000,
+            (detail) => io.stderr(`progress: ${detail}`),
+            () => recoverChatGptAnswerFromThread({ port: recoverPort, targetUrl, timeoutMs: recoverTimeoutMs })
+          );
         } catch (error) {
           const blocker = sourceAwareBrowserBlocker(browserSendBlockerFromError(error), recoverSourceCli, {
             ...(recoverResolvedPort !== DEFAULT_CDP_PORT ? { port: recoverResolvedPort } : {})
@@ -1334,11 +1353,14 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
         } catch (error) {
           const firstBlocker = browserSendBlockerFromError(error);
           if (firstBlocker.code !== "browser_unreachable" || !autoLoginAllowed) throw error;
+          const recoveryNotes: string[] = [];
           const recovered = await attemptBrowserAutoRecovery(io.stderr, {
-            ...(browserPort !== undefined ? { port: browserPort } : {})
+            ...(browserPort !== undefined ? { port: browserPort } : {}),
+            notes: recoveryNotes
           });
           if (!recovered) throw error;
           consult = await sendOnce();
+          if (recoveryNotes.length > 0) consult = { ...consult, warnings: [...recoveryNotes, ...consult.warnings] };
         }
       } catch (error) {
         const blocker = sourceAwareBrowserBlocker(browserSendBlockerFromError(error), sourceCli, browserCommandOptions);
@@ -1715,7 +1737,9 @@ async function confirmBrowserSilence(port: number | undefined, probes = 3, gapMs
   for (let attempt = 0; attempt < probes; attempt += 1) {
     if (attempt > 0) await sleep(gapMs);
     const status = await getChatGptBrowserStatus({ ...(port !== undefined ? { port } : {}), timeoutMs: 2_000 });
-    if (status.reachable) return false;
+    // Slow is not silent. Three 2s timeouts on a loaded machine used to read as
+    // a dead browser, and what followed was SIGTERM to a live one mid-answer.
+    if (!statusMeansBrowserDead(status)) return false;
   }
   return true;
 }
@@ -1725,7 +1749,14 @@ function autoClearDisabledByEnv(env: Record<string, string | undefined> = proces
   return raw === "1" || raw === "true" || raw === "yes";
 }
 
-export async function attemptBrowserAutoRecovery(stderr: (line: string) => void, options: { port?: number }): Promise<boolean> {
+export async function attemptBrowserAutoRecovery(
+  stderr: (line: string) => void,
+  options: {
+    port?: number;
+    /** Receives what recovery did to the browser, so the receipt can say it. */
+    notes?: string[];
+  }
+): Promise<boolean> {
   // Launching is right when the browser is gone and wrong when it is only deaf:
   // a second Chrome on the same profile joins the wedged one rather than
   // replacing it, and the wedged one keeps burning CPU while nobody looks. This
@@ -1757,6 +1788,11 @@ export async function attemptBrowserAutoRecovery(stderr: (line: string) => void,
       return false;
     }
     stderr(`recover: the browser stopped answering; ending it (pid ${wedged.join(", ")}) and starting a fresh one...`);
+    // Ending someone's browser is not a progress line to scroll past: it goes on
+    // the receipt, where an agent or a person reading `pro latest` will see it.
+    options.notes?.push(
+      `browser_recovered: the dedicated browser stopped answering its control port and prodex ended it (pid ${wedged.join(", ")}) and started a fresh one before sending. Anything it was doing at the time is gone; the profile and login were kept.`
+    );
     await endWedgedBrowser(wedged);
     // Wait for the profile lock to actually clear rather than guessing at a
     // delay: the replacement launch fails outright if the old process still
@@ -1952,6 +1988,29 @@ export function browserSendBlockerFromError(error: unknown): { code: string; mes
   // A CDP command timeout means the page's renderer stalled, which in the
   // field means a very long thread (or a long prompt landing on one). Generic
   // "resolve the browser issue manually" advice gave the caller nothing to do.
+  // The browser lock refusing is not a browser issue: another prodex send owns
+  // the window. Sending people to "resolve the visible browser issue" for it
+  // pointed at a problem that did not exist.
+  if (/Another prodex browser send is in progress/.test(message)) {
+    return {
+      code: "browser_busy",
+      message,
+      retryable: true,
+      next_step:
+        "Another prodex send holds the browser. Wait for it to finish and retry, or pass a longer --timeout-ms, which is also the queue budget."
+    };
+  }
+  // The tab's DevTools connection went away mid-send with no timeout behind
+  // it: the tab was closed, navigated from outside, or the browser exited.
+  if (/Chrome DevTools websocket (closed|is not open)/.test(message)) {
+    return {
+      code: "browser_connection_lost",
+      message,
+      retryable: true,
+      next_step:
+        "The connection to the ChatGPT tab closed while prodex was using it - the tab was closed or navigated by someone else, or the browser exited. Check the visible window and retry; `prodex pro browser login` reopens it."
+    };
+  }
   const cdpTimeout = message.match(/Chrome DevTools command timed out: (\S+)/);
   if (cdpTimeout) {
     return {
@@ -1959,7 +2018,8 @@ export function browserSendBlockerFromError(error: unknown): { code: string; mes
       message,
       retryable: true,
       next_step:
-        "The ChatGPT tab stopped responding (usually a very long thread). Retry with `--new-chat` for a fresh, light thread, or reload the tab in the browser first."
+        "The ChatGPT tab stopped responding. A very long thread does it, and so does an open JavaScript dialog - that one halts the page outright, and no retry gets past it because the browser will not let a late client dismiss it. " +
+        "Look at the visible window and close any dialog sitting on it, or reopen the window with `prodex pro browser login`. For a heavy thread, retry with `--new-chat` for a fresh, light one."
     };
   }
   return {

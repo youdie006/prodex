@@ -8,7 +8,16 @@ import path from "node:path";
 import { captureBrowserDiagnostics, diagnosticsEnabled, diagnosticsNote } from "./browser-diagnostics.js";
 import os from "node:os";
 
-import { chatSurfaceChoice, menuKeyboardStep, readPowerSliderSelection, sliderRestoreStep } from "./picker-interaction.js";
+import {
+  answeredDialogWarning,
+  chatSurfaceState,
+  effortNeedsWorkSurface,
+  javascriptDialogResponse,
+  menuKeyboardStep,
+  readPowerSliderSelection,
+  sliderRestoreStep,
+  surfaceFromProbe
+} from "./picker-interaction.js";
 
 export interface ChatGptBrowserOptions {
   port?: number;
@@ -74,19 +83,21 @@ export class ChatGptBrowserBlockerError extends Error {
 export type ChatGptReasoningEffort = "즉시" | "중간" | "높음" | "매우 높음" | "Max" | "Ultra" | "Pro";
 export type ChatGptProMode = "기본" | "확장";
 
-// Five steps, not four. Measured at both ends of the live slider: position 0 of
-// 4 reads "Instant, 1 of 5" and position 4 reads "Pro, 5 of 5", so Pro is a step
-// of this control rather than a model. Leaving it out meant --effort could not
-// reach the top of the slider at all, and the only route there - --model Pro -
-// answered with advice to "say --effort Pro", which then failed.
+/** Where ChatGPT persists the Chat/Work choice, readable on every page. */
+const CHAT_SURFACE_STORAGE_KEY = "oai/apps/tpp/chat-surface-mode";
+/** ~10s: measured, the surface took seconds to re-render after switching. */
+const CHAT_SURFACE_SETTLE_ATTEMPTS = 14;
 /** A full trip round the menu is far more than any real picker needs. */
 const MENU_KEYBOARD_WALK_LIMIT = 16;
 /** Enough presses to cross any slider this code accepts, twice over. */
 const POWER_SLIDER_RESTORE_ATTEMPTS = 26;
-// Two more rungs than before. Measured live: with the model row chosen rather
-// than the recommended set, the slider reads Light / Medium / High / Extra High
-// / Max / Ultra, and Ultra is the top of the machine. Pro is kept because older
-// pickers still name the top step that way.
+
+// The vocabulary spans both of ChatGPT's surfaces, because prodex has met both.
+// Chat's slider is five steps and its top is Pro - measured at either end,
+// position 0 of 4 reads "Instant, 1 of 5" and position 4 reads "Pro, 5 of 5",
+// so Pro is a STEP of the control and not a model. Work's is six, and its top
+// two, Max and Ultra, have no counterpart on Chat. A send asking for one of
+// those stays on Work; everything else is sent on Chat.
 const REASONING_EFFORTS: readonly ChatGptReasoningEffort[] = ["즉시", "중간", "높음", "매우 높음", "Max", "Ultra", "Pro"];
 const PRO_MODES: readonly ChatGptProMode[] = ["기본", "확장"];
 
@@ -1008,7 +1019,7 @@ export function pickerSelectionPlan(input: { model?: string; effort?: string }):
       (input.effort === undefined
         ? "applied to the effort slider instead. Say --effort Pro to be explicit"
         : `ignored in favour of --effort ${input.effort}`) +
-      ", or clear a saved default with `prodex setup --model \"\"`.";
+      ", or clear a saved default with `prodex setup --clear-model`.";
   }
   return plan;
 }
@@ -1394,6 +1405,36 @@ export function assertChatGptIdleAndReadyForPrompt(
   const busyBlocker = busyVerdictDecided ? decidedBusyBlocker : chatGptBusyBlocker(status);
   if (busyBlocker) throw new ChatGptBrowserBlockerError(busyBlocker);
   assertChatGptReadyForPrompt(inferChatGptPageLoggedInLikely(status), status.hasComposer, status.openDialogText);
+}
+
+/**
+ * Whether a page with no composer is worth one reload before giving up.
+ *
+ * A thread can be left rendered with no composer at all, and every retry then
+ * lands on the same dead page with the same blocker. A reload cures that - but
+ * a logged-out tab has no composer either, and a modal covering the composer
+ * has its own message asking the person to close it.
+ */
+export function shouldReloadForMissingComposer(input: {
+  hasComposer: boolean;
+  loggedInLikely: boolean;
+  hasBlocker: boolean;
+  /**
+   * The busy verdict AFTER the transcript check, not the page's raw generating
+   * flag. A streaming thread hides its composer, and reloading it tears down
+   * the answer being written - but a dead page can keep a stop button for
+   * thirty seconds after its answer finished (measured), so the raw flag
+   * refused the reload on exactly the page it was written for. The transcript
+   * tells the two apart.
+   */
+  busy?: boolean;
+  /** ChatGPT is showing two answers and waiting for a pick; the composer is hidden then too. */
+  awaitingResponseChoice?: boolean;
+  openDialogText?: string;
+}): boolean {
+  if (input.hasComposer || !input.loggedInLikely || input.hasBlocker) return false;
+  if (input.busy || input.awaitingResponseChoice) return false;
+  return (input.openDialogText ?? "").trim().length === 0;
 }
 
 export function assertChatGptReadyForPrompt(loggedInLikely: boolean, hasComposer: boolean, openDialogText?: string): void {
@@ -1809,8 +1850,11 @@ export function powerLabelMatches(requested: string, rendered: string): boolean 
 /** Slider position plus the Model/Effort readout next to it. */
 export function powerSliderStateExpression(): string {
   return `(() => {
-    const slider = document.querySelector('[role="slider"]');
+    // Scoped to the picker, with a document-wide fallback for pickers that
+    // predate the testid. Asking the whole document first meant any other
+    // slider on the page became the one that got read and driven.
     const menu = document.querySelector('[data-testid="composer-intelligence-picker-content"]');
+    const slider = (menu && menu.querySelector('[role="slider"]')) || (menu ? null : document.querySelector('[role="slider"]'));
     const lines = menu ? (menu.innerText || "").split(String.fromCharCode(10)).map((l) => l.trim()).filter(Boolean) : [];
     if (!slider) return { ok: false, reason: "power slider not found", lines };
     const readPowerSliderSelection = ${readPowerSliderSelection.toString()};
@@ -1846,8 +1890,9 @@ export function activeMenuItemExpression(): string {
   })()`;
 }
 
-export function chatWorkSurfaceExpression(): string {
-  return `(() => {${CLICK_POINT_SNIPPET}
+/** Which surface is live. Reads only - no scrolling, no attributes written. */
+export function chatSurfaceProbeExpression(): string {
+  return `(() => {
     const buttons = [...document.querySelectorAll('[role="radio"],[role="tab"]')].filter((el) => {
       const t = ((el.innerText || el.textContent || "").trim());
       return t === "Chat" || t === "Work";
@@ -1856,9 +1901,115 @@ export function chatWorkSurfaceExpression(): string {
       label: ((el.innerText || el.textContent || "").trim()),
       checked: el.getAttribute("aria-checked") === "true" || el.getAttribute("aria-selected") === "true"
     }));
-    const chat = buttons.find((el) => ((el.innerText || el.textContent || "").trim()) === "Chat");
-    return { surfaces, chat: chat ? clickPoint(chat) : { ok: false, reason: "no Chat toggle" } };
+    // The toggle is only on the home screen, but the choice is persisted where
+    // every page can read it.
+    let storedMode = "";
+    try {
+      storedMode = localStorage.getItem(${JSON.stringify(CHAT_SURFACE_STORAGE_KEY)}) || "";
+    } catch (error) {
+      storedMode = "";
+    }
+    if (!storedMode) {
+      // Anchored to the start of a cookie, so a name that merely ENDS with this
+      // one cannot answer for it.
+      const m = document.cookie.match(/(?:^|;)\\s*oai-chat-surface-mode=([^;]*)/);
+      storedMode = m ? decodeURIComponent(m[1]) : "";
+    }
+    return { surfaces, storedMode };
   })()`;
+}
+
+/** Where to click to go back to Chat. Only asked once a switch is decided. */
+export function chatSurfaceToggleRectExpression(): string {
+  return `(() => {${CLICK_POINT_SNIPPET}
+    const chat = [...document.querySelectorAll('[role="radio"],[role="tab"]')].find(
+      (el) => ((el.innerText || el.textContent || "").trim()) === "Chat"
+    );
+    return chat ? clickPoint(chat) : { ok: false, reason: "no Chat toggle" };
+  })()`;
+}
+
+export function selectChatSurfaceExpression(): string {
+  return `(() => {
+    try {
+      localStorage.setItem(${JSON.stringify(CHAT_SURFACE_STORAGE_KEY)}, JSON.stringify("chat"));
+    } catch (error) {
+      // a blocked store is not fatal: the cookie below is what the app reads
+    }
+    // Host-only, the way the app writes it. Setting a domain-wide copy instead
+    // left two oai-chat-surface-mode cookies in play - one chat, one work - and
+    // which of them won was anyone's guess.
+    document.cookie = "oai-chat-surface-mode=chat; path=/; max-age=" + (60 * 60 * 24 * 365);
+    document.cookie = "oai-chat-surface-mode=; path=/; domain=.chatgpt.com; max-age=0";
+    return true;
+  })()`;
+}
+
+/**
+ * Name of the stamp put on a document that is about to be reloaded. A stamp
+ * cannot survive a navigation, so its absence is what tells the reloaded
+ * document from the one it replaced. readyState is "complete" and the
+ * composer is present on the OLD document for as long as the reload takes to
+ * commit, so a poll of those alone confirmed the page being left.
+ */
+const RELOAD_MARK = "__prodexReloadMark";
+
+export function markDocumentForReloadExpression(): string {
+  return `(() => { window[${JSON.stringify(RELOAD_MARK)}] = true; return true; })()`;
+}
+
+export function reloadedDocumentReadyExpression(extraCondition = "true"): string {
+  return `(() => {
+    if (window[${JSON.stringify(RELOAD_MARK)}]) return false;
+    if (document.readyState !== "complete") return false;
+    if (!document.querySelector('#prompt-textarea,[contenteditable="true"],textarea')) return false;
+    return Boolean(${extraCondition});
+  })()`;
+}
+
+/** Polled reloads return as soon as the new document has its composer; this only bounds a page that never gets there. */
+const RELOAD_SETTLE_TIMEOUT_MS = 12_000;
+
+/**
+ * Reloads the page and resolves once the NEW document has rendered its
+ * composer (and satisfies extraCondition, if given). Mid-navigation evaluates
+ * fail rather than answer; those are retried until the deadline.
+ */
+async function reloadAndAwaitComposer(cdp: CdpConnection, timeoutMs: number, extraCondition?: string): Promise<boolean> {
+  await cdp.evaluate(markDocumentForReloadExpression());
+  const reply = await cdp.send("Page.reload", {});
+  // A reload the browser refused would otherwise be polled for until the ceiling.
+  if (reply.error?.message) throw new Error(`Page.reload failed: ${reply.error.message}`);
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    await sleep(250);
+    try {
+      if (await cdp.evaluate<boolean>(reloadedDocumentReadyExpression(extraCondition))) return true;
+    } catch (error) {
+      // The execution context is gone between documents; the next poll lands
+      // on the new one. A command timeout is different: it closed the socket.
+      if (cdpCommandTimedOut(error)) throw error;
+    }
+  }
+  return false;
+}
+
+/**
+ * Reloads a page on a connection held open through the navigation, so a
+ * beforeunload the page raises is answered on it. A throwaway connection that
+ * closed right after asking for the reload left such a dialog to a later
+ * client, which the browser will not let dismiss it. Returns the dialogs
+ * answered, for the receipt.
+ */
+async function reloadPageAndAwaitComposer(page: DevtoolsPage): Promise<{ rendered: boolean; dialogsAnswered: string[] }> {
+  const cdp = await connectCdp(page.webSocketDebuggerUrl);
+  try {
+    await cdp.send("Runtime.enable");
+    const rendered = await reloadAndAwaitComposer(cdp, RELOAD_SETTLE_TIMEOUT_MS);
+    return { rendered, dialogsAnswered: [...cdp.dialogsAnswered] };
+  } finally {
+    cdp.close();
+  }
 }
 
 export function powerSliderPresentExpression(): string {
@@ -1888,7 +2039,11 @@ export function focusPickerMenuExpression(): string {
 
 export function focusPowerSliderExpression(): string {
   return `(() => {
-    const slider = document.querySelector('[role="slider"]');
+    // Scoped to the picker, with a document-wide fallback for pickers that
+    // predate the testid. Asking the whole document first meant any other
+    // slider on the page became the one that got read and driven.
+    const menu = document.querySelector('[data-testid="composer-intelligence-picker-content"]');
+    const slider = (menu && menu.querySelector('[role="slider"]')) || (menu ? null : document.querySelector('[role="slider"]'));
     if (!slider) return { ok: false, reason: "power slider not found" };
     slider.focus();
     return { ok: document.activeElement === slider };
@@ -2096,10 +2251,23 @@ export function modelSelectionUnavailableWarning(
 ): string | undefined {
   if (!/menu item not found|not clickable/i.test(reason)) return undefined;
   const offers = available?.length ? ` It offers: ${available.join(", ")}.` : "";
+  // A listed row that refuses the click is a different thing from a model the
+  // picker never had, and saying "does not offer X" while listing X two clauses
+  // later reads as a bug in prodex. Measured on both surfaces: the model rows
+  // carry pointer-events: none and no coordinate reaches them, so the slider is
+  // the only lever prodex has on the model.
+  if (/not clickable/i.test(reason)) {
+    return (
+      `model_not_applied: this ChatGPT picker lists "${requested}" but its model rows cannot be clicked, ` +
+      `so the send used whatever the composer already had.${offers} ` +
+      "The power slider is the only lever prodex has on the model - pick a step with --effort, " +
+      'or clear a saved default with `prodex setup --clear-model`.'
+    );
+  }
   return (
     `model_not_applied: this ChatGPT picker does not offer "${requested}" as a selectable model, ` +
     `so the send used whatever the composer already had.${offers} ` +
-    'Pick an effort with --effort instead, or clear a saved default with `prodex setup --model ""`.'
+    'Pick an effort with --effort instead, or clear a saved default with `prodex setup --clear-model`.'
   );
 }
 
@@ -2252,21 +2420,65 @@ async function selectPickerModel(cdp: CdpConnection, requested: string, warnings
  * the wrong picker. Returns a warning to carry to the caller when it moved.
  */
 async function ensureChatSurface(cdp: CdpConnection): Promise<string | undefined> {
-  let probe: { surfaces: { label: string; checked: boolean }[]; chat: RectHit } | undefined;
+  const read = async (): Promise<{ surfaces?: { label: string; checked: boolean }[]; storedMode?: string } | undefined> => {
+    try {
+      return await cdp.evaluate(chatSurfaceProbeExpression());
+    } catch (error) {
+      // A stalled tab is the send failing, not the surface being unknown. This
+      // probe is the first command of most sends, and swallowing its timeout
+      // left the next command to report a closed socket with no cause.
+      if (cdpCommandTimedOut(error)) throw error;
+      return undefined;
+    }
+  };
+  const settled = (probe: Awaited<ReturnType<typeof read>>): "already-chat" | "switch-to-chat" | "unknown" =>
+    probe
+      ? chatSurfaceState({
+          ...(probe.storedMode !== undefined ? { storedMode: probe.storedMode } : {}),
+          surfaces: probe.surfaces ?? []
+        })
+      : "unknown";
+
+  if (settled(await read()) !== "switch-to-chat") return undefined;
+  const note = "ChatGPT was on its Work surface, whose picker offers different models and no Pro. Switched back to Chat.";
+  // Confirm the surface actually flipped rather than trusting a click. It took
+  // seconds to re-render when measured, and returning early meant the picker
+  // read straight afterwards was still Work's.
+  const confirm = async (): Promise<boolean> => {
+    for (let attempt = 0; attempt < CHAT_SURFACE_SETTLE_ATTEMPTS; attempt += 1) {
+      await sleep(700);
+      const probe = await read();
+      // A probe that cannot be read at all is a connection that is gone; the
+      // remaining attempts would each wait out a full command timeout for the
+      // same answer.
+      if (!probe) return false;
+      if (settled(probe) === "already-chat") return true;
+    }
+    return false;
+  };
+
   try {
-    probe = await cdp.evaluate(chatWorkSurfaceExpression());
-  } catch {
-    return undefined;
+    const chat = await cdp.evaluate<RectHit>(chatSurfaceToggleRectExpression());
+    if (chat?.ok && chat.x !== undefined && chat.y !== undefined) {
+      await verifiedClickAt(cdp, chat.x, chat.y, "Chat surface toggle");
+      if (await confirm()) return note;
+    }
+  } catch (error) {
+    if (cdpCommandTimedOut(error)) throw error;
+    // fall through to the stored preference, which works without the toggle
   }
-  if (!probe) return undefined;
-  if (chatSurfaceChoice(probe.surfaces ?? []) !== "switch-to-chat") return undefined;
-  const chat = probe.chat;
-  if (!chat?.ok || chat.x === undefined || chat.y === undefined) {
-    return "ChatGPT is on its Work surface, whose picker offers different models and no Pro, and the Chat toggle could not be clicked.";
+  // Threads and project pages do not render the toggle at all, so the surface
+  // is set the way the app itself stores it and the page is reloaded onto it.
+  try {
+    await cdp.evaluate(selectChatSurfaceExpression());
+    // Reading the persisted value back right after writing it proves nothing;
+    // the reloaded document rendering its composer is what proves the switch.
+    if ((await reloadAndAwaitComposer(cdp, RELOAD_SETTLE_TIMEOUT_MS)) && (await confirm())) return note;
+  } catch (error) {
+    if (cdpCommandTimedOut(error)) throw error;
+    // reported below
   }
-  await verifiedClickAt(cdp, chat.x, chat.y, "Chat surface toggle");
-  await sleep(1_500);
-  return "ChatGPT was on its Work surface, whose picker offers different models and no Pro. Switched back to Chat.";
+  return "ChatGPT is on its Work surface, whose picker offers different models and no Pro, and it could not be switched back to Chat.";
 }
 
 async function ensurePickerOpen(cdp: CdpConnection): Promise<boolean> {
@@ -2366,10 +2578,6 @@ async function selectModelReasoning(
   selectionWarnings: string[] = []
 ): Promise<void> {
   if (!options.model && !options.proMode && !options.effort) return;
-  // Which surface is live decides which picker exists at all, so settle that
-  // before looking for anything in it.
-  const surfaceWarning = await ensureChatSurface(cdp);
-  if (surfaceWarning) selectionWarnings.push(surfaceWarning);
   // --pro-mode selects a Pro sub-mode, so it is meaningless with a non-Pro
   // --model. Fail loudly instead of silently dropping the requested sub-mode.
   if (options.proMode && options.model && !/pro/i.test(options.model)) {
@@ -2729,12 +2937,10 @@ async function selectProject(
     // prompt posted into the project the tab came from). A hard reload of the
     // project home rebinds the composer to THIS project before we send.
     const projectHome = await cdp.evaluate<string>("location.href");
-    await cdp.evaluate("location.reload()");
-    const rebound = await waitForExpressionTrue(
-      cdp,
-      `location.href === ${JSON.stringify(projectHome)} && Boolean(document.querySelector('#prompt-textarea,[contenteditable="true"],textarea'))`,
-      PROJECT_NAVIGATION_TIMEOUT_MS
-    );
+    // Polled with no delay, the first check could run before the reload had
+    // committed, on the old document, whose composer and URL both still
+    // matched. The stamp keeps that document from passing as the new one.
+    const rebound = await reloadAndAwaitComposer(cdp, RELOAD_SETTLE_TIMEOUT_MS, `location.href === ${JSON.stringify(projectHome)}`);
     if (!rebound) {
       throw new Error(`ChatGPT composer did not rebind after entering project "${options.project}"`);
     }
@@ -2930,6 +3136,8 @@ async function findLandedConversation(page: DevtoolsPage, prompt: string): Promi
 export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Promise<SendChatGptPromptResult> {
   const port = resolveCdpPort(options.port);
   const timeoutMs = options.timeoutMs ?? 90_000;
+  /** Dialogs answered on the reload connection, which comes and goes before the send's own, so the receipt still says so. */
+  const earlyDialogsAnswered: string[] = [];
   const sendStartedAt = Date.now();
   const emitProgress = (phase: SendChatGptProgressPhase, detail?: string): void => {
     if (!options.onProgress) return;
@@ -3017,6 +3225,44 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
       busyBlocker = busyBlockerAfterTranscriptCheck(chatGptBusyBlocker(status), await readTranscriptCompletion(page, status.url));
     }
   }
+  // A thread can be left rendered with no composer at all - measured after a
+  // send, zero contenteditables and zero textareas on the page - and every
+  // retry then lands on the same dead page and reports the same "missing a
+  // visible prompt composer". One reload brings it back, so spend it here
+  // rather than handing the caller a blocker it cannot act on. Decided after
+  // the busy check on purpose: a streaming thread hides its composer too, and
+  // so does a dead page whose stop button never went away, so the raw
+  // generating flag tells them apart in neither direction - the transcript
+  // check above does.
+  if (
+    shouldReloadForMissingComposer({
+      hasComposer: status.hasComposer,
+      loggedInLikely: inferChatGptPageLoggedInLikely(status),
+      hasBlocker: Boolean(detectChatGptPageBlocker(status)),
+      busy: Boolean(busyBlocker),
+      ...(status.awaitingResponseChoice !== undefined ? { awaitingResponseChoice: status.awaitingResponseChoice } : {}),
+      ...(status.openDialogText !== undefined ? { openDialogText: status.openDialogText } : {})
+    })
+  ) {
+    try {
+      const reloaded = await reloadPageAndAwaitComposer(page);
+      earlyDialogsAnswered.push(...reloaded.dialogsAnswered);
+      // Read into a local and adopt it only once every step has passed, so a
+      // failure part way leaves the pre-reload status and verdict intact
+      // rather than a fresh status with the checks after it skipped.
+      let fresh = await readSettledChatGptPageStatus(page);
+      fresh = await ensureVisibleChatGptPage(port, page, fresh);
+      const blockerAfterReload = detectChatGptPageBlocker(fresh);
+      if (blockerAfterReload) throw new ChatGptBrowserBlockerError(blockerAfterReload);
+      busyBlocker = busyBlockerAfterTranscriptCheck(chatGptBusyBlocker(fresh), await readTranscriptCompletion(page, fresh.url));
+      status = fresh;
+    } catch (error) {
+      // A blocker is the answer; a stalled tab is the send failing, and its
+      // guidance is worth more than "missing composer" after a wait.
+      if (error instanceof ChatGptBrowserBlockerError || cdpCommandTimedOut(error)) throw error;
+      // keep the original status; the assertions below still report it
+    }
+  }
   // A thread ChatGPT has parked on "which response do you prefer?" will not
   // unpark on its own. Sends that navigate away - a fresh chat, a project home
   // - never touch it; a send that means to continue THAT thread has to say so
@@ -3055,6 +3301,13 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
   let submitButtonFound = false;
   let wantsDeepResearch = false;
   const sendWarnings: string[] = [];
+  // Anything the page put in front of prodex was answered on the caller's
+  // behalf. The note is read at return time - there are several return paths -
+  // so it is folded into the array rather than pushed from each of them.
+  const withDialogNote = (warnings: readonly (string | undefined)[]): string[] => {
+    const note = answeredDialogWarning([...earlyDialogsAnswered, ...cdp.dialogsAnswered]);
+    return [...warnings, ...(note ? [note] : [])].filter((warning): warning is string => Boolean(warning));
+  };
   const temporaryNote = temporaryChatWarning(options.temporary);
   if (temporaryNote) sendWarnings.push(temporaryNote);
   const cdp = await connectCdp(page.webSocketDebuggerUrl);
@@ -3085,6 +3338,15 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
   };
   try {
     await cdp.send("Runtime.enable");
+    // Which surface is live decides which picker exists and which models answer,
+    // so settle it before navigating anywhere: a project page opened under Work
+    // keeps Work's composer, and switching afterwards does not move it.
+    // Max and Ultra are rungs of Work's slider, so asking for one means staying
+    // there; anything else belongs on Chat, whose top step is Pro.
+    if (!effortNeedsWorkSurface(options.effort)) {
+      const surfaceWarning = await ensureChatSurface(cdp);
+      if (surfaceWarning) sendWarnings.push(surfaceWarning);
+    }
     await selectProject(cdp, options);
     try {
       await selectModelReasoning(cdp, options, sendWarnings);
@@ -3299,7 +3561,7 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
       answer: transcript.answer,
       modelHints: finalState?.modelHints ?? [],
       ...(transcript.modelSlug ? { modelSlug: transcript.modelSlug } : finalState?.modelSlug ? { modelSlug: finalState.modelSlug } : {}),
-      warnings: [...sendWarnings, modelSelectionWarning(options.model, transcript.modelSlug || finalState?.modelSlug)].filter(
+      warnings: withDialogNote([...sendWarnings, modelSelectionWarning(options.model, transcript.modelSlug || finalState?.modelSlug)]).filter(
         (warning): warning is string => Boolean(warning)
       )
     };
@@ -3338,7 +3600,7 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
           answer: report,
           modelHints: finalState?.modelHints ?? [],
           ...(finalState?.modelSlug ? { modelSlug: finalState.modelSlug } : {}),
-          warnings: sendWarnings
+          warnings: withDialogNote(sendWarnings)
         };
       }
       emitProgress("waiting", `deep research ${lastState.status || lastState.reason} (${formatDurationMs(Date.now() - started)})`);
@@ -3441,7 +3703,7 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
       answer: completed.answer.trim(),
       modelHints: completed.modelHints,
       ...(completed.modelSlug ? { modelSlug: completed.modelSlug } : {}),
-      warnings: [...sendWarnings, modelSelectionWarning(options.model, completed.modelSlug)].filter(
+      warnings: withDialogNote([...sendWarnings, modelSelectionWarning(options.model, completed.modelSlug)]).filter(
         (warning): warning is string => Boolean(warning)
       )
     };
@@ -3457,11 +3719,11 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
       answer: completed.answer.trim(),
       modelHints: completed.modelHints,
       ...(completed.modelSlug ? { modelSlug: completed.modelSlug } : {}),
-      warnings: [
+      warnings: withDialogNote([
         ...sendWarnings,
         ...(modelSelectionWarning(options.model, completed.modelSlug) ? [modelSelectionWarning(options.model, completed.modelSlug) as string] : []),
         `answer_incomplete: ChatGPT was still generating after ${formatDurationMs(timeoutMs)} (${timeoutMs}ms), so the answer below may be truncated. Raise --timeout-ms and retry for the full response.`
-      ]
+      ])
     };
   }
   // Carry the thread the prompt landed in: ChatGPT usually finishes the answer
@@ -3516,11 +3778,14 @@ export function modelMenuOptionsExpression(): string {
   return `(() => {
     const m = document.querySelector('[data-testid="composer-intelligence-picker-content"]');
     if (!m) return [];
-    // Only the radios are models. The plain menuitems above them are the power
-    // slider's own rows - its track, and the label pair naming the current model
-    // and effort - and listing those put GPT-6 Astra in twice and Extra High in
-    // as if it were a model.
-    return [...m.querySelectorAll('[role="menuitemradio"]')]
+    // Radios are models, and so are the submenu rows an earlier picker kept them
+    // behind. What is NOT a model is the power slider's own rows - its track,
+    // and the pair naming the live model and effort - which are plain menuitems
+    // with nothing to open, and which put GPT-6 Astra in the list twice and
+    // Extra High in as if it were a model. Dropping every menuitem instead
+    // emptied the listing on the submenu picker entirely.
+    return [...m.querySelectorAll('[role="menuitemradio"],[role="menuitem"]')]
+      .filter((it) => it.getAttribute("role") === "menuitemradio" || it.getAttribute("aria-haspopup") === "menu")
       .map((it) => {
         // A submenu row renders as label over value ("Model" / "GPT-5.6 Sol"),
         // and the value is the part a person actually wants to read.
@@ -4050,9 +4315,17 @@ async function restorePowerSlider(cdp: CdpConnection, target?: number): Promise<
   }
 }
 
-export async function listChatGptModelOptions(input: { port?: number; timeoutMs?: number } = {}): Promise<ListChatGptModelOptionsResult> {
+export async function listChatGptModelOptions(
+  input: { port?: number; timeoutMs?: number; walkPowerSlider?: boolean; signal?: AbortSignal } = {}
+): Promise<ListChatGptModelOptionsResult> {
   const port = resolveCdpPort(input.port);
   const timeoutMs = input.timeoutMs ?? 15_000;
+  // The steps before a connection is held - finding the page, settling its
+  // status - are bounded by their own ceilings and cannot be cut short from
+  // outside; the signal is honoured between them, and closes the connection
+  // once there is one.
+  const abandoned = () => new Error("Model listing abandoned: the caller stopped waiting for it");
+  if (input.signal?.aborted) throw abandoned();
   const pageResult = await findChatGptPage(port, computePageDiscoveryTimeout(timeoutMs), undefined);
   if (!pageResult.ok) {
     throwBlockerOrError(pageResult.blocker, "ChatGPT browser page is not available");
@@ -4068,7 +4341,15 @@ export async function listChatGptModelOptions(input: { port?: number; timeoutMs?
   if (blocker) throw new ChatGptBrowserBlockerError(blocker);
   assertChatGptReadyForPrompt(inferChatGptPageLoggedInLikely(status), status.hasComposer, status.openDialogText);
   assertVisibleChatGptTab(status.visibilityState, status.url, undefined);
+  if (input.signal?.aborted) throw abandoned();
   const cdp = await connectCdp(page.webSocketDebuggerUrl);
+  // A caller that has stopped waiting (setup's deadline) closes the connection
+  // here, which rejects whatever is in flight and lets the send lock go; left
+  // alone, the listing ran on unattended holding both until its own timeouts.
+  // The picker may be left open in that case; the next send copes with one.
+  const abandon = () => cdp.close();
+  if (input.signal?.aborted) abandon();
+  input.signal?.addEventListener("abort", abandon, { once: true });
   try {
     await cdp.send("Runtime.enable");
     const button = await cdp.evaluate<RectHit>(modelButtonRectExpression());
@@ -4080,14 +4361,20 @@ export async function listChatGptModelOptions(input: { port?: number; timeoutMs?
       const opened = await waitForExpressionTrue(cdp, menuOpenExpression(), MENU_OPEN_TIMEOUT_MS);
       if (!opened) throw new Error("ChatGPT model menu did not open after clicking the selector");
       const options = await cdp.evaluate<ChatGptModelOption[]>(modelMenuOptionsExpression());
-      const effortSteps = await readEffortSteps(cdp);
+      // Walking the ladder moves someone's slider and puts it back. That is
+      // worth it when the ladder is what was asked for, and not worth it for a
+      // caller that only needs the model names - `setup` was walking the live
+      // slider as a side effect of saving a config file.
+      const effortSteps = input.walkPowerSlider === false ? undefined : await readEffortSteps(cdp);
       // Chat and Work have different pickers - Work's offers no Pro - and a
       // listing that does not say which one it read is how a browser sitting on
       // Work convinced two machines that Pro had been removed from the account.
       let surface: string | undefined;
       try {
-        const probe = await cdp.evaluate<{ surfaces?: { label: string; checked: boolean }[] }>(chatWorkSurfaceExpression());
-        surface = probe?.surfaces?.find((entry) => entry.checked)?.label;
+        const probe = await cdp.evaluate<{ surfaces?: { label: string; checked: boolean }[]; storedMode?: string }>(chatSurfaceProbeExpression());
+        // Threads and project pages draw no toggle; the persisted choice is
+        // what the app itself reads to decide, so it answers there.
+        surface = surfaceFromProbe(probe);
       } catch {
         // the toggle predates some builds; saying nothing is right there
       }
@@ -4102,8 +4389,45 @@ export async function listChatGptModelOptions(input: { port?: number; timeoutMs?
       }
     }
   } finally {
+    input.signal?.removeEventListener("abort", abandon);
     cdp.close();
   }
+}
+
+/**
+ * Whether anything is listening on the local port, decided at the TCP level.
+ * Treat only "accepted" as proof: a closed port may time out rather than refuse.
+ */
+export function portAccepts(port: number, timeoutMs = 250): Promise<"accepted" | "refused" | "timeout"> {
+  return new Promise((resolve) => {
+    const socket = net.createConnection({ host: "127.0.0.1", port });
+    const done = (verdict: "accepted" | "refused" | "timeout"): void => {
+      socket.destroy();
+      resolve(verdict);
+    };
+    socket.setTimeout(timeoutMs, () => done("timeout"));
+    socket.once("connect", () => done("accepted"));
+    socket.once("error", (error: NodeJS.ErrnoException) => done(error.code === "ECONNREFUSED" ? "refused" : "timeout"));
+  });
+}
+
+/** True when a fetch failed because its AbortSignal.timeout fired, not because nothing was listening. */
+/** Whether an error is a DevTools command that got no answer in time - the one failure that has closed the socket. */
+export function cdpCommandTimedOut(error: unknown): boolean {
+  return error instanceof Error && /Chrome DevTools command timed out/.test(error.message);
+}
+
+export function fetchTimedOut(error: unknown): boolean {
+  return typeof error === "object" && error !== null && (error as { name?: unknown }).name === "TimeoutError";
+}
+
+/**
+ * Whether a status probe is evidence that the browser is DEAD, as opposed to
+ * merely slow. Only a refused connection counts; a timeout is a busy browser,
+ * and ending a busy browser takes the consult it is writing with it.
+ */
+export function statusMeansBrowserDead(status: { reachable: boolean; blocker?: { code: string } | undefined }): boolean {
+  return !status.reachable && status.blocker?.code !== "browser_slow";
 }
 
 async function findChatGptPage(
@@ -4120,6 +4444,29 @@ async function findChatGptPage(
     if (blocker) return { ok: true, blocker };
     return { ok: true, page: selectChatGptPage(pages, targetUrl, visibilityByPage) };
   } catch (error) {
+    // A port that answers too slowly is a browser that is BUSY, not one that is
+    // gone, and the two must not share a verdict: the silence check that
+    // decides whether to end a browser counted three slow answers on a loaded
+    // machine as three dead ones - the exact failure the comment above
+    // confirmBrowserSilence was written to prevent.
+    // A timeout on its own is not proof of life: with a small budget the
+    // timer fires before the connection reports anything, and a port nothing
+    // listens on would be called "busy". A raw TCP connect settles it, and
+    // only an ACCEPT counts - measured on WSL2, a closed loopback port does not
+    // refuse at all, it times out (1.5s), while a listening one accepts in 1ms.
+    if (fetchTimedOut(error) && (await portAccepts(port)) === "accepted") {
+      return {
+        ok: false,
+        blocker: {
+          code: "browser_slow",
+          message: `The Chrome DevTools endpoint on 127.0.0.1:${port} did not answer within ${timeoutMs}ms. The browser is running but busy.`,
+          retryable: true,
+          next_step:
+            "Wait a moment and retry. If the machine is under load (a test suite, a build), let it finish first. A tab wedged by a dialog looks like this too - check the visible window.",
+          ...(error instanceof Error ? { detail: error.message } : {})
+        } as ChatGptBrowserStatus["blocker"]
+      };
+    }
     return {
       ok: false,
       blocker: {
@@ -4196,6 +4543,8 @@ export function resolveCdpTimeoutMs(explicit?: number): number {
 async function connectCdp(webSocketUrl: string, timeoutMs?: number): Promise<{
   send: (method: string, params?: Record<string, unknown>) => Promise<CdpResponse>;
   evaluate: <T>(expression: string) => Promise<T>;
+  /** Dialog types answered on this connection, so a caller can say it happened. */
+  dialogsAnswered: string[];
   close: () => void;
 }> {
   const effectiveTimeoutMs = resolveCdpTimeoutMs(timeoutMs);
@@ -4205,6 +4554,8 @@ async function connectCdp(webSocketUrl: string, timeoutMs?: number): Promise<{
     number,
     { resolve: (value: CdpResponse) => void; reject: (error: Error) => void; timer?: ReturnType<typeof setTimeout> }
   >();
+  /** Types of JavaScript dialog answered on this connection. */
+  const dialogsAnswered: string[] = [];
   ws.addEventListener("message", (event) => {
     let message: CdpResponse;
     try {
@@ -4221,6 +4572,19 @@ async function connectCdp(webSocketUrl: string, timeoutMs?: number): Promise<{
       if (waiter.timer) clearTimeout(waiter.timer);
       waiter.resolve(message);
       pending.delete(message.id);
+      return;
+    }
+    // A JavaScript dialog halts the page's main thread: every evaluate after it
+    // waits forever, and Page.enable stops answering too, so a client that had
+    // not enabled the domain BEFORE the dialog appeared cannot dismiss it - the
+    // browser answers "no dialog is showing". Measured live, that is the whole
+    // of the "Chrome DevTools command timed out" wedge. Answering it here is
+    // the only cure, and it has to be armed in advance.
+    if ((message as { method?: string }).method === "Page.javascriptDialogOpening") {
+      const type = (message as { params?: { type?: string } }).params?.type;
+      const answer = javascriptDialogResponse(type);
+      dialogsAnswered.push(type ?? "unknown");
+      ws.send(JSON.stringify({ id: ++id, method: "Page.handleJavaScriptDialog", params: answer }));
     }
   });
   ws.addEventListener("close", () => {
@@ -4273,25 +4637,53 @@ async function connectCdp(webSocketUrl: string, timeoutMs?: number): Promise<{
       { once: true }
     );
   });
+  /** The timeout that closed this socket, so later commands can name it rather than a bare closed socket. */
+  let closedByTimeout: string | undefined;
   const send = (method: string, params: Record<string, unknown> = {}) => {
+    // Once a timeout has closed the socket, every later command would sit out
+    // its own full timeout for an answer that cannot come. Measured cost of not
+    // checking: a 14-probe confirmation loop turning into minutes of silence.
+    // The rejection carries the timeout that did the closing: a caller that
+    // swallowed that first error and moved on would otherwise report "socket
+    // not open", which names neither the stalled tab nor the dialog cure.
+    if (ws.readyState !== WebSocket.OPEN) {
+      return Promise.reject(
+        new Error(
+          closedByTimeout
+            ? `${closedByTimeout} (the connection was closed by that timeout before ${method})`
+            : `Chrome DevTools websocket is not open (${method})`
+        )
+      );
+    }
     const messageId = ++id;
     return new Promise<CdpResponse>((resolve, reject) => {
       const timer = setTimeout(() => {
         pending.delete(messageId);
+        closedByTimeout = `Chrome DevTools command timed out: ${method}`;
         ws.close();
-        reject(new Error(`Chrome DevTools command timed out: ${method}`));
+        reject(new Error(closedByTimeout));
       }, Math.max(1, effectiveTimeoutMs));
       pending.set(messageId, { resolve, reject, timer });
       ws.send(JSON.stringify({ id: messageId, method, params }));
     });
   };
+  // Armed before anything else is asked of the page, because after a dialog
+  // opens it is too late.
+  //
+  // Fire and forget rather than awaited: on a page that is ALREADY wedged,
+  // Page.enable never answers either, and the ordinary send path closes the
+  // socket when a command times out. Awaiting it there would have turned the
+  // caller's diagnosis from "command timed out: Runtime.enable" - which at
+  // least names what was being attempted - into a bare "websocket closed".
+  // Nothing waits on the arming, so a build without the domain is no worse off.
+  ws.send(JSON.stringify({ id: ++id, method: "Page.enable", params: {} }));
   const evaluate = async <T>(expression: string) => {
     const response = await send("Runtime.evaluate", { expression, returnByValue: true, awaitPromise: true });
     if (response.error?.message) throw new Error(response.error.message);
     if (response.result?.exceptionDetails) throw new Error("Runtime.evaluate failed");
     return response.result?.result?.value as T;
   };
-  return { send, evaluate, close: () => ws.close() };
+  return { send, evaluate, dialogsAnswered, close: () => ws.close() };
 }
 
 // In-page reasoning-header placeholder test, shared by statusExpression and

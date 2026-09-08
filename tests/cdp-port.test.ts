@@ -1,6 +1,6 @@
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
   DEFAULT_CDP_PORT,
@@ -11,6 +11,12 @@ import {
 } from "../src/chatgpt-browser.js";
 
 describe("resolveCdpPort", () => {
+  // This suite is the one place that is ABOUT the variable, so it owns it -
+  // including clearing the value the browser-isolation setup file installs for
+  // everyone else.
+  beforeEach(() => {
+    delete process.env.PRODEX_CDP_PORT;
+  });
   afterEach(() => {
     delete process.env.PRODEX_CDP_PORT;
   });

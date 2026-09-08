@@ -87,10 +87,43 @@ export async function runSetupCommand(rest: string[], io: CliIO): Promise<number
     return 0;
 }
 
+/** A best-effort warning must not outlast the command it decorates. */
+const PINNED_SELECTION_CHECK_BUDGET_MS = 15_000;
+
 /** What the picker currently offers, compared against what was just pinned. */
 async function pinnedSelectionCheck(defaults: { model?: string; effort?: string }): Promise<string | undefined> {
   const { listChatGptModelOptions, pinnedSelectionWarning } = await import("./chatgpt-browser.js");
-  const listed = await listChatGptModelOptions({ timeoutMs: 8_000 });
+  // Only the model names are compared here, so the ladder is not walked: this
+  // is a config command and it has no business moving the live slider. The
+  // whole check is also raced against a deadline, because timeoutMs covers
+  // finding the page and not what happens inside the picker afterwards - a
+  // best-effort warning must never be what makes `setup` hang.
+  // Fail fast if a send holds the browser: this is a decoration on a config
+  // command, and opening a menu underneath a streaming consult is not worth a
+  // warning. The caller already swallows what this throws.
+  const { withBrowserSendLock } = await import("./browser-send-lock.js");
+  // The deadline timer is cleared once the listing wins and never holds the
+  // process open: the CLI exits through process.exitCode, so a live timer kept
+  // `setup` alive for the whole budget after its work was done. And when the
+  // deadline wins, the listing is abandoned - its connection closed, the send
+  // lock released - rather than left running unattended behind the prompt.
+  let deadline: ReturnType<typeof setTimeout> | undefined;
+  const abandon = new AbortController();
+  const listed = await Promise.race([
+    withBrowserSendLock(0, () => {}, () =>
+      listChatGptModelOptions({ timeoutMs: 8_000, walkPowerSlider: false, signal: abandon.signal })
+    ),
+    new Promise<undefined>((resolve) => {
+      deadline = setTimeout(() => {
+        abandon.abort();
+        resolve(undefined);
+      }, PINNED_SELECTION_CHECK_BUDGET_MS);
+      deadline.unref?.();
+    })
+  ]).finally(() => {
+    if (deadline) clearTimeout(deadline);
+  });
+  if (!listed) return undefined;
   const offered = listed.options.flatMap((option) => [option.label, ...(option.value ? [option.value] : [])]);
   return pinnedSelectionWarning(
     {
