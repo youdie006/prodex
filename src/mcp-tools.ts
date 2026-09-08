@@ -246,3 +246,29 @@ function assertMcpFiles(files: McpBridgeFileInput[] | undefined): void {
     assertMcpTextField(file.path, `files[${index}].path`, MAX_MCP_SHORT_TEXT_BYTES);
   }
 }
+
+/**
+ * A running MCP server keeps the code it loaded at startup: Node reads a module
+ * once. So installing a newer prodex changes nothing for a server that is
+ * already up, and the fixes in it look like they did not work. Measured on one
+ * machine, three servers serving consults had been running since the middle of
+ * the previous month, two releases behind, with nothing saying so.
+ */
+export function staleServerWarning(input: { running?: string; installed?: string }): string | undefined {
+  const running = input.running?.trim();
+  const installed = input.installed?.trim();
+  if (!running || !installed || running === installed) return undefined;
+  return (
+    `server_outdated: this prodex MCP server is running ${running}, but ${installed} is installed on this machine. ` +
+    `A server keeps the code it loaded when it started, so anything fixed since ${running} is not in this one. ` +
+    `Restart it - restart the agent session that launched it - to pick up ${installed}.`
+  );
+}
+
+/** Carries a server-version notice back on a tool result that has room for it. */
+export function withServerVersionNotice<T>(result: T, warning: string | undefined): T {
+  if (!warning || typeof result !== "object" || result === null) return result;
+  const existing = (result as { warnings?: unknown }).warnings;
+  const warnings = Array.isArray(existing) ? existing : [];
+  return { ...(result as object), warnings: [warning, ...warnings] } as T;
+}

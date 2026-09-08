@@ -1,4 +1,5 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import process from "node:process";
 import type { Readable, Writable } from "node:stream";
@@ -6,7 +7,13 @@ import { serializeMessage } from "@modelcontextprotocol/sdk/shared/stdio.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { JSONRPCMessageSchema, type JSONRPCMessage } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
-import { createMcpToolHandlers, MAX_MCP_BRIDGE_TEXT_BYTES, MAX_MCP_SHORT_TEXT_BYTES } from "./mcp-tools.js";
+import {
+  createMcpToolHandlers,
+  MAX_MCP_BRIDGE_TEXT_BYTES,
+  MAX_MCP_SHORT_TEXT_BYTES,
+  staleServerWarning,
+  withServerVersionNotice
+} from "./mcp-tools.js";
 import { ReceiptKindSchema, type SourceSchema } from "./schema.js";
 import type { z as zod } from "zod";
 
@@ -65,6 +72,30 @@ function asText(value: unknown) {
 }
 
 const mcpPackageJson = createRequire(import.meta.url)("../package.json") as { version?: string };
+
+/**
+ * The version on disk right now, which is NOT what this process is running:
+ * `mcpPackageJson` was read once, when the server started. Comparing the two is
+ * how a server that has been up for weeks can say so. Read per browser call
+ * (those take seconds at least, so one small file read is nothing) and never
+ * allowed to break the call it decorates.
+ */
+function installedVersionOnDisk(): string | undefined {
+  try {
+    const path = createRequire(import.meta.url).resolve("../package.json");
+    return (JSON.parse(readFileSync(path, "utf8")) as { version?: string }).version;
+  } catch {
+    return undefined;
+  }
+}
+
+function serverVersionNotice(): string | undefined {
+  const installed = installedVersionOnDisk();
+  return staleServerWarning({
+    ...(mcpPackageJson.version !== undefined ? { running: mcpPackageJson.version } : {}),
+    ...(installed !== undefined ? { installed } : {})
+  });
+}
 
 export function createServer(cwd = process.cwd(), options: CreateMcpServerOptions = {}): McpServer {
   const server = new McpServer({ name: "prodex", version: mcpPackageJson.version ?? "0.0.0" });
@@ -325,7 +356,7 @@ export function createServer(cwd = process.cwd(), options: CreateMcpServerOption
                     // Progress delivery must never break the consult.
                   });
               };
-        return asText(await browserConsult(input, onProgress));
+        return asText(withServerVersionNotice(await browserConsult(input, onProgress), serverVersionNotice()));
       }
     );
   }
@@ -342,7 +373,7 @@ export function createServer(cwd = process.cwd(), options: CreateMcpServerOption
           timeout_ms: z.number().int().positive().max(600_000).optional()
         }
       },
-      async (input) => asText(await browserRecover(input))
+      async (input) => asText(withServerVersionNotice(await browserRecover(input), serverVersionNotice()))
     );
   }
 

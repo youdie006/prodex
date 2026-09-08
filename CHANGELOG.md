@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.39.4
+
+### Added
+- A consult now says when the MCP server answering it is older than the prodex installed on the machine. Node reads a module once, at startup, so upgrading the package changes nothing for a server that is already running - and nothing said so. Measured on one machine: 32 servers were up, most started weeks earlier, and the three that had served the blocked consults dated from August 16, August 28 and September 7, serving code that predated two releases of fixes. The fixes looked like they had not worked. `pro_consult` and `pro_recover` results now carry `server_outdated: ... is running X, but Y is installed ... restart the agent session that launched it`, so the next caller sees the cause instead of re-hitting a bug that was already fixed.
+
 ## 0.39.3
 
 ### Fixed
