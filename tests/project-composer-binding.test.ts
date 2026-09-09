@@ -1,0 +1,83 @@
+import { describe, expect, it } from "vitest";
+
+import { composerProjectBinding } from "../src/chatgpt-browser.js";
+import { browserSendBlockerFromError } from "../src/cli-pro.js";
+
+// prodex used to rebind the composer to the project it had just entered by
+// hard-reloading the project home. Measured live on two different projects:
+// every hard load of a project home - Page.reload and location.assign alike -
+// comes back as ChatGPT's error page ("Try again", no composer), while the
+// sidebar SPA navigation lands on a working page in under two seconds. The
+// rebind therefore could not succeed, and every project send that navigated
+// died on it.
+//
+// The same measurement found what the reload was reaching for: the composer's
+// own placeholder names the project it will post into ("New chat in <name>"),
+// and it followed the SPA navigation across project to project and back. So
+// the binding can be READ instead of forced.
+describe("reading which project the composer will post into", () => {
+  it("accepts a composer that names the project we asked for", () => {
+    expect(composerProjectBinding({ placeholder: "New chat in Notes", projectName: "Notes" })).toBe("bound");
+  });
+
+  it("does not care about case, because the caller types the name", () => {
+    expect(composerProjectBinding({ placeholder: "New chat in Notes", projectName: "notes" })).toBe("bound");
+  });
+
+  it("reads the Korean phrasing too", () => {
+    expect(composerProjectBinding({ placeholder: "Notes에서 새 채팅", projectName: "Notes" })).toBe("bound");
+  });
+
+  it("refuses a composer left behind on another project", () => {
+    expect(composerProjectBinding({ placeholder: "New chat in Ledger", projectName: "Notes" })).toBe("elsewhere");
+  });
+
+  // The exact failure the reload existed to prevent: the URL is on the
+  // requested project while the composer still belongs to where the tab came
+  // from, so the prompt posts into the wrong place with nothing to show for it.
+  it("refuses the composer of a plain new chat, which belongs to no project", () => {
+    expect(composerProjectBinding({ placeholder: "Ask ChatGPT", projectName: "Notes" })).toBe("elsewhere");
+  });
+
+  // Sidebar rows are matched by exact name, so "Notes" and "Notes Archive" are
+  // two projects; a composer naming one must not pass for the other.
+  it("tells a project from another whose name starts the same way", () => {
+    expect(composerProjectBinding({ placeholder: "New chat in Notes Archive", projectName: "Notes" })).toBe("elsewhere");
+    expect(composerProjectBinding({ placeholder: "New chat in Notes", projectName: "Notes Archive" })).toBe("elsewhere");
+  });
+
+  // A phrasing we cannot parse still names the project when the composer
+  // belongs to it, and blocking every send over an unread locale would be
+  // worse than the failure this check prevents.
+  it("takes an unknown phrasing that still names the project", () => {
+    expect(composerProjectBinding({ placeholder: "Nueva conversacion en Notes", projectName: "Notes" })).toBe("bound");
+  });
+
+  it("has no answer when the composer carries no placeholder at all", () => {
+    expect(composerProjectBinding({ placeholder: "", projectName: "Notes" })).toBe("unknown");
+    expect(composerProjectBinding({ projectName: "Notes" })).toBe("unknown");
+  });
+});
+
+// Refusing to send is the point: a prompt that posts into another project is
+// recorded against the project the caller asked for, and the answer ends up
+// where nobody looks for it.
+describe("what an unbound composer tells the caller", () => {
+  const blocker = browserSendBlockerFromError(
+    new Error(
+      'ChatGPT composer did not bind to project "<project>": after entering it the composer still offers a chat that belongs somewhere else, so the prompt would not land in this project.'
+    )
+  );
+
+  it("names the binding rather than the browser", () => {
+    expect(blocker.code).toBe("project_not_bound");
+  });
+
+  it("is worth retrying, because the next navigation usually binds", () => {
+    expect(blocker.retryable).toBe(true);
+  });
+
+  it("says that nothing was sent, which is the part worth knowing", () => {
+    expect(blocker.next_step).toMatch(/nothing was sent/i);
+  });
+});

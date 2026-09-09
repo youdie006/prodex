@@ -2122,6 +2122,19 @@ export function browserSendBlockerFromError(error: unknown): { code: string; mes
         "Another prodex send holds the browser. Wait for it to finish and retry, or pass a longer --timeout-ms, which is also the queue budget."
     };
   }
+  // The composer would have posted somewhere other than the project that was
+  // asked for, so nothing was sent. A prompt that lands in another project is
+  // worse than a blocker: the receipt records the project the caller asked for,
+  // and the answer is somewhere nobody is looking.
+  if (/composer did not bind to project/.test(message)) {
+    return {
+      code: "project_not_bound",
+      message,
+      retryable: true,
+      next_step:
+        "Nothing was sent, so nothing landed in the wrong project. Retry - the composer normally binds on the next navigation - or open the project once in the visible browser and send again."
+    };
+  }
   // The picker could not provide the step that was asked for. Retrying asks
   // the same picker the same question, so this is not retryable; the caller
   // either picks a step it offers or opts into whatever the slider is on.

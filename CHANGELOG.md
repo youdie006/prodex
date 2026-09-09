@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.40.2
+
+### Fixed
+- Every send into a project failed. Entering a project by clicking the sidebar leaves the composer bound to the previous project's conversation, so prodex rebound it by hard-loading the project home - and that stopped working: measured live on two different projects, every hard load of a project home, `Page.reload` and `location.assign` alike, comes back as ChatGPT's error page with no composer after twenty seconds, while the sidebar navigation that got there renders in under two. The binding is now read instead of forced. The composer's own placeholder names the project it will post into ("New chat in <name>"), so the project step waits for it to name the project that was asked for, and re-enters the project once from a fresh site root if the composer still offers a chat that belongs somewhere else. A send that cannot bind is refused, because a prompt that lands in another project is recorded against the project the caller asked for and the answer ends up where nobody looks for it.
+- A tab left on ChatGPT's error page stayed there, and every later send reported "missing a clear logged-in ChatGPT session" - on a browser whose session was fine. That page carries no composer and none of the logged-in furniture, so the readiness check read it as a logout, which is also exactly what the retry it asks for runs into. The error page is now its own blocker with its own next step, and a send that finds the tab there opens the site root first, because the error page holds nothing worth keeping and does not come back on a reload.
+
 ## 0.40.1
 
 ### Fixed

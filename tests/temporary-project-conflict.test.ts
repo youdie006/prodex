@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 
-import { projectIdentity } from "../src/chatgpt-browser.js";
 import { temporaryProjectConflict } from "../src/cli-pro.js";
 
 // A temporary chat is not saved; a project chat is. Entering a project leaves
@@ -26,34 +25,5 @@ describe("asking for a temporary chat and a project at once", () => {
     // A pinned project must not turn every --temporary send into an error; the
     // per-call flag is the more specific instruction and simply wins.
     expect(temporaryProjectConflict({ temporary: true, explicitProject: undefined })).toBeUndefined();
-  });
-});
-
-// The rebind check confirms the reload landed back on the requested project.
-// It compared the whole URL, which also carries mode in a query string - the
-// very thing that differs across the reload this failure showed up in.
-describe("recognising the project a URL belongs to", () => {
-  it("reads the project out of a project home", () => {
-    expect(projectIdentity("https://chatgpt.com/g/g-p-abc123/project")).toBe("g-p-abc123");
-  });
-
-  it("reads it out of a thread inside that project", () => {
-    expect(projectIdentity("https://chatgpt.com/g/g-p-abc123/c/6aa002cb-56c0")).toBe("g-p-abc123");
-  });
-
-  it("ignores a query string, which carries mode rather than identity", () => {
-    expect(projectIdentity("https://chatgpt.com/g/g-p-abc123/project?temporary-chat=true")).toBe("g-p-abc123");
-  });
-
-  it("tells two projects apart", () => {
-    expect(projectIdentity("https://chatgpt.com/g/g-p-abc123/project")).not.toBe(
-      projectIdentity("https://chatgpt.com/g/g-p-def456/project")
-    );
-  });
-
-  it("has no answer for a page outside any project", () => {
-    expect(projectIdentity("https://chatgpt.com/")).toBeUndefined();
-    expect(projectIdentity("https://chatgpt.com/c/6aa002cb-56c0")).toBeUndefined();
-    expect(projectIdentity("not a url")).toBeUndefined();
   });
 });
