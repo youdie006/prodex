@@ -231,20 +231,61 @@ export function envBrowserDefaults(): BrowserDefaults | undefined {
   return (model || project) && freeText.success ? freeText.data : undefined;
 }
 
+/**
+ * Combine the global env defaults with this repo's.
+ *
+ * The project is independent of the rest, so the repo's wins that field and
+ * the env fills it in. The model and the two reasoning fields are NOT
+ * independent: an effort is a step ChatGPT deselects the model to reach, and a
+ * pro_mode only refines Pro. Merging those field-by-field built a request
+ * neither side asked for - a repo pinning `model: Pro` next to
+ * PRODEX_DEFAULT_EFFORT ran at the effort and dropped Pro - so whichever side
+ * names the reasoning selection provides all of it.
+ */
+export function mergeBrowserDefaultSources(
+  env: BrowserDefaults | undefined,
+  repo: BrowserDefaults | undefined
+): BrowserDefaults | undefined {
+  if (!repo && !env) return undefined;
+  const namesSelection = (defaults: BrowserDefaults | undefined): boolean =>
+    Boolean(defaults && (defaults.model !== undefined || defaults.pro_mode !== undefined || defaults.effort !== undefined));
+  const selection = namesSelection(repo) ? repo : env;
+  const merged: BrowserDefaults = {
+    ...(selection?.model !== undefined ? { model: selection.model } : {}),
+    ...(selection?.pro_mode !== undefined ? { pro_mode: selection.pro_mode } : {}),
+    ...(selection?.effort !== undefined ? { effort: selection.effort } : {})
+  };
+  const project = repo?.project ?? env?.project;
+  if (project !== undefined) merged.project = project;
+  return Object.keys(merged).length > 0 ? merged : undefined;
+}
+
 // Read persisted browser-selection defaults without failing when the local
 // config is absent or unrelated to this cwd (defaults are optional convenience).
-// Per-repo config wins field-by-field; PRODEX_DEFAULT_* env vars are the global
-// fallback so a pinned default project/model applies from any cwd.
+// The repo's config provides the project and, if it names any of them, the
+// reasoning selection; PRODEX_DEFAULT_* env vars are the global fallback so a
+// pinned default project/model applies from any cwd.
 export async function loadBrowserDefaults(cwd: string): Promise<BrowserDefaults | undefined> {
   const env = envBrowserDefaults();
   let repo: BrowserDefaults | undefined;
   try {
     repo = (await loadLocalConfig(cwd)).browser_defaults;
-  } catch {
+  } catch (error) {
+    // Having no config is the ordinary case - browser sends work without one -
+    // and stays silent. A config that EXISTS and cannot be read is a different
+    // thing, and swallowing it was the quiet failure: the defaults it pins
+    // stop applying with nothing said, so a consult that should have landed in
+    // a project lands in the general chat and looks like it worked.
+    if (!isMissingFileError(error)) {
+      throw new Error(
+        `${error instanceof Error ? error.message : String(error)} Until then prodex will not apply the browser defaults ` +
+          `pinned there (project, model), so pass them explicitly if you need to send before fixing it.`,
+        { cause: error }
+      );
+    }
     repo = undefined;
   }
-  if (!repo && !env) return undefined;
-  return { ...(env ?? {}), ...(repo ?? {}) };
+  return mergeBrowserDefaultSources(env, repo);
 }
 
 export function getTokenExpiryStatus(config: Pick<LocalConfig, "token_expires_at">, now: Date = new Date()): TokenExpiryStatus {

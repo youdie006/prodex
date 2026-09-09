@@ -2585,13 +2585,29 @@ async function selectPickerModel(cdp: CdpConnection, requested: string, warnings
  * power slider" on a picker that was simply shut.
  */
 /**
+ * How to apply the stored Chat-surface preference on a page that renders no
+ * surface toggle at all.
+ *
+ * Reloading in place is the only option for a send that has to stay where it
+ * is - a pinned thread, a continuation. On a project home it is the wrong one:
+ * a hard load of one comes back as ChatGPT's error page (measured on two
+ * projects), which leaves the send on a document with no sidebar, and the
+ * project step then reports the project missing from a sidebar that was never
+ * drawn. A send that is going to navigate anyway takes the root, which loads.
+ */
+export function chatSurfaceRecoveryPlan(input: { href: string; mayLeaveCurrentPage: boolean }): "reload" | "fresh-root" {
+  const onProjectPage = /^https:\/\/chatgpt\.com\/g\/g-p-/.test(input.href);
+  return input.mayLeaveCurrentPage && onProjectPage ? "fresh-root" : "reload";
+}
+
+/**
  * Put the browser back on ChatGPT's Chat surface when it has drifted onto Work.
  *
  * The two have different pickers - Work's offers no Pro at all - and nothing on
  * the page announces which one is live, so a drifted browser silently drives
  * the wrong picker. Returns a warning to carry to the caller when it moved.
  */
-async function ensureChatSurface(cdp: CdpConnection): Promise<string | undefined> {
+async function ensureChatSurface(cdp: CdpConnection, options: { mayLeaveCurrentPage: boolean }): Promise<string | undefined> {
   const read = async (): Promise<{ surfaces?: { label: string; checked: boolean }[]; storedMode?: string } | undefined> => {
     try {
       return await cdp.evaluate(chatSurfaceProbeExpression());
@@ -2644,8 +2660,22 @@ async function ensureChatSurface(cdp: CdpConnection): Promise<string | undefined
   try {
     await cdp.evaluate(selectChatSurfaceExpression());
     // Reading the persisted value back right after writing it proves nothing;
-    // the reloaded document rendering its composer is what proves the switch.
-    if ((await reloadAndAwaitComposer(cdp, RELOAD_SETTLE_TIMEOUT_MS)) && (await confirm())) return note;
+    // the new document rendering its composer is what proves the switch.
+    const plan = chatSurfaceRecoveryPlan({
+      href: await cdp.evaluate<string>("location.href"),
+      mayLeaveCurrentPage: options.mayLeaveCurrentPage
+    });
+    let applied: boolean;
+    if (plan === "fresh-root") {
+      // Throws when the root never rendered a composer, which the catch below
+      // turns into the same "could not be switched back" warning as a reload
+      // that never settled.
+      await openFreshChatGptHome(cdp);
+      applied = true;
+    } else {
+      applied = await reloadAndAwaitComposer(cdp, RELOAD_SETTLE_TIMEOUT_MS);
+    }
+    if (applied && (await confirm())) return note;
   } catch (error) {
     if (cdpCommandTimedOut(error)) throw error;
     // reported below
@@ -3721,7 +3751,12 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
     // Max and Ultra are rungs of Work's slider, so asking for one means staying
     // there; anything else belongs on Chat, whose top step is Pro.
     if (!effortNeedsWorkSurface(options.effort)) {
-      const surfaceWarning = await ensureChatSurface(cdp);
+      // Leaving the current page is safe only for a send that was going to
+      // navigate anyway; a continuation or a pinned tab has to be reloaded
+      // where it stands, because that page IS the destination.
+      const surfaceWarning = await ensureChatSurface(cdp, {
+        mayLeaveCurrentPage: Boolean(options.newChat || options.project || options.projectNew)
+      });
       if (surfaceWarning) sendWarnings.push(surfaceWarning);
     }
     await selectProject(cdp, options);

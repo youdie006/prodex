@@ -1259,18 +1259,19 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
     }
     const explicitProMode = explicitProModeRaw === undefined ? undefined : parseProMode(explicitProModeRaw);
     const explicitEffort = explicitEffortRaw === undefined ? undefined : parseReasoningEffort(explicitEffortRaw);
-    // Explicit per-ask flags override persisted defaults. Choosing either
-    // reasoning axis explicitly suppresses the default for the other axis, and
-    // pinning --target-url suppresses a default project (it would navigate away
-    // from the confirmed tab).
-    // Choosing an effort IS choosing the reasoning axis, and ChatGPT deselects
-    // Pro the moment an effort is set - so applying a pinned Pro first would
-    // select a model only to undo it, and a quick question would still pay for
-    // the Pro selection dance.
-    // --pro-mode refines Pro, so it keeps a pinned Pro. --effort replaces it:
-    // ChatGPT deselects Pro the moment an effort is set, so applying the pinned
-    // Pro first would select a model only to undo it.
-    const selectionModel = explicitModel ?? (explicitEffort !== undefined ? undefined : browserDefaults?.model);
+    // Explicit per-ask flags override persisted defaults; resolveSelectionAxes
+    // holds which default a given flag suppresses and why. The project axis is
+    // separate: pinning --target-url suppresses a default project, because
+    // entering one would navigate away from the confirmed tab.
+    const selectionAxes = resolveSelectionAxes({
+      explicit: {
+        ...(explicitModel !== undefined ? { model: explicitModel } : {}),
+        ...(explicitProMode !== undefined ? { proMode: explicitProMode } : {}),
+        ...(explicitEffort !== undefined ? { effort: explicitEffort } : {})
+      },
+      ...(browserDefaults ? { defaults: browserDefaults } : {})
+    });
+    const selectionModel = selectionAxes.model;
     const selectionProjectNew = explicitProjectNew;
     // A persisted default project APPLIES under --new-chat: since 0.16.11 a
     // fresh chat inside the project is exactly what "--new-chat + project"
@@ -1288,9 +1289,8 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
       (normalizedTargetUrl || selectionProjectNew !== undefined || suppressProject || temporary
         ? undefined
         : browserDefaults?.project);
-    const reasoningAxisChosen = explicitProMode !== undefined || explicitEffort !== undefined;
-    const selectionProMode = explicitProMode ?? (reasoningAxisChosen ? undefined : browserDefaults?.pro_mode);
-    const selectionEffort = explicitEffort ?? (reasoningAxisChosen ? undefined : browserDefaults?.effort);
+    const selectionProMode = selectionAxes.proMode;
+    const selectionEffort = selectionAxes.effort;
     const selectionMetadata: Record<string, string> = {
       ...(selectionProject ? { project: selectionProject } : {}),
       ...(selectionProjectNew ? { project_new: selectionProjectNew } : {}),
@@ -2050,6 +2050,40 @@ export function temporaryProjectConflict(input: { temporary: boolean; explicitPr
     `--temporary and --project cannot be combined: a temporary chat is never saved, and a chat inside a project is. ` +
     `Drop --temporary to send into "${input.explicitProject}", or drop --project to send a throwaway chat.`
   );
+}
+
+/**
+ * What a send actually selects, given the per-ask flags and the persisted
+ * defaults.
+ *
+ * Explicit flags beat persisted defaults - except that a saved effort used to
+ * beat an explicit `--model Pro`, because Pro IS the top step of the effort
+ * slider: setting any other step deselects it. So the send ran at the saved
+ * effort, the answer came from a lesser model, and the warning about it told
+ * the caller to clear a saved MODEL default, which was not what overrode
+ * anything. Asking for Pro on the model axis now suppresses a saved effort
+ * exactly as `--effort` suppresses a saved model. A saved pro_mode survives:
+ * it only refines Pro.
+ *
+ * Combining an explicit model with an explicit effort is left alone - that is
+ * the caller saying both out loud, and the picker warns about it.
+ */
+export function resolveSelectionAxes<M extends string, P extends string, E extends string>(input: {
+  explicit: { model?: M; proMode?: P; effort?: E };
+  defaults?: { model?: M; pro_mode?: P; effort?: E };
+}): { model?: M; proMode?: P; effort?: E } {
+  const { explicit } = input;
+  const defaults = input.defaults;
+  const reasoningAxisChosen = explicit.proMode !== undefined || explicit.effort !== undefined;
+  const explicitlyPro = explicit.model !== undefined && namesPro(explicit.model);
+  const model = explicit.model ?? (explicit.effort !== undefined ? undefined : defaults?.model);
+  const proMode = explicit.proMode ?? (reasoningAxisChosen ? undefined : defaults?.pro_mode);
+  const effort = explicit.effort ?? (reasoningAxisChosen || explicitlyPro ? undefined : defaults?.effort);
+  return {
+    ...(model !== undefined ? { model } : {}),
+    ...(proMode !== undefined ? { proMode } : {}),
+    ...(effort !== undefined ? { effort } : {})
+  };
 }
 
 export function browserSendBlockerFromError(error: unknown): { code: string; message: string; retryable: boolean; next_step?: string; thread?: string } {

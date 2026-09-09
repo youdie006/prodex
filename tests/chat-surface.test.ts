@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { chatSurfaceRecoveryPlan } from "../src/chatgpt-browser.js";
 import { chatSurfaceChoice, chatSurfaceState, surfaceFromProbe } from "../src/picker-interaction.js";
 
 // ChatGPT grew a Chat/Work toggle, and the two surfaces have different model
@@ -99,5 +100,34 @@ describe("naming the surface a listing was read from", () => {
   it("says nothing for a value it does not recognise", () => {
     expect(surfaceFromProbe({ surfaces: [], storedMode: "null" })).toBeUndefined();
     expect(surfaceFromProbe(undefined)).toBeUndefined();
+  });
+});
+
+// Threads and project pages render no surface toggle, so the switch is made by
+// writing the app's stored preference and loading a document that reads it.
+// Reloading in place is the obvious way and the wrong one on a project home:
+// measured on two different projects, every hard load of one comes back as
+// ChatGPT's error page. The tab is then on a document with no sidebar, and the
+// project step that follows reports the project missing from a sidebar that was
+// never drawn - a broken reload wearing the costume of a missing project.
+describe("applying the stored surface where no toggle exists", () => {
+  it("opens the root instead of reloading a project home, when the send is leaving anyway", () => {
+    expect(
+      chatSurfaceRecoveryPlan({ href: "https://chatgpt.com/g/g-p-000000/project", mayLeaveCurrentPage: true })
+    ).toBe("fresh-root");
+  });
+
+  // A continuation or a pinned tab has no destination other than the page it is
+  // already on, so leaving it loses the send. The reload may fail there; going
+  // somewhere else fails for certain.
+  it("reloads in place when that page is the destination", () => {
+    expect(
+      chatSurfaceRecoveryPlan({ href: "https://chatgpt.com/g/g-p-000000/project", mayLeaveCurrentPage: false })
+    ).toBe("reload");
+  });
+
+  it("reloads a thread, which is not the page that fails to load", () => {
+    expect(chatSurfaceRecoveryPlan({ href: "https://chatgpt.com/c/abc-123", mayLeaveCurrentPage: true })).toBe("reload");
+    expect(chatSurfaceRecoveryPlan({ href: "https://chatgpt.com/", mayLeaveCurrentPage: true })).toBe("reload");
   });
 });

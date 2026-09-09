@@ -2,7 +2,7 @@ import { chmod, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "n
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { loadBrowserDefaults, loadLocalConfig, localConfigPath, writeLocalConfig } from "../src/config.js";
+import { loadBrowserDefaults, loadLocalConfig, localConfigPath, mergeBrowserDefaultSources, writeLocalConfig } from "../src/config.js";
 import { setSafeFileTestHooks } from "../src/safe-file.js";
 
 describe("local bridge config", () => {
@@ -318,6 +318,70 @@ describe("browser selection defaults", () => {
       if (priorEffort === undefined) delete process.env.PRODEX_DEFAULT_EFFORT;
       else process.env.PRODEX_DEFAULT_EFFORT = priorEffort;
     }
+  });
+});
+
+// Defaults are a convenience, so a repo with no config has none and says
+// nothing. A config that EXISTS and cannot be read is not the same answer: the
+// project and model pinned in it stop applying with nothing said, and a
+// consult that should have landed in a project lands in the general chat and
+// looks like it worked.
+describe("a config that exists and cannot be read", () => {
+  it("refuses to report no defaults for a corrupt config", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-config-"));
+    await writeLocalConfig(cwd, { token: "test-token", browserDefaults: { project: "pinned" } });
+    await writeFile(localConfigPath(cwd), "{ not json", { mode: 0o600 });
+    await expect(loadBrowserDefaults(cwd)).rejects.toThrow(/corrupt/i);
+  });
+
+  // The env defaults are still readable, and applying only those would be the
+  // same silent half-answer: a global model with the repo's project missing.
+  it("refuses even when the env could supply some of them", async () => {
+    const prior = process.env.PRODEX_DEFAULT_MODEL;
+    process.env.PRODEX_DEFAULT_MODEL = "Pro";
+    try {
+      const cwd = await mkdtemp(path.join(tmpdir(), "prodex-config-"));
+      await writeLocalConfig(cwd, { token: "test-token", browserDefaults: { project: "pinned" } });
+      await writeFile(localConfigPath(cwd), "{ not json", { mode: 0o600 });
+      await expect(loadBrowserDefaults(cwd)).rejects.toThrow(/corrupt/i);
+    } finally {
+      if (prior === undefined) delete process.env.PRODEX_DEFAULT_MODEL;
+      else process.env.PRODEX_DEFAULT_MODEL = prior;
+    }
+  });
+
+  it("says what stops applying until it is fixed", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-config-"));
+    await writeLocalConfig(cwd, { token: "test-token" });
+    await writeFile(localConfigPath(cwd), "{ not json", { mode: 0o600 });
+    await expect(loadBrowserDefaults(cwd)).rejects.toThrow(/browser defaults/i);
+  });
+});
+
+// The project is independent of the rest. The model and the two reasoning
+// fields are not: an effort is a step ChatGPT deselects the model to reach, so
+// a repo pinning `model: Pro` beside PRODEX_DEFAULT_EFFORT used to produce a
+// request neither side made - the send ran at the env's effort and dropped Pro.
+describe("combining the global defaults with a repo's", () => {
+  it("takes the whole reasoning selection from whichever side names any of it", () => {
+    expect(mergeBrowserDefaultSources({ effort: "중간" }, { model: "Pro" })).toEqual({ model: "Pro" });
+    expect(mergeBrowserDefaultSources({ model: "Pro" }, { effort: "중간" })).toEqual({ effort: "중간" });
+  });
+
+  it("falls back to the global selection when the repo names none of it", () => {
+    expect(mergeBrowserDefaultSources({ model: "Pro", effort: "중간" }, { project: "Notes" })).toEqual({
+      model: "Pro",
+      effort: "중간",
+      project: "Notes"
+    });
+  });
+
+  it("keeps the project field-by-field, because it is nobody else's axis", () => {
+    expect(mergeBrowserDefaultSources({ project: "Global", model: "Pro" }, { project: "Repo" })).toEqual({
+      project: "Repo",
+      model: "Pro"
+    });
+    expect(mergeBrowserDefaultSources(undefined, undefined)).toBeUndefined();
   });
 });
 

@@ -4,6 +4,15 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.40.3
+
+### Fixed
+- A send that created its project was the one send whose destination nothing checked. The binding gate 0.40.2 added guards a send that navigates into an existing project; `--project-new` returned as soon as the new project existed, and the re-read before typing asked only about a pinned project name, which such a send does not have. The create flow leaves the tab on a project home like any other, where the composer that answers can still be the one the tab arrived with - the same prompt in the wrong project, recorded under the new project's name. Both ways in now share the gate, the recovery and the refusal.
+- `--model Pro` lost to a saved `effort` default. Pro is not a model row but the top step of the effort slider, so setting any other step deselects it: the send ran at the saved effort, the answer came from a lesser model, and the warning that noticed it told the caller to clear a saved MODEL default, which had never been involved. Asking for Pro on the model axis now suppresses a saved effort, exactly as `--effort` already suppressed a saved model. A saved `pro_mode` survives, because it only refines Pro.
+- A local config that existed and could not be read was reported as having no defaults at all. The pinned project and model then stopped applying with nothing said, and a consult that should have landed in a project landed in the general chat looking like a success. Having no config stays silent - browser sends work without one - but a config that cannot be parsed now fails the send and names what stops applying until it is fixed.
+- The global `PRODEX_DEFAULT_*` defaults and a repo's were merged field by field, which built a selection neither side asked for: a repo pinning `model: Pro` beside `PRODEX_DEFAULT_EFFORT` ran at the effort and dropped Pro. The model and the two reasoning fields are one control, so whichever side names any of them now provides all of them. The project is still merged on its own, because it is nobody else's axis.
+- Switching the browser back from ChatGPT's Work surface hard-reloaded the page when no surface toggle was rendered - and on a project home that load comes back as the error page, leaving the send on a document with no sidebar, after which the project step reported the project missing from a sidebar that was never drawn. A send that is going to navigate anyway now takes the site root, which loads. A continuation or a pinned tab still reloads in place: that page is the destination.
+
 ## 0.40.2
 
 ### Fixed
