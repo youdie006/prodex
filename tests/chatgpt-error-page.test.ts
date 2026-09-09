@@ -19,6 +19,26 @@ describe("recognising ChatGPT's error page", () => {
     expect(looksLikeChatGptErrorPage({ bodyText: "다시 시도", hasComposer: false })).toBe(true);
   });
 
+  it("takes the longer wording the same page shows", () => {
+    expect(looksLikeChatGptErrorPage({ bodyText: "Something went wrong. Please try again later.", hasComposer: false })).toBe(true);
+  });
+
+  // The heading and the button carry the same words, and the DOM read returns
+  // both, so the body legitimately repeats itself.
+  it("takes a body that says the same thing twice", () => {
+    expect(looksLikeChatGptErrorPage({ bodyText: "Try again\n  Try again", hasComposer: false })).toBe(true);
+  });
+
+  // The old check accepted any body under 40 characters that contained
+  // "retry" anywhere, which is a substring of ordinary interface text and of
+  // a page that is merely loading. Recognition now navigates, so a false one
+  // costs a page.
+  it("does not read a retry that belongs to a working page", () => {
+    expect(looksLikeChatGptErrorPage({ bodyText: "Retry settings", hasComposer: false })).toBe(false);
+    expect(looksLikeChatGptErrorPage({ bodyText: "Retrying...", hasComposer: false })).toBe(false);
+    expect(looksLikeChatGptErrorPage({ bodyText: "Try again with a different model", hasComposer: false })).toBe(false);
+  });
+
   it("is not fooled by a page that works", () => {
     expect(looksLikeChatGptErrorPage({ bodyText: "Try again", hasComposer: true })).toBe(false);
   });

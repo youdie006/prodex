@@ -1448,14 +1448,17 @@ export function assertChatGptIdleAndReadyForPrompt(
   assertChatGptReadyForPrompt(inferChatGptPageLoggedInLikely(status), status.hasComposer, status.openDialogText);
 }
 
-/** The tab is on ChatGPT's error page: the session is fine, the page is not. */
+/** The tab is on ChatGPT's error page: the page failed to load, and says nothing about the session. */
 export function chatGptErrorPageBlocker(): NonNullable<ChatGptBrowserStatus["blocker"]> {
   return {
     code: "chatgpt_error_page",
     message: "ChatGPT browser is reachable, but the tab is on ChatGPT's own error page, which has no prompt composer.",
     retryable: true,
+    // Not "the session is fine": this page carries none of the furniture that
+    // would show it either way. Not "reload it" either - measured, a project
+    // home reloads straight back into this page, while the site root loads.
     next_step:
-      "The session is fine - the page failed to load. Reload it or open a normal chat in the visible browser, then retry."
+      "The page failed to load, which says nothing about the session. Open a normal chat in the visible browser, then retry."
   };
 }
 
@@ -1745,24 +1748,31 @@ async function dispatchEscapeKey(cdp: CdpConnection): Promise<void> {
 }
 
 /**
- * Put the visible tab back on a page that works.
+ * Open a fresh ChatGPT root document, and prove that is where the tab landed.
  *
- * A page that failed to load is not only this send's problem: it stays on
- * screen, and the next send reads a composer-less page as a logged-out
- * session. Best effort by design - the caller is already failing, and a
- * failure to recover must not replace the blocker it is about to report.
+ * The recovery for a composer bound to the wrong project: only a new document
+ * sheds a stale binding, and the site root loads where a project home does
+ * not. Checked rather than best-effort, because the caller clicks a sidebar
+ * row on whatever page this leaves behind - and clicking it on the OLD
+ * document walks straight back into the binding it is trying to shed. The
+ * stamp is what proves the old document is gone; the URL alone can be read off
+ * the very page we are trying to leave.
  */
-async function restoreChatGptHomeTab(cdp: CdpConnection): Promise<void> {
-  try {
-    await cdp.evaluate(`location.assign("https://chatgpt.com/")`);
-    await waitForExpressionTrue(
-      cdp,
-      `Boolean(document.querySelector('#prompt-textarea,[contenteditable="true"],textarea'))`,
-      RELOAD_SETTLE_TIMEOUT_MS
-    );
-  } catch {
-    // Nothing to add: the send is failing either way, and the tab is no worse.
+async function openFreshChatGptHome(cdp: CdpConnection): Promise<void> {
+  await cdp.evaluate(markDocumentForReloadExpression());
+  await cdp.evaluate(`location.assign("https://chatgpt.com/")`);
+  const deadline = Date.now() + RELOAD_SETTLE_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    await sleep(250);
+    try {
+      if (await cdp.evaluate<boolean>(freshChatGptHomeReadyExpression())) return;
+    } catch (error) {
+      // The execution context is gone between documents; the next poll lands
+      // on the new one. A command timeout is different: it closed the socket.
+      if (cdpCommandTimedOut(error)) throw error;
+    }
   }
+  throw new Error("ChatGPT did not open a fresh home page with a composer");
 }
 
 // Poll a boolean page expression instead of sleeping a fixed duration, so slow
@@ -2040,6 +2050,21 @@ export function reloadedDocumentReadyExpression(extraCondition = "true"): string
   })()`;
 }
 
+/**
+ * True only on a NEWLY loaded chatgpt.com root that has rendered a composer.
+ *
+ * Every clause answers a way the old check could pass on the page we are
+ * trying to leave: the stamp proves the document is not the one that asked
+ * for the navigation, the route proves it is the root rather than the project
+ * home that fails to load, and the composer candidate is the real editor
+ * rather than the broad selector that also matches a hidden fallback.
+ */
+export function freshChatGptHomeReadyExpression(): string {
+  return reloadedDocumentReadyExpression(`/^https:\\/\\/chatgpt\\.com\\/?(?:[?#].*)?$/.test(location.href) && (() => {${composerExpressionHelpers()}
+    return Boolean(findChatGptComposerCandidate());
+  })()`);
+}
+
 /** Polled reloads return as soon as the new document has its composer; this only bounds a page that never gets there. */
 const RELOAD_SETTLE_TIMEOUT_MS = 12_000;
 
@@ -2085,6 +2110,12 @@ async function reloadPageAndAwaitComposer(page: DevtoolsPage): Promise<{ rendere
   }
 }
 
+// Every alternative is wording measured on the error page itself, anchored so
+// the whole body has to be made of them and nothing else. It may repeat one:
+// the heading and the button carry the same words.
+const CHATGPT_ERROR_PAGE_BODY =
+  /^(?:(?:something went wrong|please try again later|please try again|try again|다시\s*시도)[.!]?(?:\s+|$))+$/i;
+
 /**
  * ChatGPT's error page: a document whose whole body is a retry affordance.
  *
@@ -2094,14 +2125,23 @@ async function reloadPageAndAwaitComposer(page: DevtoolsPage): Promise<{ rendere
  * Reporting that as a missing composer describes a symptom and names nothing
  * to do about it.
  *
- * Deliberately narrow: a real page that happens to contain a retry button has
- * plenty of other text, and a page that is still loading has none at all.
+ * The body has to BE the error, not merely contain a retry word somewhere: a
+ * positive now navigates the visible tab away, so "Retry settings" and a
+ * transient "Retrying..." must not qualify. Wording decides, not length - the
+ * old 40-character ceiling turned down "Something went wrong. Please try again
+ * later." for being one sentence too long. An error page prodex does not
+ * recognise stays a missing composer: a worse message, not a wrong action.
  */
 export function looksLikeChatGptErrorPage(input: { bodyText: string; hasComposer: boolean }): boolean {
   if (input.hasComposer) return false;
-  const text = input.bodyText.trim();
-  if (text.length === 0 || text.length > 40) return false;
-  return /try again|다시\s*시도|retry/i.test(text);
+  // The DOM read leaves the heading and the button separated by whitespace.
+  const text = input.bodyText.replace(/\s+/g, " ").trim();
+  if (!text) return false;
+  // A backstop for the alternation below rather than a classifier of its own:
+  // the longest body it can accept is well under this, so anything longer is a
+  // page with content and is not worth matching against.
+  if (text.length > 200) return false;
+  return CHATGPT_ERROR_PAGE_BODY.test(text);
 }
 
 /**
@@ -2113,10 +2153,11 @@ export function looksLikeChatGptErrorPage(input: { bodyText: string; hasComposer
  * question the old hard reload tried to force: is this composer the project's,
  * or the one the tab arrived with.
  *
- * "unknown" is a deliberate pass. A locale or a redesign we cannot read must
- * not block every project send - the parse below covers what ships today, and
- * an unread placeholder leaves the send exactly where it was before this check
- * existed.
+ * Only a recognised phrasing decides anything. A placeholder that merely
+ * CONTAINS the name is not evidence - "New chat in Notes Archive" contains
+ * "Notes" - and neither is an unrecognised one, which is why a locale this
+ * cannot read comes back "unknown" rather than "bound". What "unknown" is
+ * worth is the caller's to decide, not this function's.
  */
 export function composerProjectBinding(input: {
   placeholder?: string;
@@ -2128,12 +2169,15 @@ export function composerProjectBinding(input: {
   if (!wanted) return "unknown";
   // Equality where the phrasing is known, because sidebar rows are matched by
   // exact name: "Notes" and "Notes Archive" are two projects, and a composer
-  // belonging to one must not pass for the other.
-  const named = /^new chat in\s+(.+)$/i.exec(placeholder)?.[1] ?? /^(.+?)\uc5d0\uc11c\s*\uc0c8\s*\ucc44\ud305$/.exec(placeholder)?.[1];
+  // belonging to one must not pass for the other. The spacing of the template
+  // is loose because that is the page's to choose; the NAME is compared as it
+  // is, since two projects may differ by exactly the spacing in it.
+  const named = /^new\s+chat\s+in\s+(.+)$/i.exec(placeholder)?.[1] ?? /^(.+?)\uc5d0\uc11c\s*\uc0c8\s*\ucc44\ud305$/.exec(placeholder)?.[1];
   if (named) return named.trim().toLowerCase() === wanted ? "bound" : "elsewhere";
-  // Unrecognised phrasing: naming the project is still evidence it belongs to
-  // it, and a plain new chat ("Ask ChatGPT") names no project at all.
-  return placeholder.toLowerCase().includes(wanted) ? "bound" : "elsewhere";
+  // The placeholder a plain new chat carries: recognised, and it names no
+  // project, so the composer belongs to none.
+  if (/^ask\s+chatgpt$/i.test(placeholder)) return "elsewhere";
+  return "unknown";
 }
 
 export function powerSliderPresentExpression(): string {
@@ -3068,8 +3112,8 @@ function composerProjectBindingExpression(): string {
  *
  * The binding arrives with the project page rather than with the URL, so this
  * polls rather than reading once. A composer that never appears, or one whose
- * placeholder we cannot read, comes back "unknown": the caller proceeds, and
- * the composer check that follows reports a missing composer on its own terms.
+ * placeholder cannot be read, comes back "unknown" - which the caller treats
+ * as a failure, so this must not report it lightly.
  */
 async function waitForComposerProjectBinding(
   cdp: CdpConnection,
@@ -3083,11 +3127,16 @@ async function waitForComposerProjectBinding(
       .evaluate<{ found: boolean; placeholder?: string }>(composerProjectBindingExpression())
       .catch(() => ({ found: false }) as { found: boolean; placeholder?: string });
     if (read.found) {
-      verdict = composerProjectBinding({
+      const sample = composerProjectBinding({
         ...(read.placeholder !== undefined ? { placeholder: read.placeholder } : {}),
         projectName: project
       });
-      if (verdict === "bound") return verdict;
+      if (sample === "bound") return sample;
+      // Keep the worse reading. A composer seen belonging somewhere else stays
+      // evidence of that even if the next sample lands mid-render with no
+      // placeholder to read - overwriting it turned a known wrong destination
+      // into an unknown one, which reads like the softer failure it is not.
+      if (sample === "elsewhere" || verdict === "unknown") verdict = sample;
     }
     if (Date.now() >= deadline) return verdict;
     await sleep(250);
@@ -3155,42 +3204,65 @@ async function selectProject(
       );
     }
   }
-  if (navigated) {
-    // A sidebar SPA navigation moves the URL to the target project while the
-    // composer can stay bound to the PREVIOUS project's conversation target, so
-    // the send silently creates the thread in the OLD project (reproduced live
-    // via PRODEX_DEBUG_SEND: baseline URL on the requested project, yet the
-    // prompt posted into the project the tab came from).
-    //
-    // Hard-reloading the project home used to rebind it, and that stopped
-    // working: measured on two different projects, EVERY hard load of a project
-    // home - Page.reload and location.assign alike - comes back as ChatGPT's
-    // error page with no composer, while the sidebar navigation that got us
-    // here renders in under two seconds. So read the binding instead of forcing
-    // it - the composer says which project it posts into.
-    let binding = await waitForComposerProjectBinding(cdp, options.project, PROJECT_NAVIGATION_TIMEOUT_MS);
-    if (binding === "elsewhere") {
-      // The one recovery that cannot inherit a stale binding, and the only one
-      // still available: a fresh document - the site root loads fine, unlike a
-      // project home - and then the same sidebar navigation over again.
-      await restoreChatGptHomeTab(cdp);
+  // A sidebar SPA navigation moves the URL to the target project while the
+  // composer can stay bound to the PREVIOUS project's conversation target, so
+  // the send silently creates the thread in the OLD project (reproduced live
+  // via PRODEX_DEBUG_SEND: baseline URL on the requested project, yet the
+  // prompt posted into the project the tab came from).
+  //
+  // Hard-reloading the project home used to rebind it, and that stopped
+  // working: measured on two different projects, EVERY hard load of a project
+  // home - Page.reload and location.assign alike - comes back as ChatGPT's
+  // error page with no composer, while the sidebar navigation that got us
+  // here renders in under two seconds. So read the binding instead of forcing
+  // it - the composer says which project it posts into.
+  //
+  // Read on BOTH branches. A URL that never moved is not proof about the
+  // composer either: the route and the title can already be this project's
+  // while the composer still belongs to the thread the tab was left on, and
+  // that path used to skip this check entirely.
+  let binding = await waitForComposerProjectBinding(cdp, options.project, PROJECT_NAVIGATION_TIMEOUT_MS);
+  let recoveryNote = "";
+  if (binding !== "bound") {
+    // The one recovery that cannot inherit a stale binding, and the only one
+    // still available: a fresh document - the site root loads fine, unlike a
+    // project home - and then the same sidebar navigation over again.
+    try {
+      await openFreshChatGptHome(cdp);
       await verifiedClickWithRetry(
         cdp,
         () => cdp.evaluate<RectHit>(projectItemRectExpression(options.project!)),
         `project ${options.project}`
       );
-      await waitForExpressionTrue(cdp, `/\\/g\\/g-p-/.test(location.href)`, PROJECT_NAVIGATION_TIMEOUT_MS);
+      // The click's navigation has to land before the placeholder means
+      // anything; read on the page we came from, it answers about the wrong
+      // document.
+      const entered = await waitForExpressionTrue(cdp, `/\\/g\\/g-p-/.test(location.href)`, PROJECT_NAVIGATION_TIMEOUT_MS);
+      if (!entered) throw new Error("the sidebar click did not reach a project page");
       binding = await waitForComposerProjectBinding(cdp, options.project, PROJECT_NAVIGATION_TIMEOUT_MS);
+    } catch (recoveryError) {
+      // Dropping why the recovery failed would leave the refusal below saying
+      // only that the binding is still wrong, which is the less useful half.
+      recoveryNote = ` Recovery failed: ${recoveryError instanceof Error ? recoveryError.message : String(recoveryError)}`;
     }
-    if (binding === "elsewhere") {
-      // Naming the project it offered instead would put ANOTHER project's name
-      // in a persisted receipt, which redaction only covers for the requested
-      // one, so say what happened and leave the name out.
-      throw new Error(
-        `ChatGPT composer did not bind to project "${options.project}": after entering it the composer still offers a ` +
-          `chat that belongs somewhere else, so the prompt would not land in this project.`
-      );
-    }
+  }
+  if (binding !== "bound") {
+    // Refuse on "unknown" as well as "elsewhere". A placeholder prodex cannot
+    // read is not evidence that the composer is this project's, and what it
+    // guards against - a prompt posted into another project, recorded under
+    // the requested one - costs far more than a send the caller can retry.
+    //
+    // Naming the project it offered instead would put ANOTHER project's name
+    // in a persisted receipt, which redaction only covers for the requested
+    // one, so say what happened and leave that name out.
+    const detail =
+      binding === "elsewhere"
+        ? "the composer still offers a chat that belongs somewhere else"
+        : "the composer's placeholder could not be read, so where the prompt would land is unknown";
+    throw new Error(
+      `ChatGPT composer did not bind to project "${options.project}": after entering it, ${detail}, ` +
+        `so nothing was sent.${recoveryNote}`
+    );
   }
   const composerReady = await waitForExpressionTrue(
     cdp,
@@ -3475,10 +3547,14 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
   // ChatGPT's error page does not come back on a reload - measured: a project
   // home that failed reloaded straight back into it - and the tab then stays
   // there for every later send, including the retry its own blocker asks for.
-  // Going home is the recovery that works, and an error page holds nothing to
-  // lose by leaving. A send that needed a particular thread still fails, on
-  // the target assert below, which says so.
+  // Going home is the recovery that works, and an unpinned send has nothing to
+  // lose by leaving an error page.
   if (looksLikeChatGptErrorPage({ bodyText: status.textSample, hasComposer: status.hasComposer })) {
+    // A send pinned to a thread is not one of those. Navigating to the root
+    // would trade the page that explains the failure for a target mismatch
+    // that does not, and leave the pinned tab somewhere it was not asked to
+    // go, so report the error page and keep the tab where it is.
+    if (normalizedTargetUrl) throw new ChatGptBrowserBlockerError(chatGptErrorPageBlocker());
     emitProgress("waiting", "tab on ChatGPT's error page; opening a working page");
     try {
       await evaluateOnPage(page, `location.assign("https://chatgpt.com/")`);
@@ -3487,6 +3563,10 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
       fresh = await ensureVisibleChatGptPage(port, page, fresh);
       const blockerAfterHome = detectChatGptPageBlocker(fresh);
       if (blockerAfterHome) throw new ChatGptBrowserBlockerError(blockerAfterHome);
+      // The busy verdict above was decided about the page we just left, and it
+      // is handed to the readiness assert as already decided. Carrying it over
+      // would let a root page that is generating an answer be typed into.
+      busyBlocker = busyBlockerAfterTranscriptCheck(chatGptBusyBlocker(fresh), await readTranscriptCompletion(page, fresh.url));
       status = fresh;
     } catch (error) {
       // A blocker is the answer; anything else leaves the original status, and
@@ -3638,6 +3718,23 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
     // into; a --project/--project-new hop lands on a page with its own counts.
     beforeSubmit = await evaluateOnPage<ChatGptAnswerState>(page, answerExpression());
     dbgSend(`baseline url=${beforeSubmit.url} user=${beforeSubmit.userMessageCount} assistant=${beforeSubmit.assistantMessageCount}`);
+    // Read the binding once more, on the composer this send is about to type
+    // into. Everything between selectProject and here - the model picker, the
+    // power slider - opens and closes over the composer, and a re-render is
+    // exactly when it can come back bound to the project the tab arrived with.
+    // This is not atomic and does not pretend to be; it closes a window that
+    // measurably existed. It has to run BEFORE the attachments and the text,
+    // because a composer holding a prompt no longer shows a placeholder.
+    if (options.project) {
+      const stillBound = await waitForComposerProjectBinding(cdp, options.project, PROJECT_NAVIGATION_TIMEOUT_MS);
+      dbgSend(`project binding before typing=${stillBound}`);
+      if (stillBound !== "bound") {
+        throw new Error(
+          `ChatGPT composer did not bind to project "${options.project}": it read as this project's after entering it and ` +
+            `no longer does, so nothing was sent.`
+        );
+      }
+    }
     // Attach BEFORE typing: the upload is the slow part, and a file that
     // arrives after the prompt is submitted is a file ChatGPT never saw.
     if (options.attachments && options.attachments.length > 0) {

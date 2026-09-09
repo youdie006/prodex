@@ -46,11 +46,20 @@ describe("reading which project the composer will post into", () => {
     expect(composerProjectBinding({ placeholder: "New chat in Notes", projectName: "Notes Archive" })).toBe("elsewhere");
   });
 
-  // A phrasing we cannot parse still names the project when the composer
-  // belongs to it, and blocking every send over an unread locale would be
-  // worse than the failure this check prevents.
-  it("takes an unknown phrasing that still names the project", () => {
-    expect(composerProjectBinding({ placeholder: "Nueva conversacion en Notes", projectName: "Notes" })).toBe("bound");
+  // A placeholder that merely contains the name is not evidence the composer
+  // belongs to that project: "New chat in Notes Archive" contains "Notes" too,
+  // and so does a phrasing that says the opposite in a locale we cannot read.
+  // The caller refuses on "unknown", which costs a retry; accepting the
+  // substring costs a prompt posted into another project.
+  it("has no answer for a phrasing it cannot parse, even one naming the project", () => {
+    expect(composerProjectBinding({ placeholder: "Nueva conversacion en Notes", projectName: "Notes" })).toBe("unknown");
+  });
+
+  // ChatGPT renders the placeholder, not prodex, so the run of whitespace in
+  // the template is the page's to vary. The project NAME is still compared as
+  // it was typed.
+  it("reads the template through however much whitespace it carries", () => {
+    expect(composerProjectBinding({ placeholder: "New  chat   in Notes", projectName: "Notes" })).toBe("bound");
   });
 
   it("has no answer when the composer carries no placeholder at all", () => {
@@ -65,7 +74,7 @@ describe("reading which project the composer will post into", () => {
 describe("what an unbound composer tells the caller", () => {
   const blocker = browserSendBlockerFromError(
     new Error(
-      'ChatGPT composer did not bind to project "<project>": after entering it the composer still offers a chat that belongs somewhere else, so the prompt would not land in this project.'
+      'ChatGPT composer did not bind to project "<project>": after entering it, the composer still offers a chat that belongs somewhere else, so nothing was sent.'
     )
   );
 
@@ -79,5 +88,24 @@ describe("what an unbound composer tells the caller", () => {
 
   it("says that nothing was sent, which is the part worth knowing", () => {
     expect(blocker.next_step).toMatch(/nothing was sent/i);
+  });
+
+  // Three refusals share the phrase the classifier keys on: the composer was
+  // read as another project's, its placeholder could not be read at all, and
+  // it stopped reading as this project's between entering it and typing.
+  // Each has to reach the same code, or the one that does not looks like a
+  // browser fault the caller should work around.
+  it("classifies every shape of the refusal the same way", () => {
+    const messages = [
+      'ChatGPT composer did not bind to project "<project>": after entering it, the composer\'s placeholder could not be read, so where the prompt would land is unknown, so nothing was sent.',
+      'ChatGPT composer did not bind to project "<project>": after entering it, the composer still offers a chat that belongs somewhere else, so nothing was sent. Recovery failed: the sidebar click did not reach a project page',
+      'ChatGPT composer did not bind to project "<project>": it read as this project\'s after entering it and no longer does, so nothing was sent.'
+    ];
+    for (const message of messages) {
+      const classified = browserSendBlockerFromError(new Error(message));
+      expect(classified.code).toBe("project_not_bound");
+      expect(classified.retryable).toBe(true);
+      expect(classified.next_step).toMatch(/nothing was sent/i);
+    }
   });
 });
