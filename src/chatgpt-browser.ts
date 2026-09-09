@@ -3143,15 +3143,10 @@ async function waitForComposerProjectBinding(
   }
 }
 
-async function selectProject(
-  cdp: CdpConnection,
-  options: Pick<SendChatGptPromptOptions, "project" | "projectNew">
-): Promise<void> {
-  if (options.projectNew) {
-    await createChatGptProject(cdp, options.projectNew);
-    return;
-  }
-  if (!options.project) return;
+// Enter an EXISTING project by clicking its sidebar row. Leaves the tab on
+// that project's page; whether the composer came with it is the caller's
+// question, not this one's.
+async function navigateToExistingProject(cdp: CdpConnection, project: string): Promise<void> {
   const hrefBefore = await cdp.evaluate<string>("location.href");
   // Poll for the project row instead of a single check: right after a
   // --new-chat navigation the sidebar's Projects section has not hydrated yet
@@ -3161,7 +3156,7 @@ async function selectProject(
   let hit: RectHit = { ok: false };
   const projectDeadline = Date.now() + 6_000;
   for (;;) {
-    hit = await cdp.evaluate<RectHit>(projectItemRectExpression(options.project));
+    hit = await cdp.evaluate<RectHit>(projectItemRectExpression(project));
     if (hit.ok && hit.x !== undefined && hit.y !== undefined) break;
     if (Date.now() >= projectDeadline) break;
     await sleep(300);
@@ -3169,10 +3164,10 @@ async function selectProject(
   if (!hit.ok || hit.x === undefined || hit.y === undefined) {
     const detail = hit.reason && hit.reason !== "project not found in sidebar" ? ` (${hit.reason})` : "";
     throw new Error(
-      `ChatGPT project not found in sidebar: ${options.project}${detail} List the visible names with \`prodex pro browser projects\`.`
+      `ChatGPT project not found in sidebar: ${project}${detail} List the visible names with \`prodex pro browser projects\`.`
     );
   }
-  await verifiedClickWithRetry(cdp, () => cdp.evaluate<RectHit>(projectItemRectExpression(options.project!)), `project ${options.project}`);
+  await verifiedClickWithRetry(cdp, () => cdp.evaluate<RectHit>(projectItemRectExpression(project)), `project ${project}`);
   const navigated = await waitForExpressionTrue(
     cdp,
     `location.href !== ${JSON.stringify(hrefBefore)}`,
@@ -3187,7 +3182,7 @@ async function selectProject(
     const alreadyInRequestedProject = await cdp.evaluate<boolean>(
       `(() => {
         if (!/^https:\\/\\/chatgpt\\.com\\/g\\/g-p-/.test(location.href)) return false;
-        const name = ${JSON.stringify(options.project)}.toLowerCase();
+        const name = ${JSON.stringify(project)}.toLowerCase();
         // Case-insensitive EQUALITY (not substring): matches the case-insensitive
         // sidebar-row lookup (so "codex" is accepted while sitting on "Codex"),
         // but a stalled cross-project navigation must NOT be accepted just because
@@ -3200,10 +3195,42 @@ async function selectProject(
     );
     if (!alreadyInRequestedProject) {
       throw new Error(
-        `Clicking project "${options.project}" did not navigate the visible tab. If the tab is already inside this project, omit --project and retry.`
+        `Clicking project "${project}" did not navigate the visible tab. If the tab is already inside this project, omit --project and retry.`
       );
     }
   }
+}
+
+/**
+ * The project name the composer has to agree with before anything is typed,
+ * or undefined for a send that pins no project.
+ *
+ * A project the send just created is exactly as able to post into the wrong
+ * place as one it navigated to - the create flow leaves the tab on a project
+ * home like any other - so both answer here, and the binding gate reads this
+ * rather than the pinned name alone.
+ */
+export function composerBindingTarget(options: { project?: string; projectNew?: string }): string | undefined {
+  return options.projectNew ?? options.project;
+}
+
+/**
+ * Put the tab in the project this send is for, and refuse unless the composer
+ * agrees that is where it posts.
+ *
+ * Both ways in share the gate. A project prodex just created is no safer than
+ * one it navigated to: the create flow waits for A composer, and the composer
+ * that answers can still be the one the tab arrived with - the same silent
+ * wrong-project send, with the new project's name in the receipt.
+ */
+async function selectProject(
+  cdp: CdpConnection,
+  options: Pick<SendChatGptPromptOptions, "project" | "projectNew">
+): Promise<void> {
+  const wanted = composerBindingTarget(options);
+  if (!wanted) return;
+  if (options.projectNew) await createChatGptProject(cdp, options.projectNew);
+  else await navigateToExistingProject(cdp, options.project!);
   // A sidebar SPA navigation moves the URL to the target project while the
   // composer can stay bound to the PREVIOUS project's conversation target, so
   // the send silently creates the thread in the OLD project (reproduced live
@@ -3217,11 +3244,12 @@ async function selectProject(
   // here renders in under two seconds. So read the binding instead of forcing
   // it - the composer says which project it posts into.
   //
-  // Read on BOTH branches. A URL that never moved is not proof about the
+  // Read on every path in. A URL that never moved is not proof about the
   // composer either: the route and the title can already be this project's
   // while the composer still belongs to the thread the tab was left on, and
-  // that path used to skip this check entirely.
-  let binding = await waitForComposerProjectBinding(cdp, options.project, PROJECT_NAVIGATION_TIMEOUT_MS);
+  // that path used to skip this check entirely - as did creating a project,
+  // which reached the send with nothing checked at all.
+  let binding = await waitForComposerProjectBinding(cdp, wanted, PROJECT_NAVIGATION_TIMEOUT_MS);
   let recoveryNote = "";
   if (binding !== "bound") {
     // The one recovery that cannot inherit a stale binding, and the only one
@@ -3231,15 +3259,15 @@ async function selectProject(
       await openFreshChatGptHome(cdp);
       await verifiedClickWithRetry(
         cdp,
-        () => cdp.evaluate<RectHit>(projectItemRectExpression(options.project!)),
-        `project ${options.project}`
+        () => cdp.evaluate<RectHit>(projectItemRectExpression(wanted)),
+        `project ${wanted}`
       );
       // The click's navigation has to land before the placeholder means
       // anything; read on the page we came from, it answers about the wrong
       // document.
       const entered = await waitForExpressionTrue(cdp, `/\\/g\\/g-p-/.test(location.href)`, PROJECT_NAVIGATION_TIMEOUT_MS);
       if (!entered) throw new Error("the sidebar click did not reach a project page");
-      binding = await waitForComposerProjectBinding(cdp, options.project, PROJECT_NAVIGATION_TIMEOUT_MS);
+      binding = await waitForComposerProjectBinding(cdp, wanted, PROJECT_NAVIGATION_TIMEOUT_MS);
     } catch (recoveryError) {
       // Dropping why the recovery failed would leave the refusal below saying
       // only that the binding is still wrong, which is the less useful half.
@@ -3260,7 +3288,7 @@ async function selectProject(
         ? "the composer still offers a chat that belongs somewhere else"
         : "the composer's placeholder could not be read, so where the prompt would land is unknown";
     throw new Error(
-      `ChatGPT composer did not bind to project "${options.project}": after entering it, ${detail}, ` +
+      `ChatGPT composer did not bind to project "${wanted}": after entering it, ${detail}, ` +
         `so nothing was sent.${recoveryNote}`
     );
   }
@@ -3270,7 +3298,7 @@ async function selectProject(
     PROJECT_NAVIGATION_TIMEOUT_MS
   );
   if (!composerReady) {
-    throw new Error(`ChatGPT composer did not appear after entering project "${options.project}"`);
+    throw new Error(`ChatGPT composer did not appear after entering project "${wanted}"`);
   }
 }
 
@@ -3725,12 +3753,13 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
     // This is not atomic and does not pretend to be; it closes a window that
     // measurably existed. It has to run BEFORE the attachments and the text,
     // because a composer holding a prompt no longer shows a placeholder.
-    if (options.project) {
-      const stillBound = await waitForComposerProjectBinding(cdp, options.project, PROJECT_NAVIGATION_TIMEOUT_MS);
+    const boundProject = composerBindingTarget(options);
+    if (boundProject) {
+      const stillBound = await waitForComposerProjectBinding(cdp, boundProject, PROJECT_NAVIGATION_TIMEOUT_MS);
       dbgSend(`project binding before typing=${stillBound}`);
       if (stillBound !== "bound") {
         throw new Error(
-          `ChatGPT composer did not bind to project "${options.project}": it read as this project's after entering it and ` +
+          `ChatGPT composer did not bind to project "${boundProject}": it read as this project's after entering it and ` +
             `no longer does, so nothing was sent.`
         );
       }

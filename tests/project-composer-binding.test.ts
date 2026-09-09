@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { composerProjectBinding } from "../src/chatgpt-browser.js";
+import { composerBindingTarget, composerProjectBinding } from "../src/chatgpt-browser.js";
 import { browserSendBlockerFromError } from "../src/cli-pro.js";
 
 // prodex used to rebind the composer to the project it had just entered by
@@ -65,6 +65,26 @@ describe("reading which project the composer will post into", () => {
   it("has no answer when the composer carries no placeholder at all", () => {
     expect(composerProjectBinding({ placeholder: "", projectName: "Notes" })).toBe("unknown");
     expect(composerProjectBinding({ projectName: "Notes" })).toBe("unknown");
+  });
+});
+
+// The gate above only protects a send that reaches it. A send that CREATES its
+// project used to walk around it: the project step returned as soon as the new
+// project existed, and the re-read before typing asked only about a pinned
+// name, which such a send does not have. So the one send that had never seen
+// its destination before was the one nothing checked, and its receipt would
+// carry the new project's name either way.
+describe("which project a send has to bind to", () => {
+  it("checks a project the send just created, not only one it navigated to", () => {
+    expect(composerBindingTarget({ projectNew: "Notes" })).toBe("Notes");
+  });
+
+  it("checks the project a send pins by name", () => {
+    expect(composerBindingTarget({ project: "Notes" })).toBe("Notes");
+  });
+
+  it("has nothing to check when the send pins no project", () => {
+    expect(composerBindingTarget({})).toBeUndefined();
   });
 });
 
