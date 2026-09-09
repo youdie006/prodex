@@ -1238,6 +1238,11 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
     // Requiring --new-chat keeps that explicit rather than quietly turning a
     // continuation into a throwaway.
     const temporary = parsedAskPro.optionArgs.includes("--temporary");
+    const temporaryConflict = temporaryProjectConflict({
+      temporary,
+      ...(explicitProject !== undefined ? { explicitProject } : {})
+    });
+    if (temporaryConflict) throw new Error(temporaryConflict);
     if (temporary && !newChat) {
       throw new Error("--temporary starts a throwaway chat, so it needs --new-chat. A temporary chat cannot be continued or recovered later.");
     }
@@ -1271,10 +1276,18 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
     // fresh chat inside the project is exactly what "--new-chat + project"
     // produces, and the whole point of pinning a default project is that
     // consults stop landing in the general chat list. Only --target-url
-    // (pinned tab) and --project-new suppress it.
+    // (pinned tab), --project-new, and --temporary suppress it.
+    //
+    // --temporary suppresses rather than conflicts: a pinned project must not
+    // turn every throwaway send into an error, and attempting both is what
+    // produced "composer did not rebind after entering project" - a temporary
+    // chat is never saved, a project chat is, and entering a project leaves
+    // temporary mode.
     const selectionProject =
       explicitProject ??
-      (normalizedTargetUrl || selectionProjectNew !== undefined || suppressProject ? undefined : browserDefaults?.project);
+      (normalizedTargetUrl || selectionProjectNew !== undefined || suppressProject || temporary
+        ? undefined
+        : browserDefaults?.project);
     const reasoningAxisChosen = explicitProMode !== undefined || explicitEffort !== undefined;
     const selectionProMode = explicitProMode ?? (reasoningAxisChosen ? undefined : browserDefaults?.pro_mode);
     const selectionEffort = explicitEffort ?? (reasoningAxisChosen ? undefined : browserDefaults?.effort);
@@ -2022,6 +2035,21 @@ export function proSelectionVerified(selection: {
   if (!isProSelection(selection)) return undefined;
   if (!selection.modelSlug) return undefined;
   return /pro/i.test(selection.modelSlug);
+}
+
+/**
+ * A temporary chat is not saved; a project chat is. Entering a project leaves
+ * temporary mode, so asking for both is asking for two different things, and
+ * prodex used to attempt both and die inside the project step with "composer
+ * did not rebind". A pinned default project is suppressed instead of refused:
+ * the per-call flag is the more specific instruction.
+ */
+export function temporaryProjectConflict(input: { temporary: boolean; explicitProject?: string }): string | undefined {
+  if (!input.temporary || input.explicitProject === undefined) return undefined;
+  return (
+    `--temporary and --project cannot be combined: a temporary chat is never saved, and a chat inside a project is. ` +
+    `Drop --temporary to send into "${input.explicitProject}", or drop --project to send a throwaway chat.`
+  );
 }
 
 export function browserSendBlockerFromError(error: unknown): { code: string; message: string; retryable: boolean; next_step?: string; thread?: string } {

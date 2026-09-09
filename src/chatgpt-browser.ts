@@ -2044,6 +2044,19 @@ async function reloadPageAndAwaitComposer(page: DevtoolsPage): Promise<{ rendere
   }
 }
 
+/**
+ * The project a ChatGPT URL belongs to, as its `g-p-<id>` segment.
+ *
+ * The rebind check used to compare whole URLs, which also carry mode in a
+ * query string - and mode is exactly what differs across the reload this
+ * failure showed up in. Identity is the thing the check actually cares about:
+ * that the composer came back bound to THIS project rather than the one the
+ * tab came from.
+ */
+export function projectIdentity(url: string): string | undefined {
+  return /\/g\/(g-p-[^/?#]+)/.exec(url)?.[1];
+}
+
 export function powerSliderPresentExpression(): string {
   return `Boolean(document.querySelector('[data-testid="composer-intelligence-picker-content"] [role="slider"]'))`;
 }
@@ -3031,12 +3044,31 @@ async function selectProject(
     // prompt posted into the project the tab came from). A hard reload of the
     // project home rebinds the composer to THIS project before we send.
     const projectHome = await cdp.evaluate<string>("location.href");
+    const home = projectIdentity(projectHome);
     // Polled with no delay, the first check could run before the reload had
     // committed, on the old document, whose composer and URL both still
     // matched. The stamp keeps that document from passing as the new one.
-    const rebound = await reloadAndAwaitComposer(cdp, RELOAD_SETTLE_TIMEOUT_MS, `location.href === ${JSON.stringify(projectHome)}`);
+    //
+    // Identity, not the whole URL: the href also carries mode in a query
+    // string, and comparing it byte-for-byte failed a reload that had landed
+    // exactly where it was asked to.
+    const rebound = await reloadAndAwaitComposer(
+      cdp,
+      RELOAD_SETTLE_TIMEOUT_MS,
+      home ? `/\\/g\\/${home.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![^/?#])/.test(location.href)` : "true"
+    );
     if (!rebound) {
-      throw new Error(`ChatGPT composer did not rebind after entering project "${options.project}"`);
+      // Say what it saw. This failure is rare and was previously reported as
+      // four words, which named neither the cause nor anything to try.
+      const landed = await cdp.evaluate<string>("location.href").catch(() => "unknown");
+      const hasComposer = await cdp
+        .evaluate<boolean>(`Boolean(document.querySelector('#prompt-textarea,[contenteditable="true"],textarea'))`)
+        .catch(() => false);
+      throw new Error(
+        `ChatGPT composer did not rebind after entering project "${options.project}": after reloading, the tab was on ` +
+          `${projectIdentity(landed) ?? "no project"} (expected ${home ?? "that project"}) and the composer was ` +
+          `${hasComposer ? "present but the page never settled" : "still missing"}.`
+      );
     }
   }
   const composerReady = await waitForExpressionTrue(

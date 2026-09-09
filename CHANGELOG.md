@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.40.1
+
+### Fixed
+- `--temporary` and a project were attempted together, and the send died inside the project step with "ChatGPT composer did not rebind after entering project" - four words naming neither cause nor cure. A temporary chat is never saved and a chat inside a project is, so entering a project leaves temporary mode: the two cannot both hold. A pinned default project is now suppressed by `--temporary`, the way `--target-url` and `--project-new` already suppress it, and an explicit `--project` with `--temporary` is refused up front with both ways out. This was one of the two occurrences of that blocker in the whole ledger.
+- The rebind check compared the whole URL, including the query string that carries mode - the very thing that differs across the reload it was checking. It compares the project the tab is in instead, which is what the check exists to confirm, and a failure now reports which project the tab actually landed in and whether a composer was there at all.
+
 ## 0.40.0
 
 ### Added
