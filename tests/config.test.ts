@@ -356,6 +356,19 @@ describe("a config that exists and cannot be read", () => {
     await writeFile(localConfigPath(cwd), "{ not json", { mode: 0o600 });
     await expect(loadBrowserDefaults(cwd)).rejects.toThrow(/browser defaults/i);
   });
+
+  // The first version of this message offered a way out that does not exist:
+  // the config is read before any flag is looked at, so "pass them explicitly"
+  // hits the same error. Moving the file aside is the one that works - a repo
+  // with no config has no defaults and sends fine.
+  it("offers only the way out that actually works", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-config-"));
+    await writeLocalConfig(cwd, { token: "test-token", browserDefaults: { project: "pinned" } });
+    await writeFile(localConfigPath(cwd), "{ not json", { mode: 0o600 });
+    const failure = await loadBrowserDefaults(cwd).catch((error: unknown) => error as Error);
+    expect((failure as Error).message).toMatch(/move .bridge\/config\.local\.json aside/i);
+    expect((failure as Error).message).not.toMatch(/pass them explicitly/i);
+  });
 });
 
 // The project is independent of the rest. The model and the two reasoning

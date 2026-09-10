@@ -277,9 +277,14 @@ export async function loadBrowserDefaults(cwd: string): Promise<BrowserDefaults 
     // stop applying with nothing said, so a consult that should have landed in
     // a project lands in the general chat and looks like it worked.
     if (!isMissingFileError(error)) {
+      // Say only what is true. Passing the flags explicitly does NOT get past
+      // this - the config is read before any of them are looked at - and
+      // advice that does not work is worse than none. Moving the file aside
+      // does work: a repo with no config has no defaults and sends fine.
       throw new Error(
         `${error instanceof Error ? error.message : String(error)} Until then prodex will not apply the browser defaults ` +
-          `pinned there (project, model), so pass them explicitly if you need to send before fixing it.`,
+          `pinned there (project, model), and every send from this repo stops here. Move .bridge/config.local.json aside ` +
+          `if this repo does not need the HTTP MCP surface.`,
         { cause: error }
       );
     }
