@@ -709,7 +709,23 @@ export function resolveHeadlessPreference(
   return raw === "1" || raw === "true" || raw === "yes";
 }
 
-export function inferLoggedInLikely(text: string, visibleButtonLabels: string[] = []): boolean {
+/**
+ * The two verdicts read different text on purpose.
+ *
+ * `text` answers "is this a login screen": it has to be the sample with chat
+ * MESSAGES excluded, or an old conversation quoting a signup page reports the
+ * session as logged out.
+ *
+ * `loggedInSignalText` answers "is the app here": the sidebar furniture, which
+ * survives in whichever sample happened to keep it. Measured live, that is not
+ * always the filtered one - on a project home the filter left 111 characters
+ * of a banner while document.body.innerText held the whole sidebar.
+ */
+export function inferLoggedInLikely(
+  text: string,
+  visibleButtonLabels: string[] = [],
+  loggedInSignalText: string = text
+): boolean {
   // Only sign-up prompts and explicit login/sign-up buttons count as logged-out signals. Bare
   // "Log in"/"로그인" substrings appear in the menus and footers of a logged-in page, so matching
   // them against the full page text falsely reported logged-in Pro users as logged out.
@@ -717,10 +733,10 @@ export function inferLoggedInLikely(text: string, visibleButtonLabels: string[] 
     text.includes("Sign up for free") ||
     text.includes("무료로 가입") ||
     visibleButtonLabels.some((label) => /^(log in|sign up|로그인|회원가입)$/i.test(label.trim()));
-  const hasNewChat = text.includes("New chat") || text.includes("새 채팅");
-  const hasProjectNav = text.includes("Projects") || text.includes("프로젝트");
+  const hasNewChat = loggedInSignalText.includes("New chat") || loggedInSignalText.includes("새 채팅");
+  const hasProjectNav = loggedInSignalText.includes("Projects") || loggedInSignalText.includes("프로젝트");
   const hasProfileButton = visibleButtonLabels.some((label) => /profile|account|프로필|계정/i.test(label));
-  const hasPlanHint = /\bPro\b|Plus|Team|Enterprise|매우 높음|Extra High/i.test(text);
+  const hasPlanHint = /\bPro\b|Plus|Team|Enterprise|매우 높음|Extra High/i.test(loggedInSignalText);
   return !hasLoginPrompt && hasNewChat && (hasProfileButton || hasProjectNav || hasPlanHint);
 }
 
@@ -1196,9 +1212,23 @@ export function detectChatGptPageBlocker(state: ChatGptPageTextState): ChatGptBr
 }
 
 export function inferChatGptPageLoggedInLikely(state: ChatGptPageTextState): boolean {
-  // Login detection uses the nav-INCLUDED sample: "New chat"/"Projects"/plan
-  // hints live in the sidebar and are the primary logged-in signal.
-  return inferLoggedInLikely(state.blockerTextSample ?? state.textSample, state.visibleButtonLabels);
+  // The logged-in signals live in the sidebar - "New chat", "Projects", the
+  // plan hint - so this needs the sample that HAS the sidebar in it. That was
+  // meant to be blockerTextSample, and measured live on a project home it is
+  // not: its text walk keeps only nodes whose own parent has a box, and what
+  // survived there was 111 characters of a promotional banner while
+  // document.body.innerText carried the whole sidebar. So a logged-in Pro
+  // account on a working page was told to go and log in.
+  //
+  // The logged-OUT question keeps the message-excluded sample, so a chat
+  // quoting a signup page cannot report the session as dead. The logged-IN
+  // question reads both, because the sidebar turns up in whichever one kept
+  // it - and being wrong in that direction is caught at once by the composer
+  // check beside it, while being wrong the other way tells someone with a
+  // working browser to go and log in.
+  const messageExcluded = state.blockerTextSample ?? state.textSample;
+  const anySample = [state.textSample, state.blockerTextSample].filter(Boolean).join(String.fromCharCode(10));
+  return inferLoggedInLikely(messageExcluded, state.visibleButtonLabels, anySample);
 }
 
 function hasLikelyChatGptLoginPrompt(haystack: string): boolean {
@@ -3335,7 +3365,15 @@ async function selectProject(
   const wanted = composerBindingTarget(options);
   if (!wanted) return undefined;
   if (options.projectNew) await createChatGptProject(cdp, options.projectNew);
-  else await navigateToExistingProject(cdp, options.project!);
+  // Clicking the sidebar row when the composer already belongs to this project
+  // is work that can only fail. Measured: a send into the project the tab was
+  // already sitting in refused with "another element covers its click point" -
+  // a promotional banner over the sidebar - on a page that was ready to accept
+  // the prompt. The read below is the same evidence the gate accepts, so a
+  // composer that already answers with this project needs no navigation.
+  else if ((await waitForComposerProjectBinding(cdp, options.project!, 0)) !== "bound") {
+    await navigateToExistingProject(cdp, options.project!);
+  }
   // A sidebar SPA navigation moves the URL to the target project while the
   // composer can stay bound to the PREVIOUS project's conversation target, so
   // the send silently creates the thread in the OLD project (reproduced live
