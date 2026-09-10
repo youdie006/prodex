@@ -4,6 +4,13 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.40.4
+
+### Fixed
+- `--continue` only worked when the browser tab happened to already be on the thread it resolved - which is the shared-tab guesswork the whole feature exists to remove. `--target-url` means "the person looked at this tab and confirmed it", so the send refuses to move the browser; a thread prodex resolved from its OWN records is the opposite, and requiring the tab to be there refused the follow-up with "No open ChatGPT tab matches the confirmed target URL" for nothing but the tab having moved on. A resolved thread is navigated to now. Found by calling `pro_consult` over MCP rather than trusting the CLI runs, which had passed only because each one left the tab on the thread the next one wanted.
+- A follow-up could be sent into a temporary chat. Six of this machine's recorded consult threads are `https://chatgpt.com/?temporary-chat=true` - a temporary chat is never saved, so returning to that URL opens a fresh empty one, and the "continuation" would have carried none of the conversation. Only a real `/c/` conversation is continued now, and naming one of those consults says why it cannot be.
+- A project thread whose URL carries only the project id and not its name was invisible to `--continue` (three of this machine's records are that shape), so a follow-up would skip the NEWEST conversation and quietly continue an older one. The id-to-name mapping is learned from the records that do carry both, which also makes the match survive a project being renamed.
+
 ## 0.40.3
 
 ### Added

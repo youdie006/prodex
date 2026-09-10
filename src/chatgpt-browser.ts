@@ -234,6 +234,18 @@ export interface SendChatGptPromptOptions {
   port?: number;
   prompt: string;
   targetUrl?: string;
+  /**
+   * Navigate the visible tab to targetUrl instead of requiring a tab already
+   * sitting on it.
+   *
+   * `--target-url` means "the human looked at this tab and confirmed it", so
+   * moving the browser would defeat the confirmation. A thread prodex resolved
+   * from its OWN records is the opposite: nobody is looking, and requiring the
+   * tab to happen to be there is the shared-tab guesswork the continuation
+   * exists to remove - measured, a follow-up refused with "no open ChatGPT tab
+   * matches" purely because the tab had moved on.
+   */
+  navigateToTargetUrl?: boolean;
   timeoutMs?: number;
   /** Switch into this sidebar project (by visible name) before sending. */
   project?: string;
@@ -1794,6 +1806,27 @@ async function dispatchEscapeKey(cdp: CdpConnection): Promise<void> {
  * stamp is what proves the old document is gone; the URL alone can be read off
  * the very page we are trying to leave.
  */
+/**
+ * Put the tab on a specific conversation, for a thread prodex itself resolved.
+ */
+async function openChatGptThread(cdp: CdpConnection, url: string): Promise<void> {
+  const conversationId = conversationIdFromThreadUrl(url);
+  if (!conversationId) throw new Error(`Not a ChatGPT conversation URL: ${url}`);
+  await cdp.evaluate(`location.assign(${JSON.stringify(url)})`);
+  const deadline = Date.now() + RELOAD_SETTLE_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    await sleep(250);
+    try {
+      if (await cdp.evaluate<boolean>(chatGptThreadReadyExpression(conversationId))) return;
+    } catch (error) {
+      // Between documents the context is gone and the next poll lands on the
+      // new one; a command timeout means the tab stopped answering.
+      if (cdpCommandTimedOut(error)) throw error;
+    }
+  }
+  throw new Error(`ChatGPT did not open the conversation to continue (${url}). It may have been deleted.`);
+}
+
 async function openFreshChatGptHome(cdp: CdpConnection): Promise<void> {
   await cdp.evaluate(markDocumentForReloadExpression());
   await cdp.evaluate(`location.assign("https://chatgpt.com/")`);
@@ -2095,6 +2128,21 @@ export function reloadedDocumentReadyExpression(extraCondition = "true"): string
  * home that fails to load, and the composer candidate is the real editor
  * rather than the broad selector that also matches a hidden fallback.
  */
+/**
+ * True once the tab is on this conversation and has rendered a real composer.
+ *
+ * The id is compared rather than the whole URL because ChatGPT rewrites the
+ * project part of it (measured: the same project appears with and without its
+ * name), and the composer has to be the real editor rather than the hidden 0x0
+ * fallback that the broad selector also matches.
+ */
+export function chatGptThreadReadyExpression(conversationId: string): string {
+  return `(() => {${composerExpressionHelpers()}
+    if (!location.href.includes(${JSON.stringify(conversationId)})) return false;
+    return Boolean(findChatGptComposerCandidate());
+  })()`;
+}
+
 export function freshChatGptHomeReadyExpression(): string {
   return reloadedDocumentReadyExpression(`/^https:\\/\\/chatgpt\\.com\\/?(?:[?#].*)?$/.test(location.href) && (() => {${composerExpressionHelpers()}
     return Boolean(findChatGptComposerCandidate());
@@ -3638,7 +3686,10 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
   if (options.newChat && normalizedTargetUrl) {
     throw new Error("newChat cannot be combined with targetUrl: a fresh chat navigates away from the pinned tab.");
   }
-  const pageResult = await findChatGptPage(port, computePageDiscoveryTimeout(timeoutMs), normalizedTargetUrl);
+  // A resolved thread is reached by navigating, so page discovery must not
+  // demand a tab already sitting on it.
+  const requireTabAtTargetUrl = options.navigateToTargetUrl ? undefined : normalizedTargetUrl;
+  const pageResult = await findChatGptPage(port, computePageDiscoveryTimeout(timeoutMs), requireTabAtTargetUrl);
   if (!pageResult.ok) {
     throwBlockerOrError(pageResult.blocker, "ChatGPT browser page is not available");
   }
@@ -3646,8 +3697,8 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
     if (pageResult.blocker) {
       throw new ChatGptBrowserBlockerError(pageResult.blocker);
     }
-    if (normalizedTargetUrl) {
-      assertChatGptTargetTabAvailable(normalizedTargetUrl);
+    if (requireTabAtTargetUrl) {
+      assertChatGptTargetTabAvailable(requireTabAtTargetUrl);
     }
     assertChatGptPageAvailable();
   }
@@ -3788,14 +3839,21 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
       awaitingResponseChoice: status.awaitingResponseChoice === true,
       ...(options.newChat !== undefined ? { newChat: options.newChat } : {}),
       ...(options.project !== undefined ? { project: options.project } : {}),
-      ...(options.projectNew !== undefined ? { projectNew: options.projectNew } : {})
+      ...(options.projectNew !== undefined ? { projectNew: options.projectNew } : {}),
+      // Navigating to another conversation leaves the parked one alone, the
+      // same way a fresh chat or a project home does.
+      ...(options.navigateToTargetUrl ? { newChat: true } : {})
     })
   ) {
     throw new ChatGptBrowserBlockerError(chatGptResponseChoiceBlocker(true)!);
   }
   assertChatGptIdleAndReadyForPrompt(status, busyBlocker, true);
-  if (normalizedTargetUrl) assertChatGptTargetUrlMatches(status.url, normalizedTargetUrl);
-  assertVisibleChatGptTab(status.visibilityState, status.url, normalizedTargetUrl);
+  // Only a PINNED target has to be under the tab already; a resolved thread is
+  // navigated to below, and asserting the match here would refuse the send for
+  // the tab merely being somewhere else - which is the whole reason a
+  // continuation resolves from records rather than from the tab.
+  if (requireTabAtTargetUrl) assertChatGptTargetUrlMatches(status.url, requireTabAtTargetUrl);
+  assertVisibleChatGptTab(status.visibilityState, status.url, requireTabAtTargetUrl);
   emitProgress("tab_ready");
   // Progress details deliberately avoid project names (receipts redact them too).
   const selectionSummary = [
@@ -3860,6 +3918,9 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
     // keeps Work's composer, and switching afterwards does not move it.
     // Max and Ultra are rungs of Work's slider, so asking for one means staying
     // there; anything else belongs on Chat, whose top step is Pro.
+    if (normalizedTargetUrl && options.navigateToTargetUrl) {
+      await openChatGptThread(cdp, normalizedTargetUrl);
+    }
     if (!effortNeedsWorkSurface(options.effort)) {
       // Leaving the current page is safe only for a send that was going to
       // navigate anyway; a continuation or a pinned tab has to be reloaded

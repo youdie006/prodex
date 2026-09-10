@@ -1448,6 +1448,9 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
           port: browserPort,
           prompt: bundle.sendText,
           targetUrl: normalizedTargetUrl,
+          // A thread prodex resolved from its own records is reached by
+          // navigating; a --target-url the person confirmed is not moved.
+          ...(continuedFromTaskId ? { navigateToTargetUrl: true } : {}),
           timeoutMs: browserTimeoutMs,
           ...(attachments.length > 0 ? { attachments } : {}),
           ...(tools.length > 0 ? { tools } : {}),
