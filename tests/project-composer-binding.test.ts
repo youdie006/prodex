@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { composerBindingTarget, composerProjectBinding } from "../src/chatgpt-browser.js";
+import {
+  ChatGptBrowserBlockerError,
+  composerBindingTarget,
+  composerProjectBinding,
+  projectNotBoundBlocker
+} from "../src/chatgpt-browser.js";
 import { browserSendBlockerFromError, redactProjectNames } from "../src/cli-pro.js";
 
 // prodex used to rebind the composer to the project it had just entered by
@@ -160,5 +165,54 @@ describe("keeping project names out of persisted records", () => {
     expect(redactProjectNames("No Chrome DevTools endpoint is reachable", [undefined, undefined])).toBe(
       "No Chrome DevTools endpoint is reachable"
     );
+  });
+});
+
+// The refusal used to be a plain Error whose English prose a regex in the CLI
+// matched to recover the code, so the difference between a composer that
+// belongs elsewhere and a browser that stopped answering survived only as a
+// sentence - and a reworded message would have become an unclassified send
+// failure. It carries its own blocker now; the wording still holds the phrase
+// the classifier keys on, because other paths still reach it as text.
+describe("refusing as a blocker rather than as a sentence", () => {
+  const shapes = ["elsewhere", "unknown", "drifted"] as const;
+
+  it("classifies without reading the message at all", () => {
+    for (const reason of shapes) {
+      const blocker = browserSendBlockerFromError(
+        new ChatGptBrowserBlockerError(projectNotBoundBlocker({ project: "Notes", reason }))
+      );
+      expect(blocker.code).toBe("project_not_bound");
+      expect(blocker.retryable).toBe(true);
+      expect(blocker.next_step).toMatch(/nothing was sent/i);
+    }
+  });
+
+  // The string branch is still the only thing that classifies an older sender's
+  // message, so the phrase it keys on has to survive every rewording here.
+  it("keeps the wording the text classifier still depends on", () => {
+    for (const reason of shapes) {
+      const message = projectNotBoundBlocker({ project: "Notes", reason }).message;
+      expect(message).toContain("composer did not bind to project");
+      expect(message).toMatch(/nothing was sent/i);
+      expect(browserSendBlockerFromError(new Error(message)).code).toBe("project_not_bound");
+    }
+  });
+
+  it("carries why the recovery failed, which is the more useful half", () => {
+    const blocker = projectNotBoundBlocker({
+      project: "Notes",
+      reason: "elsewhere",
+      recoveryNote: " Recovery failed: the sidebar click did not reach a project page"
+    });
+    expect(blocker.message).toContain("Recovery failed: the sidebar click did not reach a project page");
+  });
+
+  it("never names the project it offered instead", () => {
+    // Only the project this send asked for is redacted downstream, so another
+    // project's name here would outlive the send in a persisted record.
+    const blocker = projectNotBoundBlocker({ project: "Notes", reason: "elsewhere" });
+    expect(blocker.message).toContain('"Notes"');
+    expect(blocker.message).not.toMatch(/belongs to "/);
   });
 });

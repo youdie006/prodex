@@ -1,4 +1,4 @@
-import { link, mkdir, open, readFile, rm } from "node:fs/promises";
+import { link, mkdir, open, readFile, rm, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -96,6 +96,15 @@ async function tryAcquire(file: string): Promise<boolean> {
   }
 }
 
+async function lockFileExists(file: string): Promise<boolean> {
+  try {
+    await stat(file);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Serialize visible-browser sends across processes. Waits up to waitMs for a
  * live holder to finish (0 = fail fast); a lock whose holder process is dead
@@ -116,6 +125,19 @@ export async function withBrowserSendLock<T>(waitMs: number, onWait: (detail: st
       const current = await readHolder(file);
       if (current?.pid === holder?.pid) {
         await rm(file, { force: true }).catch(() => undefined);
+      }
+      // A reap that did not actually remove the file - another user's lock in a
+      // shared directory, or a directory sitting in its place - used to retry
+      // immediately, skipping both the sleep and the deadline: a hot loop that
+      // never returned and never timed out. Waiting here costs a reap that
+      // raced nothing; not waiting costs the process.
+      if (await lockFileExists(file)) {
+        if (Date.now() >= deadline) {
+          throw new Error(
+            `A prodex browser send lock at ${file} is held by nothing and could not be removed, so no send can start. Delete that file and retry.`
+          );
+        }
+        await new Promise((resolve) => setTimeout(resolve, 2_000));
       }
       continue;
     }

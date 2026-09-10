@@ -2344,11 +2344,18 @@ export function projectItemRectExpression(name: string): string {
     }
     let target = opt ? (opt.closest('a,[role="link"],li') || opt.parentElement) : null;
     if (!target) {
+      // The fallback for a sidebar whose option buttons this cannot read. It
+      // used to take the first row CONTAINING the name, which is the substring
+      // match the exact comparison above exists to prevent: asking for "Codex"
+      // took "Codex Review" and sent the prompt into a project nobody named.
+      // A row's first line is its name; anything else here is a guess, and a
+      // guess about which project to post into is the failure being fixed.
       const icons = [...document.querySelectorAll('[data-testid="project-folder-icon"]')];
-      for (const ic of icons) {
-        const row = ic.closest('a,li,[role="link"]') || ic.parentElement?.parentElement;
-        if (row && (row.textContent || "").includes(wanted)) { target = row; break; }
-      }
+      const rowName = (row) => ((row.innerText || row.textContent || "").split("\\n").map((line) => line.trim()).find((line) => line.length > 0) || "");
+      const rows = icons.map((ic) => ic.closest('a,li,[role="link"]') || ic.parentElement?.parentElement).filter(Boolean);
+      const named = rows.filter((row) => rowName(row).toLowerCase() === wanted.toLowerCase());
+      if (named.length > 1) return { ok: false, reason: "project name matches multiple sidebar projects; rename one to disambiguate" };
+      if (named.length === 1) target = named[0];
     }
     if (!target) {
       return { ok: false, reason: "project not found in sidebar (" + optionButtons.length + " projects visible; names are matched exactly first, then case-insensitively - check the exact sidebar spelling)" };
@@ -3241,6 +3248,43 @@ async function navigateToExistingProject(cdp: CdpConnection, project: string): P
 }
 
 /**
+ * The refusal to post into a project prodex cannot confirm, as a blocker.
+ *
+ * It used to be a plain Error whose English prose a regex in the CLI matched to
+ * recover the code - so the difference between "the composer belongs elsewhere"
+ * and "the browser stopped answering" survived only as a sentence, and a
+ * reworded message would have quietly become an unclassified send failure. The
+ * wording still carries the phrase the classifier keys on, because older
+ * senders and other paths still reach it as text.
+ *
+ * The project it OFFERED instead is deliberately absent: naming it would put
+ * another project's name in a persisted record, which redaction covers only for
+ * the ones this send asked for.
+ */
+export function projectNotBoundBlocker(input: {
+  project: string;
+  reason: "elsewhere" | "unknown" | "drifted";
+  recoveryNote?: string;
+}): NonNullable<ChatGptBrowserStatus["blocker"]> {
+  const detail =
+    input.reason === "elsewhere"
+      ? "after entering it, the composer still offers a chat that belongs somewhere else"
+      : input.reason === "unknown"
+        ? "after entering it, the composer's placeholder could not be read, so where the prompt would land is unknown"
+        : "it read as this project's after entering it and no longer does";
+  return {
+    code: "project_not_bound",
+    message:
+      `ChatGPT composer did not bind to project "${input.project}": ${detail}, so nothing was sent.` +
+      (input.recoveryNote ?? ""),
+    retryable: true,
+    next_step:
+      "Nothing was sent, so nothing landed in the wrong project. Retry - the composer normally binds on the next navigation - " +
+      "or open the project once in the visible browser and send again."
+  };
+}
+
+/**
  * The project name the composer has to agree with before anything is typed,
  * or undefined for a send that pins no project.
  *
@@ -3318,17 +3362,12 @@ async function selectProject(
     // read is not evidence that the composer is this project's, and what it
     // guards against - a prompt posted into another project, recorded under
     // the requested one - costs far more than a send the caller can retry.
-    //
-    // Naming the project it offered instead would put ANOTHER project's name
-    // in a persisted receipt, which redaction only covers for the requested
-    // one, so say what happened and leave that name out.
-    const detail =
-      binding === "elsewhere"
-        ? "the composer still offers a chat that belongs somewhere else"
-        : "the composer's placeholder could not be read, so where the prompt would land is unknown";
-    throw new Error(
-      `ChatGPT composer did not bind to project "${wanted}": after entering it, ${detail}, ` +
-        `so nothing was sent.${recoveryNote}`
+    throw new ChatGptBrowserBlockerError(
+      projectNotBoundBlocker({
+        project: wanted,
+        reason: binding,
+        ...(recoveryNote ? { recoveryNote } : {})
+      })
     );
   }
   const composerReady = await waitForExpressionTrue(
@@ -3802,10 +3841,7 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
       const stillBound = await waitForComposerProjectBinding(cdp, boundProject, PROJECT_NAVIGATION_TIMEOUT_MS);
       dbgSend(`project binding before typing=${stillBound}`);
       if (stillBound !== "bound") {
-        throw new Error(
-          `ChatGPT composer did not bind to project "${boundProject}": it read as this project's after entering it and ` +
-            `no longer does, so nothing was sent.`
-        );
+        throw new ChatGptBrowserBlockerError(projectNotBoundBlocker({ project: boundProject, reason: "drifted" }));
       }
     }
     // Attach BEFORE typing: the upload is the slow part, and a file that
