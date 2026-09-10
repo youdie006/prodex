@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { composerBindingTarget, composerProjectBinding } from "../src/chatgpt-browser.js";
-import { browserSendBlockerFromError } from "../src/cli-pro.js";
+import { browserSendBlockerFromError, redactProjectNames } from "../src/cli-pro.js";
 
 // prodex used to rebind the composer to the project it had just entered by
 // hard-reloading the project home. Measured live on two different projects:
@@ -127,5 +127,38 @@ describe("what an unbound composer tells the caller", () => {
       expect(classified.retryable).toBe(true);
       expect(classified.next_step).toMatch(/nothing was sent/i);
     }
+  });
+});
+
+// The blocker text quotes the project, and the task and session records cross
+// the MCP boundary, so the name is scrubbed there while local output keeps it.
+// Only the REQUESTED name was scrubbed, and a send that creates its project has
+// no requested name - so its refusals, which quote the created project exactly
+// the same way, kept a real name in a persisted record.
+describe("keeping project names out of persisted records", () => {
+  it("scrubs the project a send created, not only the one it asked for", () => {
+    expect(
+      redactProjectNames('ChatGPT composer did not bind to project "Ledger": after entering it', [undefined, "Ledger"])
+    ).toBe('ChatGPT composer did not bind to project "<project>": after entering it');
+  });
+
+  it("scrubs every occurrence, including the recovery note appended after it", () => {
+    expect(redactProjectNames("entering Ledger failed. Recovery failed: project Ledger not found", ["Ledger"])).toBe(
+      "entering <project> failed. Recovery failed: project <project> not found"
+    );
+  });
+
+  // Substituting the shorter name first would leave "<project> Archive", which
+  // still says which project it was.
+  it("takes the longer name first, so a shorter one cannot leave the rest behind", () => {
+    expect(redactProjectNames("project Notes Archive is missing", ["Notes", "Notes Archive"])).toBe(
+      "project <project> is missing"
+    );
+  });
+
+  it("leaves text alone when no project was named", () => {
+    expect(redactProjectNames("No Chrome DevTools endpoint is reachable", [undefined, undefined])).toBe(
+      "No Chrome DevTools endpoint is reachable"
+    );
   });
 });

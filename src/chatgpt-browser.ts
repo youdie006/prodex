@@ -3153,9 +3153,18 @@ async function waitForComposerProjectBinding(
   const deadline = Date.now() + timeoutMs;
   let verdict: "bound" | "elsewhere" | "unknown" = "unknown";
   for (;;) {
-    const read = await cdp
-      .evaluate<{ found: boolean; placeholder?: string }>(composerProjectBindingExpression())
-      .catch(() => ({ found: false }) as { found: boolean; placeholder?: string });
+    let read: { found: boolean; placeholder?: string };
+    try {
+      read = await cdp.evaluate<{ found: boolean; placeholder?: string }>(composerProjectBindingExpression());
+    } catch (error) {
+      // A read that lands between documents answers about neither, and the next
+      // poll lands on the new one. A command timeout is a different thing: the
+      // tab stopped answering, and swallowing it spent this whole budget and
+      // the recovery's before refusing with "the placeholder could not be
+      // read" - a binding failure reported for a browser that was gone.
+      if (cdpCommandTimedOut(error)) throw error;
+      read = { found: false };
+    }
     if (read.found) {
       const sample = composerProjectBinding({
         ...(read.placeholder !== undefined ? { placeholder: read.placeholder } : {}),

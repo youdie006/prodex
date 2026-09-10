@@ -87,7 +87,14 @@ export function buildBlockerReport(input: {
     const existing = groups.get(key);
     if (existing) {
       existing.count += 1;
-      if (at > existing.lastSeen) existing.lastSeen = at;
+      // The example belongs to the record the row dates itself by. Keeping the
+      // first one seen printed a cause's oldest wording next to its newest
+      // timestamp: a group holding both `has no "Pro" step` and a pre-fix
+      // `has no "<a model>" step` showed the fixed one as what is failing now.
+      if (at > existing.lastSeen) {
+        existing.lastSeen = at;
+        existing.example = consult.blocker.message;
+      }
       existing.repos.set(consult.repo, (existing.repos.get(consult.repo) ?? 0) + 1);
     } else {
       groups.set(key, {

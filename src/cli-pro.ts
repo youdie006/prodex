@@ -1436,10 +1436,8 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
         // "project not found" error). Local stdout/stderr keep it (useful to the
         // operator), but the persisted task/session cross the MCP boundary, so
         // scrub the project name there the same way provenance.project is redacted.
-        const redactProject = (text: string): string => {
-          const name = selectionMetadata.project;
-          return name ? text.split(name).join("<project>") : text;
-        };
+        const redactProject = (text: string): string =>
+          redactProjectNames(text, [selectionMetadata.project, selectionMetadata.project_new]);
         // Where the prompt actually landed beats where the caller aimed: with
         // --new-chat there is no target url, and a blocker that started a run
         // still has a thread worth handing back.
@@ -2084,6 +2082,25 @@ export function resolveSelectionAxes<M extends string, P extends string, E exten
     ...(proMode !== undefined ? { proMode } : {}),
     ...(effort !== undefined ? { effort } : {})
   };
+}
+
+/**
+ * Scrub project names out of text that gets persisted.
+ *
+ * Both names count. A send that CREATES its project names it in exactly the
+ * same failures - the binding refusal, the composer that never appeared, the
+ * sidebar click that missed - and only the requested name was ever scrubbed,
+ * so those records kept a real project name while the equivalent record for an
+ * existing project did not.
+ */
+export function redactProjectNames(text: string, names: readonly (string | undefined)[]): string {
+  let redacted = text;
+  // Longest first: a project named "Notes" inside "Notes Archive" would
+  // otherwise leave "<project> Archive" behind.
+  for (const name of [...names].filter((name): name is string => Boolean(name)).sort((a, b) => b.length - a.length)) {
+    redacted = redacted.split(name).join("<project>");
+  }
+  return redacted;
 }
 
 export function browserSendBlockerFromError(error: unknown): { code: string; message: string; retryable: boolean; next_step?: string; thread?: string } {

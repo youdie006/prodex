@@ -127,6 +127,34 @@ describe("keeping the report readable", () => {
     });
     expect(report.groups[0]?.example).toBe("The answer did not arrive in time.");
   });
+
+  // Live on this machine: one cause held a pre-fix failure quoting a model name
+  // and a current one quoting "Pro", and the row printed the OLD wording beside
+  // the NEW timestamp. Read as a fix that had not landed, on evidence a week
+  // older than the date next to it.
+  it("shows the wording of the failure it dates itself by", () => {
+    const report = buildBlockerReport({
+      consults: [
+        consult("browser_send_failed", 'picker has no "GPT-5.6 Sol" step.', "2026-08-25T00:00:00Z"),
+        consult("browser_send_failed", 'picker has no "Pro" step.', "2026-09-08T00:00:00Z")
+      ],
+      roots: 1
+    });
+    expect(report.groups[0]?.count).toBe(2);
+    expect(report.groups[0]?.lastSeen).toBe("2026-09-08T00:00:00Z");
+    expect(report.groups[0]?.example).toBe('picker has no "Pro" step.');
+  });
+
+  it("keeps the one example it has when a later record carries no date", () => {
+    const report = buildBlockerReport({
+      consults: [
+        consult("send_timeout", "Timed out after 15 min.", "2026-09-08T00:00:00Z"),
+        { repo: "alpha", blocker: { code: "send_timeout", message: "" } }
+      ],
+      roots: 1
+    });
+    expect(report.groups[0]?.example).toBe("Timed out after 15 min.");
+  });
 });
 
 // --- the command's own helpers -------------------------------------------
