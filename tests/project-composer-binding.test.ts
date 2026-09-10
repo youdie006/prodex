@@ -42,6 +42,11 @@ describe("reading which project the composer will post into", () => {
   // from, so the prompt posts into the wrong place with nothing to show for it.
   it("refuses the composer of a plain new chat, which belongs to no project", () => {
     expect(composerProjectBinding({ placeholder: "Ask ChatGPT", projectName: "Notes" })).toBe("elsewhere");
+    // Measured on the same live root: the hidden fallback textarea says "Ask
+    // ChatGPT" while the editor prodex actually reads says "Chat with ChatGPT".
+    // Knowing only the first turned the clearest "not this project's composer"
+    // into "the label could not be read".
+    expect(composerProjectBinding({ placeholder: "Chat with ChatGPT", projectName: "Notes" })).toBe("elsewhere");
   });
 
   // Sidebar rows are matched by exact name, so "Notes" and "Notes Archive" are

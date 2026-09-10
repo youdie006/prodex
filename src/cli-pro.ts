@@ -1575,6 +1575,14 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
       // would otherwise treat a cut-off answer as complete.
       for (const warning of persistenceWarnings) io.stderr(warning);
       if (consult.modelSlug) io.stderr(`model_used: ${consult.modelSlug}`);
+      // Which conversation this followed, and where the answer actually landed.
+      // The progress line that says it is filtered out of MCP notes, so an
+      // agent asking for a follow-up had no way to know which thread it got -
+      // or whether the answer is in the project it asked for.
+      if (continuedFromTaskId) io.stderr(`continued_from: ${continuedFromTaskId}`);
+      io.stderr(
+        `destination: ${destination.destination}${destination.verified === undefined ? "" : ` verified=${destination.verified}`}`
+      );
       // "Can I count this as a Pro review?" - answered here rather than left
       // for whoever reads the receipt to work out from two other fields.
       const proVerified = proSelectionVerified({
@@ -1669,6 +1677,11 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
               status: result.status,
               thread: consult.url,
               answer: result.summary,
+              ...(continuedFromTaskId ? { continued_from: continuedFromTaskId } : {}),
+              destination: {
+                observed: destination.destination,
+                ...(destination.verified !== undefined ? { verified: destination.verified } : {})
+              },
               warnings: persistenceWarnings
             },
             null,

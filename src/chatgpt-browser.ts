@@ -1824,7 +1824,28 @@ async function openChatGptThread(cdp: CdpConnection, url: string): Promise<void>
       if (cdpCommandTimedOut(error)) throw error;
     }
   }
-  throw new Error(`ChatGPT did not open the conversation to continue (${url}). It may have been deleted.`);
+  throw new ChatGptBrowserBlockerError(chatGptThreadUnavailableBlocker(url));
+}
+
+/**
+ * The conversation a follow-up names cannot be opened.
+ *
+ * Retrying cannot undelete a thread, and the generic "resolve the visible
+ * browser issue manually" this used to fall back to describes a browser that
+ * is working fine - measured on a thread whose project had been deleted: the
+ * cause was named in the message and then thrown away by the catch-all next
+ * step underneath it.
+ */
+export function chatGptThreadUnavailableBlocker(url: string): NonNullable<ChatGptBrowserStatus["blocker"]> {
+  return {
+    code: "thread_unavailable",
+    message: `ChatGPT did not open the conversation to continue (${url}). It may have been deleted, or its project was.`,
+    retryable: false,
+    next_step:
+      "That conversation cannot be reached, and retrying will not bring it back. Send without --continue to start a new one, " +
+      "or name a different consult with --continue-task <task_id> (`prodex pro list` shows them).",
+    thread: url
+  };
 }
 
 async function openFreshChatGptHome(cdp: CdpConnection): Promise<void> {
@@ -2258,9 +2279,13 @@ export function composerProjectBinding(input: {
   // is, since two projects may differ by exactly the spacing in it.
   const named = /^new\s+chat\s+in\s+(.+)$/i.exec(placeholder)?.[1] ?? /^(.+?)\uc5d0\uc11c\s*\uc0c8\s*\ucc44\ud305$/.exec(placeholder)?.[1];
   if (named) return named.trim().toLowerCase() === wanted ? "bound" : "elsewhere";
-  // The placeholder a plain new chat carries: recognised, and it names no
-  // project, so the composer belongs to none.
-  if (/^ask\s+chatgpt$/i.test(placeholder)) return "elsewhere";
+  // The label a plain new chat carries: recognised, and it names no project, so
+  // the composer belongs to none. Two wordings measured on the same live root -
+  // the hidden fallback textarea says "Ask ChatGPT" while the editor prodex
+  // actually reads says "Chat with ChatGPT" - and reading only the first left
+  // the clearest case of "this composer is not the project's" reported as a
+  // label that could not be read.
+  if (/^(?:ask|chat with)\s+chatgpt$/i.test(placeholder)) return "elsewhere";
   return "unknown";
 }
 
