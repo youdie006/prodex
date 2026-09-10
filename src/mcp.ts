@@ -38,6 +38,8 @@ export interface BrowserConsultToolInput {
   attach?: string[];
   tools?: string[];
   new_chat?: boolean;
+  continue_thread?: boolean;
+  continue_task?: string;
   allow_model_fallback?: boolean;
 }
 
@@ -305,7 +307,7 @@ export function createServer(cwd = process.cwd(), options: CreateMcpServerOption
       "pro_consult",
       {
         description:
-          "Ask the user's logged-in ChatGPT (Pro) in the visible browser and wait for the full answer. This drives a real browser send: it can take minutes (Pro extended reasoning), is human-paced, and records a durable receipt under .bridge/. Requires a running `prodex pro browser login` session. By DEFAULT the consult continues in the currently-open thread, so consecutive follow-ups on the same topic stay in one conversation (keeps context, avoids sidebar clutter). Pass new_chat:true ONLY to start a fresh thread for a genuinely new topic. If the thread is still generating a previous answer, the send automatically queues behind it (up to the timeout budget) - long 'tab busy' progress is normal, not stuck. `project` and `model` come from saved defaults (per-repo config, or PRODEX_DEFAULT_PROJECT / PRODEX_DEFAULT_MODEL env vars) when omitted - do NOT pass them per-call unless deliberately overriding. Returns task_id, thread URL, and the answer text.",
+          "Ask the user's logged-in ChatGPT (Pro) in the visible browser and wait for the full answer. This drives a real browser send: it can take minutes (Pro extended reasoning), is human-paced, and records a durable receipt under .bridge/. Requires a running `prodex pro browser login` session. By default the consult continues in whatever thread the browser tab is showing - EXCEPT when a project applies (passed here, or pinned as a saved default), because entering a project starts a new chat in it. To follow up on a previous consult, pass continue_thread:true: it resolves the thread from prodex's own records - the newest finished consult of the same project - instead of trusting the shared tab, and continue_task with a task_id names one exactly. Pass new_chat:true to start a fresh thread for a genuinely new topic. If the thread is still generating a previous answer, the send automatically queues behind it (up to the timeout budget) - long 'tab busy' progress is normal, not stuck. `project` and `model` come from saved defaults (per-repo config, or PRODEX_DEFAULT_PROJECT / PRODEX_DEFAULT_MODEL env vars) when omitted - do NOT pass them per-call unless deliberately overriding. Returns task_id, thread URL, and the answer text.",
         inputSchema: {
           prompt: McpBridgeTextSchema.min(1),
           model: McpShortTextSchema.optional(),
@@ -334,7 +336,19 @@ export function createServer(cwd = process.cwd(), options: CreateMcpServerOption
           new_chat: z
             .boolean()
             .optional()
-            .describe("Start a fresh thread. Omit to continue the current thread (preferred for follow-ups)."),
+            .describe("Start a fresh thread for a new topic."),
+          continue_thread: z
+            .boolean()
+            .optional()
+            .describe(
+              "Follow up inside the conversation a previous consult is already in, resolved from prodex's records: the newest finished consult of the same project. This is the reliable way to keep a follow-up in one conversation - the tab is shared, and a project default starts a new chat on every send. Fails rather than guessing when this project has no finished consult yet."
+            ),
+          continue_task: z
+            .string()
+            .min(1)
+            .max(200)
+            .optional()
+            .describe("Continue one NAMED past consult by its task_id, when the newest one is not the conversation meant."),
           allow_model_fallback: z
             .boolean()
             .optional()

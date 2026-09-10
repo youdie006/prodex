@@ -41,7 +41,8 @@ import {
   sendChatGptPrompt,
   statusMeansBrowserDead,
   namesPro,
-  destinationVerification
+  destinationVerification,
+  chatGptProjectIdFromUrl
 } from "./chatgpt-browser.js";
 import {
   ASK_PRO_BOOLEAN_FLAGS,
@@ -97,6 +98,7 @@ import {
 import { getTokenExpiryStatus, loadBrowserDefaults, loadLocalConfig } from "./config.js";
 import { withBrowserSendLock } from "./browser-send-lock.js";
 import { blockerCause, buildBlockerReport, type BlockerConsult } from "./blocker-report.js";
+import { resolveContinuationThread } from "./continue-thread.js";
 import { readBridgeRoots } from "./registry.js";
 import { BridgeStore, MAX_FETCHABLE_RESULT_ARTIFACT_BYTES } from "./store.js";
 import { CLI_VERSION } from "./cli-help.js";
@@ -262,6 +264,8 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
         "--effort",
         "--new-chat",
         "--temporary",
+        "--continue",
+        "--continue-task",
         "--auto-login",
         "--no-auto-login"
       ].find((flag) => proArgs.includes(flag));
@@ -1185,7 +1189,8 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
       throw new Error("--tool only applies when sending (`prodex pro browser ask`); the dry-run preview cannot open ChatGPT's tools menu.");
     }
     const targetUrl = readFlag(parsedAskPro.optionArgs, "--target-url");
-    const normalizedTargetUrl = targetUrl ? normalizeChatGptTargetUrl(targetUrl) : undefined;
+    let normalizedTargetUrl = targetUrl ? normalizeChatGptTargetUrl(targetUrl) : undefined;
+    let continuedFromTaskId: string | undefined;
     if (!normalizedTargetUrl && parsedAskPro.optionArgs.includes("--confirm-target")) {
       throw new Error("--confirm-target requires --target-url so the visible browser target is explicit.");
     }
@@ -1232,6 +1237,47 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
       throw new Error(
         "ask-pro cannot combine --target-url with --project/--project-new: --target-url pins the confirmed tab while the project step navigates the sidebar away from it. Open the project thread in the browser and pass its URL as --target-url instead."
       );
+    }
+    // Continue the conversation a previous consult left off in. Resolved from
+    // this repo's records rather than from the shared tab: the tab is whatever
+    // the last person or session left on screen, and a pinned project
+    // navigates away from it before every send anyway - which is why a
+    // "continuing" consult on a machine with a default project measurably
+    // started a new thread every time.
+    const continueRequested = parsedAskPro.optionArgs.includes("--continue");
+    const continueTaskId = readFlag(parsedAskPro.optionArgs, "--continue-task");
+    if (continueRequested || continueTaskId !== undefined) {
+      const conflict = [
+        parsedAskPro.optionArgs.includes("--new-chat") ? "--new-chat" : undefined,
+        targetUrl !== undefined ? "--target-url" : undefined,
+        explicitProjectNew !== undefined ? "--project-new" : undefined,
+        parsedAskPro.optionArgs.includes("--temporary") ? "--temporary" : undefined
+      ].find(Boolean);
+      if (conflict) {
+        throw new Error(
+          `ask-pro cannot combine --continue with ${conflict}: continuing means sending into the conversation a previous consult is already in.`
+        );
+      }
+      // Scope by the project this send would have used, so a follow-up cannot
+      // land in another project's conversation.
+      const continuationProject = explicitProject ?? (suppressProject ? undefined : browserDefaults?.project);
+      const resolved = resolveContinuationThread({
+        consults: (await targetStore.listSessionsReadOnly()).map((session) => ({
+          taskId: session.task_id ?? "",
+          ...(session.thread ? { thread: session.thread } : {}),
+          status: session.status,
+          ...(session.created_at ? { createdAt: session.created_at } : {})
+        })),
+        ...(continuationProject ? { project: continuationProject } : {}),
+        ...(continueTaskId !== undefined ? { taskId: continueTaskId } : {})
+      });
+      if ("error" in resolved) throw new Error(resolved.error);
+      continuedFromTaskId = resolved.target.taskId;
+      // The thread pins the tab exactly as --target-url does, and carries its
+      // own project with it - so the project step is suppressed below for the
+      // same reason a pinned target suppresses it.
+      normalizedTargetUrl = normalizeChatGptTargetUrl(resolved.target.thread);
+      io.stderr(`progress: continuing ${resolved.target.taskId}`);
     }
     const newChat = parsedAskPro.optionArgs.includes("--new-chat");
     // A temporary chat is not saved, so there is nothing to come back to: the
@@ -1285,15 +1331,24 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
     // produced "composer did not rebind after entering project" - a temporary
     // chat is never saved, a project chat is, and entering a project leaves
     // temporary mode.
-    const selectionProject =
-      explicitProject ??
+    // A continuation sends into a thread that already lives in its project, so
+    // the project step must not run - entering a project navigates AWAY from
+    // the pinned thread and starts a new chat, which is the very failure
+    // --continue exists to fix. An explicit --project on a continuation is the
+    // SCOPE of the search, not an instruction to navigate.
+    const selectionProject = continuedFromTaskId
+      ? undefined
+      : explicitProject ??
       (normalizedTargetUrl || selectionProjectNew !== undefined || suppressProject || temporary
         ? undefined
         : browserDefaults?.project);
     const selectionProMode = selectionAxes.proMode;
     const selectionEffort = selectionAxes.effort;
+    const continuationScopeProject = continuedFromTaskId
+      ? explicitProject ?? (suppressProject ? undefined : browserDefaults?.project)
+      : undefined;
     const selectionMetadata: Record<string, string> = {
-      ...(selectionProject ? { project: selectionProject } : {}),
+      ...(selectionProject ?? continuationScopeProject ? { project: (selectionProject ?? continuationScopeProject)! } : {}),
       ...(selectionProjectNew ? { project_new: selectionProjectNew } : {}),
       ...(selectionModel ? { model: selectionModel } : {}),
       ...(selectionProMode ? { pro_mode: selectionProMode } : {}),
@@ -1503,9 +1558,12 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
       // answered thread belongs to. The requested name is intent - a send that
       // ended up elsewhere was recorded under the name of the place it never
       // reached.
+      const continuationProjectId = continuedFromTaskId ? chatGptProjectIdFromUrl(normalizedTargetUrl) : undefined;
       const destination = destinationVerification({
         requestedProject: Boolean(selectionMetadata.project || selectionMetadata.project_new),
-        ...(consult.boundProjectId ? { boundProjectId: consult.boundProjectId } : {}),
+        ...(consult.boundProjectId ?? continuationProjectId
+          ? { boundProjectId: (consult.boundProjectId ?? continuationProjectId)! }
+          : {}),
         ...(consult.url ? { answeredUrl: consult.url } : {})
       });
       if (destination.warning) persistenceWarnings.push(destination.warning);
@@ -1555,6 +1613,7 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
             // Intent and evidence, kept apart. `selection` is what was asked
             // for; this is where the answer turned out to be, and whether
             // anything actually confirmed it.
+            ...(continuedFromTaskId ? { continued_from: continuedFromTaskId } : {}),
             destination: {
               observed: destination.destination,
               ...(destination.verified !== undefined ? { verified: destination.verified } : {})
@@ -1700,6 +1759,13 @@ export interface BrowserConsultInput {
   attach?: string[];
   /** Composer tools to enable: deep-research, web-search, create-image. */
   tools?: string[];
+  /**
+   * Follow up inside the conversation a previous consult is already in,
+   * resolved from this repo's records rather than from the shared tab.
+   */
+  continue_thread?: boolean;
+  /** Continue one named past consult, when the newest is not the one meant. */
+  continue_task?: string;
   /** Send into a fresh chat; recommended for agent loops and debates. */
   new_chat?: boolean;
   /** Send even when the requested model/effort could not be applied. Off by default. */
@@ -1783,6 +1849,8 @@ export async function performBrowserConsultForMcp(
     ...(input.attach ?? []).flatMap((file: string) => ["--attach", file]),
     ...(input.tools ?? []).flatMap((tool: string) => ["--tool", tool]),
     ...(input.new_chat ? ["--new-chat"] : []),
+    ...(input.continue_thread ? ["--continue"] : []),
+    ...(input.continue_task !== undefined ? ["--continue-task", input.continue_task] : []),
     ...(input.allow_model_fallback ? ["--allow-model-fallback"] : []),
     "--",
     input.prompt

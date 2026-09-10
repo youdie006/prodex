@@ -264,6 +264,9 @@ export const ASK_PRO_BOOLEAN_FLAGS = new Set([
   "--no-auto-login",
   // Send outside any project for once, overriding a pinned default.
   "--no-project",
+  // Continue the conversation a previous consult left off in, resolved from
+  // this repo's own records rather than from whatever the shared tab shows.
+  "--continue",
   // Send even when the requested model/effort could not be applied, rather
   // than stopping. Off by default: an answer from a step nobody asked for is
   // usually thrown away.
@@ -272,6 +275,8 @@ export const ASK_PRO_BOOLEAN_FLAGS = new Set([
 export const ASK_PRO_SELECTION_VALUE_FLAGS = ["--project", "--project-new", "--model", "--pro-mode", "--effort"] as const;
 export const ASK_PRO_VALUE_FLAGS = new Set([
   "--cwd",
+  // Continue one NAMED past consult, when "the last one" is not the one meant.
+  "--continue-task",
   "--file",
   // Upload the file itself (pdf/pptx/image) instead of inlining its text.
   "--attach",
