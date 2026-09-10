@@ -292,6 +292,12 @@ export interface SendChatGptPromptResult {
   modelHints: string[];
   /** The model ChatGPT says produced the answer, e.g. "gpt-5-6-pro". */
   modelSlug?: string;
+  /**
+   * The project id the composer was confirmed bound to before typing, so the
+   * caller can check the answered thread against where the prompt was aimed
+   * rather than recording the requested name as if it were proof.
+   */
+  boundProjectId?: string;
   warnings: string[];
 }
 
@@ -3136,11 +3142,27 @@ async function createChatGptProject(cdp: CdpConnection, name: string): Promise<v
 }
 
 /** The placeholder of the composer the send will actually type into. */
-function composerProjectBindingExpression(): string {
+/**
+ * Read the label the composer carries, wherever it keeps it.
+ *
+ * Measured live on a project home: the editor prodex types into is the
+ * contenteditable div, and it carries the label ONLY as `aria-label` -
+ * `data-placeholder` is null on it. The 0x0 textarea beside it does carry
+ * `placeholder`, but the composer finder rejects that one on size, exactly as
+ * it should. Reading a single attribute meant the label was there and prodex
+ * could not see it, so every project send refused with "the placeholder could
+ * not be read" - the fail-closed branch doing its job on a page that was fine.
+ */
+export function composerProjectBindingExpression(): string {
   return `(() => {${composerExpressionHelpers()}
     const node = findChatGptComposerCandidate();
     if (!node) return { found: false };
-    return { found: true, placeholder: node.getAttribute("data-placeholder") || node.getAttribute("placeholder") || "" };
+    const label =
+      node.getAttribute("data-placeholder") ||
+      node.getAttribute("placeholder") ||
+      node.getAttribute("aria-label") ||
+      "";
+    return { found: true, placeholder: label };
   })()`;
 }
 
@@ -3309,9 +3331,9 @@ export function composerBindingTarget(options: { project?: string; projectNew?: 
 async function selectProject(
   cdp: CdpConnection,
   options: Pick<SendChatGptPromptOptions, "project" | "projectNew">
-): Promise<void> {
+): Promise<string | undefined> {
   const wanted = composerBindingTarget(options);
-  if (!wanted) return;
+  if (!wanted) return undefined;
   if (options.projectNew) await createChatGptProject(cdp, options.projectNew);
   else await navigateToExistingProject(cdp, options.project!);
   // A sidebar SPA navigation moves the URL to the target project while the
@@ -3378,6 +3400,7 @@ async function selectProject(
   if (!composerReady) {
     throw new Error(`ChatGPT composer did not appear after entering project "${wanted}"`);
   }
+  return chatGptProjectIdFromUrl(await cdp.evaluate<string>("location.href"));
 }
 
 export interface RecoverChatGptAnswerOptions {
@@ -3753,6 +3776,7 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
     if (process.env.PRODEX_DEBUG_SEND) process.stderr.write(`DBG-SEND +${Date.now() - sendStartedAt}ms ${msg}\n`);
   };
   let beforeSubmit!: ChatGptAnswerState;
+  let boundProjectId: string | undefined;
   let submitButtonFound = false;
   let wantsDeepResearch = false;
   const sendWarnings: string[] = [];
@@ -3807,7 +3831,7 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
       });
       if (surfaceWarning) sendWarnings.push(surfaceWarning);
     }
-    await selectProject(cdp, options);
+    boundProjectId = await selectProject(cdp, options);
     try {
       await selectModelReasoning(cdp, options, sendWarnings);
     } catch (modelError) {
@@ -4036,6 +4060,7 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
       answer: transcript.answer,
       modelHints: finalState?.modelHints ?? [],
       ...(transcript.modelSlug ? { modelSlug: transcript.modelSlug } : finalState?.modelSlug ? { modelSlug: finalState.modelSlug } : {}),
+      ...(boundProjectId ? { boundProjectId } : {}),
       warnings: withDialogNote([...sendWarnings, selectionMismatchWarning({ ...(options.model !== undefined ? { model: options.model } : {}), ...(options.effort !== undefined ? { effort: options.effort } : {}), ...((transcript.modelSlug || finalState?.modelSlug) ? { modelSlug: (transcript.modelSlug || finalState?.modelSlug) as string } : {}) })]).filter(
         (warning): warning is string => Boolean(warning)
       )
@@ -4178,6 +4203,7 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
       answer: completed.answer.trim(),
       modelHints: completed.modelHints,
       ...(completed.modelSlug ? { modelSlug: completed.modelSlug } : {}),
+      ...(boundProjectId ? { boundProjectId } : {}),
       warnings: withDialogNote([...sendWarnings, selectionMismatchWarning({ ...(options.model !== undefined ? { model: options.model } : {}), ...(options.effort !== undefined ? { effort: options.effort } : {}), ...(completed.modelSlug !== undefined ? { modelSlug: completed.modelSlug } : {}) })]).filter(
         (warning): warning is string => Boolean(warning)
       )
@@ -4194,6 +4220,7 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
       answer: completed.answer.trim(),
       modelHints: completed.modelHints,
       ...(completed.modelSlug ? { modelSlug: completed.modelSlug } : {}),
+      ...(boundProjectId ? { boundProjectId } : {}),
       warnings: withDialogNote([
         ...sendWarnings,
         ...(selectionMismatchWarning({ ...(options.model !== undefined ? { model: options.model } : {}), ...(options.effort !== undefined ? { effort: options.effort } : {}), ...(completed.modelSlug !== undefined ? { modelSlug: completed.modelSlug } : {}) }) ? [selectionMismatchWarning({ ...(options.model !== undefined ? { model: options.model } : {}), ...(options.effort !== undefined ? { effort: options.effort } : {}), ...(completed.modelSlug !== undefined ? { modelSlug: completed.modelSlug } : {}) }) as string] : []),
@@ -6092,6 +6119,72 @@ export function deepResearchReportExpression(conversationId: string): string {
  * Thread urls come in a plain (`/c/<id>`) and a project (`/g/g-p-.../c/<id>`)
  * shape; both end in the conversation id the backend API is keyed by.
  */
+/**
+ * The project a ChatGPT URL belongs to, as its stable id.
+ *
+ * Measured live within one send: the SAME project renders as
+ * `/g/g-p-<hash>/project` on its home and `/g/g-p-<hash>-<name>/c/<id>` on the
+ * thread that came out of it. Comparing the slugs whole would call those two
+ * different projects, so only the hash - the part that does not depend on how
+ * the page felt like writing the name - identifies it.
+ */
+export function chatGptProjectIdFromUrl(url: string | undefined): string | undefined {
+  if (!url) return undefined;
+  const match = /\/g\/g-p-([0-9a-f]+)(?:[-/?#]|$)/i.exec(url);
+  return match ? match[1].toLowerCase() : undefined;
+}
+
+/**
+ * Where the prompt actually landed, against where it was aimed.
+ *
+ * The receipt recorded the project the caller ASKED for, which is intent, not
+ * evidence: a send that ended up somewhere else was recorded under the name of
+ * the place it never reached. The answered thread's URL carries the project it
+ * really belongs to, and the project step knows the id it bound to, so the two
+ * can be compared instead of assumed. "unverified" is its own answer - better
+ * than a receipt that certifies what nobody checked.
+ */
+export function destinationVerification(input: {
+  requestedProject: boolean;
+  boundProjectId?: string;
+  answeredUrl?: string;
+}): { destination: "project" | "root" | "unknown"; verified?: boolean; warning?: string } {
+  const answeredProjectId = chatGptProjectIdFromUrl(input.answeredUrl);
+  const destination = !input.answeredUrl ? "unknown" : answeredProjectId ? "project" : "root";
+  if (!input.requestedProject) return { destination };
+  if (destination === "unknown") return { destination, verified: false };
+  // Landing outside every project is wrong on its own evidence: it needs no id
+  // to compare against, and requiring one would have retired a warning that
+  // caught this in the field.
+  if (destination === "root") {
+    return {
+      destination,
+      verified: false,
+      warning:
+        "project_landing_warning: a project was requested but the answered thread is a root chat, so it landed OUTSIDE the project. " +
+        "Move it via the thread menu (Move to project) or re-run; list projects with `prodex pro browser projects`."
+    };
+  }
+  // In a project, with nothing to check it against: not a warning, but not a
+  // verified landing either.
+  if (!input.boundProjectId) return { destination, verified: false };
+  const verified = answeredProjectId === input.boundProjectId;
+  return {
+    destination,
+    verified,
+    ...(verified
+      ? {}
+      : {
+          // Naming the project it landed in would put another project's name in
+          // a persisted record; the thread URL is already there for anyone who
+          // needs to go look.
+          warning:
+            "project_landing_warning: the answered thread belongs to a different project than the one this send entered. " +
+            "Open the thread URL in the receipt to see where it went."
+        })
+  };
+}
+
 export function conversationIdFromThreadUrl(url: string): string | undefined {
   const match = /\/c\/([0-9a-fA-F-]{16,})/.exec(url);
   return match ? match[1] : undefined;

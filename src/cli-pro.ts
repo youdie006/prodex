@@ -40,7 +40,8 @@ import {
   recoverChatGptAnswerFromThread,
   sendChatGptPrompt,
   statusMeansBrowserDead,
-  namesPro
+  namesPro,
+  destinationVerification
 } from "./chatgpt-browser.js";
 import {
   ASK_PRO_BOOLEAN_FLAGS,
@@ -1497,15 +1498,17 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
             ". Pin one with `prodex setup --model Pro` or pass --model/--effort."
         );
       }
-      // In-project threads carry the project slug in their URL
-      // (/g/g-p-<project>/c/<id>); a bare /c/<id> after requesting a project
-      // means the thread landed at root - say so instead of leaving it to a
-      // sidebar audit (field-verified failure mode).
-      if ((selectionMetadata.project || selectionMetadata.project_new) && !/\/g\/g-p-/.test(consult.url ?? "")) {
-        persistenceWarnings.push(
-          "project_landing_warning: a project was requested but the answered thread URL is a root /c/ thread, so it likely landed OUTSIDE the project. Move it via the thread menu (Move to project) or re-run; list projects with `prodex pro browser projects`."
-        );
-      }
+      // Where the answer actually IS, checked rather than assumed: the project
+      // id the composer bound to before typing, against the project the
+      // answered thread belongs to. The requested name is intent - a send that
+      // ended up elsewhere was recorded under the name of the place it never
+      // reached.
+      const destination = destinationVerification({
+        requestedProject: Boolean(selectionMetadata.project || selectionMetadata.project_new),
+        ...(consult.boundProjectId ? { boundProjectId: consult.boundProjectId } : {}),
+        ...(consult.url ? { answeredUrl: consult.url } : {})
+      });
+      if (destination.warning) persistenceWarnings.push(destination.warning);
       // Truncation and other send warnings must be visible at runtime, not
       // only inside the persisted receipt: a caller who never opens .bridge
       // would otherwise treat a cut-off answer as complete.
@@ -1549,6 +1552,13 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
             // receipt used to record only what prodex asked for.
             ...(consult.modelSlug ? { model_used: consult.modelSlug } : {}),
             ...(proVerified !== undefined ? { pro_verified: proVerified } : {}),
+            // Intent and evidence, kept apart. `selection` is what was asked
+            // for; this is where the answer turned out to be, and whether
+            // anything actually confirmed it.
+            destination: {
+              observed: destination.destination,
+              ...(destination.verified !== undefined ? { verified: destination.verified } : {})
+            },
             warnings: persistenceWarnings
           }
         });
