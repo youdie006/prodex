@@ -92,6 +92,16 @@ describe("the shapes real records actually hold", () => {
 
   // A temporary chat is never saved: going back to that URL opens a fresh empty
   // one. Continuing into it would look like a follow-up and carry no context.
+  // Measured in a send's own debug trace: between the prompt posting and the
+  // server naming the conversation, the tab sits on "/c/WEB:<uuid>". The id
+  // parser used for navigation already refuses that, so accepting it here
+  // would let a follow-up choose a thread that cannot be opened - and fail
+  // with a complaint about the URL rather than about the conversation.
+  it("refuses the provisional id a conversation carries before the server names it", () => {
+    expect(isChatGptConversationUrl("https://chatgpt.com/c/WEB:d5ba5c50-51d1-4c01-a289-17b84b1ac9a2")).toBe(false);
+    expect(isChatGptConversationUrl("https://chatgpt.com/c/6aa36ada-1890-83e8-a859-8e8458804a80")).toBe(true);
+  });
+
   it("refuses to treat a temporary chat as a conversation", () => {
     expect(isChatGptConversationUrl(temporary)).toBe(false);
     expect(isChatGptConversationUrl("https://chatgpt.com/g/g-p-6a46/project")).toBe(false);

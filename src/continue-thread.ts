@@ -54,7 +54,15 @@ export function chatGptProjectSlug(name: string): string {
  * exists to remove rather than reproduce.
  */
 export function isChatGptConversationUrl(threadUrl: string): boolean {
-  return /\/c\/[^/?#]+/.test(threadUrl);
+  const id = /\/c\/([^/?#]+)/.exec(threadUrl)?.[1];
+  if (!id) return false;
+  // ChatGPT shows a provisional id - measured as "/c/WEB:<uuid>" - between the
+  // prompt posting and the server naming the conversation. It is not a
+  // conversation anyone can return to, and the id parser elsewhere already
+  // refuses it; accepting it here would let a follow-up pick a thread that
+  // then fails to open with an error about the URL rather than about the
+  // conversation.
+  return !/^web:/i.test(id);
 }
 
 /**

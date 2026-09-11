@@ -438,6 +438,32 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
   throw unknownTopLevelCommandError(command);
 }
 
+/**
+ * Whether something other than prodex is sitting on the configured port.
+ *
+ * A prodex HTTP server answers /mcp - with 401 when the token is missing,
+ * which is still an answer. Anything else holding the port means `prodex
+ * start` cannot bind it, and the configured URL points at a stranger.
+ * Silence (nothing listening) is the healthy case.
+ */
+export async function describeConfiguredPortHolder(host: string, port: number): Promise<string | undefined> {
+  let response: Response;
+  try {
+    response = await fetch(`http://${host}:${port}/mcp`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+      signal: AbortSignal.timeout(1_500)
+    });
+  } catch {
+    // Nothing is listening, or it refused the connection: the port is free for
+    // prodex to take, which is what this check is about.
+    return undefined;
+  }
+  if (response.status === 401 || response.status === 200 || response.status === 400) return undefined;
+  return `port ${port} on ${host} is held by something that is not a prodex server (it answered /mcp with HTTP ${response.status}), so \`prodex start\` cannot bind it.`;
+}
+
 function defaultIo(): CliIO {
   return {
     // PRODEX_CWD wins over a working directory prodex cannot use (a /dev/fd
@@ -1263,6 +1289,16 @@ async function runDoctor(store: BridgeStore, io: CliIO, sourceCli?: string, setu
       io.stdout(`config: ok ${redactServerUrl(config.server_url)} token_status=${tokenStatus.status}`);
       const warningLine = formatConfigWarningLine(tokenStatus, sourceCli, setupHintCwd);
       if (warningLine) io.stdout(warningLine);
+      // "ok" has to mean the configured endpoint can actually be served.
+      // Measured here: the configured port was held by an unrelated program,
+      // so `prodex start` could never bind it - and doctor called the config
+      // ok anyway, which is the one line someone reads before believing it.
+      const portHolder = await describeConfiguredPortHolder(config.host, config.port);
+      if (portHolder) {
+        io.stdout(
+          `config_warning: ${portHolder} \`${formatSetupCommand(sourceCli, { cwd: setupHintCwd })} --port <free port>\` moves prodex off it.`
+        );
+      }
     }
   } catch (error) {
     if (isMissingFileError(error)) {
