@@ -70,3 +70,26 @@ describe("finding a composer tool to enable", () => {
     expect(hit.available).toEqual(["Web search"]);
   });
 });
+
+// Measured on the pattern this shared browser exists for - two agents sending
+// one after the other. A send that queued on the lock and entered a page the
+// previous one had only just finished with failed with "model selector button
+// not found" once in three attempts, while the same pattern succeeded either
+// side of it. The composer is simply a moment behind; the catch-all it fell
+// into told the caller to go and resolve a browser issue that did not exist.
+describe("a composer that has not finished rendering", () => {
+  it("is named as transient, and asks for a retry rather than an investigation", async () => {
+    const { chatGptComposerNotReadyBlocker } = await import("../src/chatgpt-browser.js");
+    const blocker = chatGptComposerNotReadyBlocker("model selector button not found");
+    expect(blocker.code).toBe("composer_not_ready");
+    expect(blocker.retryable).toBe(true);
+    expect(blocker.message).toMatch(/model selector button not found/);
+    expect(blocker.next_step).toMatch(/nothing was sent/i);
+    expect(blocker.next_step).not.toMatch(/resolve the visible browser issue/i);
+  });
+
+  it("still says something when the page gave no reason", async () => {
+    const { chatGptComposerNotReadyBlocker } = await import("../src/chatgpt-browser.js");
+    expect(chatGptComposerNotReadyBlocker().message).toMatch(/did not finish rendering/i);
+  });
+});

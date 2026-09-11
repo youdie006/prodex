@@ -80,10 +80,28 @@ export async function startHttpMcpServer(options: StartHttpMcpServerOptions): Pr
     }
   });
 
+  const requestedPort = options.port ?? 8787;
   await new Promise<void>((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(options.port ?? 8787, host, () => {
-      server.off("error", reject);
+    server.once("error", (error: NodeJS.ErrnoException) => {
+      // "address already in use" names neither who has it nor how to move.
+      // Measured here: prodex's default port was held by an unrelated tool of
+      // the user's, and the only thing said was the raw errno - on a machine
+      // where the fix is one flag.
+      if (error.code === "EADDRINUSE") {
+        reject(
+          new Error(
+            `Port ${requestedPort} on ${host} is already taken, so the HTTP MCP server did not start. ` +
+              `Another prodex may already be running here - check with \`prodex status\` - or another program holds it ` +
+              `(\`ss -ltnp | grep ${requestedPort}\` says which). Move prodex with \`prodex setup --port <free port>\`, then start again.`,
+            { cause: error }
+          )
+        );
+        return;
+      }
+      reject(error);
+    });
+    server.listen(requestedPort, host, () => {
+      server.removeAllListeners("error");
       resolve();
     });
   });

@@ -1861,6 +1861,25 @@ async function openChatGptThread(cdp: CdpConnection, url: string): Promise<void>
  * cause was named in the message and then thrown away by the catch-all next
  * step underneath it.
  */
+/**
+ * The composer's model selector never rendered.
+ *
+ * Always transient in the field: the composer is still being built, which is
+ * why the poll above exists at all. The catch-all it used to fall into said
+ * "resolve the visible browser issue manually" - there is no issue to resolve,
+ * and the next send usually works.
+ */
+export function chatGptComposerNotReadyBlocker(reason?: string): NonNullable<ChatGptBrowserStatus["blocker"]> {
+  return {
+    code: "composer_not_ready",
+    message: `ChatGPT's composer did not finish rendering its model selector${reason ? ` (${reason})` : ""}, so the model could not be chosen.`,
+    retryable: true,
+    next_step:
+      "Nothing was sent. Retry - the composer is usually a moment behind a page that has just navigated, and a send right " +
+      "after another one lands on it mid-render."
+  };
+}
+
 export function chatGptThreadUnavailableBlocker(url: string): NonNullable<ChatGptBrowserStatus["blocker"]> {
   return {
     code: "thread_unavailable",
@@ -2979,8 +2998,15 @@ async function selectModelReasoning(
   // new-chat navigation the composer form (and the selector inside it) has not
   // finished rendering yet, so a single check throws "model selector button not
   // found" even though the button appears a moment later.
+  //
+  // Four seconds was not enough for the case this browser exists for: two
+  // agents sending one after the other. Measured - a send that started two
+  // seconds behind another, queued on the lock, and entered a page the first
+  // one had only just finished with, failed here once in three attempts while
+  // the same pattern succeeded either side of it. The neighbouring waits for
+  // the same kind of render already allow six to eight.
   let button: RectHit = { ok: false };
-  const buttonDeadline = Date.now() + 4_000;
+  const buttonDeadline = Date.now() + PROJECT_NAVIGATION_TIMEOUT_MS;
   for (;;) {
     button = await cdp.evaluate<RectHit>(modelButtonRectExpression());
     if (button.ok && button.x !== undefined && button.y !== undefined) break;
@@ -2988,7 +3014,7 @@ async function selectModelReasoning(
     await sleep(200);
   }
   if (!button.ok || button.x === undefined || button.y === undefined) {
-    throw new Error(button.reason ?? "Could not open the ChatGPT model selector");
+    throw new ChatGptBrowserBlockerError(chatGptComposerNotReadyBlocker(button.reason));
   }
   // Skip the menu entirely when the picker already shows the requested model:
   // it is the same end state, and it survives ChatGPT reshuffling the menu
