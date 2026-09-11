@@ -1841,6 +1841,32 @@ export async function performBrowserRecoverForMcp(cwd: string, input: BrowserRec
   };
 }
 
+/** The marker the send prints before throwing, when the answer outlived its record. */
+const ANSWER_NOT_SAVED_MARKER = "consult_answer_received_but_not_saved:";
+
+/**
+ * Pull an answer out of a send that got one and then failed to record it.
+ *
+ * The CLI prints `consult_answer_received_but_not_saved: <task> <thread>`,
+ * a blank line, and the answer, then throws - so a person still has the text.
+ * An agent calling through MCP only saw the throw, which discarded exactly the
+ * answer that was most expensive to get.
+ */
+export function answerRescuedFromFailedPersistence(
+  stdoutLines: readonly string[]
+): { taskId: string; thread: string; answer: string } | undefined {
+  const index = stdoutLines.findIndex((line) => line.startsWith(ANSWER_NOT_SAVED_MARKER));
+  if (index === -1) return undefined;
+  const [taskId = "", thread = ""] = stdoutLines[index].slice(ANSWER_NOT_SAVED_MARKER.length).trim().split(/\s+/);
+  const answer = stdoutLines
+    .slice(index + 1)
+    .join("\n")
+    .replace(/^\n+/, "")
+    .trim();
+  if (!answer) return undefined;
+  return { taskId, thread, answer };
+}
+
 export async function performBrowserConsultForMcp(
   cwd: string,
   input: BrowserConsultInput,
@@ -1871,15 +1897,35 @@ export async function performBrowserConsultForMcp(
     "--",
     input.prompt
   ];
-  await runAskProCommand(argv, {
-    cwd,
-    stdout: (line) => stdoutLines.push(line),
-    stderr: (line) => {
-      stderrLines.push(line);
-      if (onProgress && line.startsWith("progress:")) onProgress(line);
-    },
-    allowAskProBrowserSend: true
-  });
+  try {
+    await runAskProCommand(argv, {
+      cwd,
+      stdout: (line) => stdoutLines.push(line),
+      stderr: (line) => {
+        stderrLines.push(line);
+        if (onProgress && line.startsWith("progress:")) onProgress(line);
+      },
+      allowAskProBrowserSend: true
+    });
+  } catch (error) {
+    // A send whose ANSWER arrived and whose recording then failed prints the
+    // answer and throws, so the CLI caller still has it. Rethrowing here threw
+    // it away instead - the one case where that costs the most, since the
+    // answer is usually a Pro run someone waited minutes for. Hand it back
+    // with the failure attached rather than losing it.
+    const rescued = answerRescuedFromFailedPersistence(stdoutLines);
+    if (!rescued) throw error;
+    return {
+      task_id: rescued.taskId,
+      status: "answered_not_saved",
+      thread: rescued.thread,
+      answer: rescued.answer,
+      notes: [
+        ...stderrLines.filter((line) => !line.startsWith("progress:")),
+        `answer_not_saved: ${errorMessage(error)}`
+      ]
+    };
+  }
   const header = stdoutLines[0] ?? "";
   const [taskId = "", status = "", thread = ""] = header.split("\t");
   return {
