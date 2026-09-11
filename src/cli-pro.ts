@@ -2581,6 +2581,15 @@ async function recordedModelUsed(store: BridgeStore, taskId: string): Promise<st
   }
 }
 
+/** One line naming the model, effort and project a send asked for, or nothing. */
+export function formatAskedFor(selection: Record<string, string> | undefined): string | undefined {
+  if (!selection) return undefined;
+  const parts = ["model", "pro_mode", "effort", "project", "project_new"]
+    .filter((key) => selection[key])
+    .map((key) => `${key}=${selection[key]}`);
+  return parts.length > 0 ? `asked_for: ${parts.join(" ")}` : undefined;
+}
+
 export function formatProAnswer(consult: ConsultRecord, sourceCli?: string, options: BrowserCommandOptions = {}): string {
   const blocker = sourceAwareProAnswerBlocker(consult, sourceCli, options);
   const summary = sourceAwareProAnswerSummary(consult.result.summary, consult.result.blocker, blocker);
@@ -2588,6 +2597,10 @@ export function formatProAnswer(consult: ConsultRecord, sourceCli?: string, opti
     `task_id: ${consult.task.id}`,
     `status: ${consult.result.status}`,
     consult.task.provenance.thread ? `thread: ${consult.task.provenance.thread}` : undefined,
+    // What the send asked for. Recorded on failures as well as answers now,
+    // and a person reading a timeout needs it on the same screen as the
+    // budget it used up.
+    formatAskedFor(consult.task.provenance.selection),
     `created_at: ${consult.result.created_at}`,
     "",
     summary

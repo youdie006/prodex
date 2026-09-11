@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { ProvenanceSchema } from "../src/schema.js";
-import { redactSelectionForRecord } from "../src/cli-pro.js";
+import { formatAskedFor, redactSelectionForRecord } from "../src/cli-pro.js";
 
 // Mined from the ledger on this machine: all 57 recorded send_timeout blockers
 // carry no selection at all, because it was only ever written into the ANSWER
@@ -35,5 +35,21 @@ describe("what a record says was asked for", () => {
   it("scrubs a created project's name too", () => {
     const recorded = redactSelectionForRecord({ project_new: "Ledger" }, (text) => text.split("Ledger").join("<project>"));
     expect(recorded).toEqual({ project_new: "<project>" });
+  });
+});
+
+// The selection is recorded so a person reading a timeout can see what it was
+// for on the same screen as the budget it used up. `pro show` printed the
+// budget and not the request until this line existed.
+describe("showing what was asked for", () => {
+  it("names each axis that was set, in a fixed order", () => {
+    expect(formatAskedFor({ effort: "\ub192\uc74c", project: "<project>", model: "Pro" })).toBe(
+      "asked_for: model=Pro effort=\ub192\uc74c project=<project>"
+    );
+  });
+
+  it("prints nothing for a send that pinned nothing", () => {
+    expect(formatAskedFor(undefined)).toBeUndefined();
+    expect(formatAskedFor({})).toBeUndefined();
   });
 });
