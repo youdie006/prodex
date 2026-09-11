@@ -27,6 +27,14 @@ export const ProvenanceSchema = z.object({
   session_id: z.string().optional(),
   thread: z.string().optional(),
   project: z.string().optional(),
+  /**
+   * What the send asked for - model, effort, project. Recorded on failures as
+   * well as answers: 57 timeouts in this machine's ledger carry no selection
+   * at all, because it was only ever written into the ANSWER receipt, so the
+   * ledger cannot say whether a Pro run times out more often than a quick one
+   * - which is the first question anyone asks of a timeout.
+   */
+  selection: z.record(z.string()).optional(),
   warnings: z.array(z.string()).default([])
 });
 

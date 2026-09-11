@@ -1518,7 +1518,16 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
             summary: redactProject(message),
             commands: ["visible ChatGPT browser consult"],
             warnings: blockedWarnings,
-            blocker: persistedBlocker
+            blocker: persistedBlocker,
+            // What was asked for, on the record that failed. Without it a
+            // timeout cannot be read back against the budget it was given.
+            provenance: {
+              ...(blockedThread ? { thread: blockedThread } : {}),
+              ...(Object.keys(selectionMetadata).length > 0
+                ? { selection: redactSelectionForRecord(selectionMetadata, redactProject) }
+                : {}),
+              warnings: blockedWarnings
+            }
           });
           await writeSessionBestEffort(
             targetStore,
@@ -1654,6 +1663,9 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
           warnings: persistenceWarnings,
           provenance: {
             thread: consult.url,
+            ...(Object.keys(selectionMetadata).length > 0
+              ? { selection: redactSelectionForRecord(selectionMetadata, redactProjectNamesForRecord(selectionMetadata)) }
+              : {}),
             warnings: persistenceWarnings
           }
         });
@@ -2248,6 +2260,23 @@ export function redactProjectNames(text: string, names: readonly (string | undef
     redacted = redacted.split(name).join("<project>");
   }
   return redacted;
+}
+
+/** The project name is scrubbed in records; the rest of a selection is not. */
+export function redactSelectionForRecord(
+  selection: Record<string, string>,
+  redact: (text: string) => string
+): Record<string, string> {
+  const recorded: Record<string, string> = {};
+  for (const [key, value] of Object.entries(selection)) {
+    recorded[key] = key === "project" || key === "project_new" ? redact(value) : value;
+  }
+  return recorded;
+}
+
+/** The redactor a record needs when it has only the selection to go on. */
+function redactProjectNamesForRecord(selection: Record<string, string>): (text: string) => string {
+  return (text: string) => redactProjectNames(text, [selection.project, selection.project_new]);
 }
 
 export function browserSendBlockerFromError(error: unknown): { code: string; message: string; retryable: boolean; next_step?: string; thread?: string } {
