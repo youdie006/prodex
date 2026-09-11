@@ -41,6 +41,7 @@ import {
   sendChatGptPrompt,
   statusMeansBrowserDead,
   namesPro,
+  sendWarningsFromError,
   destinationVerification,
   chatGptProjectIdFromUrl
 } from "./chatgpt-browser.js";
@@ -1501,6 +1502,11 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
         // --new-chat there is no target url, and a blocker that started a run
         // still has a thread worth handing back.
         const blockedThread = blocker.thread ?? normalizedTargetUrl;
+        // What the send had already noticed before it died. These used to go
+        // out with the result, so a failure dropped them - including the note
+        // that would explain it, like having just moved off the Work surface.
+        const blockedWarnings = sendWarningsFromError(error).map(redactProject);
+        for (const warning of blockedWarnings) io.stderr(warning);
         const persistedBlocker = {
           ...blocker,
           message: redactProject(blocker.message),
@@ -1511,6 +1517,7 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
             status: "blocked",
             summary: redactProject(message),
             commands: ["visible ChatGPT browser consult"],
+            warnings: blockedWarnings,
             blocker: persistedBlocker
           });
           await writeSessionBestEffort(
@@ -1535,7 +1542,7 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
         if (jsonOutput) {
           io.stdout(
             JSON.stringify(
-              { task_id: task.id, status: "blocked", thread: blockedThread ?? null, answer: null, warnings: [], blocker },
+              { task_id: task.id, status: "blocked", thread: blockedThread ?? null, answer: null, warnings: blockedWarnings, blocker },
               null,
               2
             )

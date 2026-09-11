@@ -4120,7 +4120,7 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
     // looks the way it looked when it refused, and the selection failures this
     // project keeps hitting are invisible in the error text alone.
     await captureOnFailure(`send-${new Date().toISOString().replace(/[:.]/g, "-")}`);
-    throw error;
+    throw attachSendWarnings(error, sendWarnings);
   } finally {
     cdp.close();
   }
@@ -5097,6 +5097,36 @@ export function portAccepts(port: number, timeoutMs = 250): Promise<"accepted" |
 
 /** True when a fetch failed because its AbortSignal.timeout fired, not because nothing was listening. */
 /** Whether an error is a DevTools command that got no answer in time - the one failure that has closed the socket. */
+/**
+ * Carry the warnings a failed send collected out with its error.
+ *
+ * They are attached to the RESULT, so a send that throws loses them - and the
+ * one that explains the failure is exactly the kind that gets lost: a send
+ * that had to move off ChatGPT's Work surface, or that recovered a browser,
+ * and then died at the next step reported nothing about either. The error
+ * already carries `thread` this way and the classifier already reads it off,
+ * so this follows the same road.
+ */
+export function attachSendWarnings(error: unknown, warnings: readonly string[]): unknown {
+  if (warnings.length === 0) return error;
+  if (typeof error !== "object" || error === null) return error;
+  const carrier = error as { warnings?: unknown };
+  if (Array.isArray(carrier.warnings)) return error;
+  try {
+    carrier.warnings = [...warnings];
+  } catch {
+    // A frozen error is still the error; the warnings are a bonus, not a duty.
+  }
+  return error;
+}
+
+/** The warnings a failed send carried out with it, if any survived. */
+export function sendWarningsFromError(error: unknown): string[] {
+  if (typeof error !== "object" || error === null) return [];
+  const carried = (error as { warnings?: unknown }).warnings;
+  return Array.isArray(carried) ? carried.filter((entry): entry is string => typeof entry === "string") : [];
+}
+
 export function cdpCommandTimedOut(error: unknown): boolean {
   return error instanceof Error && /Chrome DevTools command timed out/.test(error.message);
 }
