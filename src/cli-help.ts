@@ -91,7 +91,7 @@ Optional visible-browser send defaults (applied by \`pro browser ask\` when the 
   --model      Composer model by its exact menu label. Only Pro applies on the current picker: it is a slider step, and the model rows cannot be clicked
   --pro-mode   Pro sub-mode: 기본 (standard) or 확장 (extended)
   --effort     Reasoning effort: 즉시 / 중간 / 높음 / 매우 높음 / Max / Ultra / Pro. Max and Ultra are rungs of ChatGPT's Work surface and only apply when the browser is already on Work (prodex does not switch to Work for them); every other value is sent on Chat, whose top step is Pro
-  --allow-model-fallback  Send even when the requested model/effort could not be applied. Off by default: a send that could not reach what was asked for stops instead, because an answer from a step nobody asked for is usually unusable
+  --allow-model-fallback  Send even when the requested EFFORT step could not be applied. Off by default: a send that could not reach the step it asked for stops instead, because an answer from a step nobody asked for is usually unusable. It does not gate the model axis - this picker's model rows cannot be driven at all, so a model it will not provide is always a warning and the send goes out on whatever the composer had; model_used and pro_verified say what actually replied
   --project    Sidebar project to enter before sending
 Clear a saved default with --clear-model / --clear-pro-mode / --clear-effort / --clear-project.
 --pro-mode and --effort are different model axes and cannot be combined. View saved defaults with \`prodex status\`.`);

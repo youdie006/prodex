@@ -353,7 +353,7 @@ export function createServer(cwd = process.cwd(), options: CreateMcpServerOption
             .boolean()
             .optional()
             .describe(
-              "Send even when the requested model or effort could not be applied. Off by default, because an answer from a step nobody asked for is usually unusable: a consult asking for Pro that comes back from a lesser model cannot be cited as a Pro review. Pass true only when any answer beats no answer."
+              "Send even when the requested EFFORT step could not be applied. Off by default, because an answer from a step nobody asked for is usually unusable: a consult asking for Pro that comes back from a lesser model cannot be cited as a Pro review. Pass true only when any answer beats no answer. It does not gate the model axis: this picker's model rows cannot be driven at all, so a model it will not provide is always a warning and the send goes out on whatever the composer had - check `model_used` and `pro_verified` in the answer to see what actually replied."
             )
         }
       },
