@@ -99,7 +99,7 @@ import {
 import { getTokenExpiryStatus, loadBrowserDefaults, loadLocalConfig } from "./config.js";
 import { withBrowserSendLock } from "./browser-send-lock.js";
 import { blockerCause, buildBlockerReport, type BlockerConsult } from "./blocker-report.js";
-import { resolveContinuationThread } from "./continue-thread.js";
+import { projectIdFromSidebar, resolveContinuationThread } from "./continue-thread.js";
 import { readBridgeRoots } from "./registry.js";
 import { BridgeStore, MAX_FETCHABLE_RESULT_ARTIFACT_BYTES } from "./store.js";
 import { CLI_VERSION } from "./cli-help.js";
@@ -1262,6 +1262,22 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
       // Scope by the project this send would have used, so a follow-up cannot
       // land in another project's conversation.
       const continuationProject = explicitProject ?? (suppressProject ? undefined : browserDefaults?.project);
+      // The name alone cannot identify a project written in another script -
+      // measured, two of this account's projects slug to nothing - so the id
+      // is read off the live sidebar. A sidebar that cannot be read leaves
+      // the name matching to do what it can; the send would fail on the same
+      // browser anyway.
+      let continuationProjectId: string | undefined;
+      if (continuationProject) {
+        try {
+          continuationProjectId = projectIdFromSidebar(
+            await listChatGptProjectsWithIds({ port: resolveCdpPort(readPortFlag(parsedAskPro.optionArgs, "--port")) }),
+            continuationProject
+          );
+        } catch {
+          continuationProjectId = undefined;
+        }
+      }
       const resolved = resolveContinuationThread({
         consults: (await targetStore.listSessionsReadOnly()).map((session) => ({
           taskId: session.task_id ?? "",
@@ -1270,6 +1286,7 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
           ...(session.created_at ? { createdAt: session.created_at } : {})
         })),
         ...(continuationProject ? { project: continuationProject } : {}),
+        ...(continuationProjectId ? { projectId: continuationProjectId } : {}),
         ...(continueTaskId !== undefined ? { taskId: continueTaskId } : {})
       });
       if ("error" in resolved) throw new Error(resolved.error);

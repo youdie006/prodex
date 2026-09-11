@@ -102,6 +102,11 @@ export function threadMatchesProject(
   const projectSegment = /\/g\/(g-p-[^/?#]+)/.exec(threadUrl)?.[1];
   if (!project) return projectSegment === undefined;
   if (!projectSegment) return false;
+  // The slug is the name with everything but ASCII letters and digits turned
+  // to dashes, which for a name written in another script is nothing at all:
+  // measured, four of this account's five projects have Korean names and two
+  // of them slug to "". The id is the only thing that identifies those, and
+  // the caller reads it off the live sidebar.
   const slug = chatGptProjectSlug(project);
   // The id comes first and the name follows it, so an exact suffix match keeps
   // "notes" from answering for "notes-archive".
@@ -111,6 +116,27 @@ export function threadMatchesProject(
   // and it survives a rename, which the name comparison cannot.
   const id = /^g-p-([0-9a-f]+)/i.exec(projectSegment)?.[1]?.toLowerCase();
   return Boolean(id && knownProjectIds?.has(id));
+}
+
+/**
+ * The id of the project a name refers to, from the sidebar as it is now.
+ *
+ * Same rules as the sidebar click: the exact name first, then a
+ * case-insensitive match when it is the only one - never a guess between two.
+ * The id comes back without its "g-p-" prefix, which is how thread URLs are
+ * read everywhere else here.
+ */
+export function projectIdFromSidebar(
+  projects: readonly { id: string; name: string }[],
+  name: string
+): string | undefined {
+  const wanted = name.trim();
+  const strip = (id: string) => id.replace(/^g-p-/i, "").toLowerCase();
+  const exact = projects.filter((project) => project.name.trim() === wanted);
+  if (exact.length === 1) return strip(exact[0].id);
+  if (exact.length > 1) return undefined;
+  const loose = projects.filter((project) => project.name.trim().toLowerCase() === wanted.toLowerCase());
+  return loose.length === 1 ? strip(loose[0].id) : undefined;
 }
 
 /**
@@ -124,6 +150,8 @@ export function threadMatchesProject(
 export function resolveContinuationThread(input: {
   consults: readonly ConsultThreadRecord[];
   project?: string;
+  /** The project's id as the sidebar reports it, when the caller could read it. */
+  projectId?: string;
   taskId?: string;
 }): { target: ContinuationTarget } | { error: string } {
   const withThread = input.consults.filter((consult) => consult.thread && isChatGptConversationUrl(consult.thread));
@@ -146,9 +174,10 @@ export function resolveContinuationThread(input: {
     }
     return { target: { taskId: named.taskId, thread: named.thread! } };
   }
-  const knownProjectIds = input.project
-    ? projectIdsByName(withThread.map((consult) => consult.thread!)).get(chatGptProjectSlug(input.project))
-    : undefined;
+  const knownProjectIds = new Set<string>(
+    input.project ? projectIdsByName(withThread.map((consult) => consult.thread!)).get(chatGptProjectSlug(input.project)) ?? [] : []
+  );
+  if (input.projectId) knownProjectIds.add(input.projectId.toLowerCase());
   const candidates = withThread
     .filter((consult) => consult.status === "done")
     .filter((consult) => threadMatchesProject(consult.thread!, input.project, knownProjectIds))

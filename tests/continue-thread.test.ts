@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   chatGptProjectSlug,
   isChatGptConversationUrl,
+  projectIdFromSidebar,
   projectIdsByName,
   resolveContinuationThread,
   threadMatchesProject
@@ -167,5 +168,45 @@ describe("a conversation that cannot be reached", () => {
     expect(blocker.next_step).not.toMatch(/resolve the visible browser issue/i);
     expect(blocker.next_step).toMatch(/--continue/);
     expect(blocker.thread).toBe("https://chatgpt.com/c/6aa23cb1");
+  });
+});
+
+// Four of this account's five projects have Korean names, and the slug - the
+// name with everything but ASCII letters and digits turned to dashes - is
+// "" for two of them and "ess" for another. A follow-up into any of them could
+// never match a thread by name, first consult or hundredth. The sidebar knows
+// the id, and the id is what thread URLs carry.
+describe("a project whose name the URL cannot carry", () => {
+  const sidebar = [
+    { id: "g-p-6a06a76991ec8191a6faa4d9ecf4dc46", name: "[\ud68c\uc0ac] \uc628\ub514\ubc14\uc774\uc2a4" },
+    { id: "g-p-6a3b24056f9c8191ac8282efd2e0b3c3", name: "Codex" }
+  ];
+  const koreanName = sidebar[0].name;
+  const koreanId = "6a06a76991ec8191a6faa4d9ecf4dc46";
+
+  it("slugs to nothing, which is why the name cannot be the key", () => {
+    expect(chatGptProjectSlug(koreanName)).toBe("");
+  });
+
+  it("reads the id off the sidebar, exact name first", () => {
+    expect(projectIdFromSidebar(sidebar, koreanName)).toBe(koreanId);
+    expect(projectIdFromSidebar(sidebar, "codex")).toBe("6a3b24056f9c8191ac8282efd2e0b3c3");
+    expect(projectIdFromSidebar(sidebar, "Ledger")).toBeUndefined();
+  });
+
+  it("refuses to guess between two projects with the same name", () => {
+    const twice = [...sidebar, { id: "g-p-ffffffffffffffffffffffffffffffff", name: "Codex" }];
+    expect(projectIdFromSidebar(twice, "Codex")).toBeUndefined();
+  });
+
+  it("continues the newest thread of a Korean-named project by its id", () => {
+    const consults = [
+      { taskId: "task_old", thread: thread("aaa", "codex"), status: "done", createdAt: "2026-09-10T00:00:00Z" },
+      { taskId: "task_kr", thread: `https://chatgpt.com/g/g-p-${koreanId}/c/bbb`, status: "done", createdAt: "2026-09-11T00:00:00Z" }
+    ];
+    const withoutId = resolveContinuationThread({ consults, project: koreanName });
+    expect("error" in withoutId).toBe(true);
+    const withId = resolveContinuationThread({ consults, project: koreanName, projectId: koreanId });
+    expect("target" in withId && withId.target.taskId).toBe("task_kr");
   });
 });
