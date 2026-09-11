@@ -791,7 +791,20 @@ export function isUsableChatGptAnswer(answer: string): boolean {
   return true;
 }
 
-export type TranscriptReadClassification = "answer" | "pending" | "unavailable";
+/**
+ * What comes back when the turn finished and wrote no text.
+ *
+ * Measured with `--tool create-image`: the image was generated and rendered,
+ * the assistant message in the transcript came back finished with an empty
+ * part (the image lives in a separate tool message), and prodex waited out the
+ * whole budget before reporting a timeout for a result that was already there.
+ * The thread URL travels with every answer, so saying so and pointing at it
+ * beats six minutes of silence.
+ */
+export const CHATGPT_NON_TEXT_ANSWER_NOTE =
+  "[no text answer] ChatGPT finished this turn without writing any text - an image or another non-text result. Open the thread to see it.";
+
+export type TranscriptReadClassification = "answer" | "pending" | "no_text" | "unavailable";
 
 /**
  * Who decides the answer is finished: the transcript, when it can be read.
@@ -810,9 +823,15 @@ export function classifyTranscriptRead(
   if (!state) return "unavailable";
   if (!transcriptMatchesSentPrompt(state.userText, sentPrompt)) return "unavailable";
   if (state.ok) return "answer";
-  return state.reason === "answer_not_finished" || state.reason === "no_assistant_message" || state.reason === "answer_empty"
-    ? "pending"
-    : "unavailable";
+  // A turn that FINISHED with no text is not a turn still being written. The
+  // transcript only reports answer_empty after checking the turn ended, and
+  // calling it "pending" is what made an image request wait out its whole
+  // budget: measured, `--tool create-image` produced the image, its assistant
+  // message came back finished with an empty part, and the send spent six and
+  // a half minutes "stabilizing" before reporting a timeout for an answer that
+  // was sitting in the thread.
+  if (state.reason === "answer_empty") return "no_text";
+  return state.reason === "answer_not_finished" || state.reason === "no_assistant_message" ? "pending" : "unavailable";
 }
 
 /**
@@ -833,7 +852,13 @@ export function shouldRecoverThreadNavigation(args: {
   const { pinnedThreadUrl, currentUrl, lastTranscriptClassification } = args;
   if (!pinnedThreadUrl || !currentUrl) return false;
   if (!conversationIdFromThreadUrl(pinnedThreadUrl)) return false;
-  if (lastTranscriptClassification === "pending" || lastTranscriptClassification === "answer") return false;
+  if (
+    lastTranscriptClassification === "pending" ||
+    lastTranscriptClassification === "answer" ||
+    lastTranscriptClassification === "no_text"
+  ) {
+    return false;
+  }
   return !chatGptUrlsReferToSameTarget(currentUrl, pinnedThreadUrl);
 }
 
@@ -3670,7 +3695,7 @@ async function readTranscriptAnswer(page: DevtoolsPage, conversationId: string, 
   const answer = resolveTranscriptCitations(transcript.text, transcript.references).trim();
   return answer.length > 0
     ? { classification: "answer", answer: { answer, modelSlug: transcript.modelSlug } }
-    : { classification: "pending" };
+    : { classification: "no_text" };
 }
 
 
@@ -4261,6 +4286,13 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
         const transcript = await readTranscriptAnswer(page, transcriptConversationId, options.prompt);
         lastTranscriptClassification = transcript.classification;
         if (transcript.answer) return transcriptResult(transcript.answer);
+        // A finished turn with no text is an answer of a different shape - an
+        // image, measured - and waiting for words it will never write spends
+        // the whole budget and then calls the result a timeout. The page must
+        // agree it has stopped generating before this counts.
+        if (transcript.classification === "no_text") {
+          return transcriptResult({ answer: CHATGPT_NON_TEXT_ANSWER_NOTE, modelSlug: "" });
+        }
       }
       if (shouldRecoverThreadNavigation({ pinnedThreadUrl, currentUrl: finalState?.url, lastTranscriptClassification })) {
         if (recoveredNavigations >= 2) {
@@ -5675,8 +5707,13 @@ export function activeComposerToolsExpression(labels: readonly string[]): string
     // selection did not take.
     const el = document.querySelector('#prompt-textarea,[contenteditable="true"]');
     const form = el ? (el.closest("form") || el.parentElement) : null;
-    const text = (el ? el.innerText || "" : "") + String.fromCharCode(10) + (form ? form.innerText || "" : "");
-    return { ok: true, active: ${labelsJson}.filter((label) => text.includes(label)) };
+    const text = ((el ? el.innerText || "" : "") + String.fromCharCode(10) + (form ? form.innerText || "" : "")).toLowerCase();
+    // Case-insensitively: prodex carries the label as the menu spells it
+    // ("Create image") while the page has been measured using "Create Image"
+    // for the same tool. This is hardening, not a fix for a failure anyone has
+    // seen - the create-image activation failure measured on this account
+    // survives it, and its cause is still open.
+    return { ok: true, active: ${labelsJson}.filter((label) => text.includes(String(label).toLowerCase())) };
   })()`;
 }
 
