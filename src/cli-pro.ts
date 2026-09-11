@@ -2333,6 +2333,108 @@ export function browserSendBlockerFromError(error: unknown): { code: string; mes
         "Nothing was sent, so nothing landed in the wrong project. Retry - the composer normally binds on the next navigation - or open the project once in the visible browser and send again."
     };
   }
+  // Everything below came out of the ledger rather than out of the code: 178
+  // of 296 recorded blockers were the catch-all, and replaying their messages
+  // through this function showed 109 still landing there - each one told to
+  // "resolve the visible browser issue manually", which is advice for a
+  // problem nobody has. These are the recurring ones that are still reachable,
+  // in the order they actually happen.
+  //
+  // All of them fail BEFORE the prompt is submitted: the selection steps and
+  // the post-insertion check all run ahead of the send, so "nothing was sent"
+  // is a fact here and not a hope.
+  if (/Refusing to click/.test(message)) {
+    return {
+      code: "click_blocked",
+      message,
+      retryable: true,
+      next_step:
+        "Something on the page was sitting over the control prodex needed, so nothing was sent. Retry - these covers are " +
+        "usually a banner or a menu that goes away on its own - or clear it in the visible browser."
+    };
+  }
+  if (/Composer text did not match the prompt after insertion|Composer stayed empty after text insertion/.test(message)) {
+    return {
+      code: "composer_text_mismatch",
+      message,
+      retryable: true,
+      next_step:
+        "The composer did not end up holding the prompt, so nothing was sent. Clear whatever is in it in the visible " +
+        "browser and retry, or send into a fresh chat with --new-chat."
+    };
+  }
+  if (/did not finish accepting .* within the upload budget/.test(message)) {
+    return {
+      code: "attachment_upload_timeout",
+      message,
+      retryable: true,
+      next_step:
+        "ChatGPT was still ingesting the attachment when the budget ran out, so nothing was sent. Retry with a longer " +
+        "--timeout-ms, or inline a text file with --file instead of uploading it."
+    };
+  }
+  if (/composer tools menu has no "/.test(message)) {
+    return {
+      code: "tool_not_offered",
+      message,
+      // The menu was read and the tool is not in it; asking again reads the
+      // same menu.
+      retryable: false,
+      next_step: "Nothing was sent. This account's composer does not offer that tool - drop --tool and ask for the same thing in the prompt."
+    };
+  }
+  if (/model selector button not found|did not expose its power slider|Could not open the ChatGPT model selector|model menu is not open|power slider not found/.test(message)) {
+    return {
+      code: "composer_not_ready",
+      message,
+      retryable: true,
+      next_step:
+        "The composer had not finished rendering its picker, so nothing was sent. Retry - it is usually a moment behind " +
+        "a page that has just navigated, and a send right after another one lands on it mid-render."
+    };
+  }
+  if (/but the composer never showed it as active/.test(message)) {
+    return {
+      code: "tool_not_applied",
+      message,
+      retryable: true,
+      next_step:
+        "The composer tool was chosen but never turned on, so nothing was sent. Retry, or drop --tool and ask for the " +
+        "same thing in the prompt."
+    };
+  }
+  if (/ChatGPT project not found in sidebar/.test(message)) {
+    return {
+      code: "project_not_found",
+      message,
+      // prodex already waits for the sidebar to hydrate before saying this, so
+      // the name is genuinely not there; asking again asks the same sidebar.
+      retryable: false,
+      next_step:
+        "Nothing was sent. The sidebar has no project by that name - list the exact spellings with " +
+        "`prodex pro browser projects`, then pass one of those, or send without --project."
+    };
+  }
+  if (/Clicking project "[^"]*" did not navigate/.test(message)) {
+    return {
+      code: "project_navigation_failed",
+      message,
+      retryable: true,
+      next_step:
+        "The sidebar click did not move the tab into the project, so nothing was sent. Retry, or open the project once " +
+        "in the visible browser and send again."
+    };
+  }
+  if (/Pro option not found in the model menu/.test(message)) {
+    return {
+      code: "selection_not_applied",
+      message,
+      retryable: false,
+      next_step:
+        "Nothing was sent. This account's picker does not offer Pro as a menu option - ask for it on the effort axis " +
+        "with `--effort Pro`, or send without a model and check `model_used` in the answer."
+    };
+  }
   // The picker could not provide the step that was asked for. Retrying asks
   // the same picker the same question, so this is not retryable; the caller
   // either picks a step it offers or opts into whatever the slider is on.
