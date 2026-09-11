@@ -46,6 +46,8 @@ export interface BrowserConsultToolInput {
 export interface CreateMcpServerOptions {
   source?: BridgeSource;
   claimedBy?: string;
+  /** False for a throwaway bridge that must not enter the machine-wide registry. */
+  registerRoot?: boolean;
   /**
    * When provided, registers the pro_consult tool backed by this callback.
    * Wire it ONLY for the local stdio MCP server: the HTTP MCP surface is
@@ -102,7 +104,12 @@ function serverVersionNotice(): string | undefined {
 
 export function createServer(cwd = process.cwd(), options: CreateMcpServerOptions = {}): McpServer {
   const server = new McpServer({ name: "prodex", version: mcpPackageJson.version ?? "0.0.0" });
-  const handlers = createMcpToolHandlers({ cwd, source: options.source, claimedBy: options.claimedBy });
+  const handlers = createMcpToolHandlers({
+    cwd,
+    source: options.source,
+    claimedBy: options.claimedBy,
+    ...(options.registerRoot !== undefined ? { registerRoot: options.registerRoot } : {})
+  });
 
   server.registerTool(
     "bridge_create_task",

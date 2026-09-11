@@ -39,6 +39,17 @@ const REQUIRED_MCP_TOOLS = [
 assertSmokeRedaction();
 
 const tmp = await mkdtemp(path.join(tmpdir(), "prodex-package-smoke-"));
+// Every prodex this smoke spawns inherits this environment, and a bridge
+// registers its root in the machine-wide registry when it is created.
+// Measured: one release:verify added nine /tmp/prodex-package-smoke-* roots to
+// the user's real ~/.local/share/prodex/bridges.json, and `pro blockers` on
+// this machine reported "across 77 bridge roots" where 19 were real. Point the
+// registry and the login record at this run's own directory, the way the
+// vitest setup already does. The browser send lock is deliberately NOT moved:
+// the smoke sends through the shared browser, and that lock is what keeps it
+// from typing into another session's consult.
+process.env.PRODEX_BRIDGES_REGISTRY = path.join(tmp, "bridges.json");
+process.env.PRODEX_LAST_LOGIN_FILE = path.join(tmp, "last-login.json");
 
 try {
   const packed = await packPackage(tmp);
@@ -2328,7 +2339,12 @@ async function smokeStdioMcp(binPath, cwd) {
     command: binPath,
     args: ["mcp", "--cwd", cwd],
     cwd: path.dirname(cwd),
-    stderr: "pipe"
+    stderr: "pipe",
+    // The SDK hands a child only a short allowlist of variables unless told
+    // otherwise, which dropped the registry isolation set at the top of this
+    // script: these three servers were the two smoke roots still reaching
+    // the user's real registry after everything else was isolated.
+    env: { ...process.env }
   });
   try {
     await withTimeout(client.connect(transport), 20_000, "Timed out connecting to installed stdio MCP server");
@@ -2400,7 +2416,12 @@ async function smokeStdioMcpNonGitWriteFailure(binPath, cwd) {
     command: binPath,
     args: ["mcp", "--cwd", cwd],
     cwd: path.dirname(cwd),
-    stderr: "pipe"
+    stderr: "pipe",
+    // The SDK hands a child only a short allowlist of variables unless told
+    // otherwise, which dropped the registry isolation set at the top of this
+    // script: these three servers were the two smoke roots still reaching
+    // the user's real registry after everything else was isolated.
+    env: { ...process.env }
   });
   try {
     await withTimeout(client.connect(transport), 20_000, "Timed out connecting to installed stdio MCP server for non-git smoke");
@@ -2476,7 +2497,12 @@ async function smokeInstalledStdioTaskFinalizers(binPath, cwd) {
     command: binPath,
     args: ["mcp", "--cwd", cwd],
     cwd: path.dirname(cwd),
-    stderr: "pipe"
+    stderr: "pipe",
+    // The SDK hands a child only a short allowlist of variables unless told
+    // otherwise, which dropped the registry isolation set at the top of this
+    // script: these three servers were the two smoke roots still reaching
+    // the user's real registry after everything else was isolated.
+    env: { ...process.env }
   });
   try {
     await withTimeout(client.connect(transport), 20_000, "Timed out connecting to installed stdio MCP server for task finalizer smoke");

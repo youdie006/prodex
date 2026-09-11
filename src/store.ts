@@ -158,10 +158,18 @@ const READ_ALL_CONCURRENCY = 32;
 export class BridgeStore {
   readonly root: string;
   readonly bridgeDir: string;
+  private readonly registerRoot: boolean;
 
-  constructor(root = process.cwd()) {
+  /**
+   * `registerRoot: false` keeps this bridge out of the machine-wide registry.
+   * For throwaway roots prodex makes for itself - doctor's smoke checks build
+   * a bridge in a temp directory, delete it, and left a dead entry in the
+   * user's registry on every run.
+   */
+  constructor(root = process.cwd(), options: { registerRoot?: boolean } = {}) {
     this.root = root;
     this.bridgeDir = path.join(root, ".bridge");
+    this.registerRoot = options.registerRoot !== false;
   }
 
   async ensure(): Promise<void> {
@@ -179,7 +187,7 @@ export class BridgeStore {
     await this.ensureReceiptIntegrityKey();
     // Advisory: let local indexers (sessionwiki's prodex adapter) find this
     // bridge. Best-effort inside - a registry failure never breaks the bridge.
-    await registerBridgeRoot(this.root);
+    if (this.registerRoot) await registerBridgeRoot(this.root);
   }
 
   dir(kind: BridgeStorageKind): string {

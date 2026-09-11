@@ -12,6 +12,8 @@ export interface StartHttpMcpServerOptions {
   token?: string;
   tokenExpiresAt?: string;
   requestBodyLimitBytes?: number;
+  /** False for a throwaway bridge that must not enter the machine-wide registry. */
+  registerRoot?: boolean;
 }
 
 export interface RunningHttpMcpServer {
@@ -61,7 +63,7 @@ export async function startHttpMcpServer(options: StartHttpMcpServerOptions): Pr
         return;
       }
       if (req.method === "POST") {
-        await handlePost(req, res, transports, options.cwd, requestBodyLimitBytes);
+        await handlePost(req, res, transports, options.cwd, requestBodyLimitBytes, options.registerRoot);
         return;
       }
       if (req.method === "GET" || req.method === "DELETE") {
@@ -174,7 +176,8 @@ async function handlePost(
   res: ServerResponse,
   transports: Map<string, TransportEntry>,
   cwd: string,
-  requestBodyLimitBytes: number
+  requestBodyLimitBytes: number,
+  registerRoot: boolean | undefined
 ): Promise<void> {
   const body = await readJsonBody(req, requestBodyLimitBytes);
   const sessionId = headerValue(req.headers["mcp-session-id"]);
@@ -201,7 +204,11 @@ async function handlePost(
       const id = transport.sessionId || initializedSessionId;
       if (id) transports.delete(id);
     };
-    const mcpServer = createMcpServer(cwd, { source: "chatgpt_project", claimedBy: "chatgpt" });
+    const mcpServer = createMcpServer(cwd, {
+      source: "chatgpt_project",
+      claimedBy: "chatgpt",
+      ...(registerRoot !== undefined ? { registerRoot } : {})
+    });
     await mcpServer.connect(transport);
     await transport.handleRequest(req, res, body);
     return;

@@ -1367,7 +1367,9 @@ async function runHttpMcpCatalogSmoke(): Promise<{ tools: string[]; taskFlow: "o
       cwd,
       host: "127.0.0.1",
       port: 0,
-      token: "doctor-token"
+      token: "doctor-token",
+      // A smoke bridge in a temp directory is not a place anyone works.
+      registerRoot: false
     });
     client = new Client({ name: "prodex-doctor", version: CLI_VERSION });
     await withTimeout(
@@ -1705,7 +1707,7 @@ async function runMcpWriteSmoke(): Promise<{ path: string; receipt_payload: "art
     await execFileAsync("git", ["commit", "-m", "initial"], { cwd });
     const { stdout: headOut } = await execFileAsync("git", ["rev-parse", "HEAD"], { cwd });
     const head = headOut.trim();
-    const handlers = createMcpToolHandlers({ cwd });
+    const handlers = createMcpToolHandlers({ cwd, registerRoot: false });
 
     const dryRun = await handlers.repo_write_file_dry_run({
       path: "notes.md",

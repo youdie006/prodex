@@ -1121,7 +1121,14 @@ describe("runCli", () => {
       command: process.execPath,
       args: ["--import", tsxLoader, cliPath, "mcp", "--cwd", targetCwd],
       cwd: launcherCwd,
-      stderr: "pipe"
+      stderr: "pipe",
+      // The SDK hands a child only a short allowlist of variables (PATH, HOME,
+      // ...) unless told otherwise, which dropped the registry isolation the
+      // setup file put in process.env - so this one test registered its temp
+      // directory in the REAL ~/.local/share/prodex/bridges.json on every run.
+      // Measured: 54 leaked roots over three days of test runs, and every
+      // `pro blockers` on this machine reported "across 77 bridge roots".
+      env: { ...process.env } as Record<string, string>
     });
 
     try {
@@ -1133,6 +1140,11 @@ describe("runCli", () => {
     } finally {
       await closeStdioClient(client, transport);
     }
+    // The isolated registry must be the one that gained the root. If it did
+    // not, the child wrote somewhere else - which, with no override in its
+    // environment, means the real one.
+    const isolated = JSON.parse(await readFile(process.env.PRODEX_BRIDGES_REGISTRY!, "utf8")) as { roots?: string[] };
+    expect(isolated.roots).toContain(targetCwd);
 
     await expect(readdir(path.join(targetCwd, ".bridge", "tasks"))).resolves.toHaveLength(1);
     await expect(readdir(path.join(launcherCwd, ".bridge", "tasks"))).rejects.toThrow();

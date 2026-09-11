@@ -15,6 +15,8 @@ export interface McpToolContext {
   cwd: string;
   source?: BridgeSource;
   claimedBy?: string;
+  /** False for a throwaway bridge that must not enter the machine-wide registry. */
+  registerRoot?: boolean;
 }
 
 type SessionRecord = Awaited<ReturnType<BridgeStore["getSessionReadOnly"]>>;
@@ -53,7 +55,9 @@ function redactTaskForMcp(task: TaskRecord): TaskRecord {
 }
 
 export function createMcpToolHandlers(context: McpToolContext) {
-  const store = new BridgeStore(context.cwd);
+  const store = new BridgeStore(context.cwd, {
+    ...(context.registerRoot !== undefined ? { registerRoot: context.registerRoot } : {})
+  });
   const source = context.source ?? "claude";
   const claimedBy = context.claimedBy ?? source;
   return {

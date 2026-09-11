@@ -3,6 +3,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { bridgesRegistryPath, registerBridgeRoot } from "../src/registry.js";
+import { BridgeStore } from "../src/store.js";
 
 async function withTempRegistry(fn: (file: string, makeRoot: () => Promise<string>) => Promise<void>): Promise<void> {
   const dir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "prodex-registry-")));
@@ -88,6 +89,29 @@ describe("registerBridgeRoot", () => {
       const alive = await makeRoot();
       await registerBridgeRoot(alive);
       expect(await readRoots(file)).toEqual([alive]);
+    });
+  });
+});
+
+// Every `doctor` run built a smoke bridge in a temp directory, deleted it, and
+// left a dead entry behind in the user's registry - and one test spawned the
+// CLI without the isolation variables and registered a temp root in the REAL
+// registry on every run: 54 leaked roots over three days, and every
+// `pro blockers` reporting "across 77 bridge roots" on a machine with 19.
+describe("keeping throwaway bridges out of the registry", () => {
+  it("does not register a bridge that says it is throwaway", async () => {
+    await withTempRegistry(async (file, makeRoot) => {
+      const root = await makeRoot();
+      await new BridgeStore(root, { registerRoot: false }).ensure();
+      await expect(fs.readFile(file, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+    });
+  });
+
+  it("still registers an ordinary bridge", async () => {
+    await withTempRegistry(async (file, makeRoot) => {
+      const root = await makeRoot();
+      await new BridgeStore(root).ensure();
+      expect(await readRoots(file)).toContain(await fs.realpath(root));
     });
   });
 });
