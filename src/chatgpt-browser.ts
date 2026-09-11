@@ -5683,11 +5683,34 @@ export function composerToolsButtonRectExpression(): string {
 }
 
 /** Click point for a tools-menu entry, matched by its visible label. */
+/**
+ * Where a tool's name must NOT be taken from.
+ *
+ * The lookup searches the document for the tool's name, because the menu this
+ * ChatGPT build renders is not reachable by any container selector that was
+ * tried - it carries no menu role, no aria-controls, and no floating popover
+ * node. That search is fine until the sidebar holds a CHAT titled like a tool:
+ * measured, the first `--tool create-image` send of an account succeeds and
+ * leaves a conversation called "Create Image", and every send after it matched
+ * that chat row, clicked it, navigated to the old conversation, and then
+ * reported that the composer never showed the tool as active.
+ *
+ * Scoping the search to an open menu instead looked right and broke every tool
+ * - web-search included, which had just been measured working - because
+ * nothing matched the container. Excluding the places a tool name can only be
+ * a coincidence keeps the search that works and removes the match that lies.
+ */
+const COMPOSER_TOOL_LOOKUP_EXCLUDED_ANCESTORS = 'nav,aside,[role="navigation"],[data-sidebar-item],[data-testid="conversation-turn"],[data-message-author-role]';
+
 export function composerToolEntryRectExpression(label: string): string {
   const candidatesJson = JSON.stringify(composerToolMenuTexts(label).map((text) => text.toLowerCase()));
+  const excludedJson = JSON.stringify(COMPOSER_TOOL_LOOKUP_EXCLUDED_ANCESTORS);
   return `(() => {${CLICK_POINT_SNIPPET}
     const candidates = ${candidatesJson};
-    const leaves = [...document.querySelectorAll("div,span,button,a")].filter((el) => el.children.length === 0);
+    const excluded = ${excludedJson};
+    const leaves = [...document.querySelectorAll("div,span,button,a")].filter(
+      (el) => el.children.length === 0 && !el.closest(excluded)
+    );
     const leaf = leaves.find((el) => candidates.includes((el.textContent || "").trim().toLowerCase()));
     if (!leaf) {
       const available = [...new Set(leaves.map((el) => (el.textContent || "").trim()).filter((t) => t.length > 1 && t.length < 30))].slice(0, 20);
@@ -5710,9 +5733,7 @@ export function activeComposerToolsExpression(labels: readonly string[]): string
     const text = ((el ? el.innerText || "" : "") + String.fromCharCode(10) + (form ? form.innerText || "" : "")).toLowerCase();
     // Case-insensitively: prodex carries the label as the menu spells it
     // ("Create image") while the page has been measured using "Create Image"
-    // for the same tool. This is hardening, not a fix for a failure anyone has
-    // seen - the create-image activation failure measured on this account
-    // survives it, and its cause is still open.
+    // for the same tool.
     return { ok: true, active: ${labelsJson}.filter((label) => text.includes(String(label).toLowerCase())) };
   })()`;
 }
