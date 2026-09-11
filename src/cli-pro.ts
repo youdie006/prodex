@@ -98,7 +98,7 @@ import {
 } from "./cli-shared.js";
 import { getTokenExpiryStatus, loadBrowserDefaults, loadLocalConfig } from "./config.js";
 import { withBrowserSendLock } from "./browser-send-lock.js";
-import { blockerCause, buildBlockerReport, type BlockerConsult } from "./blocker-report.js";
+import { blockerCause, buildBlockerReport, CATCH_ALL_CODES, type BlockerConsult } from "./blocker-report.js";
 import { projectIdFromSidebar, resolveContinuationThread } from "./continue-thread.js";
 import { readBridgeRoots } from "./registry.js";
 import { BridgeStore, MAX_FETCHABLE_RESULT_ARTIFACT_BYTES } from "./store.js";
@@ -887,7 +887,7 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
             consults.push({
               repo: path.basename(root),
               createdAt: result.created_at,
-              ...(result.blocker ? { blocker: { code: result.blocker.code, message: result.blocker.message } } : {})
+              ...(result.blocker ? { blocker: reclassifyRecordedBlocker(result.blocker) } : {})
             });
           }
         } catch {
@@ -2294,6 +2294,23 @@ export function redactSelectionForRecord(
 /** The redactor a record needs when it has only the selection to go on. */
 function redactProjectNamesForRecord(selection: Record<string, string>): (text: string) => string {
   return (text: string) => redactProjectNames(text, [selection.project, selection.project_new]);
+}
+
+/**
+ * A recorded blocker, read with what the classifier knows NOW.
+ *
+ * Records keep the code they were written with. Most of the failures that
+ * recur were the catch-all when they were recorded - 178 of 296 in this
+ * machine's ledger - and only got their own codes afterwards, so a report
+ * grouped by the recorded code kept showing "browser_send_failed: ..." rows
+ * for causes that have names. Re-reading the message through the classifier
+ * names them; a message it still cannot place keeps its recorded code, and a
+ * record that was never the catch-all is left exactly as written.
+ */
+export function reclassifyRecordedBlocker(recorded: { code: string; message: string }): { code: string; message: string } {
+  if (!CATCH_ALL_CODES.has(recorded.code)) return { code: recorded.code, message: recorded.message };
+  const live = browserSendBlockerFromError(new Error(recorded.message));
+  return { code: CATCH_ALL_CODES.has(live.code) ? recorded.code : live.code, message: recorded.message };
 }
 
 export function browserSendBlockerFromError(error: unknown): { code: string; message: string; retryable: boolean; next_step?: string; thread?: string } {

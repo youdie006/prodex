@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { browserSendBlockerFromError } from "../src/cli-pro.js";
+import { browserSendBlockerFromError, reclassifyRecordedBlocker } from "../src/cli-pro.js";
 
 // Every string below is a real blocker message taken from the ledger on this
 // machine - 296 recorded blockers across 77 bridge roots, of which 178 were the
@@ -85,5 +85,28 @@ describe("classifying the failures that actually recur", () => {
   it("leaves an unknown failure in the catch-all rather than guessing", () => {
     const blocker = browserSendBlockerFromError(new Error("something nobody has seen before"));
     expect(blocker.code).toBe("browser_send_failed");
+  });
+});
+
+// Records keep the code they were written with, and most of the recurring
+// failures were recorded as the catch-all before they had names. A report
+// grouped by the recorded code kept showing "browser_send_failed: ..." rows
+// for causes the classifier now knows.
+describe("reading old records with what the classifier knows now", () => {
+  it("names a catch-all record whose cause has a code today", () => {
+    const record = { code: "browser_send_failed", message: FROM_THE_LEDGER[0].message };
+    expect(reclassifyRecordedBlocker(record).code).toBe(FROM_THE_LEDGER[0].code);
+  });
+
+  it("keeps a catch-all record it still cannot place", () => {
+    const record = { code: "browser_send_failed", message: "something nobody has seen before" };
+    expect(reclassifyRecordedBlocker(record)).toEqual(record);
+  });
+
+  // A record that already had a code is history; rewriting it would let a
+  // later classifier change what an old failure was.
+  it("leaves a record that was never the catch-all exactly as written", () => {
+    const record = { code: "send_timeout", message: 'Refusing to click "x": another element covers its click point' };
+    expect(reclassifyRecordedBlocker(record)).toEqual(record);
   });
 });

@@ -39,7 +39,7 @@ export interface BlockerReport {
  * reports "the catch-all is biggest" and names nothing to fix - measured, one
  * of them held 165 of 267 blockers - so their message decides the group.
  */
-const CATCH_ALL_CODES = new Set(["browser_send_failed", "consult_failed", "unknown_error"]);
+export const CATCH_ALL_CODES = new Set(["browser_send_failed", "consult_failed", "unknown_error"]);
 
 /**
  * The part of a message that identifies the failure, with the varying parts
