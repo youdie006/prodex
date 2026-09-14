@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.40.10
+
+### Fixed
+- Request correlation accepts the rendered form of fenced inline-file context when ChatGPT removes the code fence delimiters. The complete request body and unique request marker are still checked; changed or missing file content is not accepted.
+
 ## 0.40.9
 
 ### Fixed

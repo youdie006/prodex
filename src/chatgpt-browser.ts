@@ -5971,7 +5971,12 @@ export function transcriptContainsWholeSentPrompt(userText: string, sentPrompt: 
 const NORMALIZED_PROMPT_MATCH_CHARS = 120;
 
 function normalizeChatGptPromptText(value: string): string {
-  return value.replace(/\\([\\`*_{}[\]()#+\-.!>~|])/g, "$1").replace(/\s+/g, " ").trim();
+  const unescaped = value.replace(/\\([\\`*_{}[\]()#+\-.!>~|])/g, "$1");
+  const renderedFences = unescaped.replace(
+    /(^|\r?\n)```text[ \t]*\r?\n([\s\S]*?)\r?\n```(?=\r?\n|$)/g,
+    "$1text\n$2"
+  );
+  return renderedFences.replace(/\s+/g, " ").trim();
 }
 
 function chatGptRequestMarkerMatches(userText: string, requestId: string): boolean {

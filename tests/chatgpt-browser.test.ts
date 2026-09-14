@@ -106,6 +106,52 @@ describe("ChatGPT browser adapter", () => {
     expect(chatGptRequestMatchesUserTurn(sent.replace(requestId, "b".repeat(32)), sent, requestId)).toBe(false);
   });
 
+  it("matches complete fenced file content after ChatGPT removes block fence delimiters", () => {
+    const requestId = "4bf599e7b669fed1dfa42a0d05963b57";
+    const sent = `PROMPT
+
+## File: inline-context.txt
+
+\`\`\`text
+Inline reference for a manually requested prodex QA run.
+INLINE_VALUE=817
+INLINE_MARKER=INLINE_QA_20260914_1635
+\`\`\`
+
+[prodex-request:${requestId}]`;
+    const rendered = `attachment.txt
+Document
+PROMPT
+
+## File: inline-context.txt
+
+
+text
+Inline reference for a manually requested prodex QA run.
+INLINE_VALUE=817
+INLINE_MARKER=INLINE_QA_20260914_1635
+
+
+[prodex-request:${requestId}]
+Show more`;
+
+    expect(chatGptRequestMatchesUserTurn(rendered, sent, requestId)).toBe(true);
+    expect(chatGptRequestMatchesUserTurn(rendered.replace("INLINE_VALUE=817", "INLINE_VALUE=718"), sent, requestId)).toBe(false);
+    expect(chatGptRequestMatchesUserTurn(rendered.replace("INLINE_VALUE=817\n", ""), sent, requestId)).toBe(false);
+    expect(chatGptRequestMatchesUserTurn(rendered.replace("\ntext\n", "\njson\n"), sent, requestId)).toBe(false);
+    expect(chatGptRequestMatchesUserTurn(`${rendered}\n[prodex-request:${requestId}]`, sent, requestId)).toBe(false);
+    expect(chatGptRequestMatchesUserTurn(`${rendered}\n[prodex-request:${"b".repeat(32)}]`, sent, requestId)).toBe(false);
+    expect(chatGptRequestMatchesUserTurn(rendered.replace(requestId, "b".repeat(32)), sent, requestId)).toBe(false);
+
+    const inlineSent = `PROMPT\nUse \`INLINE_VALUE=817\` exactly.\n[prodex-request:${requestId}]`;
+    const inlineWithoutBackticks = `PROMPT\nUse INLINE_VALUE=817 exactly.\n[prodex-request:${requestId}]`;
+    expect(chatGptRequestMatchesUserTurn(inlineWithoutBackticks, inlineSent, requestId)).toBe(false);
+
+    const unmatchedSent = `PROMPT\n\n\`\`\`text\nINLINE_VALUE=817\n\n[prodex-request:${requestId}]`;
+    const unmatchedWithoutFence = `PROMPT\n\ntext\nINLINE_VALUE=817\n\n[prodex-request:${requestId}]`;
+    expect(chatGptRequestMatchesUserTurn(unmatchedWithoutFence, unmatchedSent, requestId)).toBe(false);
+  });
+
   it("checks busy state in the same browser evaluation as navigation", () => {
     const form = new FakeElement("form");
     form.buttons = [new FakeButton("Stop generating", "stop-button")];
