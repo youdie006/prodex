@@ -1,9 +1,10 @@
 import { createHash } from "node:crypto";
 import { execFile, spawn } from "node:child_process";
+import { realpath } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 import { assertResolvedRepoPathAllowed, resolveRepoPath } from "./repo.js";
-import { readVerifiedUtf8File, replaceVerifiedUtf8File } from "./safe-file.js";
+import { readVerifiedUtf8File, replaceVerifiedUtf8File, withCrossProcessFileLock } from "./safe-file.js";
 import type { Receipt } from "./schema.js";
 import type { BridgeStore } from "./store.js";
 
@@ -160,8 +161,44 @@ export async function applyRepoWriteDryRun(
     throw new Error(`Expected preimage does not match dry-run receipt`);
   }
 
+  const newContent = await readDryRunReplacementContent(store, metadata);
+  const resolvedPath = resolveRepoPath(root, metadata.path);
+  await assertResolvedRepoPathAllowed(root, resolvedPath, metadata.path);
+  const canonicalTarget = await realpath(resolvedPath);
+  const canonicalRoot = await realpath(root);
+  const lockFile = path.join(canonicalRoot, ".bridge", `.repo-write-${sha256(canonicalTarget)}.lock`);
+
+  // This ownership interval closes races among prodex applies. An editor that
+  // does not participate in the lock protocol can still replace the path.
+  return withCrossProcessFileLock(
+    lockFile,
+    {
+      waitMs: 30_000,
+      retryMs: 25,
+      privateParent: true,
+      busyError: (holder) =>
+        new Error(`Another prodex repo write for ${metadata.path} is in progress (pid ${holder.pid ?? "unknown"})`),
+      unavailableError: () => new Error(
+        `The prodex repo write lock at ${lockFile} could not be recovered. Stop all writers before removing that lock and its matching .reap claim, then retry.`
+      )
+    },
+    () => applyRepoWriteUnderLock(root, store, input, metadata, newContent, canonicalTarget)
+  );
+}
+
+async function applyRepoWriteUnderLock(
+  root: string,
+  store: BridgeStore,
+  input: RepoWriteApplyInput,
+  metadata: DryRunMetadata,
+  newContent: string,
+  canonicalTarget: string
+): Promise<RepoWriteApplyResult> {
   await assertGitHead(root, input.expected_head);
   const current = await readWritableExistingFile(root, metadata.path);
+  if ((await realpath(current.resolved)) !== canonicalTarget) {
+    throw new Error(`File target changed for ${metadata.path}`);
+  }
   const currentPreimage = sha256(current.content);
   if (currentPreimage !== input.preimage_sha256) {
     // A retry after a successful apply sees the file already holding the new
@@ -174,8 +211,6 @@ export async function applyRepoWriteDryRun(
     }
     throw new Error(`File preimage changed for ${metadata.path}`);
   }
-
-  const newContent = await readDryRunReplacementContent(store, metadata);
 
   let receipt: Receipt | undefined;
   try {

@@ -64,6 +64,30 @@ describe("registerBridgeRoot", () => {
     });
   });
 
+  it("does not follow a pre-created predictable temporary-file symlink", async () => {
+    await withTempRegistry(async (file, makeRoot) => {
+      const root = await makeRoot();
+      const unrelated = path.join(path.dirname(file), "unrelated.txt");
+      const predictableTemp = `${file}.${process.pid}.0.tmp`;
+      await fs.writeFile(unrelated, "keep me\n", "utf8");
+      await fs.symlink(unrelated, predictableTemp);
+
+      await expect(registerBridgeRoot(root)).resolves.toBeUndefined();
+
+      await expect(fs.readFile(unrelated, "utf8")).resolves.toBe("keep me\n");
+      await expect(readRoots(file)).resolves.toContain(root);
+    });
+  });
+
+  it("makes the registry parent private before writing", async () => {
+    await withTempRegistry(async (file, makeRoot) => {
+      await fs.chmod(path.dirname(file), 0o777);
+      await registerBridgeRoot(await makeRoot());
+
+      expect((await fs.stat(path.dirname(file))).mode & 0o777).toBe(0o700);
+    });
+  });
+
   it("honors the env override for its location", async () => {
     await withTempRegistry(async (file) => {
       expect(bridgesRegistryPath()).toBe(file);

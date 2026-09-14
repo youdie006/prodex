@@ -1,6 +1,8 @@
+import { randomUUID } from "node:crypto";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
+import { readVerifiedUtf8File, writeVerifiedUtf8File } from "./safe-file.js";
 
 const SCHEMA_VERSION = 1;
 
@@ -87,6 +89,7 @@ async function registerBridgeRootInner(root: string): Promise<void> {
   try {
     const file = bridgesRegistryPath();
     const abs = await canonicalize(root);
+    const parentRealPath = await preparePrivateRegistryParent(file);
     // Read-modify-write with a bounded verify-retry: rename gives torn-write
     // atomicity but not lost-update safety - two processes registering
     // DIFFERENT roots at the same instant would each read the old list and
@@ -96,7 +99,7 @@ async function registerBridgeRootInner(root: string): Promise<void> {
     for (let attempt = 0; attempt < 5; attempt++) {
       let roots: string[] = [];
       try {
-        const parsed = JSON.parse(await fs.readFile(file, "utf8")) as { roots?: unknown };
+        const parsed = JSON.parse(await readRegistryFileForWrite(file, parentRealPath)) as { roots?: unknown };
         if (Array.isArray(parsed?.roots)) {
           roots = parsed.roots.filter((r): r is string => typeof r === "string");
         }
@@ -113,13 +116,23 @@ async function registerBridgeRootInner(root: string): Promise<void> {
       }
       survivors.push(abs);
       roots = survivors.length > MAX_REGISTRY_ROOTS ? survivors.slice(survivors.length - MAX_REGISTRY_ROOTS) : survivors;
-      await fs.mkdir(path.dirname(file), { recursive: true });
-      const tmp = `${file}.${process.pid}.${attempt}.tmp`;
-      await fs.writeFile(tmp, `${JSON.stringify({ schema_version: SCHEMA_VERSION, roots }, null, 2)}\n`, "utf8");
-      await fs.rename(tmp, file);
+      const tmp = path.join(path.dirname(file), `.${path.basename(file)}.${process.pid}.${randomUUID()}.tmp`);
+      try {
+        await writeVerifiedUtf8File(
+          tmp,
+          `${JSON.stringify({ schema_version: SCHEMA_VERSION, roots }, null, 2)}\n`,
+          () => assertRegistryWritePathsSafe(file, parentRealPath),
+          { create: true, exclusive: true, mode: 0o600 }
+        );
+        await assertRegistryWritePathsSafe(file, parentRealPath);
+        await fs.rename(tmp, file);
+      } catch (error) {
+        await cleanupRegistryTemp(tmp, parentRealPath);
+        throw error;
+      }
       // Verify our root survived a concurrent writer's rename.
       try {
-        const check = JSON.parse(await fs.readFile(file, "utf8")) as { roots?: unknown };
+        const check = JSON.parse(await readRegistryFileForWrite(file, parentRealPath)) as { roots?: unknown };
         if (Array.isArray(check?.roots) && (check.roots as unknown[]).includes(abs)) return;
       } catch {
         // Unreadable right after our rename: a concurrent writer - retry.
@@ -127,5 +140,44 @@ async function registerBridgeRootInner(root: string): Promise<void> {
     }
   } catch {
     // Advisory registry - never let it fail a bridge operation.
+  }
+}
+
+async function preparePrivateRegistryParent(file: string): Promise<string> {
+  const parent = path.dirname(file);
+  await fs.mkdir(parent, { recursive: true, mode: 0o700 });
+  const parentStat = await fs.lstat(parent);
+  if (parentStat.isSymbolicLink() || !parentStat.isDirectory()) {
+    throw new Error("Registry parent must be a real directory and must not be a symlink");
+  }
+  await fs.chmod(parent, 0o700);
+  return fs.realpath(parent);
+}
+
+async function assertRegistryWritePathsSafe(file: string, parentRealPath: string): Promise<void> {
+  const parent = path.dirname(file);
+  const parentStat = await fs.lstat(parent);
+  if (parentStat.isSymbolicLink() || !parentStat.isDirectory() || (await fs.realpath(parent)) !== parentRealPath) {
+    throw new Error("Registry parent changed during write");
+  }
+  try {
+    const targetStat = await fs.lstat(file);
+    if (targetStat.isSymbolicLink() || !targetStat.isFile()) {
+      throw new Error("Registry target must be a regular file and must not be a symlink");
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+}
+
+function readRegistryFileForWrite(file: string, parentRealPath: string): Promise<string> {
+  return readVerifiedUtf8File(file, () => assertRegistryWritePathsSafe(file, parentRealPath), { maxBytes: 1_000_000 });
+}
+
+async function cleanupRegistryTemp(tmp: string, parentRealPath: string): Promise<void> {
+  try {
+    if ((await fs.realpath(path.dirname(tmp))) === parentRealPath) await fs.rm(tmp, { force: true });
+  } catch {
+    // Do not follow a parent that changed while the advisory write was in flight.
   }
 }
