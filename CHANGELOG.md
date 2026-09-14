@@ -6,13 +6,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
-## 0.40.7
+## 0.40.8
 
 ### Changed
 - Browser consults and recovery read rendered page content only. Hidden ChatGPT endpoints, session-token access, and persisted browser-state probes were removed. Deep-research sends and automatic conversation/project deletion now stop with explicit unsupported guidance; visible project/conversation lists are not a complete account-history listing.
 - Legacy result artifacts without recorded hashes remain readable but carry an explicit unverified-integrity warning in CLI and MCP output. Session cancellation help now distinguishes stale metadata cleanup from stopping an active browser request.
 
 ### Fixed
+- Package dry runs strip inherited CI identity and publishing credentials from their subprocess. They cannot request or exchange an OIDC token during verification; actual publishing retains its authentication environment.
 - Test state isolation is restored before and after every test, including when a preceding case deletes its override. Registry, browser lock and launch-record fixtures cannot fall back to the user's default state in the next test.
 - Repo applies serialize cooperating writers across processes and recheck the file preimage under ownership. Browser locks use acquisition-specific ownership and never evict a live request solely because it is old. Registry temporary files are exclusive and reject symlink targets.
 - Browser recovery validates the saved control port and canonical profile path, recognizes supported Chromium/Edge/Brave process names, and refuses a relaunch when owned processes could not be terminated. Virtual-display allocation is serialized so simultaneous startups cannot overwrite the same authority cookie.

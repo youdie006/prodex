@@ -27,7 +27,10 @@ export async function publishTarballDryRun(tarballPath) {
       server.listen(0, "127.0.0.1", resolve);
     });
     const registry = `http://127.0.0.1:${server.address().port}`;
-    const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^npm_config_/i.test(key)));
+    // npm requests CI identities even during dry-run. Only this subprocess
+    // loses credentials; the actual publish step retains its OIDC environment.
+    const excludedEnv = /^(?:npm_config_|npm_id_token$|npm_token$|node_auth_token$|actions_id_token_request_|sigstore_id_token$|circle_oidc_token)/i;
+    const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !excludedEnv.test(key)));
     const result = await run(process.platform === "win32" ? "npm.cmd" : "npm", [
       "publish", "--dry-run", path.resolve(tarballPath), "--ignore-scripts", "--provenance=false",
       `--registry=${registry}`, `--userconfig=${userConfig}`, `--globalconfig=${globalConfig}`,
