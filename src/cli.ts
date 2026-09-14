@@ -183,6 +183,8 @@ export interface CliIO {
   readStdin?: () => Promise<string>;
   /** Whether this run is an interactive terminal (gates guided login and auto-recovery); defaults to process.stdout.isTTY. */
   isInteractive?: boolean;
+  /** Internal TUI destination choice; navigation still occurs under the send lock. */
+  navigateInteractiveTarget?: boolean;
 }
 
 /**
@@ -225,10 +227,6 @@ async function runInteractiveUi(io: CliIO): Promise<number> {
         const { listRecentChatGptConversations } = await import("./chatgpt-browser.js");
         return listRecentChatGptConversations({});
       },
-      openThread: async (url) => {
-        const { navigateChatGptTabTo } = await import("./chatgpt-browser.js");
-        return navigateChatGptTabTo(url, {});
-      },
       listProjectsWithIds: async () => {
         const { listChatGptProjectsWithIds } = await import("./chatgpt-browser.js");
         return listChatGptProjectsWithIds({});
@@ -241,6 +239,7 @@ async function runInteractiveUi(io: CliIO): Promise<number> {
       runConsult: (args, onProgress) =>
         runCli(args, {
           ...io,
+          navigateInteractiveTarget: true,
           stderr: (line) => {
             if (line.startsWith("progress:")) onProgress(line);
             else io.stderr(line);

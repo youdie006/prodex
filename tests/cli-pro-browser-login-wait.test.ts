@@ -1,4 +1,4 @@
-import { mkdtemp, readFile } from "node:fs/promises";
+import { mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -180,6 +180,41 @@ describe("waitForChatGptLoginReady", () => {
 });
 
 describe("pro browser login --wait", () => {
+  it("accepts a relative trailing-separator alias for the saved running profile", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-login-profile-alias-"));
+    const lastLoginFile = path.join(cwd, "last-login.json");
+    const canonicalProfile = await realpath(process.cwd());
+    const priorLastLogin = process.env.PRODEX_LAST_LOGIN_FILE;
+    process.env.PRODEX_LAST_LOGIN_FILE = lastLoginFile;
+    await writeFile(
+      lastLoginFile,
+      `${JSON.stringify({ profile_dir: canonicalProfile, port: 9333, headless: false, minimized: false }, null, 2)}\n`,
+      "utf8"
+    );
+    openChatGptBrowserMock.mockReset();
+    getChatGptBrowserStatusMock.mockReset().mockResolvedValue(
+      status({ reachable: true, loggedInLikely: true, hasComposer: true })
+    );
+
+    try {
+      const code = await runCli(
+        ["pro", "browser", "login", "--port", "9333", "--profile-dir", `.${path.sep}`, "--no-wait"],
+        { cwd, stdout: () => {}, stderr: () => {} }
+      );
+
+      expect(code).toBe(0);
+      expect(openChatGptBrowserMock).not.toHaveBeenCalled();
+      const record = JSON.parse(await readFile(lastLoginFile, "utf8")) as { profile_dir?: string };
+      expect(record.profile_dir).toBe(canonicalProfile);
+    } finally {
+      if (priorLastLogin === undefined) delete process.env.PRODEX_LAST_LOGIN_FILE;
+      else process.env.PRODEX_LAST_LOGIN_FILE = priorLastLogin;
+      openChatGptBrowserMock.mockReset();
+      getChatGptBrowserStatusMock.mockReset();
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
   it("waits for readiness and exits 0 once the composer is detected", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "prodex-login-wait-"));
     openChatGptBrowserMock.mockReturnValueOnce({
@@ -260,7 +295,9 @@ describe("pro browser login --wait", () => {
       expect(code).toBe(1);
       expect(text).toMatch(/cloudflare/i);
       expect(text).not.toMatch(/not signed in/i);
-      expect(text).toMatch(/virtual display|Xvfb/i);
+      expect(text).toContain("--headed");
+      expect(text).toMatch(/visible interactive check/i);
+      expect(text).not.toMatch(/without --headless/i);
     } finally {
       if (priorLastLogin === undefined) delete process.env.PRODEX_LAST_LOGIN_FILE;
       else process.env.PRODEX_LAST_LOGIN_FILE = priorLastLogin;
@@ -280,7 +317,8 @@ describe("pro browser login --wait", () => {
       profileDir: "/tmp/fake-profile",
       waitForEarlyExit: async () => undefined
     });
-    getChatGptBrowserStatusMock.mockResolvedValue(status({ reachable: true, loggedInLikely: true, hasComposer: true }));
+    getChatGptBrowserStatusMock.mockResolvedValueOnce(status())
+      .mockResolvedValue(status({ reachable: true, loggedInLikely: true, hasComposer: true }));
     minimizeChatGptWindowMock.mockResolvedValue({ minimized: true, visibilityState: "visible" });
     const out: string[] = [];
 
@@ -316,7 +354,8 @@ describe("pro browser login --wait", () => {
       profileDir: "/tmp/fake-profile",
       waitForEarlyExit: async () => undefined
     });
-    getChatGptBrowserStatusMock.mockResolvedValue(status({ reachable: true, loggedInLikely: true, hasComposer: true }));
+    getChatGptBrowserStatusMock.mockResolvedValueOnce(status())
+      .mockResolvedValue(status({ reachable: true, loggedInLikely: true, hasComposer: true }));
     minimizeChatGptWindowMock.mockResolvedValue({ minimized: false, visibilityState: "hidden" });
     const out: string[] = [];
 

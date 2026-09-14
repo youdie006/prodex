@@ -32,12 +32,20 @@ import { runCli } from "../src/cli.js";
 import { loadLocalConfig, writeLocalConfig } from "../src/config.js";
 import { setSafeFileTestHooks } from "../src/safe-file.js";
 
-beforeEach(() => {
+const originalLastLoginFile = process.env.PRODEX_LAST_LOGIN_FILE;
+let isolatedLoginDir: string;
+
+beforeEach(async () => {
   process.env.PRODEX_MIN_SEND_INTERVAL_MS = "0";
+  isolatedLoginDir = await mkdtemp(path.join(tmpdir(), "prodex-send-login-state-"));
+  process.env.PRODEX_LAST_LOGIN_FILE = path.join(isolatedLoginDir, "last-login.json");
 });
 
-afterEach(() => {
+afterEach(async () => {
   delete process.env.PRODEX_MIN_SEND_INTERVAL_MS;
+  if (originalLastLoginFile === undefined) delete process.env.PRODEX_LAST_LOGIN_FILE;
+  else process.env.PRODEX_LAST_LOGIN_FILE = originalLastLoginFile;
+  await rm(isolatedLoginDir, { recursive: true, force: true });
 });
 
 describe("pro browser ask persistence", () => {
@@ -987,7 +995,7 @@ describe("pro browser ask persistence", () => {
     expect(session.blocker?.message ?? "").not.toContain(projectName);
   });
 
-  it("reaps a live-but-stale holder so a wedged send cannot block the machine forever", async () => {
+  it("does not reap a live send holder based on age", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-send-"));
     const lockFile = path.join(cwd, "send.lock");
     const priorLock = process.env.PRODEX_SEND_LOCK_FILE;
@@ -995,8 +1003,8 @@ describe("pro browser ask persistence", () => {
     process.env.PRODEX_SEND_LOCK_FILE = lockFile;
     process.env.PRODEX_SEND_LOCK_STALE_MS = "1";
     try {
-      // Held by THIS live process, but the timestamp is old -> wedged -> reapable
-      // even though the pid is alive (a live pid alone must not block forever).
+      // Age does not prove the owner stopped using the browser. A bounded
+      // queue budget must fail without allowing a second sender to enter.
       await writeFile(
         lockFile,
         JSON.stringify({ pid: process.pid, started_at: new Date(Date.now() - 60_000).toISOString() }),
@@ -1009,9 +1017,11 @@ describe("pro browser ask persistence", () => {
         modelHints: [],
         warnings: []
       });
-      const out: string[] = [];
-      await runCli(["pro", "browser", "ask", "--model", "Pro", "hi"], { cwd, stdout: (l) => out.push(l), stderr: () => {} });
-      expect(out.join("\n")).toContain("ok");
+      await expect(runCli(["pro", "browser", "ask", "--model", "Pro", "--busy-wait-ms", "0", "hi"], {
+        cwd, stdout: () => {}, stderr: () => {}
+      })).rejects.toThrow(/send.*in progress|wait budget/i);
+      expect(sendChatGptPromptMock).not.toHaveBeenCalled();
+      expect(JSON.parse(await readFile(lockFile, "utf8")).pid).toBe(process.pid);
     } finally {
       if (priorLock === undefined) delete process.env.PRODEX_SEND_LOCK_FILE;
       else process.env.PRODEX_SEND_LOCK_FILE = priorLock;
@@ -2401,6 +2411,43 @@ describe("pro browser ask model/project selection", () => {
     expect(errs.some((line) => line.startsWith("recover:"))).toBe(true);
   });
 
+  it.each([
+    ["auto-login", "https://chatgpt.com/c/already-submitted"],
+    ["interactive", "https://chatgpt.com/c/already-submitted"],
+    ["mcp", "https://chatgpt.com/c/already-submitted"],
+    ["auto-login", undefined],
+    ["interactive", undefined],
+    ["mcp", undefined]
+  ])("does not resend after browser loss mid-answer (%s, thread=%s)", async (mode, thread) => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-send-"));
+    const { browserLostMidWaitBlocker, ChatGptBrowserBlockerError } = await import("../src/chatgpt-browser.js");
+    const blocker = browserLostMidWaitBlocker(thread);
+    sendChatGptPromptMock
+      .mockRejectedValueOnce(new ChatGptBrowserBlockerError(blocker))
+      .mockResolvedValueOnce({ url: thread ?? "https://chatgpt.com/", title: "ChatGPT", answer: "duplicate", modelHints: [], warnings: [] });
+    openChatGptBrowserMock.mockReturnValueOnce({ port: 9333, profileDir: "/tmp/fake-profile", waitForEarlyExit: async () => undefined });
+    getChatGptBrowserStatusMock.mockResolvedValue({ reachable: true, loggedInLikely: true, hasComposer: true, modelHints: [] });
+    const { performBrowserConsultForMcp } = await import("../src/cli-pro.js");
+    const run = mode === "mcp"
+      ? performBrowserConsultForMcp(cwd, { prompt: "Send only once" })
+      : runCli(["ask", ...(mode === "auto-login" ? ["--auto-login"] : []), "Send only once"], {
+          cwd, stdout: () => {}, stderr: () => {}, isInteractive: mode === "interactive"
+        });
+    await expect(run).rejects.toThrow(/blocked consult recorded/);
+    expect(sendChatGptPromptMock).toHaveBeenCalledTimes(1);
+    expect(openChatGptBrowserMock).not.toHaveBeenCalled();
+    const latest: string[] = [];
+    await runCli(["pro", "latest", "--json"], { cwd, stdout: (line) => latest.push(line), stderr: () => {} });
+    const record = JSON.parse(latest.join("\n"));
+    expect(record.status).toBe("blocked");
+    expect(record.blocker.retryable).toBe(false);
+    if (thread) {
+      expect(record.thread).toBe(thread);
+      expect(record.blocker.next_step).toContain("pro browser recover");
+      expect(record.blocker.next_step).toContain(thread);
+    }
+  });
+
   it("recovers with the last recorded login profile, not the default", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-send-"));
     const lastLoginFile = path.join(cwd, "last-login.json");
@@ -2430,7 +2477,7 @@ describe("pro browser ask model/project selection", () => {
       });
       getChatGptBrowserStatusMock.mockResolvedValue({ reachable: true, loggedInLikely: true, hasComposer: true, modelHints: [] });
 
-      await runCli(["ask", "--auto-login", "Recover with profile"], { cwd, stdout: () => {}, stderr: () => {} });
+      await runCli(["ask", "--port", "9333", "--auto-login", "Recover with profile"], { cwd, stdout: () => {}, stderr: () => {} });
 
       expect(openChatGptBrowserMock).toHaveBeenCalledWith(
         expect.objectContaining({ profileDir: "/custom/chrome-profile" })
@@ -2446,7 +2493,8 @@ describe("pro browser ask model/project selection", () => {
     // has none, and no MCP tool can start the browser.
     const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-send-"));
     const lastLoginFile = path.join(cwd, "last-login.json");
-    await writeFile(lastLoginFile, JSON.stringify({ profile_dir: "/custom/chrome-profile", port: 9333, headless: true }), "utf8");
+    const port = Number(process.env.PRODEX_CDP_PORT);
+    await writeFile(lastLoginFile, JSON.stringify({ profile_dir: "/custom/chrome-profile", port, headless: true }), "utf8");
     process.env.PRODEX_LAST_LOGIN_FILE = lastLoginFile;
     const { performBrowserConsultForMcp } = await import("../src/cli-pro.js");
     try {
@@ -2466,7 +2514,7 @@ describe("pro browser ask model/project selection", () => {
           warnings: []
         });
       openChatGptBrowserMock.mockReturnValueOnce({
-        port: 9333,
+        port,
         profileDir: "/custom/chrome-profile",
         waitForEarlyExit: async () => undefined
       });

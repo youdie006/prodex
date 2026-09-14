@@ -14,7 +14,9 @@
 
 </div>
 
-You pay for ChatGPT Pro. The reasoning that makes it worth paying for lives behind a web page, and the coding agent you actually spend the day with cannot reach it. prodex closes that gap without an API key, a proxy, or a stealth bot: it drives a real, visible Chrome that you logged into once, types into the same composer you would, and reads the answer back from the conversation transcript.
+You pay for ChatGPT Pro. The reasoning that makes it worth paying for lives behind a web page, and the coding agent you actually spend the day with cannot reach it. prodex closes that gap without an API key, a proxy, or a stealth bot: it drives a real Chrome that you logged into once, types into the same composer you would, and reads the rendered answer from the page.
+
+The recording below is from 0.40.6, before internal transcript access was removed. Current builds use rendered page content only; they do not fetch hidden ChatGPT APIs or extract session tokens.
 
 ```console
 $ prodex ask --new-chat --effort Pro "A CLI drives a logged-in browser over the Chrome DevTools Protocol and holds a cross-process file lock while a send is in flight. What failure modes must the lock's expiry rule handle, and which single rule would you ship? Under 150 words."
@@ -38,11 +40,11 @@ That is a real run, timings included. Every consult lands as a task, a result an
 
 ## What you can do with it
 
-- **Ask from the terminal.** `prodex ask` with a question, a file's contents (`--file`), an uploaded pdf, deck, sheet or image (`--attach`), or anything piped in (`--stdin`). Deep research, web search and image creation are one flag away (`--tool`).
+- **Ask from the terminal.** `prodex ask` with a question, a file's contents (`--file`), an uploaded pdf, deck, sheet or image (`--attach`), or anything piped in (`--stdin`). Available rendered composer tools can be selected with `--tool`; unsupported result formats stop with a blocker.
 - **Let your agent ask.** `prodex mcp` is a stdio MCP server with a `pro_consult` tool; Claude Code, Codex, Cursor and Gemini CLI call it like any other tool. ChatGPT Projects can hand work back the other way over a loopback HTTP MCP bridge.
 - **Pick the model and effort per ask.** The picker ChatGPT shows is the picker prodex drives: `--effort Pro` reaches the top rung, `--project` sends inside a sidebar project, and `prodex setup` pins defaults per repo.
 - **Keep every answer.** Tasks, results, sessions and receipts are versioned JSON on disk, signed with a local key. Nothing is stored anywhere else.
-- **Run it with no window at all.** One headed login, then a virtual display: a real browser that Cloudflare treats as one, and nothing on your desktop.
+- **Run it with no desktop window.** One headed login, then a virtual display: a dedicated browser running off your desktop. Authentication and protective checks still require your attention.
 - **Stop where a person should.** Login, captcha, Cloudflare, usage limits and permission prompts halt the send with a named blocker and a next step. prodex solves none of them for you.
 
 ## Install
@@ -67,7 +69,9 @@ prodex pro latest                 # re-print the last answer
 
 `prodex ask` is the short form of `prodex pro browser ask`; every flag works on both. The login opens its own Chrome profile (`~/.local/share/prodex/chrome-chatgpt-pro`), never your daily browser, and in a terminal it keeps watching the window and names the manual step still missing (sign in, clear a check, open a chat) until it reports READY.
 
-While Pro thinks, progress goes to stderr: connecting, prompt sent, elapsed time while generating. A Pro selection raises the send budget to twenty minutes on its own; `--timeout-ms` overrides it. The answer is read from the conversation transcript rather than scraped off the page, so tables and fenced code arrive intact and citations keep their links. If the dedicated browser is not running, an interactive `ask` starts it, waits for your saved session, and retries once (`--no-auto-login` turns that off; scripts opt in with `--auto-login`).
+While Pro thinks, progress goes to stderr: connecting, prompt sent, elapsed time while generating. A Pro selection raises the send budget to twenty minutes on its own; `--timeout-ms` overrides it. Answers are read from the rendered page, so formatting can differ from the original message. If the dedicated browser is not running, an interactive `ask` starts it, waits for your saved session, and retries once (`--no-auto-login` turns that off; scripts opt in with `--auto-login`).
+
+If the browser stops responding after your question was sent, prodex stops without sending it again. Reopen it with `prodex pro browser login`, then use `prodex pro browser recover --target-url <thread-url>` with the conversation URL in the error (MCP: `pro_recover`). If no URL was captured, inspect the original chat before asking again.
 
 Useful flags on every send:
 
@@ -76,13 +80,15 @@ Useful flags on every send:
 | `--new-chat` | Send into a fresh chat. Recommended for repeated consults; very long threads eventually confuse send detection. |
 | `--file path` | Inline a text file's contents into the prompt. Repeatable. |
 | `--attach path` | Upload the file itself: the only way to hand ChatGPT a pdf, pptx, xlsx or image. Paths must live inside the repo. |
-| `--tool deep-research` | Run a browsed report; the budget rises to thirty minutes and the full report comes back through the transcript. Also `web-search`, `create-image`, or any label the menu shows. |
+| `--tool web-search` | Select a rendered composer tool. Automatic deep-research report retrieval is currently unsupported and is blocked before sending. |
 | `--project "name"` | Send inside an existing sidebar project. `--project-new` creates one first. `prodex pro browser projects` lists exact names. |
 | `--temporary` | A ChatGPT Temporary Chat: nothing in your chat list, but the answer is read off the page and cannot be recovered later. |
 | `--json` | Structured output on stdout, progress on stderr. |
 | `--target-url url --confirm-target` | Send into a specific thread the dedicated browser already has open. |
 
 Prefer prompts to flags? `prodex ui` (or a bare `prodex` in a terminal) asks what to send and where, shows a progress bar, and prints the equivalent command so the flags are learnable.
+
+Conversation/project lists contain only entries exposed by the rendered UI, not the full account history. Automatic chat/project deletion and hidden transcript/report retrieval are unavailable; perform those operations yourself in ChatGPT. A successful recovery requires the requested conversation and a stable, finished answer.
 
 ## Agents over MCP
 
@@ -151,15 +157,22 @@ prodex status                     # shows the saved defaults
 ```sh
 prodex pro browser login                    # once, headed: sign in
 prodex pro browser login --virtual-display  # from then on: no window anywhere
+prodex pro browser login --headed            # visible login/captcha when a hidden mode was saved
 ```
 
-`--virtual-display` (or `PRODEX_VIRTUAL_DISPLAY=1`, which the MCP server and its auto-recovery honour too) starts an X virtual framebuffer and runs the dedicated Chrome on it. It is a real headed browser, so Cloudflare treats it as one: measured end to end, the signed-in profile loaded chatgpt.com with no challenge and a Pro send returned normally, with nothing on the desktop. Linux and WSL; needs `xvfb` and `xauth`, and the display is protected by a per-display xauth cookie rather than opened to every process.
+`--virtual-display` (or `PRODEX_VIRTUAL_DISPLAY=1`, which the MCP server and its auto-recovery honour too) starts an X virtual framebuffer and runs the dedicated Chrome on it. It uses ordinary headed Chrome without a desktop window, not Chrome's headless mode. Linux and WSL; needs `xvfb` and `xauth`. New displays use local abstract Unix sockets with per-display xauth authentication and no TCP listener. This does not bypass login or protection checks.
+
+Already-running browsers and legacy TCP X servers are not stopped or migrated by the update. To migrate, finish pending consults, stop the dedicated browser and its old X server, then launch with `--virtual-display` using the updated prodex. A new launch skips any display number still occupied by a TCP listener.
+
+The last recorded window mode is reused by later `login` commands and by CLI/MCP auto-recovery. One explicit mode flag (`--headed`, `--headless`, `--minimized`, or `--virtual-display`) overrides environment and saved state as a whole. With no mode flag, any non-empty mode environment value wins as a whole too, including `PRODEX_HEADLESS=0`, `false`, or `no`; otherwise the saved mode remains. The modes are mutually exclusive, and the normal first-run default remains a visible headed browser. If virtual-display setup fails, recovery stops instead of unexpectedly opening a desktop window.
 
 `--minimized` keeps a window but minimizes it. Under WSLg a minimized Chrome still reports itself visible and consults keep working; a normal Linux desktop marks it hidden, and prodex refuses to send into a tab it cannot read, restores the window, and tells you.
 
 `--headless` exists and is not usable against ChatGPT today: measured on a signed-in profile, headless Chrome stays on Cloudflare's interstitial past sixty seconds. Only the window is optional; the login is not.
 
-A browser that stops answering its control port mid-send is ended and started fresh before the send, and the receipt says so (`PRODEX_NO_AUTO_CLEAR=1` turns that off). A browser that is merely slow is left alone.
+If a hidden or virtual browser needs login, captcha, Cloudflare, or account verification, close that browser yourself and run `prodex pro browser login --headed` to complete the interactive step. Merely omitting `--headless` does not switch modes because the saved mode persists. prodex does not bypass the protection or kill a running browser to change its mode.
+
+Before a prompt is submitted, a browser confirmed to have stopped answering its control port can be ended and started fresh, and the receipt says so (`PRODEX_NO_AUTO_CLEAR=1` turns that off). A browser that is merely slow is left alone. After submission, prodex never auto-resends a lost prompt.
 
 ## Receipts
 
@@ -175,7 +188,9 @@ Everything a consult touches is written under `.bridge/` in the repo it ran from
   diagnostics/  screenshots and page-shape snapshots from failed sends, when enabled
 ```
 
-`prodex init` creates the ledger (a browser send creates it on first use too). `prodex pro latest`, `pro show`, `results show`, `results artifact`, `receipts show` and `sessions show` read them; `--json` on the list commands gives structured output. Result artifacts are checked against the sha256 recorded when they were finalized. A blocked consult is completed as blocked with its code and next step, so `pro latest` shows what happened even when nothing was sent. `prodex receipts rotate-key` signs new receipts with a fresh key while older ones stay verifiable; `prodex results reseal <task-id> --confirm-current-result` re-signs a legacy result you have reviewed.
+`prodex init` creates the ledger (a browser send creates it on first use too). `prodex pro latest`, `pro show`, `results show`, `results artifact`, `receipts show` and `sessions show` read them; `--json` on the list commands gives structured output. Newly finalized result artifacts are checked against their recorded sha256. Legacy artifacts without hashes remain readable with a `legacy_artifact_unverified` warning; signing result metadata does not verify those bytes. A blocked consult is completed as blocked with its code and next step, so `pro latest` shows what happened even when nothing was sent. `prodex receipts rotate-key` signs new receipts with a fresh key while older ones stay verifiable; `prodex results reseal <task-id> --confirm-current-result` re-signs a legacy result you have reviewed.
+
+`sessions cancel` clears a stale session record after an interrupted send; it does not stop a running browser request. Stop that request in the terminal or client that started it.
 
 Two sibling tools read the same ledger, found through the bridge registry prodex keeps in `~/.local/share/prodex/bridges.json`: [sessionwiki](https://github.com/youdie006/sessionwiki) indexes every consult as a searchable session, and [swapdex](https://github.com/youdie006/swapdex) lists recent consults after an account switch. Neither is required.
 
@@ -192,7 +207,7 @@ ChatGPT Projects ---------+        v                                            
                                                                                 ChatGPT Pro
 ```
 
-The browser is a real Chrome launched with `--remote-debugging-port` on `127.0.0.1`, live only while that window is open. prodex checks the page state, confirms the tab is on a ChatGPT conversation it can read, applies the picker selection, types the prompt, waits for the answer to finish, and reads it from the transcript. Sends are paced to human speed (one every ten seconds by default, `PRODEX_MIN_SEND_INTERVAL_MS` tunes it) and take a cross-process lock, so two agents on one machine queue rather than fight over the composer.
+The browser is a real Chrome launched with `--remote-debugging-port` on `127.0.0.1`, live only while the browser process is running. prodex checks the page state, confirms the tab is on a ChatGPT conversation it can read, applies the picker selection, types the prompt, waits for the answer to finish, and reads its rendered content. Sends are paced to human speed (one every ten seconds by default, `PRODEX_MIN_SEND_INTERVAL_MS` tunes it) and take a cross-process lock, so two agents on one machine queue rather than fight over the composer.
 
 ### What it will not do
 
@@ -225,7 +240,7 @@ Reports are deduplicated by blocker code, so something that stays broken adds to
 
 **Why the pause before sending?** Pacing: `send_pacing: waiting Ns` on stderr. `PRODEX_MIN_SEND_INTERVAL_MS=0` disables it.
 
-**The answer timed out.** Pro can take many minutes; the `send_timeout` blocker prints a rerun command with a doubled budget, and a partial answer is kept with an `answer_incomplete` warning. If the thread finished after the timeout, `prodex pro browser recover --target-url <thread>` fetches it, deep research reports included.
+**The answer timed out.** Pro can take many minutes; incomplete send results are marked rather than presented as finished. If the thread finished after the timeout, `prodex pro browser recover --target-url <thread>` reads its rendered answer without sending again. Deep-research widget reports are not supported by this recovery path.
 
 **Sends started failing after many consults in one chat.** Long threads confuse prompt-acceptance detection. Use `--new-chat` (`new_chat: true` on the MCP tool).
 

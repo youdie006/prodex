@@ -48,12 +48,10 @@ consult you expect. Claude Code needs no change: its default stdio tool
 timeout is effectively unlimited (~28h) unless you tightened `MCP_TOOL_TIMEOUT`
 or a per-server `"timeout"`.
 
-A deep research consult (`tools: ["deep-research"]`) is the longest of these:
-the run takes about ten minutes and prodex raises its own budget to 30, so a
-client timeout below that aborts the call while the research keeps going. That
-is recoverable rather than lost - `pro_recover` with the thread from the
-blocker collects the report afterwards - but a client budget that covers the
-run avoids the round trip.
+Keep the client budget longer than the ordinary consult budget. Current
+browser-only builds block `tools: ["deep-research"]` before sending because
+automatic report retrieval depended on an internal API. Run research manually
+in ChatGPT; `pro_recover` only accepts a finished, rendered conversation answer.
 
 Approval gate (verified on Codex 0.142.5): Codex asks for per-call approval
 before invoking prodex MCP tools. In interactive `codex` sessions you simply

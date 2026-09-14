@@ -82,6 +82,7 @@ Use this only when you explicitly want to use your logged-in ChatGPT Pro web ses
 ```bash
 prodex pro browser login --dry-run
 prodex pro browser login
+prodex pro browser login --headed  # force a visible window for interactive reauthentication
 prodex pro browser help
 prodex pro browser check
 prodex pro browser smoke --cwd /absolute/path/to/your/repo
@@ -105,6 +106,7 @@ What happens:
 
 - `login --dry-run` prints the dedicated Chrome profile, debug URL, and next commands without opening a browser.
 - `login` opens that dedicated Chrome profile at ChatGPT. In an interactive terminal it then waits (default 5 minutes; `--no-wait` skips, `--wait-timeout-ms` tunes) and narrates which manual step is still missing until it reports READY; scripts and agents get the immediate return unless they pass `--wait`.
+- `login` reuses the last profile recorded for the resolved debug port when `--profile-dir` is omitted. It does not reuse a saved custom port implicitly: `--port` / `PRODEX_CDP_PORT` / the normal `9333` default still resolve the port exactly as before.
 - You log in manually in the visible browser.
 - If ChatGPT asks for captcha, Cloudflare/human verification, permission, or account verification, handle it in that browser.
 - If ChatGPT shows a usage limit, message limit, model limit, or rate limit, wait for the reset or choose an available model in the browser.
@@ -130,6 +132,10 @@ prodex sessions show latest
 ```
 
 This uses the currently available ChatGPT web session and model selection. It is not a hidden API client, and it does not read cookies, tokens, localStorage, or sessionStorage.
+
+Current builds read rendered page content only. Project/conversation listings are limited to entries exposed by the UI. Automatic chat/project deletion and deep-research report retrieval are unsupported; those commands stop rather than call internal endpoints. A recovered answer must belong to the requested thread and be stable and finished. Formatting may differ from ChatGPT's rendered message.
+
+Locks fail closed if a process is killed while reclaiming an abandoned lock. A leftover `.reap` claim then needs manual cleanup: first stop every prodex process using that resource and confirm no request/write/startup is active; only then remove the affected lock and its matching `.reap` file. Browser locks live beside the recorded send lock, repo-write locks under `.bridge`, and virtual-display allocation locks under `~/.local/share/prodex/xvfb`. Do not remove a live request's lock to shorten a wait.
 
 #### Choosing the model, reasoning effort, and project
 
@@ -174,13 +180,18 @@ Log in once, then never see the browser again:
 ```bash
 prodex pro browser login                    # once, headed - sign in
 prodex pro browser login --virtual-display  # from now on: no window anywhere
+prodex pro browser login --headed            # force a visible window for login/captcha
 ```
 
-`--virtual-display` (or `PRODEX_VIRTUAL_DISPLAY=1`, which also covers the MCP server and its auto-recovery) starts an X virtual framebuffer and runs the dedicated Chrome on it. It is a **real headed browser**, so Cloudflare treats it as an ordinary one — measured end to end: the signed-in profile loaded chatgpt.com with no challenge and a real Pro send returned in 31 seconds, with nothing on the desktop and nothing in the taskbar. Headless, by contrast, never gets past Cloudflare at all (see below).
+Window mode is one mutually exclusive choice: `--headed`, `--headless`, `--minimized`, or `--virtual-display`. Supplying a CLI mode flag selects the whole mode and overrides environment and saved state. With no mode flag, any non-empty `PRODEX_HEADLESS`, `PRODEX_MINIMIZE_WINDOW`, or `PRODEX_VIRTUAL_DISPLAY` value selects the whole environment mode; `0`, `false`, and `no` are meaningful false values, so `PRODEX_HEADLESS=0` explicitly selects ordinary headed mode instead of falling back to a saved headless launch. With neither flags nor mode environment settings, `login` and CLI/MCP auto-recovery reuse the last recorded mode. With no saved record, the normal default is headed.
 
-Requires `Xvfb` and `xauth` (`sudo apt install -y xvfb x11-xkb-utils xauth`); prodex names the package if they are missing. Linux and WSL only. The display is served over loopback TCP because WSLg mounts `/tmp/.X11-unix` read-only, and it is protected by a per-display xauth cookie under `~/.local/share/prodex/xvfb/` — never `-ac`, so no other process can watch your signed-in window. The X server outlives the CLI on purpose (the browser runs on it) and is reused by later commands; `PRODEX_VIRTUAL_DISPLAY_NUM` picks the display number if `:99` is taken.
+`--virtual-display` (or `PRODEX_VIRTUAL_DISPLAY=1`, which also covers the MCP server and its auto-recovery) starts an X virtual framebuffer and runs the dedicated Chrome on it. It is a **real headed browser** without a desktop window, not Chrome's headless mode. Login, captcha, rate limits, and permission checks still apply; this mode does not bypass them.
 
-A browser already running on your desktop cannot be moved onto a virtual display by reusing it, so prodex refuses the switch and tells you to close it first (`pkill -f "remote-debugging-port=9333"`).
+Requires `Xvfb` and `xauth` (`sudo apt install -y xvfb x11-xkb-utils xauth`); prodex names the package if they are missing. Linux and WSL only. New displays use Linux abstract Unix sockets, which also work when WSLg mounts `/tmp/.X11-unix` read-only. TCP and filesystem Unix listeners are disabled. A per-display xauth cookie under `~/.local/share/prodex/xvfb/` restricts access to clients holding that credential; `-ac` is never used. The X server outlives the CLI on purpose (the browser runs on it) and is reused by later commands; `PRODEX_VIRTUAL_DISPLAY_NUM` selects the first number to try if `:99` is taken. A setup failure stops the launch or recovery, without falling back to a desktop window.
+
+Existing browsers and legacy TCP X servers are not stopped or migrated automatically. Finish pending consults, stop the dedicated browser and its old X server, then run the updated `prodex pro browser login --virtual-display` to migrate. New launches skip display numbers with an existing TCP listener and record the display number actually used.
+
+A browser already running on your desktop cannot be moved onto a virtual display by reusing it. prodex refuses the switch without ending the browser; close it yourself, then rerun with the intended mode. Reinvoking `login` for an already-running virtual browser reuses its saved display identity and does not allocate another display.
 
 ### Keeping the window, just out of the way
 
@@ -192,10 +203,10 @@ The catch is what "minimized" means to your desktop. Under WSLg a minimized Chro
 
 `prodex pro browser login --headless` (or `PRODEX_HEADLESS=1`, which also covers the MCP server and its auto-recovery) runs the dedicated browser with no visible window. Two constraints are real, not cosmetic:
 
-- **Sign in headed first.** Nobody can log in to a window that does not exist, so headless reuses a profile you already signed into. The headless login verifies the saved session and tells you to run the headed login once if it is not there.
+- **Sign in headed first.** Nobody can log in to a window that does not exist, so headless reuses a profile you already signed into. If login, captcha, Cloudflare, permission, or account verification is needed, close the hidden browser yourself and run `prodex pro browser login --headed` for a visible interactive window. Do not merely omit `--headless`: saved modes persist.
 - **One mode at a time.** A single Chrome profile cannot serve a headed and a headless instance simultaneously; close the running one before switching (prodex refuses the switch instead of silently reusing the wrong mode).
 
-**Cloudflare is the catch, and it is not theoretical.** Measured on a real signed-in profile: headless Chrome lands on the "Just a moment..." interstitial and stays there past 60 seconds, so ChatGPT never loads. A signed-in profile does not buy a pass — the challenge keys on the headless browser itself. Treat `--headless` as available-but-unproven against ChatGPT: try it, and if `prodex pro browser check` reports the challenge, run headed. Only the window is optional; the login is not.
+**Cloudflare is the catch, and it is not theoretical.** Measured on a real signed-in profile: headless Chrome lands on the "Just a moment..." interstitial and stays there past 60 seconds, so ChatGPT never loads. A signed-in profile does not buy a pass — the challenge keys on the headless browser itself. Treat `--headless` as available-but-unproven against ChatGPT: if `prodex pro browser check` reports the challenge, run `prodex pro browser login --headed` and complete it visibly. prodex does not invoke a hidden API or bypass login/protection. Only the window is optional; the login is not.
 
 If a consult finds the browser closed, prodex now relaunches it in the same mode you last used and retries once — including from the MCP server, which has no terminal to prompt in. `PRODEX_NO_AUTO_LOGIN=1` turns that off.
 
@@ -270,7 +281,7 @@ Token-bearing MCP URLs are secrets. They authorize all enabled bridge tools, inc
 prodex status --show-token --url-only
 ```
 
-`status --show-token` requires a token with an expiry, so run `setup --token-ttl-hours <hours>` before asking for a paste-ready URL. The URL token is stored only in `.bridge/config.local.json`, which is ignored by git. Rotate it with `setup` when you no longer need that URL. If you intentionally created a non-expiring token for local-only debugging, `status --show-token` refuses to reveal it unless you also pass `--unsafe-show-non-expiring-token`. `doctor` and `pro browser check` also print `config_warning` when the saved token is non-expiring.
+`status --show-token` requires a token with an expiry, so run `setup --token-ttl-hours <hours>` before asking for a paste-ready URL. The URL token is stored only in `.bridge/config.local.json`, which is ignored by git. Rotate it with `setup --token-ttl-hours <hours>`, then restart `prodex start` and update client URLs. Plain `setup` preserves the saved token and expiry, and unspecified listener settings are preserved. If you intentionally created a non-expiring token for local-only debugging, `status --show-token` refuses to reveal it unless you also pass `--unsafe-show-non-expiring-token`. `doctor` and `pro browser check` also print `config_warning` when the saved token is non-expiring.
 
 After adding the MCP URL to ChatGPT, generate a paste-ready verification prompt:
 

@@ -107,7 +107,9 @@ Write tools are narrow and receipt-gated, and they require a git worktree with a
 
 `pro_consult` lets Claude ask your logged-in ChatGPT (Pro) directly: it drives the same explicit visible-browser consult as `prodex pro browser ask` (human-paced, blocker-gated, receipt-recorded, answer saved under `.bridge/artifacts/pro-consults/`) and can take minutes for Pro extended reasoning. It requires a prior `prodex pro browser login` session and is registered only on the local stdio MCP server — the HTTP MCP surface never exposes it, so nothing reachable through a tunnel or ChatGPT itself can drive your browser.
 
-`pro_recover` collects an answer that finished after a consult stopped waiting. A timed-out or still-running consult returns the thread it landed in, and the answer is almost always sitting there; this is also how a deep research report is collected, since a research run keeps going after the consult that started it has returned. It reads a thread and sends nothing, so retrying it is safe. Like `pro_consult`, it is registered only on the local stdio MCP server.
+`pro_recover` reads a finished, rendered answer after a consult stopped waiting. It verifies the requested conversation and refuses still-generating or unstable content. It sends nothing. Deep-research widget reports are not supported; current builds block automated deep-research sends before posting. Like `pro_consult`, recovery is registered only on the local stdio MCP server.
+
+Generic bridge result/session/task tools redact ChatGPT thread metadata, including nested blockers; local `pro_consult` recovery information remains available. A legacy result artifact with no saved hash returns `legacy_artifact_unverified` rather than implying its bytes were verified. `sessions cancel` only clears stale bookkeeping after a send was interrupted; it does not stop an active consult.
 
 No shell, public tunnel, direct ungated write, or direct ungated staging tools are exposed through the Claude stdio MCP server; the only browser-facing tools are the explicit `pro_consult` consult and the read-only `pro_recover` described above.
 

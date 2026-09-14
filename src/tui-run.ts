@@ -8,6 +8,7 @@
  */
 import readline from "node:readline";
 import { renderBanner } from "./banner.js";
+import { shellQuote } from "./cli-args.js";
 import { destinationChoices, effortChoices, SEND_KINDS, type DestinationId } from "./tui-flow.js";
 import {
   consultArgsFromChoices,
@@ -59,12 +60,17 @@ export interface TuiIo {
 class KeyQueue {
   private readonly pending: Key[] = [];
   private waiting: ((key: Key) => void) | undefined;
+  private ended = false;
 
   constructor(private readonly input: NodeJS.ReadStream) {
     this.input.on("keypress", this.onKey);
+    this.input.on("end", this.onEnd);
+    this.input.on("close", this.onEnd);
+    if (this.input.readableEnded || this.input.destroyed) this.onEnd();
   }
 
   private onKey = (_str: string, key: Key): void => {
+    if (this.ended) return;
     const value = key ?? {};
     if (this.waiting) {
       const resolve = this.waiting;
@@ -75,7 +81,16 @@ class KeyQueue {
     this.pending.push(value);
   };
 
+  private onEnd = (): void => {
+    this.ended = true;
+    this.pending.length = 0;
+    const resolve = this.waiting;
+    this.waiting = undefined;
+    resolve?.({ name: "c", ctrl: true });
+  };
+
   next(): Promise<Key> {
+    if (this.ended) return Promise.resolve({ name: "c", ctrl: true });
     const buffered = this.pending.shift();
     if (buffered) return Promise.resolve(buffered);
     return new Promise((resolve) => {
@@ -90,6 +105,8 @@ class KeyQueue {
 
   dispose(): void {
     this.input.off("keypress", this.onKey);
+    this.input.off("end", this.onEnd);
+    this.input.off("close", this.onEnd);
   }
 }
 
@@ -101,7 +118,7 @@ function readKey(_io: TuiIo): Promise<Key> {
 }
 
 function isCancel(key: Key): boolean {
-  return (key.ctrl === true && key.name === "c") || key.name === "escape" || key.name === "q";
+  return (key.ctrl === true && (key.name === "c" || key.name === "d")) || key.name === "escape" || key.name === "q";
 }
 
 // Terminals disagree about the Enter key: a carriage return arrives as
@@ -152,18 +169,39 @@ function numericChoice(key: Key, length: number): number | undefined {
 }
 
 /** Read one line with the terminal back in cooked mode, so editing works. */
-async function askLine(io: TuiIo, question: string): Promise<string> {
+async function askLine(io: TuiIo, question: string): Promise<string | undefined> {
   io.input.setRawMode?.(false);
   const rl = readline.createInterface({ input: io.input, output: process.stdout, terminal: true });
-  const answer = await new Promise<string>((resolve) => rl.question(question, resolve));
-  rl.close();
-  // Closing the line reader detaches the keypress plumbing and pauses the
-  // stream, so the next picker would sit there ignoring every key. Re-arm both.
-  io.input.setRawMode?.(true);
-  readline.emitKeypressEvents(io.input);
-  io.input.resume();
-  keys?.drain();
-  return answer.trim();
+  try {
+    const answer = await new Promise<string | undefined>((resolve) => {
+      let settled = false;
+      function settle(value: string | undefined): void {
+        if (settled) return;
+        settled = true;
+        rl.off("SIGINT", onInterrupt);
+        rl.off("close", onClose);
+        resolve(value);
+      }
+      function onInterrupt(): void {
+        settle(undefined);
+      }
+      function onClose(): void {
+        settle(undefined);
+      }
+      rl.once("SIGINT", onInterrupt);
+      rl.once("close", onClose);
+      rl.question(question, (value) => settle(value));
+    });
+    return answer?.trim();
+  } finally {
+    rl.close();
+    // Closing the line reader detaches the keypress plumbing and pauses the
+    // stream, so the next picker would sit there ignoring every key. Re-arm both.
+    io.input.setRawMode?.(true);
+    readline.emitKeypressEvents(io.input);
+    io.input.resume();
+    keys?.drain();
+  }
 }
 
 export interface InteractiveDeps {
@@ -174,8 +212,6 @@ export interface InteractiveDeps {
   /** Pinned model name, so the reasoning screen can name what "keep" means. */
   pinnedModel?: () => Promise<string | undefined>;
   listConversations?: () => Promise<ConversationSummary[]>;
-  /** Move the dedicated tab onto a picked conversation before sending. */
-  openThread?: (url: string) => Promise<boolean>;
   /** Projects with the id their conversations carry, for "open the project". */
   listProjectsWithIds?: () => Promise<Array<{ id: string; name: string }>>;
   listProjects: () => Promise<string[]>;
@@ -317,6 +353,7 @@ export async function runInteractiveConsult(io: TuiIo, deps: InteractiveDeps): P
       }
     } else if (destination === "project-new") {
       projectName = await askLine(io, `${CLEAR}${header}New project\n\n  name: `);
+      if (projectName === undefined) return cancel(io);
       if (!projectName) return cancel(io);
       projectMode = "new";
     } else if (destination === "no-project") {
@@ -328,6 +365,7 @@ export async function runInteractiveConsult(io: TuiIo, deps: InteractiveDeps): P
     const kindLabel = SEND_KINDS[kindChoice].label;
     const prompt = await askLine(io, `${kindLabel}   Step ${steps} of ${steps}\n\n  prompt: `);
     io.write(HIDE_CURSOR);
+    if (prompt === undefined) return cancel(io);
     if (prompt.length === 0) {
       io.write("Nothing to ask.\n");
       return 1;
@@ -337,10 +375,10 @@ export async function runInteractiveConsult(io: TuiIo, deps: InteractiveDeps): P
     // image, and the picker had no way to say so. Asked after the prompt, and
     // skipped by pressing enter, so the common case costs one keystroke.
     io.write(SHOW_CURSOR);
-    const attachments = parseAttachmentLine(
-      await askLine(io, "\n  attach files? repo-relative paths, space separated, enter to skip\n  files: ")
-    );
+    const attachmentLine = await askLine(io, "\n  attach files? repo-relative paths, space separated, enter to skip\n  files: ");
     io.write(HIDE_CURSOR);
+    if (attachmentLine === undefined) return cancel(io);
+    const attachments = parseAttachmentLine(attachmentLine);
 
     const choices: ConsultChoices = {
       prompt,
@@ -363,21 +401,9 @@ export async function runInteractiveConsult(io: TuiIo, deps: InteractiveDeps): P
     // stop", and under raw mode that promise was false for the whole ten
     // minutes a deep research send runs. No key is read from here on.
     io.input.setRawMode?.(false);
-    // --target-url confirms which conversation a send means; it deliberately
-    // does not navigate. Picking one from a list IS a request to go there, so
-    // move the tab first and let the flag confirm it landed.
-    if (targetUrl && deps.openThread) {
-      io.write("Opening the conversation you picked...\n");
-      if (!(await deps.openThread(targetUrl))) {
-        io.write(`Could not open ${targetUrl} in the dedicated browser.\n`);
-        return 1;
-      }
-    }
     io.write(`Sending. Equivalent command:\n  prodex ${formatCommand(args)}\n\n`);
 
-    // Deep research runs about ten minutes; an ordinary Pro answer, minutes.
-    // Fill the bar against that so the wait has a shape.
-    const budgetMs = tools.includes("deep-research") ? 30 * 60_000 : 20 * 60_000;
+    const budgetMs = 20 * 60_000;
     const startedAt = now();
     let label = "starting";
     let tick = 0;
@@ -416,5 +442,5 @@ function cancel(io: TuiIo): number {
 
 /** Quote only what a shell would need quoted, so the echo can be pasted. */
 export function formatCommand(args: string[]): string {
-  return args.map((arg) => (/^[A-Za-z0-9._\-/:=]+$/.test(arg) ? arg : JSON.stringify(arg))).join(" ");
+  return args.map(shellQuote).join(" ");
 }

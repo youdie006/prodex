@@ -21,7 +21,7 @@ Ask / consult commands:
   prodex ask [same flags as pro browser ask] "prompt"  # top-level shortcut for pro browser ask
   prodex pro ask [--dry-run] [--cwd /absolute/path/to/repo] [--file path] [--attach path] [--tool deep-research|web-search|create-image] "prompt"  # dry-run preview
   prodex pro debate-prompt [--topic "..."] [--rounds 2] [--source-cli /absolute/path/to/dist/cli.js]  # print an agent prompt for a structured GPT Pro debate
-  prodex pro browser login [--cwd /absolute/path/to/repo] [--dry-run] [--source-cli /absolute/path/to/dist/cli.js] [--profile-dir path] [--port 9333] [--url https://chatgpt.com/...] [--launch-timeout-ms 5000] [--wait|--no-wait] [--headless|--minimized|--virtual-display] [--wait-timeout-ms 300000]  # preview/open visible browser login
+  prodex pro browser login [--cwd /absolute/path/to/repo] [--dry-run] [--source-cli /absolute/path/to/dist/cli.js] [--profile-dir path] [--port 9333] [--url https://chatgpt.com/...] [--launch-timeout-ms 5000] [--wait|--no-wait] [--headed|--headless|--minimized|--virtual-display] [--wait-timeout-ms 300000]  # preview/open browser login
   prodex pro browser help [--source-cli /absolute/path/to/dist/cli.js]
   prodex pro browser check [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 1500]
   prodex pro browser smoke [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 90000]
@@ -168,7 +168,7 @@ Commands:
   prodex pro ask [--dry-run] [--cwd /absolute/path/to/repo] [--file path] [--attach path] [--tool deep-research|web-search|create-image] "prompt"
   prodex pro debate-prompt [--topic "..."] [--rounds 2] [--source-cli /absolute/path/to/dist/cli.js]
   prodex pro browser help [--source-cli /absolute/path/to/dist/cli.js]
-  prodex pro browser login [--cwd /absolute/path/to/repo] [--dry-run] [--source-cli /absolute/path/to/dist/cli.js] [--launch-timeout-ms 5000] [--wait|--no-wait] [--headless|--minimized|--virtual-display] [--wait-timeout-ms 300000]
+  prodex pro browser login [--cwd /absolute/path/to/repo] [--dry-run] [--source-cli /absolute/path/to/dist/cli.js] [--launch-timeout-ms 5000] [--wait|--no-wait] [--headed|--headless|--minimized|--virtual-display] [--wait-timeout-ms 300000]
   prodex pro browser check [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]
   prodex pro browser smoke [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]
   prodex pro browser models [--source-cli /absolute/path/to/dist/cli.js]
@@ -244,14 +244,17 @@ export function printSessionsHelp(stdout: (line: string) => void): void {
 Commands:
   prodex sessions list [--status preview|running|done|blocked] [--cwd /absolute/path/to/repo] [--json]
   prodex sessions show <session-id|latest> [--cwd /absolute/path/to/repo]
-  prodex sessions cancel <session-id|latest> [--cwd /absolute/path/to/repo]`);
+  prodex sessions cancel <session-id|latest> [--cwd /absolute/path/to/repo]
+
+cancel clears a stale session record left by an interrupted send. It does not
+stop an active browser request; stop that request in its originating terminal.`);
 }
 export function printProBrowserHelp(stdout: (line: string) => void, sourceCli?: string): void {
   const cli = formatCliCommand(sourceCli);
   const sourceCliOption = formatSourceCliOption(sourceCli);
   const loginUsage = sourceCli
-    ? `${cli} pro browser login${sourceCliOption} [--cwd /absolute/path/to/repo] [--dry-run] [--profile-dir path] [--port 9333] [--url https://chatgpt.com/...] [--launch-timeout-ms 5000] [--wait|--no-wait] [--headless|--minimized|--virtual-display] [--wait-timeout-ms 300000]`
-    : "prodex pro browser login [--cwd /absolute/path/to/repo] [--dry-run] [--source-cli /absolute/path/to/dist/cli.js] [--profile-dir path] [--port 9333] [--url https://chatgpt.com/...] [--launch-timeout-ms 5000] [--wait|--no-wait] [--headless|--minimized|--virtual-display] [--wait-timeout-ms 300000]";
+    ? `${cli} pro browser login${sourceCliOption} [--cwd /absolute/path/to/repo] [--dry-run] [--profile-dir path] [--port 9333] [--url https://chatgpt.com/...] [--launch-timeout-ms 5000] [--wait|--no-wait] [--headed|--headless|--minimized|--virtual-display] [--wait-timeout-ms 300000]`
+    : "prodex pro browser login [--cwd /absolute/path/to/repo] [--dry-run] [--source-cli /absolute/path/to/dist/cli.js] [--profile-dir path] [--port 9333] [--url https://chatgpt.com/...] [--launch-timeout-ms 5000] [--wait|--no-wait] [--headed|--headless|--minimized|--virtual-display] [--wait-timeout-ms 300000]";
   const checkUsage = sourceCli
     ? `${cli} pro browser check${sourceCliOption} [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 1500]`
     : "prodex pro browser check [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 1500]";
@@ -268,25 +271,21 @@ export function printProBrowserHelp(stdout: (line: string) => void, sourceCli?: 
   const projectsUsage = sourceCli
     ? `${cli} pro browser projects${sourceCliOption} [--port 9333] [--timeout-ms 15000]  # read-only: exact sidebar project names`
     : "prodex pro browser projects [--source-cli /absolute/path/to/dist/cli.js] [--port 9333] [--timeout-ms 15000]  # read-only: exact sidebar project names";
-  // A send that outlives its budget is not a lost answer, but only if agents
-  // know this exists - and this help is where onboarding sends them.
-  // Deleting a project takes its chats with it, so the usage line says so and
-  // the flag that actually deletes is spelled out rather than implied.
   const projectDeleteUsage = sourceCli
-    ? `${cli} pro browser project-delete${sourceCliOption} [--name "exact name" | --id g-p-...] [--confirm-delete]  # previews unless --confirm-delete; deleting a project takes its chats with it`
-    : `prodex pro browser project-delete [--source-cli /absolute/path/to/dist/cli.js] [--name "exact name" | --id g-p-...] [--confirm-delete]  # previews unless --confirm-delete; deleting a project takes its chats with it`;
+    ? `${cli} pro browser project-delete${sourceCliOption} [--name "exact name" | --id g-p-...] [--confirm-delete]  # automatic deletion unsupported; use the ChatGPT UI`
+    : `prodex pro browser project-delete [--source-cli /absolute/path/to/dist/cli.js] [--name "exact name" | --id g-p-...] [--confirm-delete]  # automatic deletion unsupported; use the ChatGPT UI`;
   const chatsUsage = sourceCli
-    ? `${cli} pro browser chats${sourceCliOption} [--limit 10]  # read-only: recent conversations with their ids`
-    : "prodex pro browser chats [--source-cli /absolute/path/to/dist/cli.js] [--limit 10]  # read-only: recent conversations with their ids";
+    ? `${cli} pro browser chats${sourceCliOption} [--limit 10]  # read-only: conversations currently visible in the UI`
+    : "prodex pro browser chats [--source-cli /absolute/path/to/dist/cli.js] [--limit 10]  # read-only: conversations currently visible in the UI";
   const chatDeleteUsage = sourceCli
-    ? `${cli} pro browser chat-delete${sourceCliOption} [--title "exact title" | --id <id>] [--confirm-delete]  # previews unless --confirm-delete`
-    : `prodex pro browser chat-delete [--source-cli /absolute/path/to/dist/cli.js] [--title "exact title" | --id <id>] [--confirm-delete]  # previews unless --confirm-delete`;
+    ? `${cli} pro browser chat-delete${sourceCliOption} [--title "exact title" | --id <id>] [--confirm-delete]  # automatic deletion unsupported; use the ChatGPT UI`
+    : `prodex pro browser chat-delete [--source-cli /absolute/path/to/dist/cli.js] [--title "exact title" | --id <id>] [--confirm-delete]  # automatic deletion unsupported; use the ChatGPT UI`;
   const resetUsage = sourceCli
     ? `${cli} pro browser reset${sourceCliOption} [--port 9333] [--confirm]  # end a browser that runs but stopped answering; previews unless --confirm`
     : "prodex pro browser reset [--source-cli /absolute/path/to/dist/cli.js] [--port 9333] [--confirm]  # end a browser that runs but stopped answering; previews unless --confirm";
   const recoverUsage = sourceCli
-    ? `${cli} pro browser recover${sourceCliOption} [--cwd /absolute/path/to/repo] [--port 9333] --target-url <thread-url> [--timeout-ms 60000]  # fetch a finished answer (deep research reports too) from a thread whose send timed out`
-    : "prodex pro browser recover [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] --target-url <thread-url> [--timeout-ms 60000]  # fetch a finished answer (deep research reports too) from a thread whose send timed out";
+    ? `${cli} pro browser recover${sourceCliOption} [--cwd /absolute/path/to/repo] [--port 9333] --target-url <thread-url> [--timeout-ms 60000]  # read a stable, finished answer rendered in the requested thread`
+    : "prodex pro browser recover [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] --target-url <thread-url> [--timeout-ms 60000]  # read a stable, finished answer rendered in the requested thread";
   stdout(`${cli} pro browser
 
 Commands:
@@ -303,6 +302,10 @@ Commands:
   ${recoverUsage}
 
 Visible-browser sends require a manual browser session and stop on login, captcha, Cloudflare, permission, rate-limit, or usage-limit blockers, plus response_choice_pending when ChatGPT is waiting for you to pick which of two answers you prefer.
+Only rendered page content is read. Automatic deep-research report retrieval and deletion are unsupported; --tool deep-research stops before sending. Lists cover visible entries, not the full account history.
+Window mode (login and auto-recovery):
+  --headed / --headless / --minimized / --virtual-display are mutually exclusive. An explicit flag selects the whole mode and overrides environment and saved state; --headed requests a visible interactive browser for login or captcha. Close any browser running in a different mode yourself before switching.
+  If no mode flag is supplied, any non-empty PRODEX_HEADLESS / PRODEX_MINIMIZE_WINDOW / PRODEX_VIRTUAL_DISPLAY setting selects the whole environment mode, including 0/false/no values that explicitly select headed mode. Otherwise the last recorded login mode is reused; with no saved mode the default is headed.
 Model/project selection (ask):
   --model      Composer model by its exact menu label. On the current picker only Pro applies - it is a step of the power slider, while the model rows carry pointer-events: none and no coordinate reaches them, so any other name warns and the send goes out on whatever the composer already had. Models whose menu entry opens a submenu of variants are rejected with a clear error for now.
   --pro-mode   Pro sub-mode: 기본 (standard) or 확장 (extended), used when the model is Pro. A Pro selection raises the default --timeout-ms to 1200000.

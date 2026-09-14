@@ -19,7 +19,6 @@ export interface SendKind {
 
 export const SEND_KINDS: SendKind[] = [
   { id: "chat", label: "Normal chat", hint: "ordinary Pro answer", tools: [] },
-  { id: "deep-research", label: "Deep research", hint: "browsed report, runs about 10 minutes", tools: ["deep-research"] },
   { id: "web-search", label: "Web search", hint: "current facts, with sources", tools: ["web-search"] },
   { id: "create-image", label: "Create image", tools: ["create-image"] }
 ];

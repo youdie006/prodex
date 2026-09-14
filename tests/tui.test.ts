@@ -1,6 +1,9 @@
+import { execFileSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
 
-const { effortChoices } = await import("../src/tui-flow.js");
+import { formatCommand } from "../src/tui-run.js";
+
+const { effortChoices, SEND_KINDS } = await import("../src/tui-flow.js");
 const {
   consultArgsFromChoices,
   conversationThreadUrl,
@@ -222,37 +225,67 @@ describe("reasoning choices", () => {
 });
 
 describe("conversation list", () => {
-  it("lists recent conversations with titles so an existing chat can be picked", async () => {
-    const listed = { items: [{ id: "c1", title: "TCP vs QUIC" }, { id: "c2", title: "" }] };
-    const fakeFetch = async (url: string) =>
-      url.includes("/api/auth/session")
-        ? { ok: true, status: 200, json: async () => ({ accessToken: "tok" }) }
-        : { ok: true, status: 200, json: async () => listed };
-    const rows = await new Function("fetch", `return ${recentConversationTitlesExpression(5)}`)(fakeFetch);
-
-    expect(rows).toEqual([
-      { id: "c1", title: "TCP vs QUIC" },
-      { id: "c2", title: "Untitled" }
-    ]);
+  it("does not offer unsupported research in the interactive picker", () => {
+    expect(SEND_KINDS.some((kind) => kind.tools.includes("deep-research"))).toBe(false);
   });
 
-  it("lists projects with the id their conversations are tagged with", async () => {
-    const sidebar = {
-      items: [
-        { gizmo: { id: "g-p-aaa", display: { name: "prodex-smoke-project" } } },
-        { gizmo: { id: "g-p-bbb", display: { name: "Codex" } } }
+  it.each([false, true])("retains project association regardless of duplicate order (scoped first=%s)", (scopedFirst) => {
+    const id = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+    const anchors = [fakeAnchor(`/c/${id}`, "Plain"), fakeAnchor(`/g/g-p-abc-project/c/${id}`, "Scoped")];
+    if (scopedFirst) anchors.reverse();
+    const rows = new Function("document", `return ${recentConversationTitlesExpression(1)}`)({ querySelectorAll: () => anchors });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ id, gizmoId: "g-p-abc" });
+  });
+
+  it("rejects conversation IDs that the browser cannot open", () => {
+    const anchors = [fakeAnchor("/c/not-a-thread", "Invalid"), fakeAnchor("/c/abc", "Short")];
+    expect(new Function("document", `return ${recentConversationTitlesExpression()}`)({ querySelectorAll: () => anchors })).toEqual([]);
+  });
+
+  it("lists only bounded visible conversation anchors on canonical ChatGPT URLs", () => {
+    const expression = recentConversationTitlesExpression(2);
+    const rows = new Function("document", `return ${expression}`)({
+      querySelectorAll: () => [
+        fakeAnchor("/c/aaaaaaaaaaaaaaaa", "TCP vs QUIC"),
+        fakeAnchor("https://chatgpt.com/g/g-p-bbb-project/c/bbbbbbbbbbbbbbbb", ""),
+        fakeAnchor("/c/hidden", "Hidden", false),
+        fakeAnchor("https://example.com/c/external", "External"),
+        fakeAnchor("http://chatgpt.com/c/insecure", "Insecure"),
+        fakeAnchor("/c/over-limit", "Over limit")
       ]
-    };
-    const fakeFetch = async (url: string) =>
-      url.includes("/api/auth/session")
-        ? { ok: true, status: 200, json: async () => ({ accessToken: "tok" }) }
-        : { ok: true, status: 200, json: async () => sidebar };
-    const rows = await new Function("fetch", `return ${projectsWithIdsExpression()}`)(fakeFetch);
+    });
 
     expect(rows).toEqual([
+      { id: "aaaaaaaaaaaaaaaa", title: "TCP vs QUIC" },
+      { id: "bbbbbbbbbbbbbbbb", title: "Untitled", gizmoId: "g-p-bbb" }
+    ]);
+    expect(expression).not.toMatch(/fetch|accessToken|authorization|backend-api|api\/auth\/session/i);
+  });
+
+  it("lists only bounded visible project anchors on canonical ChatGPT URLs", () => {
+    const expression = projectsWithIdsExpression();
+    const excess = Array.from({ length: 101 }, (_, index) =>
+      fakeAnchor(`/g/g-p-${(index + 16).toString(16)}/project`, `Project ${index}`)
+    );
+    const rows = new Function("document", `return ${expression}`)({
+      querySelectorAll: () => [
+        fakeAnchor("/g/g-p-aaa-prodex-smoke-project/project", "prodex-smoke-project"),
+        fakeAnchor("https://chatgpt.com/g/g-p-bbb/project", "Codex"),
+        fakeAnchor("/g/g-p-ccc/project", "Hidden", false),
+        fakeAnchor("https://example.com/g/g-p-ddd/project", "External"),
+        fakeAnchor("http://chatgpt.com/g/g-p-eee/project", "Insecure"),
+        fakeAnchor("/g/g-p-fff/project", ""),
+        ...excess
+      ]
+    });
+
+    expect(rows.slice(0, 2)).toEqual([
       { id: "g-p-aaa", name: "prodex-smoke-project" },
       { id: "g-p-bbb", name: "Codex" }
     ]);
+    expect(rows).toHaveLength(100);
+    expect(expression).not.toMatch(/fetch|accessToken|authorization|backend-api|api\/auth\/session/i);
   });
 
   it("keeps only the conversations belonging to a picked project", () => {
@@ -275,6 +308,27 @@ describe("conversation list", () => {
     );
   });
 });
+
+describe("equivalent command", () => {
+  it("preserves shell substitutions, variables, quotes, backticks, and newlines as literal prompt text", () => {
+    const prompt = "Explain $(printf REVIEW_EXPANDED) $HOME `printf BACKTICK` and 'quotes'\nnext line";
+    const rendered = formatCommand([prompt]);
+
+    expect(execFileSync("bash", ["-c", `printf %s ${rendered}`], { encoding: "utf8" })).toBe(prompt);
+  });
+});
+
+function fakeAnchor(href: string, text: string, visible = true) {
+  return {
+    textContent: text,
+    getAttribute(name: string) {
+      return name === "href" ? href : null;
+    },
+    getClientRects() {
+      return visible ? [{}] : [];
+    }
+  };
+}
 
 describe("readability", () => {
   it("numbers the rows and marks the cursor with a bar, the way a picker is normally read", () => {

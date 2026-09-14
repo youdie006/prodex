@@ -2,10 +2,11 @@ import { spawn, spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { accessSync, constants, readFileSync, statSync } from "node:fs";
 import net from "node:net";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { captureBrowserDiagnostics, diagnosticsEnabled, diagnosticsNote } from "./browser-diagnostics.js";
+import { withCrossProcessFileLock } from "./safe-file.js";
 import os from "node:os";
 
 import {
@@ -20,6 +21,7 @@ import {
   sliderPressOutcome,
   sliderDidNotRespond
 } from "./picker-interaction.js";
+import { projectsWithIdsExpression, recentConversationTitlesExpression } from "./tui.js";
 
 export interface ChatGptBrowserOptions {
   port?: number;
@@ -30,12 +32,12 @@ export interface ChatGptBrowserOptions {
    * is ALREADY logged in (sign-in itself needs a real window), and the same
    * profile cannot be driven by a headed instance at the same time.
    *
-   * Rejected by Cloudflare on chatgpt.com - prefer virtualDisplay.
+   * Login and protective prompts still require manual action.
    */
   headless?: boolean;
   /**
    * Run a REAL headed browser on a virtual X display, so no window appears
-   * anywhere while Cloudflare still sees an ordinary browser.
+   * anywhere. This does not bypass login or protective prompts.
    */
   virtualDisplay?: { displayNumber: number; xauthority: string };
 }
@@ -82,11 +84,18 @@ export class ChatGptBrowserBlockerError extends Error {
   }
 }
 
+function unsupportedChatGptOperationError(operation: string, nextStep: string): ChatGptBrowserBlockerError {
+  return new ChatGptBrowserBlockerError({
+    code: "unsupported_chatgpt_operation",
+    message: `${operation} is disabled because prodex cannot complete it through bounded, visible browser controls.`,
+    retryable: false,
+    next_step: nextStep
+  });
+}
+
 export type ChatGptReasoningEffort = "즉시" | "중간" | "높음" | "매우 높음" | "Max" | "Ultra" | "Pro";
 export type ChatGptProMode = "기본" | "확장";
 
-/** Where ChatGPT persists the Chat/Work choice, readable on every page. */
-const CHAT_SURFACE_STORAGE_KEY = "oai/apps/tpp/chat-surface-mode";
 /** ~10s: measured, the surface took seconds to re-render after switching. */
 const CHAT_SURFACE_SETTLE_ATTEMPTS = 14;
 /** A full trip round the menu is far more than any real picker needs. */
@@ -484,11 +493,6 @@ export function buildChromeLaunchArgs(options: {
 }
 
 /**
- * Headless is opt-in: an explicit option wins, otherwise PRODEX_HEADLESS
- * (1/true/yes) decides. The env var is the practical switch because the MCP
- * server and its auto-recovery launch the browser with no CLI flags.
- */
-/**
  * Minimize the dedicated browser window and report whether the tab is still
  * readable afterwards.
  *
@@ -537,10 +541,10 @@ export async function minimizeChatGptWindow(options: { port?: number; timeoutMs?
 const VIRTUAL_DISPLAY_SCREEN = "1440x900x24";
 
 /**
- * X server arguments. The display is served over loopback TCP because WSLg
- * mounts /tmp/.X11-unix read-only, so the usual unix socket cannot be created;
- * an xauth cookie (never -ac) keeps other local processes off a display that
- * shows a signed-in ChatGPT window.
+ * X server arguments. Linux still creates its abstract X11 socket when the
+ * filesystem Unix transport is disabled, which works with WSLg's read-only
+ * /tmp/.X11-unix mount without exposing the display over TCP. An xauth cookie
+ * (never -ac) keeps other local processes off the signed-in browser display.
  */
 export function virtualDisplayServerArgs(displayNumber: number, xauthority: string): string[] {
   return [
@@ -548,12 +552,13 @@ export function virtualDisplayServerArgs(displayNumber: number, xauthority: stri
     "-screen",
     "0",
     VIRTUAL_DISPLAY_SCREEN,
-    "-listen",
+    "-nolisten",
     "tcp",
     "-nolisten",
     "unix",
     "-auth",
-    xauthority
+    xauthority,
+    "-pn"
   ];
 }
 
@@ -562,7 +567,7 @@ export function virtualDisplayEnv(
   xauthority: string,
   env: Record<string, string | undefined> = process.env
 ): Record<string, string | undefined> {
-  return { ...env, DISPLAY: `127.0.0.1:${displayNumber}`, XAUTHORITY: xauthority };
+  return { ...env, DISPLAY: `:${displayNumber}`, XAUTHORITY: xauthority };
 }
 
 export function resolveVirtualDisplayPreference(
@@ -570,8 +575,7 @@ export function resolveVirtualDisplayPreference(
   env: Record<string, string | undefined> = process.env
 ): boolean {
   if (typeof explicit === "boolean") return explicit;
-  const raw = (env.PRODEX_VIRTUAL_DISPLAY ?? "").trim().toLowerCase();
-  return raw === "1" || raw === "true" || raw === "yes";
+  return browserModeSettingValue(env.PRODEX_VIRTUAL_DISPLAY);
 }
 
 export function assertVirtualDisplayToolingAvailable(hasCommand: (command: string) => boolean = isCommandOnPath): void {
@@ -592,10 +596,19 @@ function virtualDisplayStateDir(): string {
   return path.join(os.homedir(), ".local", "share", "prodex", "xvfb");
 }
 
-async function tcpPortAccepts(port: number, timeoutMs = 500): Promise<boolean> {
+async function socketAccepts(connect: () => net.Socket, timeoutMs = 500): Promise<boolean> {
   return new Promise((resolve) => {
-    const socket = net.connect({ host: "127.0.0.1", port });
+    let socket: net.Socket;
+    try {
+      socket = connect();
+    } catch {
+      resolve(false);
+      return;
+    }
+    let settled = false;
     const done = (result: boolean) => {
+      if (settled) return;
+      settled = true;
       socket.destroy();
       resolve(result);
     };
@@ -606,26 +619,59 @@ async function tcpPortAccepts(port: number, timeoutMs = 500): Promise<boolean> {
   });
 }
 
+async function tcpPortAccepts(port: number, timeoutMs = 500): Promise<boolean> {
+  return socketAccepts(() => net.connect({ host: "127.0.0.1", port }), timeoutMs);
+}
+
+function virtualDisplayAbstractSocket(displayNumber: number): string {
+  return `\0/tmp/.X11-unix/X${displayNumber}`;
+}
+
+async function virtualDisplaySocketAccepts(displayNumber: number, timeoutMs = 500): Promise<boolean> {
+  return socketAccepts(() => net.connect({ path: virtualDisplayAbstractSocket(displayNumber) }), timeoutMs);
+}
+
 /**
  * Start (or reuse) the prodex virtual display and return how to reach it.
  * The X server outlives the CLI process on purpose: the dedicated browser runs
  * on it, so tearing it down at exit would kill the browser.
  */
 export async function ensureVirtualDisplay(options: { displayNumber?: number } = {}): Promise<VirtualDisplayHandle> {
+  if (process.platform !== "linux") {
+    throw new Error(`Virtual display abstract Unix sockets are supported on Linux/WSL only (current platform: ${process.platform}).`);
+  }
   assertVirtualDisplayToolingAvailable();
   const stateDir = virtualDisplayStateDir();
-  await mkdir(stateDir, { recursive: true, mode: 0o700 });
+  const allocationLock = path.join(stateDir, "allocation.lock");
+  return withCrossProcessFileLock(
+    allocationLock,
+    {
+      waitMs: 30_000,
+      privateParent: true,
+      busyError: () => new Error("Another prodex command is starting a virtual display. Wait for it to finish, then retry."),
+      unavailableError: () => new Error(
+        `Virtual display allocation lock at ${allocationLock} is unavailable. Stop all prodex startups before removing that lock and its matching .reap claim, then retry.`
+      )
+    },
+    () => ensureVirtualDisplayUnlocked(stateDir, options)
+  );
+}
+
+async function ensureVirtualDisplayUnlocked(
+  stateDir: string,
+  options: { displayNumber?: number }
+): Promise<VirtualDisplayHandle> {
   const requested = options.displayNumber ?? Number(process.env.PRODEX_VIRTUAL_DISPLAY_NUM ?? 99);
   const first = Number.isInteger(requested) && requested > 0 && requested < 1000 ? requested : 99;
-  // Walk display numbers: a listening display is only reusable when OUR cookie
-  // for it exists, otherwise it belongs to something else (another tool, or a
-  // stale server started with a different key) and we could not authenticate
-  // to it - that produced "Authorization required" and a browser that died on
-  // launch. A free number gets a fresh server.
+  // Walk display numbers. Any legacy TCP listener reserves its number even if
+  // our old auth file still exists: never migrate, kill, or overwrite it. An
+  // abstract-only display is reusable when our cookie for it exists; otherwise
+  // it belongs to something else and cannot be authenticated. A number with
+  // neither transport gets a fresh server.
   for (let displayNumber = first; displayNumber < first + 10; displayNumber += 1) {
     const xauthority = path.join(stateDir, `Xauthority-${displayNumber}`);
-    const listening = await tcpPortAccepts(6000 + displayNumber);
-    if (listening) {
+    if (await tcpPortAccepts(6000 + displayNumber)) continue;
+    if (await virtualDisplaySocketAccepts(displayNumber)) {
       let ours = false;
       try {
         ours = (await readFile(xauthority)).length > 0;
@@ -637,25 +683,62 @@ export async function ensureVirtualDisplay(options: { displayNumber?: number } =
     }
     const cookie = randomBytes(16).toString("hex");
     await writeFile(xauthority, "", { mode: 0o600 });
-    const auth = spawnSync("xauth", ["-f", xauthority, "add", `127.0.0.1:${displayNumber}`, ".", cookie], {
+    await chmod(xauthority, 0o600);
+    const auth = spawnSync("xauth", ["-f", xauthority, "add", `:${displayNumber}`, ".", cookie], {
       encoding: "utf8",
       timeout: 10_000
     });
     if (auth.status !== 0) {
       throw new Error(`Could not create the X authority cookie: ${(auth.stderr || auth.stdout || "xauth failed").trim()}`);
     }
-    const child = spawn("Xvfb", virtualDisplayServerArgs(displayNumber, xauthority), {
-      detached: true,
-      stdio: "ignore",
-      env: process.env
+    await chmod(xauthority, 0o600);
+    let child: ReturnType<typeof spawn>;
+    try {
+      child = spawn("Xvfb", virtualDisplayServerArgs(displayNumber, xauthority), {
+        detached: true,
+        stdio: "ignore",
+        env: process.env
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Could not start Xvfb for display :${displayNumber}: ${message}`);
+    }
+
+    let rejectStartup!: (error: Error) => void;
+    const startupFailed = new Promise<never>((_resolve, reject) => {
+      rejectStartup = reject;
+    });
+    child.on("error", (error) => {
+      rejectStartup(new Error(`Could not start Xvfb for display :${displayNumber}: ${error.message}`));
+    });
+    child.once("exit", (code, signal) => {
+      rejectStartup(
+        new Error(
+          `Xvfb for display :${displayNumber} exited before its abstract socket was ready (code ${code ?? "null"}, signal ${signal ?? "none"}).`
+        )
+      );
     });
     child.unref();
-    const deadline = Date.now() + 10_000;
-    while (Date.now() < deadline) {
-      if (await tcpPortAccepts(6000 + displayNumber)) return { displayNumber, xauthority, startedNow: true };
-      await sleep(250);
+    try {
+      const deadline = Date.now() + 10_000;
+      while (Date.now() < deadline) {
+        if (await Promise.race([virtualDisplaySocketAccepts(displayNumber), startupFailed])) {
+          return { displayNumber, xauthority, startedNow: true };
+        }
+        await Promise.race([sleep(250), startupFailed]);
+      }
+      throw new Error(`Xvfb did not open its abstract socket for display :${displayNumber} within 10s.`);
+    } catch (error) {
+      if (child.exitCode === null && child.signalCode === null) {
+        try {
+          child.kill("SIGTERM");
+        } catch {
+          // The exact child may already have disappeared between the state
+          // check and kill; never broaden cleanup beyond this invocation.
+        }
+      }
+      throw error;
     }
-    throw new Error(`Xvfb did not start listening for display :${displayNumber} within 10s.`);
   }
   throw new Error(`No free X display between :${first} and :${first + 9}. Set PRODEX_VIRTUAL_DISPLAY_NUM to a free number.`);
 }
@@ -666,10 +749,25 @@ export interface BrowserWindowMode {
   minimized: boolean;
 }
 
+function browserModeSettingValue(raw: string | undefined): boolean {
+  const normalized = (raw ?? "").trim().toLowerCase();
+  return normalized === "1" || normalized === "true" || normalized === "yes";
+}
+
+function assertSingleBrowserWindowMode(
+  modes: readonly { enabled: boolean; label: string }[]
+): void {
+  const enabled = modes.filter((mode) => mode.enabled).map((mode) => mode.label);
+  if (enabled.length > 1) {
+    throw new Error(`Browser window mode settings cannot combine ${enabled.join(" and ")}; choose exactly one.`);
+  }
+}
+
 /**
  * How should the dedicated browser be opened?
  *
- * An explicit flag or environment variable wins; otherwise reopen it the way it
+ * An explicitly supplied flag group wins; otherwise any non-empty environment
+ * mode group wins, including false values. With neither, reopen it the way it
  * was last opened. Without the saved fallback, `pro browser login` - the exact
  * command every `browser_unreachable` blocker tells people to run - put a
  * VISIBLE window back on the desktop of someone who had set up a virtual
@@ -680,45 +778,66 @@ export interface BrowserWindowMode {
  * display.
  */
 export function resolveBrowserWindowMode(args: {
-  flags?: { headless?: boolean; virtualDisplay?: boolean; minimized?: boolean };
+  flags?: { headed?: boolean; headless?: boolean; virtualDisplay?: boolean; minimized?: boolean };
   env?: Record<string, string | undefined>;
   lastLogin?: { headless?: boolean; minimized?: boolean; virtual_display?: number };
 }): BrowserWindowMode {
   const env = args.env ?? process.env;
   const flags = args.flags ?? {};
-  const fromEnv = (name: string): boolean | undefined => {
-    const raw = (env[name] ?? "").trim().toLowerCase();
-    if (raw === "") return undefined;
-    return raw === "1" || raw === "true" || raw === "yes";
-  };
-  const explicit = {
-    headless: flags.headless ?? fromEnv("PRODEX_HEADLESS"),
-    virtualDisplay: flags.virtualDisplay ?? fromEnv("PRODEX_VIRTUAL_DISPLAY"),
-    minimized: flags.minimized ?? fromEnv("PRODEX_MINIMIZE_WINDOW")
-  };
-  const chosen = Object.values(explicit).some((value) => value === true);
-  if (chosen) {
+  const flagGroupSupplied = Object.values(flags).some((value) => typeof value === "boolean");
+  if (flagGroupSupplied) {
+    assertSingleBrowserWindowMode([
+      { enabled: flags.headless === true, label: "--headless" },
+      { enabled: flags.virtualDisplay === true, label: "--virtual-display" },
+      { enabled: flags.minimized === true, label: "--minimized" },
+      { enabled: flags.headed === true, label: "--headed" }
+    ]);
     return {
-      headless: explicit.headless === true,
-      virtualDisplay: explicit.virtualDisplay === true,
-      minimized: explicit.minimized === true
+      headless: flags.headless === true,
+      virtualDisplay: flags.virtualDisplay === true,
+      minimized: flags.minimized === true
     };
   }
+
+  const envModes = [
+    { key: "PRODEX_HEADLESS", mode: "headless" as const },
+    { key: "PRODEX_VIRTUAL_DISPLAY", mode: "virtualDisplay" as const },
+    { key: "PRODEX_MINIMIZE_WINDOW", mode: "minimized" as const }
+  ];
+  const envGroupSupplied = envModes.some(({ key }) => (env[key] ?? "").trim() !== "");
+  if (envGroupSupplied) {
+    const selected = Object.fromEntries(
+      envModes.map(({ key, mode }) => [mode, browserModeSettingValue(env[key])])
+    ) as Record<(typeof envModes)[number]["mode"], boolean>;
+    assertSingleBrowserWindowMode(envModes.map(({ key, mode }) => ({ enabled: selected[mode], label: key })));
+    return selected;
+  }
+
   const saved = args.lastLogin;
-  return {
+  const selected = {
     headless: saved?.headless === true,
     virtualDisplay: saved?.virtual_display !== undefined,
     minimized: saved?.minimized === true
   };
+  assertSingleBrowserWindowMode([
+    { enabled: selected.headless, label: "saved headless mode" },
+    { enabled: selected.virtualDisplay, label: "saved virtual-display mode" },
+    { enabled: selected.minimized, label: "saved minimized mode" }
+  ]);
+  return selected;
 }
 
+/**
+ * Resolve only the low-level headless toggle for direct browser-boundary
+ * callers. Login and recovery use resolveBrowserWindowMode so all primary
+ * modes share one precedence and conflict policy.
+ */
 export function resolveHeadlessPreference(
   explicit?: boolean,
   env: Record<string, string | undefined> = process.env
 ): boolean {
   if (typeof explicit === "boolean") return explicit;
-  const raw = (env.PRODEX_HEADLESS ?? "").trim().toLowerCase();
-  return raw === "1" || raw === "true" || raw === "yes";
+  return browserModeSettingValue(env.PRODEX_HEADLESS);
 }
 
 /**
@@ -1150,25 +1269,6 @@ export function busyBlockerAfterTranscriptCheck(
 ): ChatGptBrowserStatus["blocker"] | undefined {
   if (!busyBlocker) return undefined;
   return transcript?.ok === true && transcript.isComplete === true ? undefined : busyBlocker;
-}
-
-/**
- * Ask the transcript whether the conversation the tab is showing has finished.
- * Undefined when there is nothing to ask about (a fresh chat or project home
- * carries no conversation id) or the read fails.
- */
-async function readTranscriptCompletion(
-  page: DevtoolsPage,
-  url: string
-): Promise<{ ok: boolean; isComplete?: boolean } | undefined> {
-  const conversationId = conversationIdFromThreadUrl(url);
-  if (!conversationId) return undefined;
-  try {
-    const state = await evaluateOnPage<{ ok: boolean; isComplete?: boolean }>(page, transcriptAnswerExpression(conversationId));
-    return { ok: state.ok === true, ...(state.isComplete !== undefined ? { isComplete: state.isComplete } : {}) };
-  } catch {
-    return undefined;
-  }
 }
 
 export function isLikelyChatGptSubmitButton(label: string, dataTestId: string | null): boolean {
@@ -1746,7 +1846,7 @@ export async function getChatGptBrowserStatus(options: { port?: number; timeoutM
     chatGptVisibilityBlocker(state.visibilityState, state.url) ??
     detectChatGptPageBlocker(state) ??
     chatGptResponseChoiceBlocker(state.awaitingResponseChoice === true) ??
-    (busyBlocker ? busyBlockerAfterTranscriptCheck(busyBlocker, await readTranscriptCompletion(page.page, state.url)) : undefined);
+    busyBlocker;
   return {
     reachable: true,
     loggedInLikely,
@@ -2118,21 +2218,7 @@ export function chatSurfaceProbeExpression(): string {
       label: ((el.innerText || el.textContent || "").trim()),
       checked: el.getAttribute("aria-checked") === "true" || el.getAttribute("aria-selected") === "true"
     }));
-    // The toggle is only on the home screen, but the choice is persisted where
-    // every page can read it.
-    let storedMode = "";
-    try {
-      storedMode = localStorage.getItem(${JSON.stringify(CHAT_SURFACE_STORAGE_KEY)}) || "";
-    } catch (error) {
-      storedMode = "";
-    }
-    if (!storedMode) {
-      // Anchored to the start of a cookie, so a name that merely ENDS with this
-      // one cannot answer for it.
-      const m = document.cookie.match(/(?:^|;)\\s*oai-chat-surface-mode=([^;]*)/);
-      storedMode = m ? decodeURIComponent(m[1]) : "";
-    }
-    return { surfaces, storedMode };
+    return { surfaces };
   })()`;
 }
 
@@ -2143,22 +2229,6 @@ export function chatSurfaceToggleRectExpression(): string {
       (el) => ((el.innerText || el.textContent || "").trim()) === "Chat"
     );
     return chat ? clickPoint(chat) : { ok: false, reason: "no Chat toggle" };
-  })()`;
-}
-
-export function selectChatSurfaceExpression(): string {
-  return `(() => {
-    try {
-      localStorage.setItem(${JSON.stringify(CHAT_SURFACE_STORAGE_KEY)}, JSON.stringify("chat"));
-    } catch (error) {
-      // a blocked store is not fatal: the cookie below is what the app reads
-    }
-    // Host-only, the way the app writes it. Setting a domain-wide copy instead
-    // left two oai-chat-surface-mode cookies in play - one chat, one work - and
-    // which of them won was anyone's guess.
-    document.cookie = "oai-chat-surface-mode=chat; path=/; max-age=" + (60 * 60 * 24 * 365);
-    document.cookie = "oai-chat-surface-mode=; path=/; domain=.chatgpt.com; max-age=0";
-    return true;
   })()`;
 }
 
@@ -2811,31 +2881,6 @@ async function ensureChatSurface(cdp: CdpConnection, options: { mayLeaveCurrentP
       await verifiedClickAt(cdp, chat.x, chat.y, "Chat surface toggle");
       if (await confirm()) return note;
     }
-  } catch (error) {
-    if (cdpCommandTimedOut(error)) throw error;
-    // fall through to the stored preference, which works without the toggle
-  }
-  // Threads and project pages do not render the toggle at all, so the surface
-  // is set the way the app itself stores it and the page is reloaded onto it.
-  try {
-    await cdp.evaluate(selectChatSurfaceExpression());
-    // Reading the persisted value back right after writing it proves nothing;
-    // the new document rendering its composer is what proves the switch.
-    const plan = chatSurfaceRecoveryPlan({
-      href: await cdp.evaluate<string>("location.href"),
-      mayLeaveCurrentPage: options.mayLeaveCurrentPage
-    });
-    let applied: boolean;
-    if (plan === "fresh-root") {
-      // Throws when the root never rendered a composer, which the catch below
-      // turns into the same "could not be switched back" warning as a reload
-      // that never settled.
-      await openFreshChatGptHome(cdp);
-      applied = true;
-    } else {
-      applied = await reloadAndAwaitComposer(cdp, RELOAD_SETTLE_TIMEOUT_MS);
-    }
-    if (applied && (await confirm())) return note;
   } catch (error) {
     if (cdpCommandTimedOut(error)) throw error;
     // reported below
@@ -3599,54 +3644,13 @@ export async function recoverChatGptAnswerFromThread(
   let generating = false;
   let stableRuns = 0;
   let lastAnswer = "";
+  let lastObservedUrl = "";
+  let completed = false;
   try {
     await cdp.send("Runtime.enable");
     // In-tab navigation (location.assign, not Page.navigate which has crashed the
     // instance) so we read the requested thread, not whatever was open.
     await cdp.evaluate(`location.assign(${JSON.stringify(url)})`);
-    // A deep research thread has no assistant message to recover - its report
-    // lives in the widget state on the conversation transcript. Check that
-    // first so `recover` works on research threads at all.
-    const conversationId = conversationIdFromThreadUrl(url);
-    if (conversationId) {
-      try {
-        const report = await evaluateOnPage<DeepResearchReportState>(page.page, deepResearchReportExpression(conversationId), {
-          timeoutMs: 60_000
-        });
-        if (report.ok && report.report.trim().length > 0) {
-          return {
-            url,
-            title: "",
-            answer: resolveTranscriptCitations(report.report, report.references).trim(),
-            modelHints: [],
-            warnings: []
-          };
-        }
-        // Not a research thread: read the ordinary answer from the transcript
-        // too. Recover used to be page-only, so it inherited everything the
-        // page loses - flattened markdown, dropped citation urls - and it once
-        // saved ChatGPT's "Connection interrupted" notice as the answer.
-        const transcript = await evaluateOnPage<TranscriptAnswerState>(page.page, transcriptAnswerExpression(conversationId), {
-          timeoutMs: 60_000
-        });
-        if (transcript.ok && transcript.text.trim().length > 0) {
-          const recovered = resolveTranscriptCitations(transcript.text, transcript.references).trim();
-          if (recovered.length > 0) {
-            return {
-              url,
-              title: "",
-              answer: recovered,
-              modelHints: [],
-              ...(transcript.modelSlug ? { modelSlug: transcript.modelSlug } : {}),
-              warnings: []
-            };
-          }
-        }
-      } catch {
-        // Not a research thread, or the transcript API is unavailable: fall
-        // through to the normal DOM recovery below.
-      }
-    }
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
       await sleep(500);
@@ -3656,8 +3660,18 @@ export async function recoverChatGptAnswerFromThread(
         continue;
       }
       generating = state.generating;
+      if (state.url !== lastObservedUrl) {
+        lastObservedUrl = state.url;
+        stableRuns = 0;
+        lastAnswer = "";
+      }
       const runtimeBlocker = chatGptBlockerFromAnswerState(state);
       if (runtimeBlocker) throw new ChatGptBrowserBlockerError(runtimeBlocker);
+      if (!chatGptUrlsReferToSameTarget(state.url, url)) {
+        stableRuns = 0;
+        lastAnswer = "";
+        continue;
+      }
       // Require a REAL assistant message, not answerExpression's page-chrome
       // fallback (empty assistant returns sidebar/nav text): the thread's
       // conversation loads asynchronously after navigation, so keep polling.
@@ -3666,7 +3680,10 @@ export async function recoverChatGptAnswerFromThread(
         // must not sneak into the recovered text.
         stableRuns = state.answer === lastAnswer ? stableRuns + 1 : 0;
         lastAnswer = state.answer;
-        if (stableRuns >= 1) break;
+        if (stableRuns >= 1) {
+          completed = true;
+          break;
+        }
       } else {
         stableRuns = 0;
         lastAnswer = "";
@@ -3675,75 +3692,53 @@ export async function recoverChatGptAnswerFromThread(
   } finally {
     cdp.close();
   }
-  if (!state || state.assistantMessageCount < 1 || !isUsableChatGptAnswer(state.answer)) {
+  if (!completed) {
+    const targetMatched = Boolean(state && chatGptUrlsReferToSameTarget(state.url, url));
+    const hasUsableAnswer = Boolean(state && state.assistantMessageCount > 0 && isUsableChatGptAnswer(state.answer));
+    const code = !targetMatched
+      ? "thread_target_mismatch"
+      : generating
+        ? "still_generating"
+        : hasUsableAnswer
+          ? "answer_not_stable"
+          : "no_recoverable_answer";
+    const message =
+      code === "thread_target_mismatch"
+        ? `The visible ChatGPT tab did not settle on the requested conversation. It remained at ${state?.url || "an unreadable page"}.`
+        : code === "still_generating"
+          ? "That thread is still generating - the answer is not complete yet."
+          : code === "answer_not_stable"
+            ? "That thread showed changing answer text through the recovery deadline, so prodex cannot mark it complete."
+            : "No finished assistant answer loaded from that thread (the conversation may not have rendered, or the URL is not the consult thread).";
     throw new ChatGptBrowserBlockerError({
-      code: generating ? "still_generating" : "no_recoverable_answer",
-      message: generating
-        ? "That thread is still generating - the answer is not complete yet."
-        : "No finished assistant answer loaded from that thread (the conversation may not have rendered, or the URL is not the consult thread).",
+      code,
+      message,
       retryable: true,
-      next_step: generating
-        ? "Wait for ChatGPT to finish, then rerun `prodex pro browser recover --target-url <url>`."
-        : "Confirm the URL is the consult thread that shows a finished answer, raise --timeout-ms if the page loads slowly, or send a fresh consult."
+      next_step:
+        code === "still_generating" || code === "answer_not_stable"
+          ? "Wait for ChatGPT to finish and settle, then rerun `prodex pro browser recover --target-url <url>`."
+          : "Keep the dedicated visible tab on the requested consult thread, confirm it shows a finished answer, and retry recovery with a larger --timeout-ms if needed.",
+      thread: url
     });
   }
   return {
-    url: state.url,
-    title: state.title,
-    answer: state.answer.trim(),
-    modelHints: state.modelHints,
-    ...(state.modelSlug ? { modelSlug: state.modelSlug } : {}),
+    url,
+    title: state!.title,
+    answer: state!.answer.trim(),
+    modelHints: state!.modelHints,
+    ...(state!.modelSlug ? { modelSlug: state!.modelSlug } : {}),
     warnings: []
   };
 }
 
-/**
- * Read the answer from the conversation transcript, or undefined when it is not
- * there yet. The transcript trails the rendered stream by a beat, so callers
- * either poll it or fall back to the DOM text.
- */
-interface TranscriptRead {
-  classification: TranscriptReadClassification;
-  answer?: { answer: string; modelSlug: string };
-}
-
-async function readTranscriptAnswer(page: DevtoolsPage, conversationId: string, sentPrompt: string): Promise<TranscriptRead> {
-  let transcript: TranscriptAnswerState;
-  try {
-    transcript = await evaluateOnPage<TranscriptAnswerState>(page, transcriptAnswerExpression(conversationId), { timeoutMs: 30_000 });
-  } catch {
-    // Transcript unreachable (endpoint changed, transient failure): the DOM
-    // reader still runs, so this never blocks a send.
-    return { classification: "unavailable" };
-  }
-  const classification = classifyTranscriptRead(transcript, sentPrompt);
-  if (classification !== "answer") return { classification };
-  const answer = resolveTranscriptCitations(transcript.text, transcript.references).trim();
-  return answer.length > 0
-    ? { classification: "answer", answer: { answer, modelSlug: transcript.modelSlug } }
-    : { classification: "no_text" };
-}
-
-
-// A page that has not reported the prompt posting within this long is worth
-// double-checking against the transcript; the probe is a couple of small fetches.
-const ACCEPTANCE_TRANSCRIPT_PROBE_AFTER_MS = 20_000;
-const ACCEPTANCE_TRANSCRIPT_PROBE_EVERY_MS = 10_000;
-
-/** Which conversation, if any, already holds the prompt this send posted. */
-async function findLandedConversation(page: DevtoolsPage, prompt: string): Promise<string | undefined> {
-  try {
-    const candidates = await evaluateOnPage<LandedConversationCandidate[]>(page, recentConversationsExpression(4), {
-      timeoutMs: 30_000
-    });
-    return pickLandedConversation(candidates ?? [], prompt);
-  } catch {
-    // Transcript unavailable: the caller falls back to the page.
-    return undefined;
-  }
-}
-
 export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Promise<SendChatGptPromptResult> {
+  const toolLabels = (options.tools ?? []).map(resolveComposerToolLabel);
+  if (toolLabels.includes(DEEP_RESEARCH_TOOL_LABEL)) {
+    throw unsupportedChatGptOperationError(
+      "Deep research",
+      "Use Deep research directly in the visible ChatGPT UI, or send an ordinary prodex consult without the Deep research tool."
+    );
+  }
   const port = resolveCdpPort(options.port);
   const timeoutMs = options.timeoutMs ?? 90_000;
   /** Dialogs answered on the reload connection, which comes and goes before the send's own, so the receipt still says so. */
@@ -3813,7 +3808,7 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
   // timeout: consults continue threads by default, so landing on a thread
   // whose previous (often timed-out Pro) answer is still streaming is a when,
   // not an if - queueing behind it beats failing.
-  let busyBlocker = busyBlockerAfterTranscriptCheck(chatGptBusyBlocker(status), await readTranscriptCompletion(page, status.url));
+  let busyBlocker = chatGptBusyBlocker(status);
   const busyWaitBudgetMs = options.busyWaitMs ?? timeoutMs;
   if (busyBlocker && busyWaitBudgetMs > 0) {
     // Queue behind the in-flight response instead of failing: shared-tab
@@ -3826,7 +3821,7 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
       status = await evaluateOnPage<ChatGptPageStatus>(page, statusExpression());
       const midBlocker = detectChatGptPageBlocker(status);
       if (midBlocker) throw new ChatGptBrowserBlockerError(midBlocker);
-      busyBlocker = busyBlockerAfterTranscriptCheck(chatGptBusyBlocker(status), await readTranscriptCompletion(page, status.url));
+      busyBlocker = chatGptBusyBlocker(status);
       if (busyBlocker) emitProgress("waiting", "tab busy with another response; waiting");
     }
     if (!busyBlocker) {
@@ -3835,7 +3830,7 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
       // weigh that fresh reading the same way - a generation that started in
       // the meantime must still hold the send back.
       status = await readSettledChatGptPageStatus(page);
-      busyBlocker = busyBlockerAfterTranscriptCheck(chatGptBusyBlocker(status), await readTranscriptCompletion(page, status.url));
+      busyBlocker = chatGptBusyBlocker(status);
     }
   }
   // ChatGPT's error page does not come back on a reload - measured: a project
@@ -3860,7 +3855,7 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
       // The busy verdict above was decided about the page we just left, and it
       // is handed to the readiness assert as already decided. Carrying it over
       // would let a root page that is generating an answer be typed into.
-      busyBlocker = busyBlockerAfterTranscriptCheck(chatGptBusyBlocker(fresh), await readTranscriptCompletion(page, fresh.url));
+      busyBlocker = chatGptBusyBlocker(fresh);
       status = fresh;
     } catch (error) {
       // A blocker is the answer; anything else leaves the original status, and
@@ -3897,7 +3892,7 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
       fresh = await ensureVisibleChatGptPage(port, page, fresh);
       const blockerAfterReload = detectChatGptPageBlocker(fresh);
       if (blockerAfterReload) throw new ChatGptBrowserBlockerError(blockerAfterReload);
-      busyBlocker = busyBlockerAfterTranscriptCheck(chatGptBusyBlocker(fresh), await readTranscriptCompletion(page, fresh.url));
+      busyBlocker = chatGptBusyBlocker(fresh);
       status = fresh;
     } catch (error) {
       // A blocker is the answer; a stalled tab is the send failing, and its
@@ -3950,7 +3945,6 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
   let beforeSubmit!: ChatGptAnswerState;
   let boundProjectId: string | undefined;
   let submitButtonFound = false;
-  let wantsDeepResearch = false;
   const sendWarnings: string[] = [];
   // Anything the page put in front of prodex was answered on the caller's
   // behalf. The note is read at return time - there are several return paths -
@@ -4050,8 +4044,6 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
       const uploaded = await attachFilesToComposer(cdp, options.attachments);
       emitProgress("selecting", `attached ${uploaded.attached.join(", ")}`);
     }
-    const toolLabels = (options.tools ?? []).map(resolveComposerToolLabel);
-    wantsDeepResearch = toolLabels.includes(DEEP_RESEARCH_TOOL_LABEL);
     if (toolLabels.length > 0) emitProgress("selecting", `tools=${toolLabels.join(", ")}`);
     await insertComposerTextViaCdp(cdp, options.prompt, page, toolLabels);
     // The send button renders asynchronously after the prompt lands. Poll for it
@@ -4093,28 +4085,6 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
       }
     }
     dbgSend(`submit posted=${promptPosted} submitButtonFound=${submitButtonFound}`);
-    // Deep research does not begin when the prompt posts: it shows a start
-    // control with a countdown ring. Press it instead of trusting the timer -
-    // a run left waiting sat with zero assistant messages for 30+ minutes.
-    if (wantsDeepResearch) {
-      const startDeadline = Date.now() + 60_000;
-      let pressed = false;
-      while (Date.now() < startDeadline) {
-        const start = await cdp.evaluate<RectHit>(deepResearchStartButtonRectExpression());
-        if (start.ok && start.x !== undefined && start.y !== undefined) {
-          await dispatchMouseClickAt(cdp, start.x, start.y);
-          pressed = true;
-          emitProgress("selecting", "deep research started");
-          break;
-        }
-        await sleep(1_000);
-      }
-      if (!pressed) {
-        sendWarnings.push(
-          "deep_research_start_not_found: no start control appeared for the deep research run. If ChatGPT asked a clarifying question instead, answer it with a follow-up consult in the same thread."
-        );
-      }
-    }
   } catch (error) {
     // Capture before the connection closes: this is the moment the page still
     // looks the way it looked when it refused, and the selection failures this
@@ -4130,29 +4100,8 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
   const acceptDeadline = computePromptAcceptanceDeadline(timeoutMs, started);
   let accepted = false;
   let finalState: ChatGptAnswerState | undefined;
-  // Seeded either from the url once ChatGPT rewrites it, or - when the page
-  // never showed the prompt post - from the transcript that proves it did.
-  let transcriptConversationId: string | undefined;
-  // Ask the transcript early rather than only at the deadline. Acceptance runs
-  // on the full send budget, so a page that stops reporting the prompt posting
-  // used to burn all twenty minutes before saying anything - while the prompt
-  // sat in a conversation the whole time.
-  let nextTranscriptProbeAt = started + ACCEPTANCE_TRANSCRIPT_PROBE_AFTER_MS;
   while (Date.now() < acceptDeadline) {
     await sleep(500);
-    if (Date.now() >= nextTranscriptProbeAt) {
-      nextTranscriptProbeAt = Date.now() + ACCEPTANCE_TRANSCRIPT_PROBE_EVERY_MS;
-      const landed = await findLandedConversation(page, options.prompt);
-      if (landed) {
-        transcriptConversationId = landed;
-        accepted = true;
-        sendWarnings.push(
-          "prompt_acceptance_unreadable: the page never showed the prompt posting, but the transcript has it - continuing on the conversation the transcript names."
-        );
-        dbgSend(`acceptance recovered from transcript conversation=${landed}`);
-        break;
-      }
-    }
     try {
       finalState = await evaluateOnPage<ChatGptAnswerState>(page, answerExpression());
     } catch {
@@ -4197,20 +4146,7 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
     } catch {
       // best effort: fall back to submit-button signal only
     }
-    // Before calling this a failed send: did the prompt actually land? Reading
-    // acceptance off the page means a changed DOM reports "never posted" for a
-    // prompt that posted fine, and the caller's retry asks ChatGPT the same
-    // question twice. The transcript is the ground truth.
-    const landed = await findLandedConversation(page, options.prompt);
-    if (landed) {
-      transcriptConversationId = landed;
-      accepted = true;
-      sendWarnings.push(
-        "prompt_acceptance_unreadable: the page never showed the prompt posting, but the transcript has it - continuing on the conversation the transcript names."
-      );
-      dbgSend(`acceptance recovered from transcript conversation=${landed}`);
-    }
-    if (!accepted) throw acceptanceTimeoutError({ timeoutMs, composerStillHasText, submitButtonFound });
+    throw acceptanceTimeoutError({ timeoutMs, composerStillHasText, submitButtonFound });
   }
 
   // Pin the conversation the prompt actually landed in. The browser is shared
@@ -4218,109 +4154,29 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
   // prodex read a DIFFERENT conversation and save it as this consult's answer -
   // silently, with a receipt (caught live). Nothing about that is recoverable
   // after the fact, so the wait either stays on this thread or fails loudly.
-  const pinnedThreadUrl = finalState?.url;
-  // Pin the CONVERSATION, not the tab. The transcript reader fetches by id, so
-  // it keeps working when the tab wanders off the thread - which is exactly how
-  // a finished answer was lost: the tab returned to the project page, the url
-  // still matched the pin taken before ChatGPT rewrote it, and the DOM reader
-  // sat on zero assistant messages until the budget ran out.
-  // Acceptance may already have adopted one from the transcript; otherwise take
-  // it from the url ChatGPT rewrote to.
-  transcriptConversationId ??= pinnedThreadUrl ? conversationIdFromThreadUrl(pinnedThreadUrl) : undefined;
-  const transcriptResult = (transcript: { answer: string; modelSlug: string }): SendChatGptPromptResult => {
-    emitProgress("answered", `transcript (${transcript.answer.length} chars)`);
-    return {
-      url: finalState?.url ?? pinnedThreadUrl ?? "",
-      title: finalState?.title ?? "",
-      answer: transcript.answer,
-      modelHints: finalState?.modelHints ?? [],
-      ...(transcript.modelSlug ? { modelSlug: transcript.modelSlug } : finalState?.modelSlug ? { modelSlug: finalState.modelSlug } : {}),
-      ...(boundProjectId ? { boundProjectId } : {}),
-      warnings: withDialogNote([...sendWarnings, selectionMismatchWarning({ ...(options.model !== undefined ? { model: options.model } : {}), ...(options.effort !== undefined ? { effort: options.effort } : {}), ...((transcript.modelSlug || finalState?.modelSlug) ? { modelSlug: (transcript.modelSlug || finalState?.modelSlug) as string } : {}) })]).filter(
-        (warning): warning is string => Boolean(warning)
-      )
-    };
-  };
-  // Deep research never reaches the DOM answer wait below: the report is
-  // rendered by a widget app in an iframe, so the main frame stays empty even
-  // when the run has finished. Read the run out of the conversation transcript
-  // instead, which is where the widget keeps its state.
-  if (wantsDeepResearch) {
-    const conversationId = pinnedThreadUrl ? conversationIdFromThreadUrl(pinnedThreadUrl) : undefined;
-    if (!conversationId) throw new ChatGptBrowserBlockerError(deepResearchUnreadableBlocker(pinnedThreadUrl ?? "https://chatgpt.com/"));
-    let lastState: DeepResearchReportState | undefined;
-    let consecutiveResearchReadFailures = 0;
-    while (Date.now() - started < timeoutMs) {
-      try {
-        lastState = await evaluateOnPage<DeepResearchReportState>(page, deepResearchReportExpression(conversationId), { timeoutMs: 60_000 });
-        consecutiveResearchReadFailures = 0;
-      } catch {
-        // A few failures in a row mean the browser is gone, not busy. Waiting
-        // out a 30-minute budget on a dead browser helps nobody: the research
-        // finishes on ChatGPT's side anyway, so hand back the thread and let
-        // recover collect the report.
-        consecutiveResearchReadFailures += 1;
-        if (consecutiveResearchReadFailures >= CONSECUTIVE_READ_FAILURES_BEFORE_GIVING_UP) {
-          throw new ChatGptBrowserBlockerError(browserLostMidWaitBlocker(pinnedThreadUrl));
-        }
-        await sleep(5_000);
-        continue;
-      }
-      if (lastState.ok && lastState.report.trim().length > 0 && transcriptMatchesSentPrompt(lastState.userText, options.prompt)) {
-        const report = resolveTranscriptCitations(lastState.report, lastState.references).trim();
-        emitProgress("answered", `deep research report (${report.length} chars)`);
-        return {
-          url: pinnedThreadUrl ?? "",
-          title: finalState?.title ?? "",
-          answer: report,
-          modelHints: finalState?.modelHints ?? [],
-          ...(finalState?.modelSlug ? { modelSlug: finalState.modelSlug } : {}),
-          warnings: withDialogNote(sendWarnings)
-        };
-      }
-      emitProgress("waiting", `deep research ${lastState.status || lastState.reason} (${formatDurationMs(Date.now() - started)})`);
-      // Each poll pulls the whole transcript, which a research run grows into
-      // the hundreds of KB - so poll on a calm cadence, not a tight one.
-      await sleep(15_000);
-    }
-    throw new ChatGptBrowserBlockerError({
-      code: "deep_research_still_running",
-      message: `The deep research run was still ${lastState?.status || "in progress"} after ${formatDurationMs(timeoutMs)}.`,
-      retryable: true,
-      next_step: `Fetch the report once it finishes with \`prodex pro browser recover --target-url ${pinnedThreadUrl}\`, or read it in your browser: ${pinnedThreadUrl}`,
-      ...(pinnedThreadUrl ? { thread: pinnedThreadUrl } : {})
-    });
-  }
+  let pinnedConversationId = conversationIdFromThreadUrl(normalizedTargetUrl ?? finalState?.url ?? "");
+  let pinnedThreadUrl = pinnedConversationId
+    ? canonicalChatGptThreadUrl(pinnedConversationId, normalizedTargetUrl ?? finalState?.url)
+    : undefined;
   let recoveredNavigations = 0;
-  let lastTranscriptClassification: TranscriptReadClassification | undefined;
   let consecutiveReadFailures = 0;
+  let answerSettled = false;
   const answerIsStable = createChatGptAnswerStabilityTracker();
   while (Date.now() - started < timeoutMs) {
     await sleep(1000);
     try {
-      finalState = await evaluateOnPage<ChatGptAnswerState>(page, answerExpression());
+      const observedState = await evaluateOnPage<ChatGptAnswerState>(page, answerExpression());
       consecutiveReadFailures = 0;
-      // First conversation id wins. Re-deriving it every poll would let a tab
-      // that wandered to another thread redirect the read to a stranger's
-      // conversation - and the prompt check below is the second line of defence,
-      // not the first.
-      if (!transcriptConversationId && finalState?.url) transcriptConversationId = conversationIdFromThreadUrl(finalState.url);
-      // The transcript is the same data the page renders, minus the rendering:
-      // markdown instead of flattened innerText, an explicit finish state
-      // instead of caret heuristics, and the model that actually answered.
-      if (transcriptConversationId && !finalState.generating) {
-        const transcript = await readTranscriptAnswer(page, transcriptConversationId, options.prompt);
-        lastTranscriptClassification = transcript.classification;
-        if (transcript.answer) return transcriptResult(transcript.answer);
-        // A finished turn with no text is an answer of a different shape - an
-        // image, measured - and waiting for words it will never write spends
-        // the whole budget and then calls the result a timeout. The page must
-        // agree it has stopped generating before this counts.
-        if (transcript.classification === "no_text") {
-          return transcriptResult({ answer: CHATGPT_NON_TEXT_ANSWER_NOTE, modelSlug: "" });
+      // Freeze the first conversation identity the accepted page exposes. A
+      // later tab move must never rewrite result metadata to another thread.
+      if (!pinnedConversationId) {
+        const observedConversationId = conversationIdFromThreadUrl(observedState.url);
+        if (observedConversationId) {
+          pinnedConversationId = observedConversationId;
+          pinnedThreadUrl = canonicalChatGptThreadUrl(observedConversationId, observedState.url);
         }
       }
-      if (shouldRecoverThreadNavigation({ pinnedThreadUrl, currentUrl: finalState?.url, lastTranscriptClassification })) {
+      if (shouldRecoverThreadNavigation({ pinnedThreadUrl, currentUrl: observedState.url })) {
         if (recoveredNavigations >= 2) {
           throw new ChatGptBrowserBlockerError({
             code: "thread_navigated_away",
@@ -4338,6 +4194,9 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
         await sleep(3_000);
         continue;
       }
+      // Only a state from the pinned conversation may become eligible for
+      // completed or partial result salvage after the polling deadline.
+      finalState = observedState;
     } catch (error) {
       if (error instanceof ChatGptBrowserBlockerError) throw error;
       // Transient CDP failure while the answer is streaming: retry. A throw here
@@ -4347,7 +4206,7 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
       // sitting out the whole budget on it only delays the recovery.
       consecutiveReadFailures += 1;
       if (consecutiveReadFailures >= CONSECUTIVE_READ_FAILURES_BEFORE_GIVING_UP) {
-        throw new ChatGptBrowserBlockerError(browserLostMidWaitBlocker(finalState?.url ?? pinnedThreadUrl));
+        throw new ChatGptBrowserBlockerError(browserLostMidWaitBlocker(pinnedThreadUrl ?? finalState?.url));
       }
       continue;
     }
@@ -4360,27 +4219,15 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
     // character that can outlive the stop button. The tracker requires extra
     // confirmations for caret-suspect tails (see its doc comment).
     if (answerIsStable(finalState.answer, finalState.generating)) {
-      // The rendered answer settles a beat before the server transcript does.
-      // Give the transcript that beat: it carries markdown (tables and fenced
-      // code that innerText flattens) and the model that actually answered.
-      if (transcriptConversationId) {
-        const transcript = await readTranscriptAnswer(page, transcriptConversationId, options.prompt);
-        lastTranscriptClassification = transcript.classification;
-        if (transcript.answer) return transcriptResult(transcript.answer);
-        // The transcript can read this conversation and says it is not done:
-        // believe it over a page that merely looks settled. A tool's progress
-        // panel renders exactly like a two-line answer, and that is how a
-        // consult once returned "Searching the web / Answer now" as its result.
-        if (transcript.classification === "pending") continue;
-      }
+      answerSettled = true;
       break;
     }
   }
   const completed = finalState;
-  if (completed && hasFreshChatGptAnswer(beforeSubmit.assistantMessageCount, completed)) {
+  if (answerSettled && completed && hasFreshChatGptAnswer(beforeSubmit.assistantMessageCount, completed)) {
     emitProgress("answered");
     return {
-      url: completed.url,
+      url: pinnedThreadUrl ?? completed.url,
       title: completed.title,
       answer: completed.answer.trim(),
       modelHints: completed.modelHints,
@@ -4397,7 +4244,7 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
   if (completed && hasPartialChatGptAnswer(beforeSubmit.assistantMessageCount, completed)) {
     emitProgress("answered", "partial");
     return {
-      url: completed.url,
+      url: pinnedThreadUrl ?? completed.url,
       title: completed.title,
       answer: completed.answer.trim(),
       modelHints: completed.modelHints,
@@ -4406,7 +4253,7 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
       warnings: withDialogNote([
         ...sendWarnings,
         ...(selectionMismatchWarning({ ...(options.model !== undefined ? { model: options.model } : {}), ...(options.effort !== undefined ? { effort: options.effort } : {}), ...(completed.modelSlug !== undefined ? { modelSlug: completed.modelSlug } : {}) }) ? [selectionMismatchWarning({ ...(options.model !== undefined ? { model: options.model } : {}), ...(options.effort !== undefined ? { effort: options.effort } : {}), ...(completed.modelSlug !== undefined ? { modelSlug: completed.modelSlug } : {}) }) as string] : []),
-        `answer_incomplete: ChatGPT was still generating after ${formatDurationMs(timeoutMs)} (${timeoutMs}ms), so the answer below may be truncated. Raise --timeout-ms and retry for the full response.`
+        `answer_incomplete: ChatGPT's answer did not reach a stable completed state after ${formatDurationMs(timeoutMs)} (${timeoutMs}ms), so the answer below may be truncated. Raise --timeout-ms and retry for the full response.`
       ])
     };
   }
@@ -4418,7 +4265,7 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
       `Timed out after ${formatDurationMs(timeoutMs)} (${timeoutMs}ms) waiting for ChatGPT to respond. ` +
         "Pro reasoning can run many minutes. Raise --timeout-ms and retry."
     ),
-    completed?.url ? { thread: completed.url } : {}
+    pinnedThreadUrl ?? completed?.url ? { thread: pinnedThreadUrl ?? completed?.url } : {}
   );
 }
 
@@ -4616,12 +4463,24 @@ export function findLaunchedBrowserProcesses(psOutput: string, input: { port: nu
   // very tool running this scan can carry it on its command line, and this list
   // is what gets SIGTERM. Caught live - the probe matched its own node process.
   const isBrowserCommand = (line: string): boolean => {
-    const command = line.replace(/^\s*\S+\s+\d+\s+/, "");
-    // Only the executable counts, never the arguments: a process that merely
-    // quotes a Chrome path is not Chrome. Everything up to the first flag is
-    // the program, which keeps the spaces macOS puts in "Google Chrome".
-    const executable = command.split(/\s-{1,2}\w/)[0];
-    return /(^|[/\\])(google[ -]?chrome|chromium|chrome)( helper)?( \([^)]*\))?$/i.test(executable.trim());
+    const command = line.replace(/^\s*\S+\s+\d+\s+/, "").trim();
+    // Linux/PATH executables cannot contain spaces, so only the first token is
+    // eligible. This keeps a node/shell argument that names a browser from
+    // becoming a process prodex may terminate.
+    const firstToken = command.split(/\s+/, 1)[0];
+    if (
+      /(^|[/\\])(google[ -]?chrome(?:\.exe)?|chromium(?:-browser)?|chrome(?:\.exe)?|microsoft[ -]edge|msedge\.exe|brave[ -]browser)$/i.test(
+        firstToken
+      )
+    ) {
+      return true;
+    }
+    // macOS app executables and helpers have spaces in their absolute path.
+    // Match only anchored, known bundle layouts and require the next token to
+    // be a flag (or end-of-line), never arbitrary argument text.
+    return /^\/Applications\/(?:Google Chrome\.app\/Contents\/MacOS\/Google Chrome|Chromium\.app\/Contents\/MacOS\/Chromium|Microsoft Edge\.app\/Contents\/MacOS\/Microsoft Edge|Brave Browser\.app\/Contents\/MacOS\/Brave Browser|(?:Google Chrome|Chromium|Microsoft Edge|Brave Browser)\.app\/Contents\/Frameworks\/.*?\/Helpers\/(?:Google Chrome|Chromium|Microsoft Edge|Brave Browser) Helper(?: \([^)]*\))?)(?=\s--|$)/i.test(
+      command
+    );
   };
   const lines = psOutput.split(/\r?\n/).filter((line) => !/\bgrep\b/.test(line) && isBrowserCommand(line));
   // Exactly this port: a plain substring test let port 9 match 9333.
@@ -4755,51 +4614,12 @@ export function wedgedBrowserBlocker(pids: number[], port: number): NonNullable<
   };
 }
 
-export function deleteConversationExpression(conversationId: string): string {
-  return `(async () => {
-  let token = "";
-  try {
-    const session = await fetch("/api/auth/session", { credentials: "include" });
-    if (!session.ok) return { ok: false, reason: "session_http_" + session.status };
-    const parsed = await session.json();
-    token = (parsed && parsed.accessToken) || "";
-  } catch (error) {
-    return { ok: false, reason: "session_error" };
-  }
-  try {
-    const response = await fetch("/backend-api/conversation/" + ${JSON.stringify(conversationId)}, {
-      method: "PATCH",
-      credentials: "include",
-      headers: token ? { Authorization: "Bearer " + token, "Content-Type": "application/json" } : { "Content-Type": "application/json" },
-      body: JSON.stringify({ is_visible: false })
-    });
-    const body = await response.text();
-    if (!response.ok) return { ok: false, reason: "delete_http_" + response.status + " " + body.slice(0, 120) };
-    return { ok: true, reason: "" };
-  } catch (error) {
-    return { ok: false, reason: "delete_error" };
-  }
-})()`;
-}
-
-/** Remove one conversation. Callers must have confirmed intent before calling. */
-export async function deleteChatGptConversation(input: { conversationId: string; port?: number; timeoutMs?: number }): Promise<void> {
-  const port = resolveCdpPort(input.port);
-  const page = await findChatGptPage(port, input.timeoutMs ?? 3_000);
-  if (!page.ok || !page.page) {
-    throw new ChatGptBrowserBlockerError(
-      page.blocker ?? {
-        code: "browser_unreachable",
-        message: `No Chrome DevTools endpoint is reachable on 127.0.0.1:${port}.`,
-        retryable: true,
-        next_step: "Run `prodex pro browser login` to reopen the dedicated window, then retry."
-      }
-    );
-  }
-  const result = await evaluateOnPage<{ ok: boolean; reason: string }>(page.page, deleteConversationExpression(input.conversationId), {
-    timeoutMs: 30_000
-  });
-  if (!result?.ok) throw new Error(`ChatGPT refused to delete the conversation: ${result?.reason ?? "unknown reason"}`);
+/** Conversation deletion has no bounded visible-DOM implementation. */
+export async function deleteChatGptConversation(_input: { conversationId: string; port?: number; timeoutMs?: number }): Promise<void> {
+  throw unsupportedChatGptOperationError(
+    "Conversation deletion",
+    "Delete the conversation from its menu in the visible ChatGPT UI."
+  );
 }
 
 export function resolveProjectToDelete(
@@ -4826,84 +4646,40 @@ export function resolveProjectToDelete(
   return { ok: true, id: matches[0].id, name: matches[0].name };
 }
 
-/** Delete one project by id. The caller is responsible for confirming intent. */
-export function deleteProjectExpression(projectId: string): string {
-  return `(async () => {
-  let token = "";
-  try {
-    const session = await fetch("/api/auth/session", { credentials: "include" });
-    if (!session.ok) return { ok: false, reason: "session_http_" + session.status };
-    const parsed = await session.json();
-    token = (parsed && parsed.accessToken) || "";
-  } catch (error) {
-    return { ok: false, reason: "session_error" };
-  }
-  try {
-    const response = await fetch("/backend-api/gizmos/" + ${JSON.stringify(projectId)}, {
-      method: "DELETE",
-      credentials: "include",
-      headers: token ? { Authorization: "Bearer " + token, "Content-Type": "application/json" } : { "Content-Type": "application/json" }
-    });
-    const body = await response.text();
-    if (!response.ok) return { ok: false, reason: "delete_http_" + response.status + " " + body.slice(0, 120) };
-    return { ok: true, reason: "" };
-  } catch (error) {
-    return { ok: false, reason: "delete_error" };
-  }
-})()`;
-}
-
 export async function listChatGptProjectsWithIds(input: { port?: number; timeoutMs?: number } = {}): Promise<
   Array<{ id: string; name: string }>
 > {
-  const port = resolveCdpPort(input.port);
-  const page = await findChatGptPage(port, input.timeoutMs ?? 3_000);
-  if (!page.ok || !page.page) return [];
-  const { projectsWithIdsExpression } = await import("./tui.js");
-  try {
-    return (await evaluateOnPage<Array<{ id: string; name: string }>>(page.page, projectsWithIdsExpression(), { timeoutMs: 30_000 })) ?? [];
-  } catch {
-    return [];
-  }
+  return listVisibleChatGptNavigation(input, projectsWithIdsExpression());
 }
 
-/** Delete one project. Callers must have confirmed intent before calling. */
-export async function deleteChatGptProject(input: { projectId: string; port?: number; timeoutMs?: number }): Promise<void> {
-  const port = resolveCdpPort(input.port);
-  const page = await findChatGptPage(port, input.timeoutMs ?? 3_000);
-  if (!page.ok || !page.page) {
-    throw new ChatGptBrowserBlockerError(
-      page.blocker ?? {
-        code: "browser_unreachable",
-        message: `No Chrome DevTools endpoint is reachable on 127.0.0.1:${port}.`,
-        retryable: true,
-        next_step: "Run `prodex pro browser login` to reopen the dedicated window, then retry."
-      }
-    );
-  }
-  const result = await evaluateOnPage<{ ok: boolean; reason: string }>(page.page, deleteProjectExpression(input.projectId), {
-    timeoutMs: 30_000
-  });
-  if (!result?.ok) throw new Error(`ChatGPT refused to delete the project: ${result?.reason ?? "unknown reason"}`);
+/** Project deletion has no bounded visible-DOM implementation. */
+export async function deleteChatGptProject(_input: { projectId: string; port?: number; timeoutMs?: number }): Promise<void> {
+  throw unsupportedChatGptOperationError("Project deletion", "Delete the project from its menu in the visible ChatGPT UI.");
 }
 
 export async function listRecentChatGptConversations(input: { port?: number; timeoutMs?: number; limit?: number } = {}): Promise<
-  Array<{ id: string; title: string }>
+  Array<{ id: string; title: string; gizmoId?: string }>
 > {
+  return listVisibleChatGptNavigation(input, recentConversationTitlesExpression(input.limit));
+}
+
+async function listVisibleChatGptNavigation<T>(
+  input: { port?: number; timeoutMs?: number },
+  expression: string
+): Promise<T> {
   const port = resolveCdpPort(input.port);
-  const page = await findChatGptPage(port, input.timeoutMs ?? 3_000);
-  if (!page.ok || !page.page) return [];
-  const { recentConversationTitlesExpression } = await import("./tui.js");
-  try {
-    return (
-      (await evaluateOnPage<Array<{ id: string; title: string }>>(page.page, recentConversationTitlesExpression(input.limit ?? 10), {
-        timeoutMs: 30_000
-      })) ?? []
-    );
-  } catch {
-    // Nothing to continue from is a normal answer here, not a failure.
-    return [];
+  const timeoutMs = input.timeoutMs ?? 15_000;
+  const pageResult = await findChatGptPage(port, computePageDiscoveryTimeout(timeoutMs), undefined);
+  if (!pageResult.ok) throwBlockerOrError(pageResult.blocker, "ChatGPT browser page is not available");
+  if (!pageResult.page) {
+    if (pageResult.blocker) throw new ChatGptBrowserBlockerError(pageResult.blocker);
+    assertChatGptPageAvailable();
   }
+  const page = pageResult.page;
+  const status = await evaluateOnPage<ChatGptPageStatus>(page, statusExpression(), { timeoutMs });
+  const blocker = chatGptVisibilityBlocker(status.visibilityState, status.url) ?? detectChatGptPageBlocker(status);
+  if (blocker) throw new ChatGptBrowserBlockerError(blocker);
+  return evaluateOnPage<T>(page, expression, { timeoutMs });
 }
 
 export async function listChatGptSidebarProjects(input: { port?: number; timeoutMs?: number } = {}): Promise<ListChatGptSidebarProjectsResult> {
@@ -6009,10 +5785,11 @@ export function browserLostMidWaitBlocker(threadUrl: string | undefined): NonNul
   return {
     code: "browser_unreachable",
     message: `The dedicated ChatGPT browser stopped responding while this consult was waiting for its answer.${where}`,
-    retryable: true,
+    // Retrying the send would duplicate a prompt that has already posted.
+    retryable: false,
     next_step: threadUrl
       ? `Run \`prodex pro browser login\` to reopen the browser, then collect the answer with \`prodex pro browser recover --target-url ${threadUrl}\` (MCP: pro_recover with thread ${threadUrl}).`
-      : "Run `prodex pro browser login` to reopen the browser, then retry.",
+      : "Run `prodex pro browser login` to reopen the browser, then inspect the original chat before asking again. The prompt was already submitted; prodex did not capture its thread URL.",
     ...(threadUrl ? { thread: threadUrl } : {})
   };
 }
@@ -6069,71 +5846,6 @@ export interface LandedConversationCandidate {
 }
 
 /**
- * The most recently updated conversations, each with the prompt it opens with.
- *
- * Acceptance is otherwise read off the page: if the DOM changes shape, a prompt
- * that DID post looks like one that never left, the send fails, and the
- * caller's retry asks ChatGPT the same question twice. The transcript settles
- * it - the conversation either holds our prompt or it does not.
- *
- * Only the head of each prompt is returned: a research transcript runs to
- * hundreds of KB and none of that is needed to recognise it.
- */
-export function recentConversationsExpression(limit = 4): string {
-  return `(async () => {
-  const out = [];
-  let token = "";
-  try {
-    const session = await fetch("/api/auth/session", { credentials: "include" });
-    if (!session.ok) return out;
-    const parsed = await session.json();
-    token = (parsed && parsed.accessToken) || "";
-  } catch (error) {
-    return out;
-  }
-  const headers = token ? { Authorization: "Bearer " + token } : {};
-  let items = [];
-  try {
-    const response = await fetch("/backend-api/conversations?offset=0&limit=${limit}&order=updated", {
-      credentials: "include",
-      headers
-    });
-    if (!response.ok) return out;
-    const listed = await response.json();
-    items = (listed && listed.items) || [];
-  } catch (error) {
-    return out;
-  }
-  for (const item of items) {
-    if (!item || !item.id) continue;
-    try {
-      const response = await fetch("/backend-api/conversation/" + item.id, { credentials: "include", headers });
-      if (!response.ok) continue;
-      const conversation = await response.json();
-      const mapping = (conversation && conversation.mapping) || {};
-      const chain = [];
-      let nodeId = conversation && conversation.current_node;
-      let guard = 0;
-      while (nodeId && mapping[nodeId] && guard < 2000) {
-        guard += 1;
-        if (mapping[nodeId].message) chain.push(mapping[nodeId].message);
-        nodeId = mapping[nodeId].parent;
-      }
-      const user = chain.find((entry) => entry && entry.author && entry.author.role === "user" && entry.content);
-      const text = user ? (user.content.parts || []).filter((part) => typeof part === "string").join("") : "";
-      // Long enough that two consults sharing an opening can still be told
-      // apart by the rest of the prompt; bounded so a huge --file send does
-      // not drag its whole payload back through the bridge.
-      out.push({ id: item.id, userText: text.slice(0, 4000) });
-    } catch (error) {
-      // A conversation we cannot read is simply not a match.
-    }
-  }
-  return out;
-})()`;
-}
-
-/**
  * Which of those conversations is the one this send posted into, if any.
  *
  * Identity is a PREFIX test - the first 120 normalized characters - because a
@@ -6174,62 +5886,6 @@ export function transcriptContainsWholeSentPrompt(userText: string, sentPrompt: 
   const sent = normalize(sentPrompt);
   if (seen.length === 0 || sent.length === 0) return false;
   return seen.includes(sent);
-}
-
-export function transcriptAnswerExpression(conversationId: string): string {
-  return `(async () => {
-  const fail = (reason, extra) => Object.assign({ ok: false, reason, status: "", endTurn: false, isComplete: false, text: "", modelSlug: "", references: [], userText: "" }, extra || {});
-  let token = "";
-  try {
-    const session = await fetch("/api/auth/session", { credentials: "include" });
-    if (!session.ok) return fail("session_http_" + session.status);
-    const parsed = await session.json();
-    token = (parsed && parsed.accessToken) || "";
-  } catch (error) {
-    return fail("session_error");
-  }
-  let conversation;
-  try {
-    const response = await fetch("/backend-api/conversation/" + ${JSON.stringify(conversationId)}, {
-      credentials: "include",
-      headers: token ? { Authorization: "Bearer " + token } : {}
-    });
-    if (!response.ok) return fail("conversation_http_" + response.status);
-    conversation = await response.json();
-  } catch (error) {
-    return fail("conversation_error");
-  }
-  const mapping = (conversation && conversation.mapping) || {};
-  const chain = [];
-  let nodeId = conversation && conversation.current_node;
-  let guard = 0;
-  while (nodeId && mapping[nodeId] && guard < 2000) {
-    guard += 1;
-    if (mapping[nodeId].message) chain.push(mapping[nodeId].message);
-    nodeId = mapping[nodeId].parent;
-  }
-  const message = chain.find(
-    (entry) => entry && entry.author && entry.author.role === "assistant" && entry.content && entry.content.content_type === "text"
-  );
-  const userMessage = chain.find((entry) => entry && entry.author && entry.author.role === "user" && entry.content);
-  const userText = userMessage ? (userMessage.content.parts || []).filter((part) => typeof part === "string").join("") : "";
-  if (!message) return fail("no_assistant_message", { userText });
-  const parts = (message.content.parts || []).filter((part) => typeof part === "string");
-  const text = parts.join("");
-  const metadata = message.metadata || {};
-  const state = {
-    status: message.status || "",
-    endTurn: message.end_turn === true,
-    isComplete: metadata.is_complete === true,
-    text,
-    modelSlug: metadata.model_slug || "",
-    references: Array.isArray(metadata.content_references) ? metadata.content_references : [],
-    userText
-  };
-  if (state.status !== "finished_successfully" || !state.endTurn) return fail("answer_not_finished", state);
-  if (!text) return fail("answer_empty", state);
-  return Object.assign({ ok: true, reason: "" }, state);
-})()`;
 }
 
 const NORMALIZED_PROMPT_MATCH_CHARS = 120;
@@ -6329,71 +5985,6 @@ export function resolveTranscriptCitations(text: string, references: TranscriptC
   return resolved.replace(CITATION_MARKER_PATTERN, (marker) => citationMarkerText(marker));
 }
 
-export interface DeepResearchReportState {
-  ok: boolean;
-  reason: string;
-  status: string;
-  report: string;
-  chars: number;
-  references: TranscriptCitationReference[];
-  userText: string;
-}
-
-export function deepResearchReportExpression(conversationId: string): string {
-  return `(async () => {
-  const fail = (reason, status, userText) => ({ ok: false, reason, status: status || "", report: "", chars: 0, references: [], userText: userText || "" });
-  let token = "";
-  try {
-    const session = await fetch("/api/auth/session", { credentials: "include" });
-    if (!session.ok) return fail("session_http_" + session.status);
-    const parsed = await session.json();
-    token = (parsed && parsed.accessToken) || "";
-  } catch (error) {
-    return fail("session_error");
-  }
-  let conversation;
-  try {
-    const response = await fetch("/backend-api/conversation/" + ${JSON.stringify(conversationId)}, {
-      credentials: "include",
-      headers: token ? { Authorization: "Bearer " + token } : {}
-    });
-    if (!response.ok) return fail("conversation_http_" + response.status);
-    conversation = await response.json();
-  } catch (error) {
-    return fail("conversation_error");
-  }
-  const mapping = (conversation && conversation.mapping) || {};
-  const nodes = Object.keys(mapping).map((key) => mapping[key]);
-  const widgetNode = nodes.find(
-    (node) => node && node.message && node.message.metadata && node.message.metadata.chatgpt_sdk && node.message.metadata.chatgpt_sdk.widget_state
-  );
-  if (!widgetNode) return fail("no_widget_state");
-  let state;
-  try {
-    state = JSON.parse(widgetNode.message.metadata.chatgpt_sdk.widget_state);
-  } catch (error) {
-    return fail("widget_state_unparsable");
-  }
-  const status = (state && state.status) || "";
-  const chain = [];
-  let walkId = conversation && conversation.current_node;
-  let walkGuard = 0;
-  while (walkId && mapping[walkId] && walkGuard < 2000) {
-    walkGuard += 1;
-    if (mapping[walkId].message) chain.push(mapping[walkId].message);
-    walkId = mapping[walkId].parent;
-  }
-  const userNode = chain.find((entry) => entry && entry.author && entry.author.role === "user" && entry.content);
-  const userText = userNode ? (userNode.content.parts || []).filter((part) => typeof part === "string").join("") : "";
-  const message = (state && state.report_message) || null;
-  const parts = message && message.content && message.content.parts;
-  const report = Array.isArray(parts) ? parts.filter((part) => typeof part === "string").join("") : "";
-  const references = message && message.metadata && Array.isArray(message.metadata.content_references) ? message.metadata.content_references : [];
-  if (!report) return fail("report_not_ready", status, userText);
-  return { ok: true, reason: "", status, report, chars: report.length, references, userText };
-})()`;
-}
-
 /**
  * Thread urls come in a plain (`/c/<id>`) and a project (`/g/g-p-.../c/<id>`)
  * shape; both end in the conversation id the backend API is keyed by.
@@ -6467,6 +6058,14 @@ export function destinationVerification(input: {
 export function conversationIdFromThreadUrl(url: string): string | undefined {
   const match = /\/c\/([0-9a-fA-F-]{16,})/.exec(url);
   return match ? match[1] : undefined;
+}
+
+/** Freeze a conversation id into stable result metadata, independent of later tab navigation. */
+export function canonicalChatGptThreadUrl(conversationId: string, observedUrl?: string): string {
+  if (observedUrl && conversationIdFromThreadUrl(observedUrl)?.toLowerCase() === conversationId.toLowerCase()) {
+    return normalizeChatGptTargetUrl(observedUrl);
+  }
+  return `https://chatgpt.com/c/${conversationId}`;
 }
 
 export function deepResearchStartButtonRectExpression(): string {

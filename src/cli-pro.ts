@@ -1,8 +1,9 @@
-import { existsSync, statSync } from "node:fs";
+import { existsSync, realpathSync, statSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { buildDryRunBundle } from "./bundle.js";
 import {
+  type BrowserWindowMode,
   type ChatGptBrowserLaunch,
   type SendChatGptProgressEvent,
   DEFAULT_CDP_PORT,
@@ -33,9 +34,7 @@ import {
   ensureVirtualDisplay,
   minimizeChatGptWindow,
   readLastBrowserLoginLaunch,
-  resolveVirtualDisplayPreference,
   resolveBrowserWindowMode,
-  resolveHeadlessPreference,
   recordBrowserLoginLaunch,
   recoverChatGptAnswerFromThread,
   sendChatGptPrompt,
@@ -107,6 +106,15 @@ import { PRODEX_ISSUE_REPO, buildIssueReport, fileGitHubIssue } from "./issue-re
 import type { CliIO } from "./cli.js";
 
 export type RunCliFn = (args: string[], io: CliIO) => Promise<number>;
+
+function resolveBrowserProfileDirForLaunch(profileDir: string, launchCwd = process.cwd()): string {
+  const resolved = path.resolve(launchCwd, profileDir);
+  try {
+    return statSync(resolved).isDirectory() ? realpathSync(resolved) : resolved;
+  } catch {
+    return resolved;
+  }
+}
 
 export async function runChatgptCommand(rest: string[], io: CliIO): Promise<number> {
     const [subcommand, ...chatgptArgs] = rest;
@@ -297,7 +305,7 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
         if (
           printProBrowserHelpIfRequested(browserArgs, "pro browser login", io, {
             valueFlags: ["--cwd", "--profile-dir", "--port", "--url", "--source-cli", "--launch-timeout-ms", "--wait-timeout-ms"],
-            booleanFlags: ["--dry-run", "--wait", "--no-wait", "--headless", "--minimized", "--virtual-display"]
+            booleanFlags: ["--dry-run", "--wait", "--no-wait", "--headed", "--headless", "--minimized", "--virtual-display"]
           })
         ) {
           return 0;
@@ -306,7 +314,7 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
           browserArgs,
           "pro browser login",
           ["--cwd", "--profile-dir", "--port", "--url", "--source-cli", "--launch-timeout-ms", "--wait-timeout-ms"],
-          ["--dry-run", "--wait", "--no-wait", "--headless", "--minimized", "--virtual-display"]
+          ["--dry-run", "--wait", "--no-wait", "--headed", "--headless", "--minimized", "--virtual-display"]
         );
         if (browserArgs.includes("--wait") && browserArgs.includes("--no-wait")) {
           throw new Error("pro browser login cannot combine --wait and --no-wait");
@@ -314,12 +322,34 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
         const loginUrl = readChatGptBrowserUrlFlag(browserArgs);
         const sourceCli = resolveOptionalFileFlag(io.cwd, browserArgs, "--source-cli");
         const targetCwd = readFlag(browserArgs, "--cwd") ? resolveCwdFlag(io.cwd, browserArgs) : undefined;
-        const profileDir = readFlag(browserArgs, "--profile-dir");
+        const requestedProfileFlag = readFlag(browserArgs, "--profile-dir");
+        const requestedProfileDir = requestedProfileFlag
+          ? resolveBrowserProfileDirForLaunch(requestedProfileFlag)
+          : undefined;
         const port = resolveCdpPort(readPortFlag(browserArgs, "--port"));
         const launchTimeoutMs = readPositiveIntegerFlag(browserArgs, "--launch-timeout-ms");
+        const savedLaunch = await readLastBrowserLoginLaunch();
+        // A saved launch belongs to a control port. Reusing its profile for a
+        // different port would silently widen the existing custom-port rules.
+        const savedLaunchForPort = savedLaunch?.port === port ? savedLaunch : undefined;
+        const savedProfileDir = savedLaunchForPort?.profile_dir
+          ? resolveBrowserProfileDirForLaunch(savedLaunchForPort.profile_dir)
+          : undefined;
+        const profileDir = requestedProfileDir ?? savedProfileDir;
+        const windowMode = resolveBrowserWindowMode({
+          flags: {
+            ...(browserArgs.includes("--headed") ? { headed: true } : {}),
+            ...(browserArgs.includes("--headless") ? { headless: true } : {}),
+            ...(browserArgs.includes("--virtual-display") ? { virtualDisplay: true } : {}),
+            ...(browserArgs.includes("--minimized") ? { minimized: true } : {})
+          },
+          // Window mode is a user preference across launches; only the saved
+          // profile and display identity are scoped to this resolved port.
+          ...(savedLaunch ? { lastLogin: savedLaunch } : {})
+        });
         const commandOptions = {
           ...(targetCwd ? { cwd: targetCwd } : {}),
-          ...(profileDir ? { profileDir } : {}),
+          ...(requestedProfileDir ? { profileDir: requestedProfileDir } : {}),
           ...(port !== DEFAULT_CDP_PORT ? { port } : {}),
           ...(readFlag(browserArgs, "--url") ? { url: loginUrl } : {}),
           ...(launchTimeoutMs !== undefined ? { launchTimeoutMs } : {})
@@ -327,6 +357,8 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
         if (browserArgs.includes("--dry-run")) {
           printBrowserLoginGuide(io.stdout, {
             opened: false,
+            headless: windowMode.headless,
+            virtualDisplay: windowMode.virtualDisplay,
             loginUrl,
             profileDir: profileDir ?? defaultChatGptProfileDir(),
             port,
@@ -339,54 +371,53 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
         // again: Chrome's singleton would just open ANOTHER window (the recurring
         // "extra windows" problem, which then blocks sends as
         // ambiguous_chatgpt_tabs). Reuse the running instance instead.
-        if (browserArgs.includes("--virtual-display") && browserArgs.includes("--headless")) {
-          throw new Error("pro browser login cannot combine --headless and --virtual-display (a virtual display already hides the window).");
-        }
-        // Reopen the browser the way it was last opened unless a flag or the
-        // environment says otherwise. A virtual-display user who follows the
-        // `browser_unreachable` advice used to get a visible window back.
-        const savedLaunch = await readLastBrowserLoginLaunch();
-        const windowMode = resolveBrowserWindowMode({
-          flags: {
-            ...(browserArgs.includes("--headless") ? { headless: true } : {}),
-            ...(browserArgs.includes("--virtual-display") ? { virtualDisplay: true } : {}),
-            ...(browserArgs.includes("--minimized") ? { minimized: true } : {})
-          },
-          ...(savedLaunch ? { lastLogin: savedLaunch } : {})
-        });
         const headless = windowMode.headless;
-        // A real browser on a virtual X display: no window anywhere, and
-        // Cloudflare sees an ordinary headed Chrome (headless it rejects).
         const wantsVirtualDisplay = windowMode.virtualDisplay;
-        const virtualDisplay = wantsVirtualDisplay
-          ? await ensureVirtualDisplay(
-              savedLaunch?.virtual_display !== undefined && !browserArgs.includes("--virtual-display")
-                ? { displayNumber: savedLaunch.virtual_display }
-                : {}
-            )
-          : undefined;
         const alreadyRunning = (await getChatGptBrowserStatus({ port })).reachable;
         if (alreadyRunning) {
+          if (
+            requestedProfileDir &&
+            savedProfileDir &&
+            requestedProfileDir !== savedProfileDir
+          ) {
+            throw new Error(
+              `A ChatGPT browser is already running on port ${port} with profile ${savedProfileDir}; a different profile was requested. Close the existing browser yourself, then rerun with the intended profile.`
+            );
+          }
           // One Chrome profile cannot serve a headed and a headless instance at
           // once, and reusing the running one would silently ignore the
           // requested mode. Say so instead of pretending the switch took.
-          const previous = await readLastBrowserLoginLaunch();
-          const runningHeadless = previous?.port === port ? previous.headless === true : undefined;
+          const runningHeadless = savedLaunchForPort ? savedLaunchForPort.headless === true : undefined;
           if (runningHeadless !== undefined && runningHeadless !== headless) {
             throw new Error(
-              `A ${runningHeadless ? "headless" : "headed"} ChatGPT browser is already running on port ${port}, but ${headless ? "headless" : "headed"} was requested. Close it first (\`pkill -f "remote-debugging-port=${port}"\`), then rerun.`
+              `A ${runningHeadless ? "headless" : "headed"} ChatGPT browser is already running on port ${port}, but ${headless ? "headless" : "headed"} was requested. Close the existing browser yourself, then rerun; prodex will not end it.`
             );
           }
           // Same for the display: a browser already on your desktop cannot be
           // moved onto a virtual display by reusing it, and silently reusing
           // it would leave the window exactly where the user asked it not to be.
-          const runningVirtual = previous?.port === port ? previous.virtual_display !== undefined : undefined;
+          const runningVirtual = savedLaunchForPort ? savedLaunchForPort.virtual_display !== undefined : undefined;
           if (runningVirtual !== undefined && runningVirtual !== wantsVirtualDisplay) {
             throw new Error(
-              `A ChatGPT browser is already running on port ${port} on ${runningVirtual ? "a virtual display" : "your desktop"}, but ${wantsVirtualDisplay ? "a virtual display" : "your desktop"} was requested. Close it first (\`pkill -f "remote-debugging-port=${port}"\`), then rerun.`
+              `A ChatGPT browser is already running on port ${port} on ${runningVirtual ? "a virtual display" : "your desktop"}, but ${wantsVirtualDisplay ? "a virtual display" : "your desktop"} was requested. Close the existing browser yourself, then rerun; prodex will not end it.`
+            );
+          }
+          if (savedLaunchForPort?.minimized === true && !windowMode.minimized) {
+            throw new Error(
+              `A minimized ChatGPT browser is already running on port ${port}, but a visible headed browser was requested. Close the existing browser yourself, then rerun with --headed; prodex will not end it or pretend the minimized window was restored.`
             );
           }
         }
+        // Allocate/rejoin a display only for a new browser. An already-running
+        // virtual browser owns its saved display identity and needs no new X
+        // server just because login was invoked again.
+        const virtualDisplay = wantsVirtualDisplay && !alreadyRunning
+          ? await ensureVirtualDisplay(
+              savedLaunchForPort?.virtual_display !== undefined
+                ? { displayNumber: savedLaunchForPort.virtual_display }
+                : {}
+            )
+          : undefined;
         // A wedged browser is unreachable, so without this login would launch a
         // second Chrome onto the same profile and leave the first one burning
         // CPU - the same mistake the unattended recovery path made. Checked
@@ -405,7 +436,9 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
               port,
               profileDir,
               url: loginUrl,
-              ...(headless ? { headless } : {}),
+              // Pass false too: openChatGptBrowser otherwise consults the env
+              // again and can resurrect a mode the shared resolver disabled.
+              headless,
               ...(virtualDisplay ? { virtualDisplay: { displayNumber: virtualDisplay.displayNumber, xauthority: virtualDisplay.xauthority } } : {})
             });
         if (!alreadyRunning) {
@@ -416,10 +449,9 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
         // Minimize BEFORE recording, so the record reflects what actually
         // happened (a desktop that hides minimized windows gets restored and
         // recorded as a normal window).
-        const wantsMinimized = browserArgs.includes("--minimized") || resolveMinimizeWindowPreference();
         let minimized = false;
         let minimizeNote: string | undefined;
-        if (wantsMinimized && !headless) {
+        if (windowMode.minimized && !headless) {
           try {
             const outcome = await minimizeChatGptWindow({ port: opened.port });
             minimized = outcome.minimized;
@@ -430,22 +462,33 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
             minimizeNote = `window: could not minimize (${errorMessage(error)}); leaving it as it is.`;
           }
         }
-        await recordBrowserLoginLaunch({
-          profile_dir: opened.profileDir,
-          port: opened.port,
-          headless,
-          minimized,
-          ...(virtualDisplay ? { virtual_display: virtualDisplay.displayNumber } : {})
-        });
-        if (virtualDisplay) {
+        // A reused browser with neither an explicit nor saved profile is
+        // reachable, but its actual profile cannot be inferred from the port.
+        // Do not overwrite a useful launch record with an invented default.
+        if (!alreadyRunning || profileDir) {
+          await recordBrowserLoginLaunch({
+            profile_dir: opened.profileDir,
+            port: opened.port,
+            headless,
+            minimized,
+            ...(virtualDisplay
+              ? { virtual_display: virtualDisplay.displayNumber }
+              : wantsVirtualDisplay && savedLaunchForPort?.virtual_display !== undefined
+                ? { virtual_display: savedLaunchForPort.virtual_display }
+                : {})
+          });
+        }
+        const virtualDisplayNumber = virtualDisplay?.displayNumber ?? savedLaunchForPort?.virtual_display;
+        if (wantsVirtualDisplay && virtualDisplayNumber !== undefined) {
           io.stdout(
-            `window: none - running on virtual display :${virtualDisplay.displayNumber}${virtualDisplay.startedNow ? " (started now)" : " (reused)"}.`
+            `window: none - running on virtual display :${virtualDisplayNumber}${virtualDisplay?.startedNow ? " (started now)" : " (reused)"}.`
           );
         }
         printBrowserLoginGuide(io.stdout, {
           opened: !alreadyRunning,
           reused: alreadyRunning,
           headless,
+          virtualDisplay: wantsVirtualDisplay,
           loginUrl,
           profileDir: opened.profileDir,
           port: opened.port,
@@ -459,7 +502,12 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
           // Verify it here (bounded, no human to wait for) instead of letting
           // the first consult fail with a confusing not-logged-in blocker.
           const headlessWaitMs = readPositiveIntegerFlag(browserArgs, "--wait-timeout-ms") ?? 30_000;
-          const headlessReady = await waitForChatGptLoginReady(io.stderr, { port: opened.port, timeoutMs: headlessWaitMs });
+          const headlessReady = await waitForChatGptLoginReady(io.stderr, {
+            port: opened.port,
+            timeoutMs: headlessWaitMs,
+            windowMode,
+            headedLoginCommand: formatHeadedBrowserLoginCommand(sourceCli, commandOptions)
+          });
           if (!headlessReady) {
             // Name the real cause. Cloudflare rejects headless Chrome by
             // design (its docs list headless browsers as unsupported), and
@@ -471,8 +519,8 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
             io.stdout("");
             io.stdout(
               challenged
-                ? "headless: Cloudflare challenged the headless browser and never let ChatGPT load. This is expected - Cloudflare lists headless browsers as unsupported. Run without --headless, or run a real headed Chrome on a virtual display (Xvfb) and point prodex at it with DISPLAY."
-                : `headless: the profile is not signed in. Run \`${formatBrowserLoginCommand(sourceCli, commandOptions)}\` WITHOUT --headless once, sign in, close that window, then rerun with --headless.`
+                ? `headless: Cloudflare challenged the headless browser and never let ChatGPT load. Run \`${formatHeadedBrowserLoginCommand(sourceCli, commandOptions)}\` for a visible interactive check; headless browsers are not supported by Cloudflare.`
+                : `headless: the profile is not signed in. Run \`${formatHeadedBrowserLoginCommand(sourceCli, commandOptions)}\` for a visible interactive login, sign in, close that browser yourself, then rerun with --headless.`
             );
             return 1;
           }
@@ -487,7 +535,12 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
           !browserArgs.includes("--no-wait") && (browserArgs.includes("--wait") || io.isInteractive === true);
         if (!shouldWaitForReady) return 0;
         const waitTimeoutMs = readPositiveIntegerFlag(browserArgs, "--wait-timeout-ms") ?? 300_000;
-        const ready = await waitForChatGptLoginReady(io.stderr, { port: opened.port, timeoutMs: waitTimeoutMs });
+        const ready = await waitForChatGptLoginReady(io.stderr, {
+          port: opened.port,
+          timeoutMs: waitTimeoutMs,
+          windowMode,
+          headedLoginCommand: formatHeadedBrowserLoginCommand(sourceCli, commandOptions)
+        });
         return ready ? 0 : 1;
       }
       if (browserSubcommand === "ask") {
@@ -1056,13 +1109,6 @@ export async function runConsultsCommand(rest: string[], io: CliIO): Promise<num
     throw new Error("The legacy `consults` alias is retired. Use `prodex pro list`, `prodex pro latest`, or `prodex pro show <task-id|latest>`.");
 }
 
-// PRODEX_MINIMIZE_WINDOW=1 gives the no-window setup to every entry point,
-// including the MCP server's auto-recovery, without a CLI flag.
-export function resolveMinimizeWindowPreference(env: Record<string, string | undefined> = process.env): boolean {
-  const raw = (env.PRODEX_MINIMIZE_WINDOW ?? "").trim().toLowerCase();
-  return raw === "1" || raw === "true" || raw === "yes";
-}
-
 function autoLoginDisabledByEnv(env: Record<string, string | undefined> = process.env): boolean {
   const raw = (env.PRODEX_NO_AUTO_LOGIN ?? "").trim().toLowerCase();
   return raw === "1" || raw === "true" || raw === "yes";
@@ -1466,9 +1512,9 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
           port: browserPort,
           prompt: bundle.sendText,
           targetUrl: normalizedTargetUrl,
-          // A thread prodex resolved from its own records is reached by
-          // navigating; a --target-url the person confirmed is not moved.
-          ...(continuedFromTaskId ? { navigateToTargetUrl: true } : {}),
+          // Continuations and explicit TUI picks navigate while this lock is
+          // held. Direct CLI targets keep their existing verification-only semantics.
+          ...(continuedFromTaskId || (io.navigateInteractiveTarget === true && normalizedTargetUrl) ? { navigateToTargetUrl: true } : {}),
           timeoutMs: browserTimeoutMs,
           ...(attachments.length > 0 ? { attachments } : {}),
           ...(tools.length > 0 ? { tools } : {}),
@@ -1501,7 +1547,11 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
           consult = await sendOnce();
         } catch (error) {
           const firstBlocker = browserSendBlockerFromError(error);
-          if (firstBlocker.code !== "browser_unreachable" || !autoLoginAllowed) throw error;
+          // Loss while reading an already-submitted prompt must not send it again.
+          if (
+            firstBlocker.code !== "browser_unreachable" ||
+            !firstBlocker.retryable || firstBlocker.thread || !autoLoginAllowed
+          ) throw error;
           const recovered = await attemptBrowserAutoRecovery(io.stderr, {
             ...(browserPort !== undefined ? { port: browserPort } : {}),
             notes: recoveryNotes
@@ -2007,6 +2057,17 @@ function autoClearDisabledByEnv(env: Record<string, string | undefined> = proces
   return raw === "1" || raw === "true" || raw === "yes";
 }
 
+function reportResidualBrowserRecoveryBlocker(
+  stderr: (line: string) => void,
+  pids: number[],
+  port: number
+): false {
+  const blocker = wedgedBrowserBlocker([...new Set(pids)].sort((left, right) => left - right), port);
+  stderr(`recover: failed - ${blocker.message}`);
+  stderr(`recover: ${blocker.next_step}`);
+  return false;
+}
+
 /**
  * What recovery did to the browser, in the words the receipt keeps.
  *
@@ -2039,9 +2100,28 @@ export async function attemptBrowserAutoRecovery(
   // scanning the DEFAULT profile for a custom-profile user put a second,
   // healthy browser's renderers on the list this function kills.
   const lastLogin = await readLastBrowserLoginLaunch().catch(() => undefined);
+  const recoveryPort = resolveCdpPort(options.port);
+  const savedIdentityBelongsToAnotherPort =
+    lastLogin?.port !== undefined &&
+    lastLogin.port !== recoveryPort &&
+    (lastLogin.profile_dir !== undefined || lastLogin.virtual_display !== undefined);
+  if (savedIdentityBelongsToAnotherPort) {
+    stderr(
+      `recover: failed - saved browser identity belongs to port ${lastLogin.port}, not requested port ${recoveryPort}. Run \`prodex pro browser login --port ${recoveryPort} --headed\` with the intended profile before retrying; prodex will not launch an unknown account.`
+    );
+    return false;
+  }
+  const lastLoginForPort = lastLogin?.port === undefined || lastLogin.port === recoveryPort ? lastLogin : undefined;
+  let windowMode: BrowserWindowMode;
+  try {
+    windowMode = resolveBrowserWindowMode({ ...(lastLogin ? { lastLogin } : {}) });
+  } catch (error) {
+    stderr(`recover: failed - ${errorMessage(error)}`);
+    return false;
+  }
   const scanFor = {
     ...(options.port !== undefined ? { port: options.port } : {}),
-    ...(lastLogin?.profile_dir ? { profileDir: lastLogin.profile_dir } : {})
+    ...(lastLoginForPort?.profile_dir ? { profileDir: lastLoginForPort.profile_dir } : {})
   };
   const wedged = findWedgedBrowser(scanFor);
   if (wedged.length > 0) {
@@ -2061,16 +2141,23 @@ export async function attemptBrowserAutoRecovery(
       return false;
     }
     stderr(`recover: the browser stopped answering; ending it (pid ${wedged.join(", ")}) and starting a fresh one...`);
-    // Ending someone's browser is not a progress line to scroll past: it goes on
-    // the receipt, where an agent or a person reading `pro latest` will see it.
-    options.notes?.push(browserRecoveredNote(wedged));
-    await endWedgedBrowser(wedged);
+    // Keep the attempt even if launch fails; completion is recorded after READY.
+    options.notes?.push(`browser_recovery_started: prodex began restarting the unresponsive dedicated browser (pid ${wedged.join(", ")}).`);
+    const termination = await endWedgedBrowser(wedged);
+    if (termination.failed.length > 0) {
+      return reportResidualBrowserRecoveryBlocker(stderr, termination.failed, recoveryPort);
+    }
     // Wait for the profile lock to actually clear rather than guessing at a
     // delay: the replacement launch fails outright if the old process still
     // holds it, which is how the first self-heal attempt ended.
+    let residualPids: number[] = [];
     for (let attempt = 0; attempt < 10; attempt += 1) {
-      if (findWedgedBrowser(scanFor).length === 0) break;
-      await sleep(1_000);
+      residualPids = findWedgedBrowser(scanFor);
+      if (residualPids.length === 0) break;
+      if (attempt < 9) await sleep(1_000);
+    }
+    if (residualPids.length > 0) {
+      return reportResidualBrowserRecoveryBlocker(stderr, residualPids, recoveryPort);
     }
   }
   stderr("recover: browser is not running - launching the dedicated ChatGPT browser (Ctrl+C aborts)...");
@@ -2078,37 +2165,50 @@ export async function attemptBrowserAutoRecovery(
     // Reuse the profile the user last logged in with; launching the default
     // profile for a custom-profile user would wait on the wrong (logged-out)
     // profile or, worse, silently send to a different account.
-    // Relaunch in the SAME window mode the user chose: silently reopening a
-    // visible window for someone running headless would be exactly the
-    // surprise window they turned headless to avoid.
-    const headless = resolveHeadlessPreference(lastLogin?.headless);
-    // Rejoin the same virtual display the user set up, so recovery does not
-    // put a window back on a desktop they deliberately keep empty.
-    const virtualDisplay =
-      lastLogin?.virtual_display !== undefined || resolveVirtualDisplayPreference()
-        ? await ensureVirtualDisplay(
-            lastLogin?.virtual_display !== undefined ? { displayNumber: lastLogin.virtual_display } : {}
-          ).catch(() => undefined)
-        : undefined;
+    // Recovery follows the same precedence as login. In particular, one
+    // supplied false env setting selects the env group and disables saved
+    // modes instead of being mistaken for "not configured".
+    const virtualDisplay = windowMode.virtualDisplay
+      ? await ensureVirtualDisplay(
+          lastLoginForPort?.virtual_display !== undefined ? { displayNumber: lastLoginForPort.virtual_display } : {}
+        )
+      : undefined;
     const opened = openChatGptBrowser({
       ...(options.port !== undefined ? { port: options.port } : {}),
-      ...(lastLogin?.profile_dir ? { profileDir: lastLogin.profile_dir } : {}),
-      ...(headless ? { headless } : {}),
+      ...(lastLoginForPort?.profile_dir ? { profileDir: lastLoginForPort.profile_dir } : {}),
+      // Always pass the resolved boolean. Omitting false lets the browser
+      // boundary re-read PRODEX_HEADLESS and revive stale environment state.
+      headless: windowMode.headless,
       ...(virtualDisplay ? { virtualDisplay: { displayNumber: virtualDisplay.displayNumber, xauthority: virtualDisplay.xauthority } } : {})
     });
     await assertBrowserLaunchStayedAlive(opened);
-    const ready = await waitForChatGptLoginReady(stderr, { port: opened.port, timeoutMs: 120_000 });
-    if (!ready) return false;
-    // Restore the no-window setup too: someone who runs minimized does not
-    // want recovery to leave a window sitting on their desktop.
-    if (!headless && (lastLogin?.minimized === true || resolveMinimizeWindowPreference())) {
+    let minimized = false;
+    if (windowMode.minimized) {
       const outcome = await minimizeChatGptWindow({ port: opened.port }).catch(() => undefined);
-      if (outcome?.minimized) stderr("recover: window minimized again");
+      minimized = outcome?.minimized === true;
+      if (minimized) stderr("recover: window minimized again");
     }
+    // Record the actual launch before waiting for authentication. A manual
+    // login must target this profile and display even if readiness is blocked.
+    await recordBrowserLoginLaunch({
+      profile_dir: opened.profileDir,
+      port: opened.port,
+      headless: windowMode.headless,
+      minimized,
+      ...(virtualDisplay ? { virtual_display: virtualDisplay.displayNumber } : {})
+    });
+    const ready = await waitForChatGptLoginReady(stderr, {
+      port: opened.port,
+      timeoutMs: 120_000,
+      windowMode,
+      headedLoginCommand: formatHeadedBrowserLoginCommand(undefined, {
+        profileDir: opened.profileDir,
+        ...(opened.port !== DEFAULT_CDP_PORT ? { port: opened.port } : {})
+      })
+    });
+    if (!ready) return false;
     stderr("recover: browser READY - retrying the send...");
-    // The wedged branch above records what it ended; this branch records that
-    // the browser was gone and this answer came from one prodex started.
-    if (wedged.length === 0) options.notes?.push(browserRecoveredNote([]));
+    options.notes?.push(browserRecoveredNote(wedged));
     return true;
   } catch (error) {
     stderr(`recover: failed - ${errorMessage(error)}`);
@@ -2130,7 +2230,13 @@ export interface LoginWaitDeps {
  */
 export async function waitForChatGptLoginReady(
   stderr: (line: string) => void,
-  options: { port: number; timeoutMs?: number; pollMs?: number },
+  options: {
+    port: number;
+    timeoutMs?: number;
+    pollMs?: number;
+    windowMode?: BrowserWindowMode;
+    headedLoginCommand?: string;
+  },
   deps: LoginWaitDeps = {}
 ): Promise<boolean> {
   const statusFn = deps.statusFn ?? getChatGptBrowserStatus;
@@ -2139,8 +2245,15 @@ export async function waitForChatGptLoginReady(
   const openTabFn = deps.openTabFn ?? openChatGptTab;
   const timeoutMs = options.timeoutMs ?? 300_000;
   const pollMs = options.pollMs ?? 2_000;
+  const hasInteractiveWindow = options.windowMode?.headless !== true && options.windowMode?.virtualDisplay !== true;
+  const headedLoginCommand = options.headedLoginCommand ?? "prodex pro browser login --headed";
+  const headedLoginHint = ` No interactive window is available; run \`${headedLoginCommand}\` to complete login, captcha, or human verification visibly.`;
   const startedAt = now();
-  stderr("login: waiting for a logged-in ChatGPT tab (finish login in the dedicated Chrome window; Ctrl+C stops waiting)...");
+  stderr(
+    hasInteractiveWindow
+      ? "login: waiting for a logged-in ChatGPT tab (finish login in the dedicated Chrome browser; Ctrl+C stops waiting)..."
+      : `login: waiting for a logged-in ChatGPT tab (no interactive window; use \`${headedLoginCommand}\` if login or verification is required; Ctrl+C stops waiting)...`
+  );
   let lastState = "";
   let openMissingTabAttempts = 0;
   while (now() - startedAt < timeoutMs) {
@@ -2159,18 +2272,28 @@ export async function waitForChatGptLoginReady(
           : `login: still no ChatGPT tab - opening one again (attempt ${attempt})...`
       );
       const opened = await openTabFn(options.port);
-      if (opened === false) stderr("login: could not open a ChatGPT tab through the debug port; open https://chatgpt.com/ in that window.");
+      if (opened === false) {
+        stderr(
+          hasInteractiveWindow
+            ? "login: could not open a ChatGPT tab through the debug port; open https://chatgpt.com/ in that browser."
+            : `login: could not open a ChatGPT tab through the debug port; run \`${headedLoginCommand}\` to open it visibly.`
+        );
+      }
       await sleepFn(pollMs);
       continue;
     }
     const state = !status.reachable
       ? "login: browser starting..."
       : status.blocker
-        ? `login: blocked - ${status.blocker.message}`
+        ? `login: blocked - ${status.blocker.message}${hasInteractiveWindow ? "" : headedLoginHint}`
         : !status.loggedInLikely
-          ? "login: waiting for ChatGPT login in the opened window..."
+          ? hasInteractiveWindow
+            ? "login: waiting for ChatGPT login in the dedicated Chrome browser..."
+            : `login: waiting for a saved ChatGPT login.${headedLoginHint}`
           : !status.hasComposer
-            ? "login: logged in; open a chat so the prompt composer is visible..."
+            ? hasInteractiveWindow
+              ? "login: logged in; open a chat so the prompt composer is visible..."
+              : `login: logged in, but no prompt composer is ready.${headedLoginHint}`
             : "";
     if (state === "") {
       stderr(`login: READY - logged-in ChatGPT tab with composer detected (${Math.round((now() - startedAt) / 1000)}s).`);
@@ -2185,7 +2308,9 @@ export async function waitForChatGptLoginReady(
     await sleepFn(Math.min(pollMs, Math.max(1, remainingMs)));
   }
   stderr(
-    `login: not ready after ${Math.round(timeoutMs / 1000)}s. Finish login in the browser, then verify with \`prodex pro browser check\`.`
+    hasInteractiveWindow
+      ? `login: not ready after ${Math.round(timeoutMs / 1000)}s. Finish login in the browser, then verify with \`prodex pro browser check\`.`
+      : `login: not ready after ${Math.round(timeoutMs / 1000)}s. Run \`${headedLoginCommand}\` to complete login, captcha, or human verification visibly, then retry.`
   );
   return false;
 }
@@ -2833,12 +2958,17 @@ export async function listConsultListEntries(store: BridgeStore, options: { read
   return entries;
 }
 
+function formatHeadedBrowserLoginCommand(sourceCli?: string, options: BrowserCommandOptions = {}): string {
+  return `${formatBrowserLoginCommand(sourceCli, options)} --headed`;
+}
+
 export function printBrowserLoginGuide(
   stdout: (line: string) => void,
   input: {
     opened: boolean;
     reused?: boolean;
     headless?: boolean;
+    virtualDisplay?: boolean;
     loginUrl: string;
     profileDir: string;
     port: number;
@@ -2846,8 +2976,10 @@ export function printBrowserLoginGuide(
     commandOptions?: BrowserCommandOptions;
   }
 ): void {
-  const windowAvailable = (input.opened || input.reused === true) && input.headless !== true;
+  const noInteractiveWindow = input.headless === true || input.virtualDisplay === true;
+  const windowAvailable = (input.opened || input.reused === true) && !noInteractiveWindow;
   const loginCommand = formatBrowserLoginCommand(input.sourceCli, input.commandOptions);
+  const headedLoginCommand = formatHeadedBrowserLoginCommand(input.sourceCli, input.commandOptions);
   const runtimeCommandOptions = {
     ...(input.commandOptions?.cwd ? { cwd: input.commandOptions.cwd } : {}),
     ...(input.commandOptions?.port ? { port: input.commandOptions.port } : {})
@@ -2860,14 +2992,19 @@ export function printBrowserLoginGuide(
       ? input.reused
         ? "Headless ChatGPT browser is already running - reusing it (no window)."
         : "Started the dedicated ChatGPT browser headless (no window). It reuses the profile you signed in with."
+      : input.virtualDisplay && (input.opened || input.reused)
+        ? input.reused
+          ? "ChatGPT browser is already running on its saved virtual display - reusing it (no visible window)."
+          : "Started the dedicated ChatGPT browser on a virtual display (no visible window)."
       : input.reused
         ? "Chrome is already running for ChatGPT - reusing it (no new window opened)."
         : input.opened
           ? "Opened the dedicated Chrome window for ChatGPT."
           : "Dry run: no browser was opened."
   );
-  if (input.headless && (input.opened || input.reused)) {
+  if (noInteractiveWindow && (input.opened || input.reused)) {
     stdout("");
+    stdout(`If ChatGPT needs login, captcha, or human verification, run \`${headedLoginCommand}\` to handle it in a visible window.`);
     stdout(`Next: run \`${checkCommand}\` to confirm the session, then consult as usual.`);
     return;
   }
@@ -2882,7 +3019,11 @@ export function printBrowserLoginGuide(
     stdout(`6. Run \`${checkCommand}\` to confirm the session is reachable.`);
     stdout(`7. Run \`${smokeCommand}\` to verify a real Pro response path.`);
   } else {
-    stdout(`1. Run \`${loginCommand}\` without \`--dry-run\` to open the dedicated Chrome window.`);
+    stdout(
+      noInteractiveWindow
+        ? `1. Run \`${headedLoginCommand}\` to open a visible dedicated Chrome window for login or verification.`
+        : `1. Run \`${loginCommand}\` without \`--dry-run\` to open the dedicated Chrome window.`
+    );
     stdout(`2. Log in manually at ${input.loginUrl} in that Chrome window.`);
     stdout("3. If ChatGPT asks for captcha, Cloudflare/human verification, permission, or account verification, complete it in the browser.");
     stdout("4. For usage limit, message limit, model limit, or rate limit, wait for the reset or choose an available model in the browser.");

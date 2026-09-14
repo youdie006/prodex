@@ -95,35 +95,33 @@ export interface ProjectSummary {
 /**
  * Projects with the id their conversations are tagged with.
  *
- * The sidebar gives names only, which is enough to ENTER a project but not to
- * tell which chats live in it - and "open the project, then pick the session
- * inside it" needs exactly that link.
+ * Read only rendered links. A project id is accepted only when the visible
+ * anchor itself has a canonical ChatGPT project URL.
  */
 export function projectsWithIdsExpression(): string {
-  return `(async () => {
-  let token = "";
-  try {
-    const session = await fetch("/api/auth/session", { credentials: "include" });
-    if (!session.ok) return [];
-    const parsed = await session.json();
-    token = (parsed && parsed.accessToken) || "";
-  } catch (error) {
-    return [];
+  return `(() => {
+  const out = [];
+  const seen = new Set();
+  for (const anchor of document.querySelectorAll("a[href]")) {
+    if (out.length >= 100) break;
+    if (typeof anchor.getClientRects !== "function" || anchor.getClientRects().length === 0) continue;
+    let url;
+    try {
+      url = new URL(anchor.getAttribute("href") || "", "https://chatgpt.com");
+    } catch (error) {
+      continue;
+    }
+    if (url.protocol !== "https:" || url.hostname !== "chatgpt.com" || url.port || url.username || url.password) continue;
+    const match = /^\\/g\\/g-p-([0-9a-f]{1,128})(?:-[^/]+)?\\/project\\/?$/i.exec(url.pathname);
+    if (!match) continue;
+    const id = "g-p-" + match[1].toLowerCase();
+    if (seen.has(id)) continue;
+    const name = ((anchor.textContent || anchor.getAttribute("aria-label") || "").replace(/\\s+/g, " ").trim()).slice(0, 200);
+    if (!name) continue;
+    seen.add(id);
+    out.push({ id, name });
   }
-  try {
-    const response = await fetch("/backend-api/gizmos/snorlax/sidebar", {
-      credentials: "include",
-      headers: token ? { Authorization: "Bearer " + token } : {}
-    });
-    if (!response.ok) return [];
-    const listed = await response.json();
-    return ((listed && listed.items) || [])
-      .map((item) => item && item.gizmo)
-      .filter((gizmo) => gizmo && gizmo.id)
-      .map((gizmo) => ({ id: gizmo.id, name: ((gizmo.display && gizmo.display.name) || gizmo.name || "").trim() || gizmo.id }));
-  } catch (error) {
-    return [];
-  }
+  return out;
 })()`;
 }
 
@@ -135,37 +133,53 @@ export function conversationsInProject(conversations: ConversationSummary[], pro
 
 /**
  * Recent conversations with their titles, for the "continue an existing chat"
- * list. Only the sidebar listing is fetched - the transcripts themselves are
- * large and nothing here needs them.
+ * list. This is deliberately limited to rendered links; no account API or
+ * transcript is read. A project association is included only when that same
+ * visible conversation URL carries the project id.
  */
 export function recentConversationTitlesExpression(limit = 10): string {
-  return `(async () => {
-  let token = "";
-  try {
-    const session = await fetch("/api/auth/session", { credentials: "include" });
-    if (!session.ok) return [];
-    const parsed = await session.json();
-    token = (parsed && parsed.accessToken) || "";
-  } catch (error) {
-    return [];
+  const boundedLimit = Number.isFinite(limit) ? Math.max(0, Math.min(100, Math.floor(limit))) : 10;
+  return `(() => {
+  const out = [];
+  const seen = new Map();
+  const ambiguousProjects = new Set();
+  let inspected = 0;
+  for (const anchor of document.querySelectorAll("a[href]")) {
+    if (++inspected > 2000) break;
+    if (typeof anchor.getClientRects !== "function" || anchor.getClientRects().length === 0) continue;
+    let url;
+    try {
+      url = new URL(anchor.getAttribute("href") || "", "https://chatgpt.com");
+    } catch (error) {
+      continue;
+    }
+    if (url.protocol !== "https:" || url.hostname !== "chatgpt.com" || url.port || url.username || url.password) continue;
+    const projectMatch = /^\\/g\\/g-p-([0-9a-f]{1,128})(?:-[^/]+)?\\/c\\/([0-9a-f-]{16,128})\\/?$/i.exec(url.pathname);
+    const plainMatch = /^\\/c\\/([0-9a-f-]{16,128})\\/?$/i.exec(url.pathname);
+    const id = (projectMatch && projectMatch[2]) || (plainMatch && plainMatch[1]);
+    if (!id) continue;
+    const gizmoId = projectMatch ? "g-p-" + projectMatch[1].toLowerCase() : undefined;
+    const existing = seen.get(id);
+    if (existing) {
+      if (gizmoId && !ambiguousProjects.has(id)) {
+        if (existing.gizmoId && existing.gizmoId !== gizmoId) {
+          delete existing.gizmoId;
+          ambiguousProjects.add(id);
+        } else existing.gizmoId = gizmoId;
+      }
+      continue;
+    }
+    if (out.length >= ${boundedLimit}) continue;
+    const title = ((anchor.textContent || anchor.getAttribute("aria-label") || "").replace(/\\s+/g, " ").trim()).slice(0, 300) || "Untitled";
+    const entry = {
+      id,
+      title,
+      ...(gizmoId ? { gizmoId } : {})
+    };
+    seen.set(id, entry);
+    out.push(entry);
   }
-  try {
-    const response = await fetch("/backend-api/conversations?offset=0&limit=${limit}&order=updated", {
-      credentials: "include",
-      headers: token ? { Authorization: "Bearer " + token } : {}
-    });
-    if (!response.ok) return [];
-    const listed = await response.json();
-    return ((listed && listed.items) || [])
-      .filter((item) => item && item.id)
-      .map((item) => ({
-        id: item.id,
-        title: (item.title || "").trim() || "Untitled",
-        ...(item.gizmo_id ? { gizmoId: item.gizmo_id } : {})
-      }));
-  } catch (error) {
-    return [];
-  }
+  return out;
 })()`;
 }
 

@@ -331,7 +331,7 @@ export function createServer(cwd = process.cwd(), options: CreateMcpServerOption
             .max(4)
             .optional()
             .describe(
-              "ChatGPT composer tools to enable for this consult: \"deep-research\" (a browsed report; prodex presses start and waits out the run, which takes about ten minutes, so the timeout rises to 30 minutes automatically and the FULL report comes back as the answer - if the budget still runs out, the blocker carries the thread and pro_recover collects the report later), \"web-search\" (current facts, with the sources kept as links), \"create-image\". Deep research sometimes replies with a CLARIFYING QUESTION instead; answer it with a normal follow-up consult in the same thread."
+              "Rendered ChatGPT composer tools: \"web-search\" or \"create-image\". Only rendered answer content is returned. Automatic deep-research report retrieval is unsupported; requesting \"deep-research\" stops before sending. Use Deep research manually in the ChatGPT UI."
             ),
           attach: z
             .array(McpShortTextSchema)
@@ -395,7 +395,7 @@ export function createServer(cwd = process.cwd(), options: CreateMcpServerOption
       "pro_recover",
       {
         description:
-          "Fetch a ChatGPT answer that finished AFTER a consult stopped waiting, and record it as a normal consult receipt. Use this whenever pro_consult came back with a timeout or a still-running blocker: those carry the thread URL, and the answer is almost always sitting in that thread. This is also how a deep research report is collected - a research run takes about ten minutes and keeps going even when the consult that started it has already returned. It sends no prompt, but it does navigate the visible tab to that thread, so it waits for any consult still streaming rather than walking the browser off it.",
+          "Read a stable, finished assistant answer rendered in the requested ChatGPT thread after a consult stopped waiting, and record a receipt. It sends no prompt and acquires the shared send lock before navigating. Wrong-thread, generating, missing, or changing answers are refused. Hidden transcripts and deep-research report retrieval are unsupported; inspect those manually in ChatGPT.",
         inputSchema: {
           thread: McpShortTextSchema.min(1).describe("The ChatGPT conversation URL from the blocker (its `thread` field)."),
           timeout_ms: z.number().int().positive().max(600_000).optional()

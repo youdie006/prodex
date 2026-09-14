@@ -1,4 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildChromeLaunchArgs,
   assertChatGptPageAvailable,
@@ -39,19 +41,18 @@ import {
   powerLabelMatches,
   deepResearchStartButtonRectExpression,
   conversationIdFromThreadUrl,
-  deleteConversationExpression,
+  deleteChatGptConversation,
   findLaunchedBrowserProcesses,
-  deleteProjectExpression,
-  deepResearchReportExpression,
+  deleteChatGptProject,
+  listChatGptProjectsWithIds,
+  listRecentChatGptConversations,
   resolveTranscriptCitations,
   pickLandedConversation,
-  recentConversationsExpression,
   resolveConversationToDelete,
   resolveProjectToDelete,
   browserRecoveryPlan,
   endWedgedBrowser,
   wedgedBrowserBlocker,
-  transcriptAnswerExpression,
   classifyTranscriptRead,
   browserLostMidWaitBlocker,
   resolveBrowserWindowMode,
@@ -75,11 +76,17 @@ import {
   prepareComposerExpression,
   composerTextStateExpression,
   answerExpression,
+  recoverChatGptAnswerFromThread,
   sendChatGptPrompt,
   submitExpression,
   isUsableChatGptAnswer,
   CHATGPT_THINKING_PLACEHOLDER_JS
 } from "../src/chatgpt-browser.js";
+
+afterEach(() => {
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
+});
 
 describe("ChatGPT browser adapter", () => {
   it("returns a clear blocker when the local debug port is not reachable", async () => {
@@ -91,6 +98,42 @@ describe("ChatGPT browser adapter", () => {
 
   it("includes the browser login next step when sending without a reachable browser", async () => {
     await expect(sendChatGptPrompt({ port: 9, prompt: "test", timeoutMs: 100 })).rejects.toThrow(/pro browser login/);
+  });
+
+  it("sends through the normal DOM path with the fake CDP browser", async () => {
+    vi.useFakeTimers();
+    const thread = "https://chatgpt.com/c/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+    const answer = fakeAnswerState(thread, "the requested answer", false);
+    installFakeChatGptSendCdp(thread, [
+      { ...fakeAnswerState(thread, "", false), assistantMessageCount: 0, userMessageCount: 0 },
+      { ...fakeAnswerState(thread, "", true), assistantMessageCount: 0, userMessageCount: 1 },
+      answer,
+      answer,
+      answer
+    ]);
+
+    const send = sendChatGptPrompt({ port: 19338, prompt: "answer this", targetUrl: thread, timeoutMs: 10_000 });
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    await expect(send).resolves.toMatchObject({ url: thread, answer: "the requested answer" });
+  });
+
+  it("does not salvage an answer from a moved conversation when navigation recovery exhausts the deadline", async () => {
+    vi.useFakeTimers();
+    const thread = "https://chatgpt.com/c/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+    const other = "https://chatgpt.com/c/11111111-2222-3333-4444-555555555555";
+    const evaluations = installFakeChatGptSendCdp(thread, [
+      { ...fakeAnswerState(thread, "", false), assistantMessageCount: 0, userMessageCount: 0 },
+      { ...fakeAnswerState(thread, "", true), assistantMessageCount: 0, userMessageCount: 1 },
+      fakeAnswerState(other, "an unrelated thread's answer", true)
+    ]);
+
+    const send = sendChatGptPrompt({ port: 19339, prompt: "answer this", targetUrl: thread, timeoutMs: 2_000 });
+    const rejection = expect(send).rejects.toMatchObject({ thread });
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    await rejection;
+    expect(evaluations).toContain(`location.assign(${JSON.stringify(thread)})`);
   });
 
   it("keeps initial page discovery bounded below the full answer timeout", () => {
@@ -249,7 +292,7 @@ describe("ChatGPT browser adapter", () => {
     const blocker = browserLostMidWaitBlocker(thread);
 
     expect(blocker.code).toBe("browser_unreachable");
-    expect(blocker.retryable).toBe(true);
+    expect(blocker.retryable).toBe(false);
     expect(blocker.thread).toBe(thread);
     expect(blocker.next_step).toContain("pro browser login");
     expect(blocker.next_step).toContain(thread);
@@ -258,6 +301,160 @@ describe("ChatGPT browser adapter", () => {
     // not promise that one is still being written - only deep research keeps
     // going without us. Measured: the thread showed "Connection interrupted."
     expect(blocker.message).not.toContain("still being written");
+  });
+
+  it("does not recommend resending a submitted prompt whose thread was not captured", () => {
+    const blocker = browserLostMidWaitBlocker(undefined);
+    expect(blocker.retryable).toBe(false);
+    expect(blocker.next_step).toMatch(/inspect/i);
+    expect(blocker.next_step).not.toContain("then retry");
+  });
+
+  it("recovers only a stable completed answer from the requested conversation", async () => {
+    const target = "https://chatgpt.com/c/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+    const evaluations = installFakeChatGptCdp([
+      fakeAnswerState(target, "settled answer", false),
+      fakeAnswerState(target, "settled answer", false)
+    ]);
+
+    const result = await recoverChatGptAnswerFromThread({ targetUrl: target, port: 19333, timeoutMs: 1_500 });
+
+    expect(result.url).toBe(target);
+    expect(result.answer).toBe("settled answer");
+    expect(result.warnings).toEqual([]);
+    expect(evaluations.some((expression) => expression.includes(`location.assign(\"${target}\")`))).toBe(true);
+  });
+
+  it("refuses a settled DOM answer from a different conversation during recovery", async () => {
+    const target = "https://chatgpt.com/c/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+    const other = "https://chatgpt.com/c/11111111-2222-3333-4444-555555555555";
+    installFakeChatGptCdp([fakeAnswerState(other, "another thread's answer", false)]);
+
+    await expect(recoverChatGptAnswerFromThread({ targetUrl: target, port: 19334, timeoutMs: 1_000 })).rejects.toMatchObject({
+      blocker: {
+        code: "thread_target_mismatch",
+        retryable: true,
+        thread: target
+      }
+    });
+  });
+
+  it("does not finalize a still-generating DOM answer at the recovery deadline", async () => {
+    const target = "https://chatgpt.com/c/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+    installFakeChatGptCdp([fakeAnswerState(target, "partial answer", true)]);
+
+    await expect(recoverChatGptAnswerFromThread({ targetUrl: target, port: 19335, timeoutMs: 1_000 })).rejects.toMatchObject({
+      blocker: {
+        code: "still_generating",
+        retryable: true,
+        thread: target
+      }
+    });
+  });
+
+  it("does not finalize changing DOM text at the recovery deadline", async () => {
+    const target = "https://chatgpt.com/c/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+    installFakeChatGptCdp([
+      fakeAnswerState(target, "first complete-looking answer", false),
+      fakeAnswerState(target, "second complete-looking answer", false)
+    ]);
+
+    await expect(recoverChatGptAnswerFromThread({ targetUrl: target, port: 19336, timeoutMs: 1_000 })).rejects.toMatchObject({
+      blocker: {
+        code: "answer_not_stable",
+        retryable: true,
+        thread: target
+      }
+    });
+  });
+
+  it("freezes canonical metadata to the accepted conversation identity", async () => {
+    const conversationId = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+    const projectThread = `https://chatgpt.com/g/g-p-abcd-project/c/${conversationId}?model=gpt-5`;
+    const movedTab = "https://chatgpt.com/c/11111111-2222-3333-4444-555555555555";
+    const browser = await import("../src/chatgpt-browser.js");
+
+    expect(browser).toHaveProperty("canonicalChatGptThreadUrl");
+    if (!("canonicalChatGptThreadUrl" in browser)) return;
+    const canonicalChatGptThreadUrl = browser.canonicalChatGptThreadUrl as (conversationId: string, observedUrl?: string) => string;
+
+    expect(canonicalChatGptThreadUrl(conversationId, projectThread)).toBe(
+      `https://chatgpt.com/g/g-p-abcd-project/c/${conversationId}`
+    );
+    expect(canonicalChatGptThreadUrl(conversationId, movedTab)).toBe(`https://chatgpt.com/c/${conversationId}`);
+  });
+
+  it("lists projects and recent conversations through bounded visible DOM reads", async () => {
+    const evaluations: string[] = [];
+    FakeCdpWebSocket.evaluate = (expression) => {
+      evaluations.push(expression);
+      if (expression === "document.visibilityState") return "visible";
+      if (expression.includes("visibleButtonLabels")) {
+        return {
+          ...fakeAnswerState("https://chatgpt.com/", "", false),
+          hasComposer: true,
+          visibilityState: "visible",
+          textSample: "New chat\nProjects\nProfile",
+          blockerTextSample: "New chat\nProjects\nProfile",
+          blockerScanTextSample: "New chat\nProjects\nProfile"
+        };
+      }
+      if (expression.includes("out.push({ id, name })")) return [{ id: "g-p-abcd", name: "Rendered project" }];
+      if (expression.includes("title,")) {
+        return [{ id: "conversation-1", title: "Rendered conversation", gizmoId: "g-p-abcd" }];
+      }
+      return undefined;
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        json: async () => [devtoolsPage("https://chatgpt.com/")]
+      }))
+    );
+    vi.stubGlobal("WebSocket", FakeCdpWebSocket);
+
+    await expect(listChatGptProjectsWithIds({ port: 19337, timeoutMs: 1_000 })).resolves.toEqual([
+      { id: "g-p-abcd", name: "Rendered project" }
+    ]);
+    await expect(listRecentChatGptConversations({ port: 19337, timeoutMs: 1_000, limit: 2 })).resolves.toEqual([
+      { id: "conversation-1", title: "Rendered conversation", gizmoId: "g-p-abcd" }
+    ]);
+    const listingExpressions = evaluations.filter((expression) => expression.includes("document.querySelectorAll(\"a[href]\")"));
+    expect(listingExpressions).toHaveLength(2);
+    expect(listingExpressions.join("\n")).not.toMatch(/fetch|accessToken|authorization|backend-api|api\/auth\/session|cookie/i);
+  });
+
+  it("disables hidden-API-only mutations and research before browser access", async () => {
+    const fetchSpy = vi.fn(() => {
+      throw new Error("browser access must not happen");
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const operations = [
+      () => sendChatGptPrompt({ prompt: "research this", tools: ["Deep research"], port: 19337 }),
+      () => deleteChatGptConversation({ conversationId: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", port: 19337 }),
+      () => deleteChatGptProject({ projectId: "g-p-abc", port: 19337 })
+    ];
+
+    for (const operation of operations) {
+      await expect(operation()).rejects.toMatchObject({
+        blocker: {
+          code: "unsupported_chatgpt_operation",
+          retryable: false
+        }
+      });
+    }
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("contains no internal session-token or private ChatGPT API expressions", () => {
+    const source = readFileSync(new URL("../src/chatgpt-browser.ts", import.meta.url), "utf8");
+    expect(source).not.toContain("/api/auth/session");
+    expect(source).not.toContain("/backend-api");
+    expect(source).not.toContain("accessToken");
+    expect(source).not.toContain("document.cookie");
   });
 
   it("reopens the browser the way the user set it up, not with a fresh window", () => {
@@ -346,38 +543,6 @@ describe("ChatGPT browser adapter", () => {
     );
   });
 
-  it("finds the conversation a prompt landed in when the page never showed it post", async () => {
-    // Acceptance is read off the page. When the page changes shape, a prompt
-    // that DID post looks like a prompt that never left - and the caller's
-    // retry sends the same question twice. The transcript knows better.
-    const conversations = {
-      items: [
-        { id: "conv-other", title: "Something else" },
-        { id: "conv-ours", title: "Ours" }
-      ]
-    };
-    const transcripts: Record<string, unknown> = {
-      "conv-other": {
-        current_node: "u1",
-        mapping: { u1: { message: { author: { role: "user" }, content: { content_type: "text", parts: ["a different question"] } } } }
-      },
-      "conv-ours": {
-        current_node: "u1",
-        mapping: { u1: { message: { author: { role: "user" }, content: { content_type: "text", parts: ["the prompt we sent"] } } } }
-      }
-    };
-    const fakeFetch = async (url: string) => {
-      if (url.includes("/api/auth/session")) return { ok: true, status: 200, json: async () => ({ accessToken: "tok" }) };
-      if (url.includes("/backend-api/conversations")) return { ok: true, status: 200, json: async () => conversations };
-      const id = url.split("/").pop() ?? "";
-      return { ok: true, status: 200, json: async () => transcripts[id] };
-    };
-    const found = await new Function("fetch", `return ${recentConversationsExpression(2)}`)(fakeFetch);
-
-    expect(found.map((entry: { id: string }) => entry.id)).toEqual(["conv-other", "conv-ours"]);
-    expect(found[1].userText).toBe("the prompt we sent");
-  });
-
   it("picks the conversation whose prompt is the one that was sent", () => {
     const candidates = [
       { id: "conv-other", userText: "a different question" },
@@ -386,30 +551,6 @@ describe("ChatGPT browser adapter", () => {
     expect(pickLandedConversation(candidates, "the prompt we sent")).toBe("conv-ours");
     expect(pickLandedConversation(candidates, "a question nobody asked")).toBeUndefined();
     expect(pickLandedConversation([], "anything")).toBeUndefined();
-  });
-
-  it("returns the prompt the transcript holds, so a caller can prove the thread is its own", async () => {
-    const conversation = {
-      current_node: "a1",
-      mapping: {
-        u1: { message: { author: { role: "user" }, content: { content_type: "text", parts: ["my exact prompt"] } }, parent: null },
-        a1: {
-          message: {
-            author: { role: "assistant" },
-            content: { content_type: "text", parts: ["an answer"] },
-            status: "finished_successfully",
-            end_turn: true
-          },
-          parent: "u1"
-        }
-      }
-    };
-    const fakeFetch = async (url: string) =>
-      url.includes("/api/auth/session")
-        ? { ok: true, status: 200, json: async () => ({ accessToken: "tok" }) }
-        : { ok: true, status: 200, json: async () => conversation };
-    const state = await new Function("fetch", `return ${transcriptAnswerExpression("conv-1")}`)(fakeFetch);
-    expect(state.userText).toBe("my exact prompt");
   });
 
   it("refuses a transcript whose prompt is not the one that was sent", () => {
@@ -439,76 +580,6 @@ describe("ChatGPT browser adapter", () => {
     expect(transcriptMatchesSentPrompt("Compare", sent)).toBe(false);
     // Nothing to compare against is not a match.
     expect(transcriptMatchesSentPrompt("", sent)).toBe(false);
-  });
-
-  it("reads the answer off the active branch of the transcript, not the newest node", async () => {
-    // Regenerating forks the conversation: the abandoned branch stays in the
-    // mapping. The UI follows current_node up its parents, and so must this -
-    // otherwise a regenerate hands back the answer the user threw away.
-    const conversation = {
-      current_node: "a2",
-      mapping: {
-        root: { message: null, parent: null },
-        u1: { message: { author: { role: "user" }, content: { content_type: "text", parts: ["q"] } }, parent: "root" },
-        a1: {
-          message: {
-            author: { role: "assistant" },
-            content: { content_type: "text", parts: ["discarded answer"] },
-            status: "finished_successfully",
-            end_turn: true
-          },
-          parent: "u1"
-        },
-        a2: {
-          message: {
-            author: { role: "assistant" },
-            content: { content_type: "text", parts: ["kept answer"] },
-            status: "finished_successfully",
-            end_turn: true,
-            metadata: { is_complete: true, model_slug: "gpt-5-6-pro" }
-          },
-          parent: "u1"
-        }
-      }
-    };
-    const fakeFetch = async (url: string) =>
-      url.includes("/api/auth/session")
-        ? { ok: true, status: 200, json: async () => ({ accessToken: "tok" }) }
-        : { ok: true, status: 200, json: async () => conversation };
-    const state = await new Function("fetch", `return ${transcriptAnswerExpression("conv-1")}`)(fakeFetch);
-
-    expect(state.ok).toBe(true);
-    expect(state.text).toBe("kept answer");
-    expect(state.modelSlug).toBe("gpt-5-6-pro");
-    expect(state.endTurn).toBe(true);
-  });
-
-  it("treats an unfinished transcript message as still generating", async () => {
-    const conversation = {
-      current_node: "a1",
-      mapping: {
-        u1: { message: { author: { role: "user" }, content: { content_type: "text", parts: ["q"] } }, parent: null },
-        a1: {
-          message: {
-            author: { role: "assistant" },
-            content: { content_type: "text", parts: ["half an ans"] },
-            status: "in_progress",
-            end_turn: null
-          },
-          parent: "u1"
-        }
-      }
-    };
-    const fakeFetch = async (url: string) =>
-      url.includes("/api/auth/session")
-        ? { ok: true, status: 200, json: async () => ({ accessToken: "tok" }) }
-        : { ok: true, status: 200, json: async () => conversation };
-    const state = await new Function("fetch", `return ${transcriptAnswerExpression("conv-1")}`)(fakeFetch);
-
-    expect(state.ok).toBe(false);
-    expect(state.reason).toBe("answer_not_finished");
-    expect(state.status).toBe("in_progress");
-    expect(state.text).toBe("half an ans");
   });
 
   it("never treats ordinary text as a citation marker", () => {
@@ -558,85 +629,6 @@ describe("ChatGPT browser adapter", () => {
     ).toBe("x [A](https://a.example)");
     // Text without markers is returned untouched.
     expect(resolveTranscriptCitations("plain answer", [])).toBe("plain answer");
-  });
-
-  it("pulls the deep research report out of the widget state the app stores it in", async () => {
-    // Deep research now renders as a widget app (connector_openai_deep_research)
-    // inside an iframe, so the report is absent from the main frame DOM. The
-    // conversation transcript still carries it: the tool message's
-    // chatgpt_sdk.widget_state holds report_message.content.parts.
-    const conversation = {
-      mapping: {
-        "client-created-root": {},
-        u1: { message: { author: { role: "user" }, content: { content_type: "text", parts: ["research this"] } } },
-        t1: {
-          message: {
-            author: { role: "tool" },
-            content: { content_type: "code", text: "{}" },
-            metadata: {
-              chatgpt_sdk: {
-                resource_name: "Deep Research App_start",
-                widget_state: JSON.stringify({
-                  status: "completed",
-                  research_started_at: "2026-08-09T04:56:48.802612Z",
-                  report_message: { content: { parts: ["# Report\n\nBody text."] } }
-                })
-              }
-            }
-          }
-        }
-      }
-    };
-    const fetched: string[] = [];
-    const fakeFetch = async (url: string) => {
-      fetched.push(url);
-      if (url.includes("/api/auth/session")) return { ok: true, status: 200, json: async () => ({ accessToken: "tok" }) };
-      return { ok: true, status: 200, json: async () => conversation };
-    };
-    const run = new Function("fetch", `return ${deepResearchReportExpression("conv-1")}`);
-    const state = await run(fakeFetch);
-
-    expect(state.ok).toBe(true);
-    expect(state.status).toBe("completed");
-    expect(state.report).toBe("# Report\n\nBody text.");
-    expect(fetched[1]).toContain("/backend-api/conversation/conv-1");
-  });
-
-  it("says why the deep research report is not readable yet instead of returning an empty answer", async () => {
-    const running = {
-      mapping: {
-        t1: {
-          message: {
-            author: { role: "tool" },
-            metadata: { chatgpt_sdk: { widget_state: JSON.stringify({ status: "researching" }) } }
-          }
-        }
-      }
-    };
-    const fakeFetch = async (url: string) =>
-      url.includes("/api/auth/session")
-        ? { ok: true, status: 200, json: async () => ({ accessToken: "tok" }) }
-        : { ok: true, status: 200, json: async () => running };
-    const state = await new Function("fetch", `return ${deepResearchReportExpression("conv-1")}`)(fakeFetch);
-    expect(state.ok).toBe(false);
-    expect(state.status).toBe("researching");
-    expect(state.report).toBe("");
-
-    // No widget at all (the tool never ran) must be distinguishable from a run
-    // still in progress, so the caller can stop waiting.
-    const bare = async (url: string) =>
-      url.includes("/api/auth/session")
-        ? { ok: true, status: 200, json: async () => ({ accessToken: "tok" }) }
-        : { ok: true, status: 200, json: async () => ({ mapping: {} }) };
-    const none = await new Function("fetch", `return ${deepResearchReportExpression("conv-1")}`)(bare);
-    expect(none.ok).toBe(false);
-    expect(none.reason).toBe("no_widget_state");
-
-    // A failed auth/session lookup must not look like "still researching".
-    const denied = async () => ({ ok: false, status: 401, json: async () => ({}) });
-    const unauth = await new Function("fetch", `return ${deepResearchReportExpression("conv-1")}`)(denied);
-    expect(unauth.ok).toBe(false);
-    expect(unauth.reason).toBe("session_http_401");
   });
 
   it("spots a browser prodex launched that stopped answering its own control port", () => {
@@ -707,6 +699,22 @@ describe("ChatGPT browser adapter", () => {
     expect(findLaunchedBrowserProcesses(psOutput, { port: 9333, profileDir: "/Users/me/.local/share/prodex/chrome-chatgpt-pro" })).toEqual([
       26079, 37509
     ]);
+  });
+
+  it("recognizes every supported Linux browser executable without matching argument text", () => {
+    const profileDir = "/home/me/.local/share/prodex/chrome-chatgpt-pro";
+    for (const [executable, pid] of [
+      ["chromium-browser", 42001],
+      ["microsoft-edge", 42002],
+      ["brave-browser", 42003]
+    ] as const) {
+      const psOutput = [
+        `me ${pid} /usr/bin/${executable} --remote-debugging-port=9333 --user-data-dir=${profileDir}`,
+        `me 49999 /usr/bin/node script.js /usr/bin/${executable} --remote-debugging-port=9333 --user-data-dir=${profileDir}`
+      ].join("\n");
+
+      expect(findLaunchedBrowserProcesses(psOutput, { port: 9333, profileDir })).toEqual([pid]);
+    }
   });
 
   it("wakes a frozen browser before ending it, and escalates if it will not go", async () => {
@@ -798,21 +806,6 @@ describe("ChatGPT browser adapter", () => {
     expect(resolveConversationToDelete(chats, {}).ok).toBe(false);
   });
 
-  it("hides a conversation through the call ChatGPT reports success for", async () => {
-    const calls: Array<{ url: string; method?: string; body?: string }> = [];
-    const fakeFetch = async (url: string, init?: { method?: string; body?: string }) => {
-      calls.push({ url, ...(init?.method ? { method: init.method } : {}), ...(init?.body ? { body: init.body } : {}) });
-      if (url.includes("/api/auth/session")) return { ok: true, status: 200, json: async () => ({ accessToken: "tok" }) };
-      return { ok: true, status: 200, text: async () => JSON.stringify({ success: true }) };
-    };
-    const result = await new Function("fetch", `return ${deleteConversationExpression("c-ccc")}`)(fakeFetch);
-
-    expect(result).toEqual({ ok: true, reason: "" });
-    expect(calls[1].url).toBe("/backend-api/conversation/c-ccc");
-    expect(calls[1].method).toBe("PATCH");
-    expect(JSON.parse(calls[1].body ?? "{}")).toEqual({ is_visible: false });
-  });
-
   it("refuses to delete a project it cannot identify beyond doubt", () => {
     // Deleting is not undoable from here, so the name has to match exactly one
     // project. This account really does have two projects sharing a name.
@@ -838,19 +831,6 @@ describe("ChatGPT browser adapter", () => {
     // A near-miss on case or spacing is not a match: deleting the wrong project
     // because of a typo is exactly what exactness is for.
     expect(resolveProjectToDelete(projects, { name: "codex" }).ok).toBe(false);
-  });
-
-  it("deletes by id through the endpoint that reports it deleted", async () => {
-    const calls: Array<{ url: string; method?: string }> = [];
-    const fakeFetch = async (url: string, init?: { method?: string }) => {
-      calls.push({ url, ...(init?.method ? { method: init.method } : {}) });
-      if (url.includes("/api/auth/session")) return { ok: true, status: 200, json: async () => ({ accessToken: "tok" }) };
-      return { ok: true, status: 200, text: async () => JSON.stringify({ deleted: true }) };
-    };
-    const result = await new Function("fetch", `return ${deleteProjectExpression("g-p-ccc")}`)(fakeFetch);
-
-    expect(result).toEqual({ ok: true, reason: "" });
-    expect(calls[1]).toEqual({ url: "/backend-api/gizmos/g-p-ccc", method: "DELETE" });
   });
 
   it("reads the conversation id out of plain and project thread urls", () => {
@@ -995,21 +975,24 @@ describe("ChatGPT browser adapter", () => {
   });
 
   it("builds a virtual-display X server command that is authenticated, not world-open", () => {
-    // WSLg mounts /tmp/.X11-unix read-only, so the X server has to serve over
-    // loopback TCP - and a TCP X display with access control off would let any
-    // process on the box watch the signed-in ChatGPT window. Require -auth.
+    // WSLg mounts /tmp/.X11-unix read-only. Linux X servers can still bind an
+    // abstract Unix socket there, keeping the signed-in display off TCP and
+    // avoiding any writable filesystem socket. Require cookie auth as well.
     const args = virtualDisplayServerArgs(99, "/home/u/.local/share/prodex/xvfb/Xauthority");
     expect(args[0]).toBe(":99");
     expect(args).toContain("-auth");
     expect(args).toContain("/home/u/.local/share/prodex/xvfb/Xauthority");
-    expect(args).toContain("-listen");
+    expect(args.join(" ")).toContain("-nolisten tcp");
+    expect(args.join(" ")).toContain("-nolisten unix");
+    expect(args).not.toContain("-listen");
     expect(args).not.toContain("-ac");
+    expect(args).toContain("-pn");
     expect(args.join(" ")).toMatch(/-screen 0 \d{3,}x\d{3,}x24/);
   });
 
   it("points the browser at the virtual display without disturbing the real one", () => {
     const env = virtualDisplayEnv(99, "/tmp/Xauthority", { DISPLAY: ":0", PATH: "/usr/bin" });
-    expect(env.DISPLAY).toBe("127.0.0.1:99");
+    expect(env.DISPLAY).toBe(":99");
     expect(env.XAUTHORITY).toBe("/tmp/Xauthority");
     expect(env.PATH).toBe("/usr/bin");
   });
@@ -1957,6 +1940,151 @@ function evaluateBrowserStatusExpression<T>(expression: string, document: FakeDo
     `return ${expression};`
   );
   return run(document, window, FakeInputEvent, FakeEvent, FakeTextArea, FakeInput, nodeFilter, location) as T;
+}
+
+function fakeAnswerState(url: string, answer: string, generating: boolean) {
+  return {
+    title: "ChatGPT thread",
+    url,
+    answer,
+    modelHints: ["Pro"],
+    generating,
+    assistantMessageCount: 1,
+    userMessageCount: 1,
+    textSample: "",
+    blockerTextSample: "",
+    blockerScanTextSample: "",
+    visibleButtonLabels: []
+  };
+}
+
+function installFakeChatGptCdp(states: ReturnType<typeof fakeAnswerState>[]): string[] {
+  const evaluations: string[] = [];
+  let answerIndex = 0;
+  FakeCdpWebSocket.evaluate = (expression) => {
+    evaluations.push(expression);
+    if (expression === "document.visibilityState") return "visible";
+    if (expression.includes("location.assign(")) return undefined;
+    if (expression.includes("assistantMessageCount")) {
+      const state = states[Math.min(answerIndex, states.length - 1)];
+      answerIndex += 1;
+      return state;
+    }
+    return undefined;
+  };
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => [devtoolsPage("https://chatgpt.com/")]
+    }))
+  );
+  vi.stubGlobal("WebSocket", FakeCdpWebSocket);
+  return evaluations;
+}
+
+function installFakeChatGptSendCdp(threadUrl: string, states: ReturnType<typeof fakeAnswerState>[]): string[] {
+  const evaluations: string[] = [];
+  let answerIndex = 0;
+  FakeCdpWebSocket.evaluate = (expression) => {
+    evaluations.push(expression);
+    if (expression === "document.visibilityState") return "visible";
+    if (expression.includes("const surfaces = buttons.map")) {
+      return { surfaces: [{ label: "Chat", checked: true }] };
+    }
+    if (expression.includes("visibilityState: document.visibilityState")) {
+      return {
+        title: "ChatGPT thread",
+        url: threadUrl,
+        visibilityState: "visible",
+        textSample: "New chat\nProjects\nPro",
+        blockerTextSample: "New chat\nProjects\nPro",
+        blockerScanTextSample: "",
+        visibleButtonLabels: [],
+        hasComposer: true,
+        generating: false,
+        awaitingResponseChoice: false,
+        modelHints: ["Pro"],
+        openDialogText: ""
+      };
+    }
+    if (expression.includes("assistantMessageCount")) {
+      const state = states[Math.min(answerIndex, states.length - 1)];
+      answerIndex += 1;
+      return state;
+    }
+    if (expression.includes("return { ok: true, hasText }")) return { ok: true, hasText: false };
+    if (expression.includes("actualText: raw.slice")) return { ok: true, actualText: "answer this" };
+    if (expression.includes(").ok === true")) return true;
+    if (expression.includes(`document.querySelectorAll('[data-message-author-role="user"]')`)) return true;
+    if (expression.includes("location.assign(")) return undefined;
+    return undefined;
+  };
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => [devtoolsPage(threadUrl)]
+    }))
+  );
+  vi.stubGlobal("WebSocket", FakeCdpWebSocket);
+  return evaluations;
+}
+
+class FakeCdpWebSocket {
+  static readonly CONNECTING = 0;
+  static readonly OPEN = 1;
+  static readonly CLOSED = 3;
+  static evaluate: (expression: string) => unknown = () => undefined;
+
+  readyState = FakeCdpWebSocket.CONNECTING;
+  private readonly listeners = new Map<string, Array<{ listener: (event: { data?: string }) => void; once: boolean }>>();
+
+  constructor(_url: string) {
+    queueMicrotask(() => {
+      this.readyState = FakeCdpWebSocket.OPEN;
+      this.emit("open", {});
+    });
+  }
+
+  addEventListener(
+    type: string,
+    listener: (event: { data?: string }) => void,
+    options?: { once?: boolean }
+  ): void {
+    const listeners = this.listeners.get(type) ?? [];
+    listeners.push({ listener, once: options?.once === true });
+    this.listeners.set(type, listeners);
+  }
+
+  send(data: string): void {
+    const request = JSON.parse(data) as { id: number; method: string; params?: { expression?: string } };
+    queueMicrotask(() => {
+      const value = request.method === "Runtime.evaluate" ? FakeCdpWebSocket.evaluate(request.params?.expression ?? "") : undefined;
+      this.emit("message", {
+        data: JSON.stringify({ id: request.id, result: { result: { value } } })
+      });
+    });
+  }
+
+  close(): void {
+    if (this.readyState === FakeCdpWebSocket.CLOSED) return;
+    this.readyState = FakeCdpWebSocket.CLOSED;
+    this.emit("close", {});
+  }
+
+  private emit(type: string, event: { data?: string }): void {
+    const listeners = this.listeners.get(type) ?? [];
+    this.listeners.set(
+      type,
+      listeners.filter(({ listener, once }) => {
+        listener(event);
+        return !once;
+      })
+    );
+  }
 }
 
 class FakeEvent {

@@ -48,7 +48,12 @@ describe("telling a slow browser from a dead one", () => {
     // With a 10ms budget the timer fires before the refusal reports back, so
     // the fetch error says "timeout" about a port nothing listens on. The TCP
     // check underneath is what keeps that from reading as "running but busy".
-    const status = await getChatGptBrowserStatus({ port: 65534, timeoutMs: 10 });
+    server = createServer();
+    await new Promise<void>((resolve) => server!.listen(0, "127.0.0.1", resolve));
+    const port = (server.address() as AddressInfo).port;
+    await new Promise<void>((resolve) => server!.close(() => resolve()));
+    server = undefined;
+    const status = await getChatGptBrowserStatus({ port, timeoutMs: 10 });
     expect(status.blocker?.code).toBe("browser_unreachable");
   });
 
