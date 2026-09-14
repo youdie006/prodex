@@ -319,6 +319,8 @@ export interface SendChatGptPromptResult {
    * rather than recording the requested name as if it were proof.
    */
   boundProjectId?: string;
+  requestId?: string;
+  requestVerified?: boolean;
   warnings: string[];
 }
 
@@ -332,6 +334,8 @@ interface ChatGptAnswerState {
   awaitingResponseChoice?: boolean;
   assistantMessageCount: number;
   userMessageCount: number;
+  /** The user turn immediately preceding the candidate answer. */
+  lastUserText?: string;
   /** ChatGPT's own tag for the model that produced the last answer. */
   modelSlug?: string;
   textSample: string;
@@ -1064,18 +1068,42 @@ export function isFreshChatGptPage(state: {
   return onRoot && state.assistantMessageCount === 0 && state.userMessageCount === 0;
 }
 
+/** Check and navigate in one renderer task, so a late stop control prevents the move. */
+export function idleChatGptNavigationExpression(url: string): string {
+  return `(() => {
+    const status = ${statusExpression()};
+    if (status.generating && !status.awaitingResponseChoice) return false;
+    location.assign(${JSON.stringify(url)});
+    return true;
+  })()`;
+}
+
+async function navigateIdleChatGptPage(page: DevtoolsPage, url: string): Promise<void> {
+  if (await evaluateOnPage(page, idleChatGptNavigationExpression(url)) !== true) {
+    throw new ChatGptBrowserBlockerError({
+      code: "response_in_progress",
+      message: "The shared ChatGPT tab became busy before navigation. Nothing was sent or moved.",
+      retryable: true,
+      next_step: "Wait for the current response to finish before retrying this operation."
+    });
+  }
+}
+
 /**
  * Poll until the tab settles on a fresh empty chat (or the timeout elapses).
  * Deterministically replaces a fixed post-navigation sleep so a slow SPA
- * navigation cannot leave the old thread's state in place. Best-effort: on
- * timeout it returns and the caller proceeds (the acceptance logic still
- * guards), but the poll removes the common race.
+ * navigation cannot leave the old thread's state in place. A false result
+ * must not be used as permission to send into stale content.
  */
 async function waitForFreshChatGptPage(page: DevtoolsPage, timeoutMs: number): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    const state = await evaluateOnPage<ChatGptAnswerState>(page, answerExpression());
-    if (isFreshChatGptPage(state)) return true;
+    try {
+      const state = await evaluateOnPage<ChatGptAnswerState>(page, answerExpression());
+      if (isFreshChatGptPage(state)) return true;
+    } catch (error) {
+      if (!/execution context|cannot find context|Runtime\.evaluate failed/i.test(String(error))) throw error;
+    }
     await sleep(300);
   }
   return false;
@@ -3097,7 +3125,12 @@ async function selectModelReasoning(
     // GPT-5.6 Sol) instead of a model radio list, so "Pro" is the top EFFORT.
     // Drive it when it is there and fall through to the legacy radio path when
     // it is not, so both UI generations work.
-    const sliderState = await cdp.evaluate<PowerSliderState>(powerSliderStateExpression());
+    let sliderState = await cdp.evaluate<PowerSliderState>(powerSliderStateExpression());
+    if (!sliderState?.ok && await waitForExpressionTrue(cdp, powerSliderPresentExpression(), MENU_OPEN_TIMEOUT_MS)) {
+      // The container and model rows can paint before the effort control.
+      // Do not toggle an already-open menu or guess that this is the old UI.
+      sliderState = await cdp.evaluate<PowerSliderState>(powerSliderStateExpression());
+    }
     if (sliderState?.ok) {
       // The slider is the EFFORT control and the models are radios beside it.
       // Sending a model name into the slider made it walk every step looking
@@ -3614,6 +3647,7 @@ export interface RecoverChatGptAnswerOptions {
   port?: number;
   targetUrl: string;
   timeoutMs?: number;
+  requestId?: string;
 }
 
 // Read the finished answer from an existing ChatGPT thread WITHOUT sending a new
@@ -3624,6 +3658,9 @@ export interface RecoverChatGptAnswerOptions {
 export async function recoverChatGptAnswerFromThread(
   options: RecoverChatGptAnswerOptions
 ): Promise<SendChatGptPromptResult> {
+  if (options.requestId !== undefined && !/^[a-f0-9]{32}$/.test(options.requestId)) {
+    throw new Error("requestId must be the 32-character prodex request identifier.");
+  }
   const port = resolveCdpPort(options.port);
   const timeoutMs = Math.max(1_000, options.timeoutMs ?? 60_000);
   const url = normalizeChatGptTargetUrl(options.targetUrl);
@@ -3639,6 +3676,12 @@ export async function recoverChatGptAnswerFromThread(
       }
     );
   }
+  const currentStatus = await readSettledChatGptPageStatus(page.page);
+  const currentBlocker = detectChatGptPageBlocker(currentStatus);
+  if (currentBlocker) throw new ChatGptBrowserBlockerError(currentBlocker);
+  const alreadyOnTarget = chatGptUrlsReferToSameTarget(currentStatus.url, url);
+  const currentBusy = chatGptBusyBlocker(currentStatus);
+  if (!alreadyOnTarget && currentBusy) throw new ChatGptBrowserBlockerError(currentBusy);
   const cdp = await connectCdp(page.page.webSocketDebuggerUrl);
   let state: ChatGptAnswerState | undefined;
   let generating = false;
@@ -3650,7 +3693,7 @@ export async function recoverChatGptAnswerFromThread(
     await cdp.send("Runtime.enable");
     // In-tab navigation (location.assign, not Page.navigate which has crashed the
     // instance) so we read the requested thread, not whatever was open.
-    await cdp.evaluate(`location.assign(${JSON.stringify(url)})`);
+    if (!alreadyOnTarget) await navigateIdleChatGptPage(page.page, url);
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
       await sleep(500);
@@ -3671,6 +3714,15 @@ export async function recoverChatGptAnswerFromThread(
         stableRuns = 0;
         lastAnswer = "";
         continue;
+      }
+      if (options.requestId && !chatGptRequestMarkerMatches(state.lastUserText ?? "", options.requestId)) {
+        throw new ChatGptBrowserBlockerError({
+          code: "request_mismatch",
+          message: "The recovered conversation's latest user turn does not match the requested prodex request. No answer was returned.",
+          retryable: false,
+          next_step: "Inspect the original request in the browser. Do not treat a later turn in the same conversation as its answer.",
+          thread: url
+        });
       }
       // Require a REAL assistant message, not answerExpression's page-chrome
       // fallback (empty assistant returns sidebar/nav text): the thread's
@@ -3727,7 +3779,9 @@ export async function recoverChatGptAnswerFromThread(
     answer: state!.answer.trim(),
     modelHints: state!.modelHints,
     ...(state!.modelSlug ? { modelSlug: state!.modelSlug } : {}),
-    warnings: []
+    ...(options.requestId ? { requestId: options.requestId } : {}),
+    requestVerified: options.requestId !== undefined,
+    warnings: options.requestId ? [] : ["request_unverified: recovered the latest answer in the named conversation without a request ID. Verify the preceding question before using this as a review."]
   };
 }
 
@@ -3741,6 +3795,17 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
   }
   const port = resolveCdpPort(options.port);
   const timeoutMs = options.timeoutMs ?? 90_000;
+  const requestId = randomBytes(16).toString("hex");
+  const sentPrompt = `${options.prompt}\n\n[prodex-request:${requestId}]`;
+  const requestMatches = (state: ChatGptAnswerState): boolean =>
+    chatGptRequestMatchesUserTurn(state.lastUserText ?? "", sentPrompt, requestId);
+  const requestMismatch = (thread?: string): ChatGptBrowserBlockerError => new ChatGptBrowserBlockerError({
+    code: "request_mismatch",
+    message: "The visible user turn does not match this prodex request. No answer was returned because it may belong to another session.",
+    retryable: false,
+    next_step: `Do not resend automatically. Inspect the original chat for [prodex-request:${requestId}] before recovering its answer.`,
+    ...(thread ? { thread } : {})
+  });
   /** Dialogs answered on the reload connection, which comes and goes before the send's own, so the receipt still says so. */
   const earlyDialogsAnswered: string[] = [];
   const sendStartedAt = Date.now();
@@ -3774,27 +3839,6 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
     assertChatGptPageAvailable();
   }
   const page = pageResult.page;
-  if (options.newChat && !options.project && !options.projectNew) {
-    // Long accumulated threads eventually break acceptance detection, so
-    // start from a clean chat. Wait for the tab to actually reach the fresh
-    // empty chat (root URL, zero messages) rather than a fixed sleep: a slow
-    // SPA navigation could otherwise leave the old thread rendered, poisoning
-    // the answer-count baseline captured below and causing a false timeout.
-    //
-    // Skipped when a project is requested: the project home the selection step
-    // navigates to IS the fresh composer for "a new chat in this project".
-    // Navigating to the root new chat first leaves the SPA composer bound to
-    // the ROOT conversation target even after entering the project, so the
-    // thread silently lands outside the project (measured live: --new-chat
-    // --project threads appeared in the root chat list, --project-only
-    // threads appeared inside the project).
-    // A temporary chat is reached by url rather than by clicking the control:
-    // the same navigation this already does, one query parameter different, and
-    // nothing to find on a page whose buttons keep moving.
-    const freshUrl = options.temporary ? "https://chatgpt.com/?temporary-chat=true" : "https://chatgpt.com/";
-    await evaluateOnPage(page, `location.assign(${JSON.stringify(freshUrl)})`);
-    await waitForFreshChatGptPage(page, 8_000);
-  }
   let status = await readSettledChatGptPageStatus(page);
   status = await ensureVisibleChatGptPage(port, page, status);
   const blocker = detectChatGptPageBlocker(status);
@@ -3833,6 +3877,7 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
       busyBlocker = chatGptBusyBlocker(status);
     }
   }
+  if (busyBlocker) throw new ChatGptBrowserBlockerError(busyBlocker);
   // ChatGPT's error page does not come back on a reload - measured: a project
   // home that failed reloaded straight back into it - and the tab then stays
   // there for every later send, including the retry its own blocker asks for.
@@ -3919,6 +3964,25 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
     throw new ChatGptBrowserBlockerError(chatGptResponseChoiceBlocker(true)!);
   }
   assertChatGptIdleAndReadyForPrompt(status, busyBlocker, true);
+  if (options.newChat && !options.project && !options.projectNew) {
+    // Never navigate away from a prior in-flight request, including one whose
+    // caller timed out and released the process lock. Project homes supply
+    // their own fresh composer and must not pass through the root first.
+    const freshUrl = options.temporary ? "https://chatgpt.com/?temporary-chat=true" : "https://chatgpt.com/";
+    await navigateIdleChatGptPage(page, freshUrl);
+    if (!await waitForFreshChatGptPage(page, 8_000)) {
+      throw new ChatGptBrowserBlockerError({
+        code: "fresh_chat_not_ready",
+        message: "The new-chat page did not become an empty conversation. Nothing was sent.",
+        retryable: true,
+        next_step: "Wait for the dedicated browser to finish loading a new chat, then retry."
+      });
+    }
+    status = await readSettledChatGptPageStatus(page);
+    const freshBlocker = detectChatGptPageBlocker(status);
+    if (freshBlocker) throw new ChatGptBrowserBlockerError(freshBlocker);
+    assertChatGptIdleAndReadyForPrompt(status);
+  }
   // Only a PINNED target has to be under the tab already; a resolved thread is
   // navigated to below, and asserting the match here would refuse the send for
   // the tab merely being somewhere else - which is the whole reason a
@@ -4021,6 +4085,20 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
     // so assistant-message counts compare within the thread we actually send
     // into; a --project/--project-new hop lands on a page with its own counts.
     beforeSubmit = await evaluateOnPage<ChatGptAnswerState>(page, answerExpression());
+    const beforeTyping = await readSettledChatGptPageStatus(page);
+    const beforeTypingBlocker = detectChatGptPageBlocker(beforeTyping);
+    if (beforeTypingBlocker) throw new ChatGptBrowserBlockerError(beforeTypingBlocker);
+    assertChatGptIdleAndReadyForPrompt(beforeTyping);
+    if (normalizedTargetUrl) assertChatGptTargetUrlMatches(beforeSubmit.url, normalizedTargetUrl);
+    if ((options.newChat || options.project || options.projectNew) &&
+        (beforeSubmit.userMessageCount !== 0 || beforeSubmit.assistantMessageCount !== 0 || conversationIdFromThreadUrl(beforeSubmit.url))) {
+      throw new ChatGptBrowserBlockerError({
+        code: "fresh_chat_not_ready",
+        message: "The fresh-chat destination changed to an existing conversation before typing. Nothing was sent.",
+        retryable: true,
+        next_step: "Wait for other browser activity to finish before starting a new consult."
+      });
+    }
     dbgSend(`baseline url=${beforeSubmit.url} user=${beforeSubmit.userMessageCount} assistant=${beforeSubmit.assistantMessageCount}`);
     // Read the binding once more, on the composer this send is about to type
     // into. Everything between selectProject and here - the model picker, the
@@ -4045,7 +4123,7 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
       emitProgress("selecting", `attached ${uploaded.attached.join(", ")}`);
     }
     if (toolLabels.length > 0) emitProgress("selecting", `tools=${toolLabels.join(", ")}`);
-    await insertComposerTextViaCdp(cdp, options.prompt, page, toolLabels);
+    await insertComposerTextViaCdp(cdp, sentPrompt, page, toolLabels);
     // The send button renders asynchronously after the prompt lands. Poll for it
     // BEFORE submitting so (a) submitButtonFound reflects whether the control
     // actually EXISTS - otherwise a successful Enter-key submit skips the fallback
@@ -4070,7 +4148,10 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
     // inserts a newline) fall back to clicking the send button, re-reading
     // FRESH coordinates each attempt. Safe against double-submit: once the
     // prompt posts the composer clears and no send button is found.
-    const promptPostedExpression = `document.querySelectorAll('[data-message-author-role="user"]').length > ${beforeSubmit.userMessageCount}`;
+    const promptPostedExpression = `(() => {
+      const last = [...document.querySelectorAll('[data-message-author-role="user"]')].at(-1);
+      return Boolean(last && (last.innerText || "").includes(${JSON.stringify(`[prodex-request:${requestId}]`)}));
+    })()`;
     await cdp.send("Input.dispatchKeyEvent", enterKeyEvent("keyDown"));
     await cdp.send("Input.dispatchKeyEvent", enterKeyEvent("keyUp"));
     let promptPosted = await waitForExpressionTrue(cdp, promptPostedExpression, 1_500);
@@ -4112,10 +4193,12 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
     const runtimeBlocker = chatGptBlockerFromAnswerState(finalState);
     if (runtimeBlocker) throw new ChatGptBrowserBlockerError(runtimeBlocker);
     dbgSend(`accept-poll url=${finalState.url} user=${finalState.userMessageCount} assistant=${finalState.assistantMessageCount} generating=${finalState.generating}`);
-    if (hasChatGptPromptAcceptance(beforeSubmit, finalState)) {
+    if (requestMatches(finalState)) {
+      if (normalizedTargetUrl) assertChatGptTargetUrlMatches(finalState.url, normalizedTargetUrl);
       accepted = true;
       break;
     }
+    if (hasChatGptPromptAcceptance(beforeSubmit, finalState)) throw requestMismatch(normalizedTargetUrl);
     emitProgress("waiting", "prompt posting");
   }
   if (!accepted) {
@@ -4158,7 +4241,6 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
   let pinnedThreadUrl = pinnedConversationId
     ? canonicalChatGptThreadUrl(pinnedConversationId, normalizedTargetUrl ?? finalState?.url)
     : undefined;
-  let recoveredNavigations = 0;
   let consecutiveReadFailures = 0;
   let answerSettled = false;
   const answerIsStable = createChatGptAnswerStabilityTracker();
@@ -4170,6 +4252,7 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
       // Freeze the first conversation identity the accepted page exposes. A
       // later tab move must never rewrite result metadata to another thread.
       if (!pinnedConversationId) {
+        if (!requestMatches(observedState)) throw requestMismatch();
         const observedConversationId = conversationIdFromThreadUrl(observedState.url);
         if (observedConversationId) {
           pinnedConversationId = observedConversationId;
@@ -4177,23 +4260,15 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
         }
       }
       if (shouldRecoverThreadNavigation({ pinnedThreadUrl, currentUrl: observedState.url })) {
-        if (recoveredNavigations >= 2) {
-          throw new ChatGptBrowserBlockerError({
-            code: "thread_navigated_away",
-            message: "The browser tab was moved to a different ChatGPT conversation while this consult was waiting for its answer.",
-            retryable: true,
-            next_step: `Keep the dedicated browser on the consult thread, then fetch the answer with \`prodex pro browser recover --target-url ${pinnedThreadUrl}\`.`,
-            thread: pinnedThreadUrl
-          } as NonNullable<ChatGptBrowserStatus["blocker"]>);
-        }
-        recoveredNavigations += 1;
-        sendWarnings.push(
-          `thread_navigated_away_recovered: something moved the tab to another conversation mid-wait; prodex navigated back to ${pinnedThreadUrl}.`
-        );
-        await evaluateOnPage(page, `location.assign(${JSON.stringify(pinnedThreadUrl)})`);
-        await sleep(3_000);
-        continue;
+        throw new ChatGptBrowserBlockerError({
+          code: "thread_navigated_away",
+          message: "The browser tab was moved to a different ChatGPT conversation while this consult was waiting for its answer.",
+          retryable: false,
+          next_step: `Do not resend automatically. After other sessions finish, inspect the original request [prodex-request:${requestId}] in ${pinnedThreadUrl}.`,
+          thread: pinnedThreadUrl
+        } as NonNullable<ChatGptBrowserStatus["blocker"]>);
       }
+      if (!requestMatches(observedState)) throw requestMismatch(pinnedThreadUrl);
       // Only a state from the pinned conversation may become eligible for
       // completed or partial result salvage after the polling deadline.
       finalState = observedState;
@@ -4233,6 +4308,8 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
       modelHints: completed.modelHints,
       ...(completed.modelSlug ? { modelSlug: completed.modelSlug } : {}),
       ...(boundProjectId ? { boundProjectId } : {}),
+      requestId,
+      requestVerified: true,
       warnings: withDialogNote([...sendWarnings, selectionMismatchWarning({ ...(options.model !== undefined ? { model: options.model } : {}), ...(options.effort !== undefined ? { effort: options.effort } : {}), ...(completed.modelSlug !== undefined ? { modelSlug: completed.modelSlug } : {}) })]).filter(
         (warning): warning is string => Boolean(warning)
       )
@@ -4250,10 +4327,12 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
       modelHints: completed.modelHints,
       ...(completed.modelSlug ? { modelSlug: completed.modelSlug } : {}),
       ...(boundProjectId ? { boundProjectId } : {}),
+      requestId,
+      requestVerified: true,
       warnings: withDialogNote([
         ...sendWarnings,
         ...(selectionMismatchWarning({ ...(options.model !== undefined ? { model: options.model } : {}), ...(options.effort !== undefined ? { effort: options.effort } : {}), ...(completed.modelSlug !== undefined ? { modelSlug: completed.modelSlug } : {}) }) ? [selectionMismatchWarning({ ...(options.model !== undefined ? { model: options.model } : {}), ...(options.effort !== undefined ? { effort: options.effort } : {}), ...(completed.modelSlug !== undefined ? { modelSlug: completed.modelSlug } : {}) }) as string] : []),
-        `answer_incomplete: ChatGPT's answer did not reach a stable completed state after ${formatDurationMs(timeoutMs)} (${timeoutMs}ms), so the answer below may be truncated. Raise --timeout-ms and retry for the full response.`
+        `answer_incomplete: ChatGPT's answer did not reach a stable completed state after ${formatDurationMs(timeoutMs)} (${timeoutMs}ms), so the answer below may be truncated. Do not resend the question. Recover the original answer with --target-url ${pinnedThreadUrl ?? completed.url} --request-id ${requestId} once it finishes.`
       ])
     };
   }
@@ -4263,8 +4342,9 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
   throw Object.assign(
     new Error(
       `Timed out after ${formatDurationMs(timeoutMs)} (${timeoutMs}ms) waiting for ChatGPT to respond. ` +
-        "Pro reasoning can run many minutes. Raise --timeout-ms and retry."
+        "Pro reasoning can run many minutes. Do not resend the question; recover the original answer once it finishes."
     ),
+    { requestId },
     pinnedThreadUrl ?? completed?.url ? { thread: pinnedThreadUrl ?? completed?.url } : {}
   );
 }
@@ -5890,6 +5970,21 @@ export function transcriptContainsWholeSentPrompt(userText: string, sentPrompt: 
 
 const NORMALIZED_PROMPT_MATCH_CHARS = 120;
 
+function normalizeChatGptPromptText(value: string): string {
+  return value.replace(/\\([\\`*_{}[\]()#+\-.!>~|])/g, "$1").replace(/\s+/g, " ").trim();
+}
+
+function chatGptRequestMarkerMatches(userText: string, requestId: string): boolean {
+  const markers = [...normalizeChatGptPromptText(userText).matchAll(/\[prodex-request:([a-f0-9]{32})\]/g)];
+  return markers.at(-1)?.[1] === requestId && markers.filter((match) => match[1] === requestId).length === 1;
+}
+
+/** Full prompt and per-send identity; wrappers may contain tool/file labels. */
+export function chatGptRequestMatchesUserTurn(userText: string, sentPrompt: string, requestId: string): boolean {
+  return chatGptRequestMarkerMatches(userText, requestId) &&
+    normalizeChatGptPromptText(userText).includes(normalizeChatGptPromptText(sentPrompt));
+}
+
 /**
  * Does this transcript belong to the consult that is waiting on it?
  *
@@ -5905,13 +6000,8 @@ export function transcriptMatchesSentPrompt(userText: string, sentPrompt: string
   // kept as "\\## File", fences as escaped backticks), so undo that before
   // comparing - otherwise every prompt carrying markdown, which is every
   // --file send, looks like a different conversation.
-  const normalize = (value: string): string =>
-    value
-      .replace(/\\([\\`*_{}[\]()#+\-.!>~|])/g, "$1")
-      .replace(/\s+/g, " ")
-      .trim();
-  const seen = normalize(userText);
-  const sent = normalize(sentPrompt);
+  const seen = normalizeChatGptPromptText(userText);
+  const sent = normalizeChatGptPromptText(sentPrompt);
   if (seen.length === 0 || sent.length === 0) return false;
   const expected = sent.slice(0, NORMALIZED_PROMPT_MATCH_CHARS);
   return seen.includes(expected);
@@ -6201,7 +6291,10 @@ export function answerExpression(): string {
     // answer (a 0.21.3 fallback for deep research, which is read from the
     // transcript now) turned a tool's progress panel into a 28-character
     // "answer" that a consult returned as its result.
-    const assistant = assistantMessages.at(-1);
+    const lastUserIndex = messages.map((message) => message.role).lastIndexOf("user");
+    // Pair only within the latest user turn; a previous reply is not the
+    // answer to a new question whose assistant node has not rendered yet.
+    const assistant = lastUserIndex < 0 ? undefined : messages.slice(lastUserIndex + 1).filter((message) => message.role === "assistant").at(-1);
     const buttons = [...document.querySelectorAll('button,[role="button"]')]
       .filter((node) => !!(node.offsetWidth || node.offsetHeight || node.getClientRects().length))
       .filter((node) => !node.closest(excludedTextSelector))
@@ -6226,6 +6319,7 @@ export function answerExpression(): string {
       awaitingResponseChoice: Boolean(document.querySelector(${responseChoiceSelector})),
       assistantMessageCount: assistantMessages.length,
       userMessageCount: userMessages.length,
+      lastUserText: userMessages.at(-1)?.text || "",
       // ChatGPT tags each assistant message with the model that produced it -
       // the only ground truth for "did the Pro selection actually take".
       modelSlug: assistant ? assistant.modelSlug : undefined,

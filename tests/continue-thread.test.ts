@@ -22,26 +22,44 @@ const thread = (id: string, project?: string) =>
 
 describe("which conversation a follow-up belongs to", () => {
   const consults = [
-    { taskId: "task_a", thread: thread("aaa", "notes"), status: "done", createdAt: "2026-09-08T00:00:00Z" },
-    { taskId: "task_b", thread: thread("bbb"), status: "done", createdAt: "2026-09-09T00:00:00Z" },
-    { taskId: "task_c", thread: thread("ccc", "notes"), status: "done", createdAt: "2026-09-10T00:00:00Z" }
+    { taskId: "task_a", thread: thread("aaa", "notes"), status: "done", sessionKey: "client-a", createdAt: "2026-09-08T00:00:00Z" },
+    { taskId: "task_b", thread: thread("bbb"), status: "done", sessionKey: "client-a", createdAt: "2026-09-09T00:00:00Z" },
+    { taskId: "task_c", thread: thread("ccc", "notes"), status: "done", sessionKey: "client-a", createdAt: "2026-09-10T00:00:00Z" }
   ];
 
   it("continues the newest finished consult of this project", () => {
-    const resolved = resolveContinuationThread({ consults, project: "notes" });
+    const resolved = resolveContinuationThread({ consults, project: "notes", sessionKey: "client-a" });
     expect("target" in resolved && resolved.target.taskId).toBe("task_c");
   });
 
   // A follow-up for the general chat must not walk into a project, and a
   // project's follow-up must not answer in another project's conversation.
   it("keeps a projectless follow-up out of every project", () => {
-    const resolved = resolveContinuationThread({ consults });
+    const resolved = resolveContinuationThread({ consults, sessionKey: "client-a" });
     expect("target" in resolved && resolved.target.taskId).toBe("task_b");
   });
 
   it("refuses rather than guessing when this project has no thread yet", () => {
-    const resolved = resolveContinuationThread({ consults, project: "ledger" });
+    const resolved = resolveContinuationThread({ consults, project: "ledger", sessionKey: "client-a" });
     expect("error" in resolved && resolved.error).toMatch(/no finished consult/i);
+  });
+
+  it("scopes an unnamed continuation to the caller session key", () => {
+    const resolved = resolveContinuationThread({
+      consults: [
+        { taskId: "task_a", thread: thread("aaa", "notes"), status: "done", sessionKey: "client-a", createdAt: "2026-09-10T00:00:00Z" },
+        { taskId: "task_b", thread: thread("bbb", "notes"), status: "done", sessionKey: "client-b", createdAt: "2026-09-11T00:00:00Z" }
+      ],
+      project: "notes",
+      sessionKey: "client-a"
+    });
+
+    expect("target" in resolved && resolved.target.taskId).toBe("task_a");
+  });
+
+  it("refuses an unnamed continuation without a caller session key", () => {
+    const resolved = resolveContinuationThread({ consults, project: "notes" });
+    expect("error" in resolved && resolved.error).toMatch(/--session-key|--continue-task/i);
   });
 
   it("lets the caller name the conversation, which beats the search", () => {
@@ -56,8 +74,8 @@ describe("which conversation a follow-up belongs to", () => {
 
   // A blocked consult never posted, so there is no conversation behind it.
   it("continues only consults that finished", () => {
-    const blockedOnly = [{ taskId: "task_x", thread: thread("xxx", "notes"), status: "blocked", createdAt: "2026-09-11T00:00:00Z" }];
-    expect("error" in resolveContinuationThread({ consults: blockedOnly, project: "notes" })).toBe(true);
+    const blockedOnly = [{ taskId: "task_x", thread: thread("xxx", "notes"), status: "blocked", sessionKey: "client-a", createdAt: "2026-09-11T00:00:00Z" }];
+    expect("error" in resolveContinuationThread({ consults: blockedOnly, project: "notes", sessionKey: "client-a" })).toBe(true);
   });
 });
 
@@ -113,9 +131,10 @@ describe("the shapes real records actually hold", () => {
   it("never picks a temporary chat as the newest thing to continue", () => {
     const resolved = resolveContinuationThread({
       consults: [
-        { taskId: "task_real", thread: rootChat, status: "done", createdAt: "2026-09-01T00:00:00Z" },
-        { taskId: "task_temp", thread: temporary, status: "done", createdAt: "2026-09-09T00:00:00Z" }
-      ]
+        { taskId: "task_real", thread: rootChat, status: "done", sessionKey: "client-a", createdAt: "2026-09-01T00:00:00Z" },
+        { taskId: "task_temp", thread: temporary, status: "done", sessionKey: "client-a", createdAt: "2026-09-09T00:00:00Z" }
+      ],
+      sessionKey: "client-a"
     });
     expect("target" in resolved && resolved.target.taskId).toBe("task_real");
   });
@@ -139,10 +158,11 @@ describe("the shapes real records actually hold", () => {
   it("continues the newest of a project even when only its id is in the URL", () => {
     const resolved = resolveContinuationThread({
       consults: [
-        { taskId: "task_named", thread: named, status: "done", createdAt: "2026-09-01T00:00:00Z" },
-        { taskId: "task_bare", thread: idOnly, status: "done", createdAt: "2026-09-09T00:00:00Z" }
+        { taskId: "task_named", thread: named, status: "done", sessionKey: "client-a", createdAt: "2026-09-01T00:00:00Z" },
+        { taskId: "task_bare", thread: idOnly, status: "done", sessionKey: "client-a", createdAt: "2026-09-09T00:00:00Z" }
       ],
-      project: "Notes"
+      project: "Notes",
+      sessionKey: "client-a"
     });
     expect("target" in resolved && resolved.target.taskId).toBe("task_bare");
   });
@@ -201,12 +221,12 @@ describe("a project whose name the URL cannot carry", () => {
 
   it("continues the newest thread of a Korean-named project by its id", () => {
     const consults = [
-      { taskId: "task_old", thread: thread("aaa", "codex"), status: "done", createdAt: "2026-09-10T00:00:00Z" },
-      { taskId: "task_kr", thread: `https://chatgpt.com/g/g-p-${koreanId}/c/bbb`, status: "done", createdAt: "2026-09-11T00:00:00Z" }
+      { taskId: "task_old", thread: thread("aaa", "codex"), status: "done", sessionKey: "client-a", createdAt: "2026-09-10T00:00:00Z" },
+      { taskId: "task_kr", thread: `https://chatgpt.com/g/g-p-${koreanId}/c/bbb`, status: "done", sessionKey: "client-a", createdAt: "2026-09-11T00:00:00Z" }
     ];
-    const withoutId = resolveContinuationThread({ consults, project: koreanName });
+    const withoutId = resolveContinuationThread({ consults, project: koreanName, sessionKey: "client-a" });
     expect("error" in withoutId).toBe(true);
-    const withId = resolveContinuationThread({ consults, project: koreanName, projectId: koreanId });
+    const withId = resolveContinuationThread({ consults, project: koreanName, projectId: koreanId, sessionKey: "client-a" });
     expect("target" in withId && withId.target.taskId).toBe("task_kr");
   });
 });

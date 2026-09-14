@@ -100,6 +100,7 @@ import { withBrowserSendLock } from "./browser-send-lock.js";
 import { blockerCause, buildBlockerReport, CATCH_ALL_CODES, type BlockerConsult } from "./blocker-report.js";
 import { projectIdFromSidebar, resolveContinuationThread } from "./continue-thread.js";
 import { readBridgeRoots } from "./registry.js";
+import { ProdexRequestIdSchema, SessionKeySchema } from "./schema.js";
 import { BridgeStore, MAX_FETCHABLE_RESULT_ARTIFACT_BYTES } from "./store.js";
 import { CLI_VERSION } from "./cli-help.js";
 import { PRODEX_ISSUE_REPO, buildIssueReport, fileGitHubIssue } from "./issue-report.js";
@@ -690,8 +691,8 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
         return 0;
       }
       if (browserSubcommand === "recover") {
-        if (printProBrowserHelpIfRequested(browserArgs, "pro browser recover", io, { valueFlags: ["--cwd", "--port", "--timeout-ms", "--target-url", "--source-cli"] })) return 0;
-        assertOnlyOptions(browserArgs, "pro browser recover", ["--cwd", "--port", "--timeout-ms", "--target-url", "--source-cli"]);
+        if (printProBrowserHelpIfRequested(browserArgs, "pro browser recover", io, { valueFlags: ["--cwd", "--port", "--timeout-ms", "--target-url", "--request-id", "--source-cli"] })) return 0;
+        assertOnlyOptions(browserArgs, "pro browser recover", ["--cwd", "--port", "--timeout-ms", "--target-url", "--request-id", "--source-cli"]);
         const recoverCwd = resolveCwdFlag(io.cwd, browserArgs);
         const recoverSourceCli = resolveOptionalFileFlag(io.cwd, browserArgs, "--source-cli");
         const targetUrl = readFlag(browserArgs, "--target-url");
@@ -702,6 +703,10 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
         }
         const recoverPort = readPortFlag(browserArgs, "--port");
         const recoverTimeoutMs = readPositiveIntegerFlag(browserArgs, "--timeout-ms");
+        const recoverRequestIdRaw = readFlag(browserArgs, "--request-id");
+        const recoverRequestId = recoverRequestIdRaw === undefined
+          ? undefined
+          : validatedProdexRequestId(recoverRequestIdRaw, "--request-id");
         const recoverResolvedPort = resolveCdpPort(recoverPort);
         let consult: Awaited<ReturnType<typeof recoverChatGptAnswerFromThread>>;
         try {
@@ -713,7 +718,12 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
           consult = await withBrowserSendLock(
             recoverTimeoutMs ?? 60_000,
             (detail) => io.stderr(`progress: ${detail}`),
-            () => recoverChatGptAnswerFromThread({ port: recoverPort, targetUrl, timeoutMs: recoverTimeoutMs })
+            () => recoverChatGptAnswerFromThread({
+              port: recoverPort,
+              targetUrl,
+              timeoutMs: recoverTimeoutMs,
+              ...(recoverRequestId ? { requestId: recoverRequestId } : {})
+            })
           );
         } catch (error) {
           const blocker = sourceAwareBrowserBlocker(browserSendBlockerFromError(error), recoverSourceCli, {
@@ -741,6 +751,9 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
         } catch (error) {
           io.stderr(`answer_artifact_warning: ${errorMessage(error)}`);
         }
+        for (const warning of consult.warnings) io.stderr(warning);
+        if (consult.requestId) io.stderr(`request_id: ${consult.requestId}`);
+        if (consult.requestVerified !== undefined) io.stderr(`request_verified: ${consult.requestVerified ? "yes" : "no"}`);
         await recoverStore.completeTask(recoveredTask.id, {
           status: "done",
           summary: consult.answer,
@@ -748,8 +761,8 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
             ? [{ path: recoveredArtifactPath, role: "result", bytes: Buffer.byteLength(recoveredArtifactText, "utf8") }]
             : [],
           commands: ["recovered ChatGPT answer from thread"],
-          warnings: [],
-          provenance: { thread: consult.url, warnings: [] }
+          warnings: consult.warnings,
+          provenance: { thread: consult.url, warnings: consult.warnings }
         });
         io.stdout(`${recoveredTask.id}\tdone\t${consult.url}`);
         io.stdout("");
@@ -1114,6 +1127,30 @@ function autoLoginDisabledByEnv(env: Record<string, string | undefined> = proces
   return raw === "1" || raw === "true" || raw === "yes";
 }
 
+function validatedSessionKey(value: string, source: string): string {
+  const parsed = SessionKeySchema.safeParse(value);
+  if (parsed.success) return parsed.data;
+  throw new Error(
+    `${source} must be a non-empty identifier of at most 128 characters using letters, digits, '.', '_', ':', '@', '/', or '-'.`
+  );
+}
+
+export function resolveProdexSessionKey(
+  explicit: string | undefined,
+  env: Record<string, string | undefined> = process.env
+): string | undefined {
+  if (explicit !== undefined) return validatedSessionKey(explicit, "--session-key");
+  if (env.PRODEX_SESSION_KEY !== undefined) return validatedSessionKey(env.PRODEX_SESSION_KEY, "PRODEX_SESSION_KEY");
+  if (env.CODEX_THREAD_ID !== undefined) return validatedSessionKey(env.CODEX_THREAD_ID, "CODEX_THREAD_ID");
+  return undefined;
+}
+
+function validatedProdexRequestId(value: string, source: string): string {
+  const parsed = ProdexRequestIdSchema.safeParse(value);
+  if (parsed.success) return parsed.data;
+  throw new Error(`${source} must be the 32-character lowercase hex request identifier returned by prodex.`);
+}
+
 // Retired browser subcommands map to the one that replaced them. Every value
 // here must be a subcommand that actually exists, so the error is a single hop
 // to a runnable command.
@@ -1269,6 +1306,7 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
       promptText = prompt ? `${prompt}\n\n--- piped input (stdin) ---\n${piped}` : piped;
     }
     const browserDefaults = await loadBrowserDefaults(targetCwd);
+    const sessionKey = resolveProdexSessionKey(readFlag(parsedAskPro.optionArgs, "--session-key"));
     const explicitProject = readFlag(parsedAskPro.optionArgs, "--project");
     const explicitProjectNew = readFlag(parsedAskPro.optionArgs, "--project-new");
     // Opt out of a pinned default project for one send. Without this a repo
@@ -1294,6 +1332,11 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
     const continueRequested = parsedAskPro.optionArgs.includes("--continue");
     const continueTaskId = readFlag(parsedAskPro.optionArgs, "--continue-task");
     if (continueRequested || continueTaskId !== undefined) {
+      if (continueTaskId === undefined && sessionKey === undefined) {
+        throw new Error(
+          "--continue needs --session-key <id> (or PRODEX_SESSION_KEY/CODEX_THREAD_ID) so it cannot use another client's conversation. Use --continue-task <task_id> to name one explicitly."
+        );
+      }
       const conflict = [
         parsedAskPro.optionArgs.includes("--new-chat") ? "--new-chat" : undefined,
         targetUrl !== undefined ? "--target-url" : undefined,
@@ -1327,12 +1370,14 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
       const resolved = resolveContinuationThread({
         consults: (await targetStore.listSessionsReadOnly()).map((session) => ({
           taskId: session.task_id ?? "",
+          ...(session.session_key ? { sessionKey: session.session_key } : {}),
           ...(session.thread ? { thread: session.thread } : {}),
           status: session.status,
           ...(session.created_at ? { createdAt: session.created_at } : {})
         })),
         ...(continuationProject ? { project: continuationProject } : {}),
         ...(continuationProjectId ? { projectId: continuationProjectId } : {}),
+        ...(sessionKey ? { sessionKey } : {}),
         ...(continueTaskId !== undefined ? { taskId: continueTaskId } : {})
       });
       if ("error" in resolved) throw new Error(resolved.error);
@@ -1343,7 +1388,8 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
       normalizedTargetUrl = normalizeChatGptTargetUrl(resolved.target.thread);
       io.stderr(`progress: continuing ${resolved.target.taskId}`);
     }
-    const newChat = parsedAskPro.optionArgs.includes("--new-chat");
+    const explicitlyRequestedNewChat = parsedAskPro.optionArgs.includes("--new-chat");
+    const newChat = explicitlyRequestedNewChat || normalizedTargetUrl === undefined;
     // A temporary chat is not saved, so there is nothing to come back to: the
     // recovery path every timeout message points at cannot fetch it later.
     // Requiring --new-chat keeps that explicit rather than quietly turning a
@@ -1357,7 +1403,7 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
     if (temporary && !newChat) {
       throw new Error("--temporary starts a throwaway chat, so it needs --new-chat. A temporary chat cannot be continued or recovered later.");
     }
-    if (newChat && normalizedTargetUrl) {
+    if (explicitlyRequestedNewChat && normalizedTargetUrl) {
       throw new Error(
         "ask-pro cannot combine --new-chat with --target-url: --new-chat navigates to a fresh chat while --target-url pins the confirmed tab."
       );
@@ -1476,6 +1522,7 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
             id: bundle.id,
             direction: "codex_to_chatgpt",
             backend: "chatgpt-control",
+            ...(sessionKey ? { session_key: sessionKey } : {}),
             task_id: task.id,
             thread: normalizedTargetUrl,
             status: "running",
@@ -1606,6 +1653,7 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
               id: bundle.id,
               direction: "codex_to_chatgpt",
               backend: "chatgpt-control",
+              ...(sessionKey ? { session_key: sessionKey } : {}),
               task_id: task.id,
               thread: blockedThread,
               status: "blocked",
@@ -1622,7 +1670,15 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
         if (jsonOutput) {
           io.stdout(
             JSON.stringify(
-              { task_id: task.id, status: "blocked", thread: blockedThread ?? null, answer: null, warnings: blockedWarnings, blocker },
+              {
+                task_id: task.id,
+                status: "blocked",
+                thread: blockedThread ?? null,
+                answer: null,
+                ...(sessionKey ? { session_key: sessionKey } : {}),
+                warnings: blockedWarnings,
+                blocker
+              },
               null,
               2
             )
@@ -1662,6 +1718,8 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
       // would otherwise treat a cut-off answer as complete.
       for (const warning of persistenceWarnings) io.stderr(warning);
       if (consult.modelSlug) io.stderr(`model_used: ${consult.modelSlug}`);
+      if (consult.requestId) io.stderr(`request_id: ${consult.requestId}`);
+      if (consult.requestVerified !== undefined) io.stderr(`request_verified: ${consult.requestVerified ? "yes" : "no"}`);
       // Which conversation this followed, and where the answer actually landed.
       // The progress line that says it is filtered out of MCP notes, so an
       // agent asking for a follow-up had no way to know which thread it got -
@@ -1708,6 +1766,8 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
             // receipt used to record only what prodex asked for.
             ...(consult.modelSlug ? { model_used: consult.modelSlug } : {}),
             ...(proVerified !== undefined ? { pro_verified: proVerified } : {}),
+            ...(consult.requestId ? { request_id: consult.requestId } : {}),
+            ...(consult.requestVerified !== undefined ? { request_verified: consult.requestVerified } : {}),
             // Intent and evidence, kept apart. `selection` is what was asked
             // for; this is where the answer turned out to be, and whether
             // anything actually confirmed it.
@@ -1752,6 +1812,7 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
           id: bundle.id,
           direction: "codex_to_chatgpt",
           backend: "chatgpt-control",
+          ...(sessionKey ? { session_key: sessionKey } : {}),
           task_id: task.id,
           thread: consult.url,
           status: "done",
@@ -1767,6 +1828,9 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
               status: result.status,
               thread: consult.url,
               answer: result.summary,
+              ...(sessionKey ? { session_key: sessionKey } : {}),
+              ...(consult.requestId ? { request_id: consult.requestId } : {}),
+              ...(consult.requestVerified !== undefined ? { request_verified: consult.requestVerified } : {}),
               ...(continuedFromTaskId ? { continued_from: continuedFromTaskId } : {}),
               destination: {
                 observed: destination.destination,
@@ -1796,6 +1860,7 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
           id: bundle.id,
           direction: "codex_to_chatgpt",
           backend: "manual",
+          ...(sessionKey ? { session_key: sessionKey } : {}),
           status: "preview",
           warnings: []
         },
@@ -1855,6 +1920,7 @@ Write the debate in the language of the topic.`;
 
 export interface BrowserConsultInput {
   prompt: string;
+  session_key?: string;
   model?: string;
   pro_mode?: string;
   effort?: string;
@@ -1872,7 +1938,7 @@ export interface BrowserConsultInput {
   continue_thread?: boolean;
   /** Continue one named past consult, when the newest is not the one meant. */
   continue_task?: string;
-  /** Send into a fresh chat; recommended for agent loops and debates. */
+  /** Explicitly request the default fresh-chat behavior; false does not reuse the shared tab. */
   new_chat?: boolean;
   /** Send even when the requested model/effort could not be applied. Off by default. */
   allow_model_fallback?: boolean;
@@ -1883,6 +1949,9 @@ export interface BrowserConsultOutcome {
   status: string;
   thread: string;
   answer: string;
+  session_key?: string;
+  request_id?: string;
+  request_verified?: boolean;
   notes: string[];
 }
 
@@ -1896,7 +1965,20 @@ export interface BrowserConsultOutcome {
 export interface BrowserRecoverInput {
   /** ChatGPT conversation URL whose finished answer to fetch. */
   thread: string;
+  request_id?: string;
   timeout_ms?: number;
+}
+
+function browserMetadataFromNotes(notes: readonly string[]): {
+  request_id?: string;
+  request_verified?: boolean;
+} {
+  const requestId = notes.find((line) => line.startsWith("request_id: "))?.slice("request_id: ".length).trim();
+  const verified = notes.find((line) => line.startsWith("request_verified: "))?.slice("request_verified: ".length).trim();
+  return {
+    ...(requestId ? { request_id: requestId } : {}),
+    ...(verified === "yes" ? { request_verified: true } : verified === "no" ? { request_verified: false } : {})
+  };
 }
 
 /**
@@ -1913,6 +1995,7 @@ export async function performBrowserRecoverForMcp(cwd: string, input: BrowserRec
     "recover",
     "--target-url",
     input.thread,
+    ...(input.request_id !== undefined ? ["--request-id", input.request_id] : []),
     ...(input.timeout_ms !== undefined ? ["--timeout-ms", String(input.timeout_ms)] : [])
   ];
   await runProCommand(argv, {
@@ -1922,11 +2005,13 @@ export async function performBrowserRecoverForMcp(cwd: string, input: BrowserRec
   }, async () => 0);
   const header = stdoutLines[0] ?? "";
   const [taskId = "", status = "", thread = ""] = header.split("\t");
+  const metadata = browserMetadataFromNotes(stderrLines);
   return {
     task_id: taskId,
     status,
     thread,
     answer: stdoutLines.slice(2).join("\n"),
+    ...metadata,
     notes: stderrLines
   };
 }
@@ -1964,6 +2049,7 @@ export async function performBrowserConsultForMcp(
 ): Promise<BrowserConsultOutcome> {
   const stdoutLines: string[] = [];
   const stderrLines: string[] = [];
+  const sessionKey = resolveProdexSessionKey(input.session_key);
   const argv = [
     "--send",
     // MCP callers have no terminal, so the interactive auto-recovery gate
@@ -1976,6 +2062,7 @@ export async function performBrowserConsultForMcp(
     ...(input.pro_mode !== undefined ? ["--pro-mode", input.pro_mode] : []),
     ...(input.effort !== undefined ? ["--effort", input.effort] : []),
     ...(input.project !== undefined ? ["--project", input.project] : []),
+    ...(sessionKey !== undefined ? ["--session-key", sessionKey] : []),
     ...(input.timeout_ms !== undefined ? ["--timeout-ms", String(input.timeout_ms)] : []),
     ...(input.files ?? []).flatMap((file) => ["--file", file]),
     ...(input.attach ?? []).flatMap((file: string) => ["--attach", file]),
@@ -2005,25 +2092,31 @@ export async function performBrowserConsultForMcp(
     // with the failure attached rather than losing it.
     const rescued = answerRescuedFromFailedPersistence(stdoutLines);
     if (!rescued) throw error;
+    const notes = [
+      ...stderrLines.filter((line) => !line.startsWith("progress:")),
+      `answer_not_saved: ${errorMessage(error)}`
+    ];
     return {
       task_id: rescued.taskId,
       status: "answered_not_saved",
       thread: rescued.thread,
       answer: rescued.answer,
-      notes: [
-        ...stderrLines.filter((line) => !line.startsWith("progress:")),
-        `answer_not_saved: ${errorMessage(error)}`
-      ]
+      ...(sessionKey ? { session_key: sessionKey } : {}),
+      ...browserMetadataFromNotes(notes),
+      notes
     };
   }
   const header = stdoutLines[0] ?? "";
   const [taskId = "", status = "", thread = ""] = header.split("\t");
+  const notes = stderrLines.filter((line) => !line.startsWith("progress:"));
   return {
     task_id: taskId,
     status,
     thread,
     answer: stdoutLines.slice(2).join("\n"),
-    notes: stderrLines.filter((line) => !line.startsWith("progress:"))
+    ...(sessionKey ? { session_key: sessionKey } : {}),
+    ...browserMetadataFromNotes(notes),
+    notes
   };
 }
 
@@ -2495,10 +2588,18 @@ export function browserSendBlockerFromError(error: unknown): { code: string; mes
     typeof error === "object" && error !== null && "thread" in error && typeof (error as { thread?: unknown }).thread === "string"
       ? ((error as { thread: string }).thread)
       : undefined;
+  const requestId =
+    typeof error === "object" &&
+    error !== null &&
+    "requestId" in error &&
+    typeof (error as { requestId?: unknown }).requestId === "string" &&
+    ProdexRequestIdSchema.safeParse((error as { requestId: string }).requestId).success
+      ? (error as { requestId: string }).requestId
+      : undefined;
   const timedOut = message.match(/Timed out after [\s\S]*?(\d+)\s*ms/);
   if (timedOut) {
-    // Suggest a concrete doubled budget so the user can paste a rerun command
-    // instead of guessing what "raise --timeout-ms" means in milliseconds.
+    // Marked sends recover the exact request. Legacy timeout errors retain a
+    // concrete doubled budget so the user need not guess one.
     const usedMs = Number(timedOut[1]);
     const suggestedMs = Number.isFinite(usedMs) && usedMs > 0 ? usedMs * 2 : 600_000;
     return {
@@ -2507,10 +2608,12 @@ export function browserSendBlockerFromError(error: unknown): { code: string; mes
       retryable: true,
       ...(thread ? { thread } : {}),
       next_step:
-        `Rerun with a bigger budget (${formatDurationMs(suggestedMs)}): \`prodex pro browser ask --timeout-ms ${suggestedMs} "<same prompt>"\`.` +
-        (thread
-          ? ` ChatGPT often finishes after prodex gives up - fetch that answer instead of re-asking: \`prodex pro browser recover --target-url ${thread}\`.`
-          : "")
+        thread && requestId
+          ? `Do not resend automatically. ChatGPT often finishes after prodex gives up; recover that exact request instead: \`prodex pro browser recover --target-url ${thread} --request-id ${requestId}\`.`
+          : `Rerun with a bigger budget (${formatDurationMs(suggestedMs)}): \`prodex pro browser ask --timeout-ms ${suggestedMs} "<same prompt>"\`.` +
+            (thread
+              ? ` ChatGPT often finishes after prodex gives up - fetch that answer instead of re-asking: \`prodex pro browser recover --target-url ${thread}\`.`
+              : "")
     };
   }
   // A CDP command timeout means the page's renderer stalled, which in the

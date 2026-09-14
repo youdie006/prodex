@@ -10,6 +10,8 @@ import {
   assertVisibleChatGptTab,
   ChatGptBrowserBlockerError,
   chatGptUrlsReferToSameTarget,
+  chatGptRequestMatchesUserTurn,
+  idleChatGptNavigationExpression,
   chatGptBlockerErrorFromAnswerState,
   chatGptBlockerFromAnswerState,
   CHATGPT_RUNTIME_BLOCKER_TEXT_EXCLUDED_ANCESTORS,
@@ -76,6 +78,11 @@ import {
   prepareComposerExpression,
   composerTextStateExpression,
   answerExpression,
+  modelButtonRectExpression,
+  menuOpenExpression,
+  powerSliderPresentExpression,
+  powerSliderStateExpression,
+  focusPowerSliderExpression,
   recoverChatGptAnswerFromThread,
   sendChatGptPrompt,
   submitExpression,
@@ -89,6 +96,28 @@ afterEach(() => {
 });
 
 describe("ChatGPT browser adapter", () => {
+  it("matches the complete marked request with rendered markdown and attachment labels", () => {
+    const requestId = "a".repeat(32);
+    const sent = `## Research\nreview **these results**\n[prodex-request:${requestId}]`;
+    const rendered = `Web search\n\\## Research\nreview \\*\\*these results\\*\\*\n\\[prodex-request:${requestId}\\]\nattachment.txt`;
+    expect(chatGptRequestMatchesUserTurn(rendered, sent, requestId)).toBe(true);
+    expect(chatGptRequestMatchesUserTurn(rendered.replace("these results", "another study"), sent, requestId)).toBe(false);
+    expect(chatGptRequestMatchesUserTurn(`${rendered}\n[prodex-request:${"b".repeat(32)}]`, sent, requestId)).toBe(false);
+    expect(chatGptRequestMatchesUserTurn(sent.replace(requestId, "b".repeat(32)), sent, requestId)).toBe(false);
+  });
+
+  it("checks busy state in the same browser evaluation as navigation", () => {
+    const form = new FakeElement("form");
+    form.buttons = [new FakeButton("Stop generating", "stop-button")];
+    const doc = new FakeDocument([], [form]);
+    const assign = vi.fn();
+    const location = { href: "https://chatgpt.com/", assign };
+    expect(evaluateBrowserStatusExpression(idleChatGptNavigationExpression("https://chatgpt.com/"), doc, location)).toBe(false);
+    expect(assign).not.toHaveBeenCalled();
+    form.buttons = [];
+    expect(evaluateBrowserStatusExpression(idleChatGptNavigationExpression("https://chatgpt.com/"), doc, location)).toBe(true);
+    expect(assign).toHaveBeenCalledOnce();
+  });
   it("returns a clear blocker when the local debug port is not reachable", async () => {
     const status = await getChatGptBrowserStatus({ port: 9, timeoutMs: 100 });
 
@@ -118,7 +147,33 @@ describe("ChatGPT browser adapter", () => {
     await expect(send).resolves.toMatchObject({ url: thread, answer: "the requested answer" });
   });
 
-  it("does not salvage an answer from a moved conversation when navigation recovery exhausts the deadline", async () => {
+  it("waits for a hydrating power slider before choosing the legacy picker path", async () => {
+    vi.useFakeTimers();
+    const thread = "https://chatgpt.com/c/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+    installFakeChatGptSendCdp(thread, [
+      { ...fakeAnswerState(thread, "", false), assistantMessageCount: 0, userMessageCount: 0 },
+      fakeAnswerState(thread, "correct answer", false)
+    ]);
+    const base = FakeCdpWebSocket.evaluate;
+    let reads = 0;
+    FakeCdpWebSocket.evaluate = (expression) => {
+      if (expression === modelButtonRectExpression()) return { ok: true, x: 20, y: 20 };
+      if (expression === menuOpenExpression() || expression.includes("document.elementFromPoint")) return true;
+      if (expression === powerSliderPresentExpression()) return reads > 0;
+      if (expression === powerSliderStateExpression()) {
+        return reads++ === 0 ? { ok: false } : { ok: true, position: 4, min: 0, max: 4, effort: "Pro" };
+      }
+      if (expression === focusPowerSliderExpression()) return { ok: true };
+      return base(expression);
+    };
+    const send = sendChatGptPrompt({ port: 19338, prompt: "answer this", effort: "Pro", targetUrl: thread, timeoutMs: 10_000 });
+    void send.catch(() => undefined);
+    await vi.advanceTimersByTimeAsync(30_000);
+    await expect(send).resolves.toMatchObject({ answer: "correct answer", requestVerified: true });
+    expect(reads).toBeGreaterThan(1);
+  });
+
+  it("refuses a moved conversation without navigating over another session", async () => {
     vi.useFakeTimers();
     const thread = "https://chatgpt.com/c/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
     const other = "https://chatgpt.com/c/11111111-2222-3333-4444-555555555555";
@@ -129,11 +184,110 @@ describe("ChatGPT browser adapter", () => {
     ]);
 
     const send = sendChatGptPrompt({ port: 19339, prompt: "answer this", targetUrl: thread, timeoutMs: 2_000 });
-    const rejection = expect(send).rejects.toMatchObject({ thread });
+    const rejection = expect(send).rejects.toMatchObject({ blocker: { code: "thread_navigated_away", thread } });
     await vi.advanceTimersByTimeAsync(10_000);
 
     await rejection;
-    expect(evaluations).toContain(`location.assign(${JSON.stringify(thread)})`);
+    expect(evaluations).not.toContain(`location.assign(${JSON.stringify(thread)})`);
+  });
+
+  it("refuses an unrelated answer before acceptance even when its message counts increased", async () => {
+    vi.useFakeTimers();
+    const root = "https://chatgpt.com/";
+    const other = "https://chatgpt.com/c/11111111-2222-3333-4444-555555555555";
+    installFakeChatGptSendCdp(root, [
+      { ...fakeAnswerState(root, "", false), assistantMessageCount: 0, userMessageCount: 0 },
+      { ...fakeAnswerState(other, "unrelated presentation review", false), lastUserText: "Review the presentation" }
+    ]);
+    const send = sendChatGptPrompt({ port: 19338, prompt: "Review our research", timeoutMs: 10_000 });
+    const rejection = expect(send).rejects.toMatchObject({ blocker: { code: "request_mismatch" } });
+    await vi.advanceTimersByTimeAsync(20_000);
+    await rejection;
+  });
+
+  it("refuses another user's turn in the same conversation after acceptance", async () => {
+    vi.useFakeTimers();
+    const thread = "https://chatgpt.com/c/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+    installFakeChatGptSendCdp(thread, [
+      { ...fakeAnswerState(thread, "", false), assistantMessageCount: 0, userMessageCount: 0 },
+      { ...fakeAnswerState(thread, "", true), assistantMessageCount: 0 },
+      { ...fakeAnswerState(thread, "unrelated presentation review", false), userMessageCount: 2, lastUserText: "Review the presentation" }
+    ]);
+    const send = sendChatGptPrompt({ port: 19338, prompt: "Review our research", targetUrl: thread, timeoutMs: 10_000 });
+    const rejection = expect(send).rejects.toMatchObject({ blocker: { code: "request_mismatch" } });
+    await vi.advanceTimersByTimeAsync(20_000);
+    await rejection;
+  });
+
+  it("does not accept identical question text from an earlier request without this send's marker", async () => {
+    vi.useFakeTimers();
+    const thread = "https://chatgpt.com/c/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+    installFakeChatGptSendCdp(thread, [
+      { ...fakeAnswerState(thread, "", false), assistantMessageCount: 0, userMessageCount: 0 },
+      { ...fakeAnswerState(thread, "an older review", false), lastUserText: "answer this" }
+    ]);
+    const send = sendChatGptPrompt({ port: 19338, prompt: "answer this", targetUrl: thread, timeoutMs: 10_000 });
+    const rejection = expect(send).rejects.toMatchObject({ blocker: { code: "request_mismatch" } });
+    await vi.advanceTimersByTimeAsync(20_000);
+    await rejection;
+  });
+
+  it("checks a busy tab before new-chat navigation", async () => {
+    vi.useFakeTimers();
+    const thread = "https://chatgpt.com/c/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+    const evaluations = installFakeChatGptSendCdp(thread, [fakeAnswerState(thread, "", true)], { generating: true });
+    const send = sendChatGptPrompt({ port: 19338, prompt: "answer this", newChat: true, busyWaitMs: 0, timeoutMs: 1000 });
+    const rejection = expect(send).rejects.toThrow(/generating|busy/);
+    await vi.advanceTimersByTimeAsync(20_000);
+    await rejection;
+    expect(evaluations.some((expression) => expression.includes("location.assign("))).toBe(false);
+  });
+
+  it("does not send when new-chat navigation leaves an old transcript rendered", async () => {
+    vi.useFakeTimers();
+    const thread = "https://chatgpt.com/c/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+    const evaluations = installFakeChatGptSendCdp(thread, [fakeAnswerState(thread, "old answer", false)]);
+    const send = sendChatGptPrompt({ port: 19338, prompt: "answer this", newChat: true, timeoutMs: 1000 });
+    const rejection = expect(send).rejects.toMatchObject({ blocker: { code: "fresh_chat_not_ready" } });
+    await vi.advanceTimersByTimeAsync(25_000);
+    await rejection;
+    expect(evaluations.some((expression) => expression.includes("actualText: raw.slice"))).toBe(false);
+  });
+
+  it("rechecks the empty destination after selection before typing into a fresh chat", async () => {
+    vi.useFakeTimers();
+    const root = "https://chatgpt.com/";
+    const evaluations = installFakeChatGptSendCdp(root, [
+      { ...fakeAnswerState(root, "", false), assistantMessageCount: 0, userMessageCount: 0 },
+      fakeAnswerState(root, "a prior presentation review", false)
+    ]);
+    const send = sendChatGptPrompt({ port: 19338, prompt: "answer this", newChat: true, timeoutMs: 1000 });
+    const rejection = expect(send).rejects.toMatchObject({ blocker: { code: "fresh_chat_not_ready" } });
+    void rejection.catch(() => undefined);
+    await vi.advanceTimersByTimeAsync(25_000);
+    await rejection;
+    expect(evaluations.some((expression) => expression.includes("actualText: raw.slice"))).toBe(false);
+  });
+
+  it("waits through execution-context replacement while a fresh chat loads", async () => {
+    vi.useFakeTimers();
+    const root = "https://chatgpt.com/";
+    const thread = "https://chatgpt.com/c/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+    const fresh = { ...fakeAnswerState(root, "", false), assistantMessageCount: 0, userMessageCount: 0 };
+    installFakeChatGptSendCdp(root, [fresh, fresh, fakeAnswerState(thread, "correct answer", false)]);
+    const base = FakeCdpWebSocket.evaluate;
+    let contextLost = false;
+    FakeCdpWebSocket.evaluate = (expression) => {
+      if (expression.includes("assistantMessageCount") && !contextLost) {
+        contextLost = true;
+        throw new Error("Execution context was destroyed");
+      }
+      return base(expression);
+    };
+    const send = sendChatGptPrompt({ port: 19338, prompt: "answer this", newChat: true, timeoutMs: 10_000 });
+    void send.catch(() => undefined);
+    await vi.advanceTimersByTimeAsync(30_000);
+    await expect(send).resolves.toMatchObject({ answer: "correct answer", requestVerified: true });
   });
 
   it("keeps initial page discovery bounded below the full answer timeout", () => {
@@ -311,17 +465,22 @@ describe("ChatGPT browser adapter", () => {
   });
 
   it("recovers only a stable completed answer from the requested conversation", async () => {
+    vi.useFakeTimers();
     const target = "https://chatgpt.com/c/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
     const evaluations = installFakeChatGptCdp([
       fakeAnswerState(target, "settled answer", false),
       fakeAnswerState(target, "settled answer", false)
     ]);
 
-    const result = await recoverChatGptAnswerFromThread({ targetUrl: target, port: 19333, timeoutMs: 1_500 });
+    const recovery = recoverChatGptAnswerFromThread({ targetUrl: target, port: 19333, timeoutMs: 1_500 });
+    void recovery.catch(() => undefined);
+    await vi.advanceTimersByTimeAsync(5_000);
+    const result = await recovery;
 
     expect(result.url).toBe(target);
     expect(result.answer).toBe("settled answer");
-    expect(result.warnings).toEqual([]);
+    expect(result.requestVerified).toBe(false);
+    expect(result.warnings).toEqual([expect.stringContaining("request_unverified")]);
     expect(evaluations.some((expression) => expression.includes(`location.assign(\"${target}\")`))).toBe(true);
   });
 
@@ -337,6 +496,36 @@ describe("ChatGPT browser adapter", () => {
         thread: target
       }
     });
+  });
+
+  it("recovers only the named request, not a later question in the same thread", async () => {
+    const target = "https://chatgpt.com/c/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+    const requestId = "a".repeat(32);
+    installFakeChatGptCdp([{ ...fakeAnswerState(target, "wrong answer", false), lastUserText: "another question" }]);
+    await expect(recoverChatGptAnswerFromThread({ targetUrl: target, port: 19334, timeoutMs: 1000, requestId })).rejects.toMatchObject({
+      blocker: { code: "request_mismatch", retryable: false }
+    });
+  });
+
+  it("verifies a recovered answer against the named request marker", async () => {
+    vi.useFakeTimers();
+    const target = "https://chatgpt.com/c/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+    const requestId = "a".repeat(32);
+    installFakeChatGptCdp([{ ...fakeAnswerState(target, "correct answer", false), lastUserText: `our question\n[prodex-request:${requestId}]` }]);
+    const recovery = recoverChatGptAnswerFromThread({ targetUrl: target, port: 19334, timeoutMs: 1500, requestId });
+    void recovery.catch(() => undefined);
+    await vi.advanceTimersByTimeAsync(5_000);
+    const result = await recovery;
+    expect(result).toMatchObject({ answer: "correct answer", requestId, requestVerified: true });
+  });
+
+  it("does not navigate a busy foreign thread during recovery", async () => {
+    const target = "https://chatgpt.com/c/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+    const evaluations = installFakeChatGptCdp([fakeAnswerState(target, "answer", false)], { generating: true });
+    await expect(recoverChatGptAnswerFromThread({ targetUrl: target, port: 19334, timeoutMs: 1000 })).rejects.toMatchObject({
+      blocker: { code: "response_in_progress" }
+    });
+    expect(evaluations.some((expression) => expression.includes("location.assign("))).toBe(false);
   });
 
   it("does not finalize a still-generating DOM answer at the recovery deadline", async () => {
@@ -1799,6 +1988,12 @@ describe("ChatGPT browser adapter", () => {
     expect(state.answer).toBe("final answer");
     expect(state.generating).toBe(false);
 
+    // An old answer must not be paired with a newly posted question.
+    doc.messages = [message("user", "q1"), message("assistant", "old answer"), message("user", "q2")];
+    const pending = evaluateBrowserStatusExpression<AnswerState & { lastUserText: string }>(answerExpression(), doc);
+    expect(pending.answer).toBe("");
+    expect(pending.lastUserText).toBe("q2");
+
     // A lone reasoning header is a placeholder: generating must be true.
     doc.messages = [message("user", "q"), message("assistant", "Thinking")];
     expect(evaluateBrowserStatusExpression<AnswerState>(answerExpression(), doc).generating).toBe(true);
@@ -1924,10 +2119,9 @@ function evaluateBrowserExpression<T>(
   return run(...globals) as T;
 }
 
-function evaluateBrowserStatusExpression<T>(expression: string, document: FakeDocument): T {
+function evaluateBrowserStatusExpression<T>(expression: string, document: FakeDocument, location = { href: "https://chatgpt.com/" }): T {
   const window = { getComputedStyle: () => ({ display: "block", visibility: "visible" }) };
   const nodeFilter = { SHOW_TEXT: 4 };
-  const location = { href: "https://chatgpt.com/" };
   const run = new Function(
     "document",
     "window",
@@ -1951,6 +2145,7 @@ function fakeAnswerState(url: string, answer: string, generating: boolean) {
     generating,
     assistantMessageCount: 1,
     userMessageCount: 1,
+    lastUserText: undefined as string | undefined,
     textSample: "",
     blockerTextSample: "",
     blockerScanTextSample: "",
@@ -1958,12 +2153,20 @@ function fakeAnswerState(url: string, answer: string, generating: boolean) {
   };
 }
 
-function installFakeChatGptCdp(states: ReturnType<typeof fakeAnswerState>[]): string[] {
+function installFakeChatGptCdp(states: ReturnType<typeof fakeAnswerState>[], statusOverride: Record<string, unknown> = {}): string[] {
   const evaluations: string[] = [];
   let answerIndex = 0;
   FakeCdpWebSocket.evaluate = (expression) => {
     evaluations.push(expression);
     if (expression === "document.visibilityState") return "visible";
+    if (expression.includes("location.assign(")) return true;
+    if (expression.includes("visibilityState: document.visibilityState")) {
+      return {
+        title: "ChatGPT", url: "https://chatgpt.com/", visibilityState: "visible",
+        textSample: "New chat\nProjects", blockerTextSample: "", blockerScanTextSample: "",
+        visibleButtonLabels: [], hasComposer: true, generating: false, modelHints: [], ...statusOverride
+      };
+    }
     if (expression.includes("location.assign(")) return undefined;
     if (expression.includes("assistantMessageCount")) {
       const state = states[Math.min(answerIndex, states.length - 1)];
@@ -1984,12 +2187,14 @@ function installFakeChatGptCdp(states: ReturnType<typeof fakeAnswerState>[]): st
   return evaluations;
 }
 
-function installFakeChatGptSendCdp(threadUrl: string, states: ReturnType<typeof fakeAnswerState>[]): string[] {
+function installFakeChatGptSendCdp(threadUrl: string, states: ReturnType<typeof fakeAnswerState>[], statusOverride: Record<string, unknown> = {}): string[] {
   const evaluations: string[] = [];
   let answerIndex = 0;
+  let insertedPrompt = "";
   FakeCdpWebSocket.evaluate = (expression) => {
     evaluations.push(expression);
     if (expression === "document.visibilityState") return "visible";
+    if (expression.includes("location.assign(")) return true;
     if (expression.includes("const surfaces = buttons.map")) {
       return { surfaces: [{ label: "Chat", checked: true }] };
     }
@@ -2006,16 +2211,21 @@ function installFakeChatGptSendCdp(threadUrl: string, states: ReturnType<typeof 
         generating: false,
         awaitingResponseChoice: false,
         modelHints: ["Pro"],
-        openDialogText: ""
+        openDialogText: "",
+        ...statusOverride
       };
     }
     if (expression.includes("assistantMessageCount")) {
       const state = states[Math.min(answerIndex, states.length - 1)];
       answerIndex += 1;
-      return state;
+      return { ...state, lastUserText: state.lastUserText ?? (answerIndex > 1 ? insertedPrompt : "") };
     }
     if (expression.includes("return { ok: true, hasText }")) return { ok: true, hasText: false };
-    if (expression.includes("actualText: raw.slice")) return { ok: true, actualText: "answer this" };
+    if (expression.includes("actualText: raw.slice")) {
+      const expected = /const expected = (.+);/.exec(expression)?.[1];
+      if (expected && expected !== "null") insertedPrompt = JSON.parse(expected);
+      return { ok: true, actualText: insertedPrompt };
+    }
     if (expression.includes(").ok === true")) return true;
     if (expression.includes(`document.querySelectorAll('[data-message-author-role="user"]')`)) return true;
     if (expression.includes("location.assign(")) return undefined;
@@ -2062,10 +2272,12 @@ class FakeCdpWebSocket {
   send(data: string): void {
     const request = JSON.parse(data) as { id: number; method: string; params?: { expression?: string } };
     queueMicrotask(() => {
-      const value = request.method === "Runtime.evaluate" ? FakeCdpWebSocket.evaluate(request.params?.expression ?? "") : undefined;
-      this.emit("message", {
-        data: JSON.stringify({ id: request.id, result: { result: { value } } })
-      });
+      try {
+        const value = request.method === "Runtime.evaluate" ? FakeCdpWebSocket.evaluate(request.params?.expression ?? "") : undefined;
+        this.emit("message", { data: JSON.stringify({ id: request.id, result: { result: { value } } }) });
+      } catch (error) {
+        this.emit("message", { data: JSON.stringify({ id: request.id, error: { code: -32000, message: String(error) } }) });
+      }
     });
   }
 

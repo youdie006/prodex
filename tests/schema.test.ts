@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { TaskSchema } from "../src/schema.js";
+import { SessionKeySchema, TaskSchema } from "../src/schema.js";
 
 describe("TaskSchema", () => {
   it("requires versioned provenance and lifecycle fields", () => {
@@ -22,5 +22,14 @@ describe("TaskSchema", () => {
 
     expect(parsed.schema_version).toBe(1);
     expect(parsed.provenance.adapter).toBe("mcp");
+  });
+});
+
+describe("SessionKeySchema", () => {
+  it("accepts bounded identifiers and rejects empty, oversized, or prose values", () => {
+    expect(SessionKeySchema.parse("codex:thread-123/turn_4")).toBe("codex:thread-123/turn_4");
+    expect(() => SessionKeySchema.parse("   ")).toThrow();
+    expect(() => SessionKeySchema.parse("x".repeat(129))).toThrow();
+    expect(() => SessionKeySchema.parse("review my private research prompt")).toThrow();
   });
 });

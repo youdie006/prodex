@@ -2,6 +2,14 @@ import { z } from "zod";
 
 export const SCHEMA_VERSION = 1;
 
+export const SessionKeySchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(128)
+  .regex(/^[A-Za-z0-9][A-Za-z0-9._:@/-]*$/, "Session key must be an identifier, not prompt text");
+export const ProdexRequestIdSchema = z.string().regex(/^[a-f0-9]{32}$/);
+
 export const AdapterSchema = z.enum(["cli", "mcp", "manual", "oracle", "chatgpt-control"]);
 export const TaskStatusSchema = z.enum(["new", "claimed", "done", "blocked"]);
 export const ResultStatusSchema = z.enum(["done", "blocked"]);
@@ -92,6 +100,7 @@ export const SessionSchema = z.object({
   id: z.string().regex(/^sess_\d{8}_\d{6}_[a-z0-9-]+$/),
   direction: z.enum(["codex_to_chatgpt", "chatgpt_to_codex", "claude_to_codex"]),
   backend: AdapterSchema,
+  session_key: SessionKeySchema.optional(),
   project: z.string().optional(),
   thread: z.string().optional(),
   task_id: z.string().optional(),

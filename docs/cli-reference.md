@@ -131,9 +131,9 @@ prodex results artifact latest
 prodex sessions show latest
 ```
 
-This uses the currently available ChatGPT web session and model selection. It is not a hidden API client, and it does not read cookies, tokens, localStorage, or sessionStorage.
+This uses the currently available ChatGPT web session and model selection. Each ordinary ask starts a fresh chat, including inside a configured project. Use `--session-key <id> --continue` for a follow-up scoped to one caller, or `--continue-task <task_id>` to deliberately name a consult across sessions. `PRODEX_SESSION_KEY` and then `CODEX_THREAD_ID` are the CLI fallbacks. It is not a hidden API client, and it does not read cookies, tokens, localStorage, or sessionStorage.
 
-Current builds read rendered page content only. Project/conversation listings are limited to entries exposed by the UI. Automatic chat/project deletion and deep-research report retrieval are unsupported; those commands stop rather than call internal endpoints. A recovered answer must belong to the requested thread and be stable and finished. Formatting may differ from ChatGPT's rendered message.
+Current builds read rendered page content only. Project/conversation listings are limited to entries exposed by the UI. Automatic chat/project deletion and deep-research report retrieval are unsupported; those commands stop rather than call internal endpoints. Every send carries a visible request marker; success requires the returned assistant turn to follow that marker. Recover a timeout with `--target-url <thread> --request-id <request_id>` so recovery verifies the same turn. Omitting the request ID is legacy, unverified recovery. Formatting may differ from ChatGPT's rendered message.
 
 Locks fail closed if a process is killed while reclaiming an abandoned lock. A leftover `.reap` claim then needs manual cleanup: first stop every prodex process using that resource and confirm no request/write/startup is active; only then remove the affected lock and its matching `.reap` file. Browser locks live beside the recorded send lock, repo-write locks under `.bridge`, and virtual-display allocation locks under `~/.local/share/prodex/xvfb`. Do not remove a live request's lock to shorten a wait.
 

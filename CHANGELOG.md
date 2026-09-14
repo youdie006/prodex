@@ -6,6 +6,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.40.9
+
+### Fixed
+- Consults start in a fresh conversation by default. Follow-ups resolve within the caller's session key; an explicit task ID is required to deliberately continue another session's consult.
+- Each browser send carries a unique visible request marker. Prompt acceptance and answer polling verify the complete corresponding user turn, and an old assistant answer cannot be paired with a newer question.
+- A moved shared tab now stops the consult without returning another conversation's answer or navigating over another session. Busy checks run before new-chat navigation, and a fresh destination must actually be empty before typing.
+- Recovery can verify a request ID, refusing a different turn in the same conversation. Recovery without an ID is explicitly marked unverified.
+- Model selection waits for the effort slider to render before treating the menu as a legacy picker. Fresh-chat loading tolerates transient execution-context replacement without sending into stale content.
+- Multi-process regression tests clean up their children on failure and allow bounded startup time under host load. Installed-package help checks cover session-key options.
+
 ## 0.40.8
 
 ### Changed

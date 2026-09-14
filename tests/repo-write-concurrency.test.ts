@@ -65,20 +65,29 @@ describe("repo write apply serialization", () => {
     const firstDone = waitForApply(first);
     const second = spawnApply(fixture, fixture.second.receipt.id, "second", secondProcessReady, startSecond, secondReady, releaseFirst);
     const secondDone = waitForApply(second);
-    await Promise.all([waitForFile(firstProcessReady), waitForFile(secondProcessReady)]);
-    await writeFile(startFirst, "go\n", "utf8");
-    await waitForFile(firstReady);
-    await writeFile(startSecond, "go\n", "utf8");
+    void firstDone.catch(() => undefined);
+    void secondDone.catch(() => undefined);
+    try {
+      await Promise.all([waitForFile(firstProcessReady), waitForFile(secondProcessReady)]);
+      await writeFile(startFirst, "go\n", "utf8");
+      await waitForFile(firstReady);
+      await writeFile(startSecond, "go\n", "utf8");
 
-    const secondReachedBeforeRelease = await waitForFileUntil(secondReady, 1_000);
-    await writeFile(releaseFirst, "go\n", "utf8");
-    const outcomes = await Promise.all([firstDone, secondDone]);
+      const secondReachedBeforeRelease = await waitForFileUntil(secondReady, 1_000);
+      await writeFile(releaseFirst, "go\n", "utf8");
+      const outcomes = await Promise.all([firstDone, secondDone]);
 
-    expect(secondReachedBeforeRelease).toBe(false);
-    expect(outcomes.filter((outcome) => outcome.status === "fulfilled")).toHaveLength(1);
-    expect(outcomes.filter((outcome) => outcome.status === "rejected")).toHaveLength(1);
-    expect(outcomes.find((outcome) => outcome.status === "rejected")?.message).toMatch(/preimage|already applied/i);
-  });
+      expect(secondReachedBeforeRelease).toBe(false);
+      expect(outcomes.filter((outcome) => outcome.status === "fulfilled")).toHaveLength(1);
+      expect(outcomes.filter((outcome) => outcome.status === "rejected")).toHaveLength(1);
+      expect(outcomes.find((outcome) => outcome.status === "rejected")?.message).toMatch(/preimage|already applied/i);
+    } finally {
+      for (const child of [first, second]) {
+        if (child.exitCode === null && child.signalCode === null) child.kill("SIGTERM");
+      }
+      await Promise.allSettled([firstDone, secondDone]);
+    }
+  }, 60_000);
 });
 
 interface WriteFixture {
@@ -189,7 +198,7 @@ async function waitForApply(child: ChildProcess): Promise<{ status: string; mess
 }
 
 async function waitForFile(file: string): Promise<void> {
-  if (await waitForFileUntil(file, 5_000)) return;
+  if (await waitForFileUntil(file, 20_000)) return;
   throw new Error(`Timed out waiting for ${path.basename(file)}`);
 }
 

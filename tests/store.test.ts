@@ -286,6 +286,28 @@ describe("BridgeStore", () => {
     }
   });
 
+  it("preserves a consult session key through updates and cancellation", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-store-"));
+    const store = new BridgeStore(root);
+    const running = await store.writeSession({
+      direction: "codex_to_chatgpt",
+      backend: "chatgpt-control",
+      session_key: "codex-thread-1",
+      status: "running"
+    });
+
+    const done = await store.writeSession({
+      id: running.id,
+      direction: running.direction,
+      backend: running.backend,
+      status: "done"
+    });
+    expect(done.session_key).toBe("codex-thread-1");
+
+    const cancelled = await store.cancelSession(running.id);
+    expect(cancelled.session_key).toBe("codex-thread-1");
+  });
+
   it("treats unsafe record id path occupants as existing without dereferencing them", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "prodex-store-"));
     const store = new BridgeStore(root);

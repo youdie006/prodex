@@ -71,13 +71,14 @@ prodex pro latest                 # re-print the last answer
 
 While Pro thinks, progress goes to stderr: connecting, prompt sent, elapsed time while generating. A Pro selection raises the send budget to twenty minutes on its own; `--timeout-ms` overrides it. Answers are read from the rendered page, so formatting can differ from the original message. If the dedicated browser is not running, an interactive `ask` starts it, waits for your saved session, and retries once (`--no-auto-login` turns that off; scripts opt in with `--auto-login`).
 
-If the browser stops responding after your question was sent, prodex stops without sending it again. Reopen it with `prodex pro browser login`, then use `prodex pro browser recover --target-url <thread-url>` with the conversation URL in the error (MCP: `pro_recover`). If no URL was captured, inspect the original chat before asking again.
+If the browser stops responding after your question was sent, prodex stops without sending it again. Use the `thread` and `request_id` from the error with `prodex pro browser recover --target-url <thread-url> --request-id <32hex>` (MCP: `pro_recover`). The request ID verifies that the recovered assistant answer follows that exact marked user turn. Legacy recovery without it remains available but returns `request_verified: false` and a warning.
 
 Useful flags on every send:
 
 | Flag | What it does |
 |---|---|
-| `--new-chat` | Send into a fresh chat. Recommended for repeated consults; very long threads eventually confuse send detection. |
+| `--new-chat` | Explicitly request the default: ordinary consults start in a fresh chat. The shared current tab is never an implicit destination. |
+| `--session-key id` | Identify one caller for scoped `--continue`. Falls back to `PRODEX_SESSION_KEY`, then `CODEX_THREAD_ID`. |
 | `--file path` | Inline a text file's contents into the prompt. Repeatable. |
 | `--attach path` | Upload the file itself: the only way to hand ChatGPT a pdf, pptx, xlsx or image. Paths must live inside the repo. |
 | `--tool web-search` | Select a rendered composer tool. Automatic deep-research report retrieval is currently unsupported and is blocked before sending. |
@@ -104,7 +105,9 @@ prints a token-free config that points Claude at `prodex mcp --cwd /absolute/pat
 { "mcpServers": { "prodex": { "command": "prodex", "args": ["mcp", "--cwd", "/absolute/path/to/your/repo"] } } }
 ```
 
-The server exposes `pro_consult` (a visible-browser send, with the same model, effort, project and tool choices as the CLI), `pro_recover` (fetch an answer that finished after a timeout), the bridge ledger tools (`bridge_create_task`, `bridge_list_tasks`, `bridge_fetch_result`, receipts, sessions), bounded `repo_read_file` and `repo_search`, and a receipt-gated write path: `repo_write_file_dry_run` first, `repo_write_file_apply` only while git HEAD and the file's preimage hash still match, `repo_stage_reviewed_paths` for applied receipts only. No shell tool, no ungated write. `prodex claude prompt` prints a paste-ready prompt that verifies the wiring. [docs/claude.md](docs/claude.md) covers Claude Desktop and Claude Code; [docs/clients.md](docs/clients.md) covers the others, including the per-call approval and `tool_timeout_sec` Codex needs.
+The server exposes `pro_consult` (a visible-browser send, with the same model, effort, project and tool choices as the CLI), `pro_recover` (fetch an answer that finished after a timeout), the bridge ledger tools (`bridge_create_task`, `bridge_list_tasks`, `bridge_fetch_result`, receipts, sessions), bounded `repo_read_file` and `repo_search`, and a receipt-gated write path: `repo_write_file_dry_run` first, `repo_write_file_apply` only while git HEAD and the file's preimage hash still match, `repo_stage_reviewed_paths` for applied receipts only. Each stdio MCP connection receives one default session key, ordinary consults start fresh, and `continue_thread` only searches that key and project. Logical agents sharing one MCP connection should pass distinct explicit `session_key` values and preserve them for follow-ups; an explicit key also preserves continuity across an MCP restart. No shell tool, no ungated write. `prodex claude prompt` prints a paste-ready prompt that verifies the wiring. [docs/claude.md](docs/claude.md) covers Claude Desktop and Claude Code; [docs/clients.md](docs/clients.md) covers the others, including the per-call approval and `tool_timeout_sec` Codex needs.
+
+Updating the installed npm package does not reload an MCP process that is already running. Reconnect the MCP server or restart the Codex/Claude client to load the new build. The dedicated browser profile is separate and remains signed in, so this does not require ChatGPT authentication again.
 
 An MCP server usually starts without `--cwd`, so a per-repo default can be missed. For defaults that apply from any directory, set `PRODEX_DEFAULT_PROJECT`, `PRODEX_DEFAULT_MODEL`, `PRODEX_DEFAULT_EFFORT` or `PRODEX_DEFAULT_PRO_MODE` in the agent's MCP `env` block; a per-repo config still wins field by field.
 
@@ -240,9 +243,9 @@ Reports are deduplicated by blocker code, so something that stays broken adds to
 
 **Why the pause before sending?** Pacing: `send_pacing: waiting Ns` on stderr. `PRODEX_MIN_SEND_INTERVAL_MS=0` disables it.
 
-**The answer timed out.** Pro can take many minutes; incomplete send results are marked rather than presented as finished. If the thread finished after the timeout, `prodex pro browser recover --target-url <thread>` reads its rendered answer without sending again. Deep-research widget reports are not supported by this recovery path.
+**The answer timed out.** Pro can take many minutes. Do not resend automatically. Recover the original marked turn with `prodex pro browser recover --target-url <thread> --request-id <request_id>` after it finishes.
 
-**Sends started failing after many consults in one chat.** Long threads confuse prompt-acceptance detection. Use `--new-chat` (`new_chat: true` on the MCP tool).
+**A consult returned an unrelated answer.** Current sends append a unique visible request marker and accept only the assistant turn following that marker. Ordinary calls also start fresh. A `request_mismatch` blocker is not retryable; inspect the named request instead of treating the returned page's last answer as the consult.
 
 **Every send says "still generating" and nothing is being written.** ChatGPT parked the thread on "which response do you prefer?". prodex reports `response_choice_pending` and names the buttons; pick one, or send with `--new-chat`.
 

@@ -17,6 +17,7 @@
 /** One past consult, reduced to what resolution needs. */
 export interface ConsultThreadRecord {
   taskId: string;
+  sessionKey?: string;
   thread?: string;
   status: string;
   createdAt?: string;
@@ -144,14 +145,16 @@ export function projectIdFromSidebar(
  *
  * Naming a task wins over the search, because the caller who names one knows
  * which conversation they mean. Otherwise it is the most recent consult that
- * finished, in this project - fail-closed when there is none, since guessing
- * the conversation is the failure this exists to prevent.
+ * finished for this caller, in this project - fail-closed when there is none,
+ * since guessing the conversation is the failure this exists to prevent.
  */
 export function resolveContinuationThread(input: {
   consults: readonly ConsultThreadRecord[];
   project?: string;
   /** The project's id as the sidebar reports it, when the caller could read it. */
   projectId?: string;
+  /** Caller identity used to isolate implicit continuation lookup. */
+  sessionKey?: string;
   taskId?: string;
 }): { target: ContinuationTarget } | { error: string } {
   const withThread = input.consults.filter((consult) => consult.thread && isChatGptConversationUrl(consult.thread));
@@ -174,11 +177,19 @@ export function resolveContinuationThread(input: {
     }
     return { target: { taskId: named.taskId, thread: named.thread! } };
   }
+  if (!input.sessionKey) {
+    return {
+      error:
+        "--continue needs a caller session key so it cannot select another client's conversation. " +
+        "Pass --session-key <id> (or PRODEX_SESSION_KEY/CODEX_THREAD_ID), or name the intended consult with --continue-task <task_id>."
+    };
+  }
   const knownProjectIds = new Set<string>(
     input.project ? projectIdsByName(withThread.map((consult) => consult.thread!)).get(chatGptProjectSlug(input.project)) ?? [] : []
   );
   if (input.projectId) knownProjectIds.add(input.projectId.toLowerCase());
   const candidates = withThread
+    .filter((consult) => consult.sessionKey === input.sessionKey)
     .filter((consult) => consult.status === "done")
     .filter((consult) => threadMatchesProject(consult.thread!, input.project, knownProjectIds))
     .sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""));

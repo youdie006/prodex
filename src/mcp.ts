@@ -1,4 +1,5 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import process from "node:process";
@@ -14,7 +15,7 @@ import {
   staleServerWarning,
   withServerVersionNotice
 } from "./mcp-tools.js";
-import { ReceiptKindSchema, type SourceSchema } from "./schema.js";
+import { ProdexRequestIdSchema, ReceiptKindSchema, SessionKeySchema, type SourceSchema } from "./schema.js";
 import type { z as zod } from "zod";
 
 type BridgeSource = zod.infer<typeof SourceSchema>;
@@ -29,6 +30,7 @@ export const DEFAULT_STDIO_MESSAGE_LIMIT_BYTES = 1_048_576;
 
 export interface BrowserConsultToolInput {
   prompt: string;
+  session_key?: string;
   model?: string;
   pro_mode?: string;
   effort?: string;
@@ -62,7 +64,7 @@ export interface CreateMcpServerOptions {
    * When provided, registers pro_recover. Kept separate from browserConsult so
    * a host that wires only one of them still gets a coherent tool list.
    */
-  browserRecover?: (input: { thread: string; timeout_ms?: number }) => Promise<unknown>;
+  browserRecover?: (input: { thread: string; request_id?: string; timeout_ms?: number }) => Promise<unknown>;
 }
 
 function asText(value: unknown) {
@@ -104,6 +106,7 @@ function serverVersionNotice(): string | undefined {
 
 export function createServer(cwd = process.cwd(), options: CreateMcpServerOptions = {}): McpServer {
   const server = new McpServer({ name: "prodex", version: mcpPackageJson.version ?? "0.0.0" });
+  const mcpSessionKey = `mcp-${randomUUID()}`;
   const handlers = createMcpToolHandlers({
     cwd,
     source: options.source,
@@ -314,9 +317,12 @@ export function createServer(cwd = process.cwd(), options: CreateMcpServerOption
       "pro_consult",
       {
         description:
-          "Ask the user's logged-in ChatGPT (Pro) in the visible browser and wait for the full answer. This drives a real browser send: it can take minutes (Pro extended reasoning), is human-paced, and records a durable receipt under .bridge/. Requires a running `prodex pro browser login` session. By default the consult continues in whatever thread the browser tab is showing - EXCEPT when a project applies (passed here, or pinned as a saved default), because entering a project starts a new chat in it. To follow up on a previous consult, pass continue_thread:true: it resolves the thread from prodex's own records - the newest finished consult of the same project - instead of trusting the shared tab, and continue_task with a task_id names one exactly. Pass new_chat:true to start a fresh thread for a genuinely new topic. If the thread is still generating a previous answer, the send automatically queues behind it (up to the timeout budget) - long 'tab busy' progress is normal, not stuck. `project` and `model` come from saved defaults (per-repo config, or PRODEX_DEFAULT_PROJECT / PRODEX_DEFAULT_MODEL env vars) when omitted - do NOT pass them per-call unless deliberately overriding. Returns task_id, thread URL, and the answer text.",
+          "Ask the user's logged-in ChatGPT (Pro) in the visible browser and wait for the full answer. This drives a real browser send: it can take minutes (Pro extended reasoning), is human-paced, and records a durable receipt under .bridge/. Requires a running `prodex pro browser login` session. Every ordinary consult starts a fresh chat, including inside a passed or saved default project; new_chat:false never opts into the shared current tab. To follow up, pass continue_thread:true: it resolves only the newest finished consult with this caller's session_key and project. Each MCP connection gets one default session_key. Logical agents sharing one connection must pass distinct explicit keys and preserve them for follow-ups; an explicit key also preserves identity across MCP restarts. continue_task deliberately names one task across session boundaries. If the thread is still generating a previous answer, the send queues behind it up to the timeout budget. `project` and `model` come from saved defaults when omitted. Returns task_id, thread URL, session_key, request correlation evidence, and the answer text.",
         inputSchema: {
           prompt: McpBridgeTextSchema.min(1),
+          session_key: SessionKeySchema.optional().describe(
+            "Stable logical-caller identifier for scoped continue_thread lookup. Omit to share this MCP connection's default key; logical agents sharing one connection should pass distinct keys and preserve them for follow-ups."
+          ),
           model: McpShortTextSchema.optional(),
           // pro_mode is deliberately NOT advertised: ChatGPT's 2026-07 update
           // removed Pro sub-modes, and agents that saw the field passed
@@ -343,12 +349,12 @@ export function createServer(cwd = process.cwd(), options: CreateMcpServerOption
           new_chat: z
             .boolean()
             .optional()
-            .describe("Start a fresh thread for a new topic."),
+            .describe("Start a fresh thread. Ordinary consults already do this by default; false does not reuse the shared tab."),
           continue_thread: z
             .boolean()
             .optional()
             .describe(
-              "Follow up inside the conversation a previous consult is already in, resolved from prodex's records: the newest finished consult of the same project. This is the reliable way to keep a follow-up in one conversation - the tab is shared, and a project default starts a new chat on every send. Fails rather than guessing when this project has no finished consult yet."
+              "Follow up inside this caller session_key's newest finished consult of the same project. Fails rather than using another MCP/Codex session or the shared browser tab."
             ),
           continue_task: z
             .string()
@@ -384,7 +390,12 @@ export function createServer(cwd = process.cwd(), options: CreateMcpServerOption
                     // Progress delivery must never break the consult.
                   });
               };
-        return asText(withServerVersionNotice(await browserConsult(input, onProgress), serverVersionNotice()));
+        return asText(
+          withServerVersionNotice(
+            await browserConsult({ ...input, session_key: input.session_key ?? mcpSessionKey }, onProgress),
+            serverVersionNotice()
+          )
+        );
       }
     );
   }
@@ -395,9 +406,12 @@ export function createServer(cwd = process.cwd(), options: CreateMcpServerOption
       "pro_recover",
       {
         description:
-          "Read a stable, finished assistant answer rendered in the requested ChatGPT thread after a consult stopped waiting, and record a receipt. It sends no prompt and acquires the shared send lock before navigating. Wrong-thread, generating, missing, or changing answers are refused. Hidden transcripts and deep-research report retrieval are unsupported; inspect those manually in ChatGPT.",
+          "Read a stable, finished assistant answer rendered in the requested ChatGPT thread after a consult stopped waiting, and record a receipt. Pass the request_id returned by pro_consult to verify the answer follows that exact marked user turn. Without it, legacy recovery returns request_verified:false and an explicit warning. It sends no prompt and acquires the shared send lock before navigating. Wrong-thread, wrong-request, generating, missing, or changing answers are refused.",
         inputSchema: {
           thread: McpShortTextSchema.min(1).describe("The ChatGPT conversation URL from the blocker (its `thread` field)."),
+          request_id: ProdexRequestIdSchema.optional().describe(
+            "The 32-character request_id returned by the original pro_consult."
+          ),
           timeout_ms: z.number().int().positive().max(600_000).optional()
         }
       },

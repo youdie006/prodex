@@ -275,6 +275,7 @@ export const ASK_PRO_BOOLEAN_FLAGS = new Set([
 export const ASK_PRO_SELECTION_VALUE_FLAGS = ["--project", "--project-new", "--model", "--pro-mode", "--effort"] as const;
 export const ASK_PRO_VALUE_FLAGS = new Set([
   "--cwd",
+  "--session-key",
   // Continue one NAMED past consult, when "the last one" is not the one meant.
   "--continue-task",
   "--file",
@@ -291,6 +292,7 @@ export const ASK_PRO_VALUE_FLAGS = new Set([
 ]);
 export const ASK_PRO_PREVIEW_VALUE_FLAGS = new Set([
   "--cwd",
+  "--session-key",
   "--file",
   "--port",
   "--timeout-ms",

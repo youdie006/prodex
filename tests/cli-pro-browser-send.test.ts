@@ -33,6 +33,8 @@ import { loadLocalConfig, writeLocalConfig } from "../src/config.js";
 import { setSafeFileTestHooks } from "../src/safe-file.js";
 
 const originalLastLoginFile = process.env.PRODEX_LAST_LOGIN_FILE;
+const originalProdexSessionKey = process.env.PRODEX_SESSION_KEY;
+const originalCodexThreadId = process.env.CODEX_THREAD_ID;
 let isolatedLoginDir: string;
 
 beforeEach(async () => {
@@ -43,6 +45,10 @@ beforeEach(async () => {
 
 afterEach(async () => {
   delete process.env.PRODEX_MIN_SEND_INTERVAL_MS;
+  if (originalProdexSessionKey === undefined) delete process.env.PRODEX_SESSION_KEY;
+  else process.env.PRODEX_SESSION_KEY = originalProdexSessionKey;
+  if (originalCodexThreadId === undefined) delete process.env.CODEX_THREAD_ID;
+  else process.env.CODEX_THREAD_ID = originalCodexThreadId;
   if (originalLastLoginFile === undefined) delete process.env.PRODEX_LAST_LOGIN_FILE;
   else process.env.PRODEX_LAST_LOGIN_FILE = originalLastLoginFile;
   await rm(isolatedLoginDir, { recursive: true, force: true });
@@ -51,6 +57,7 @@ afterEach(async () => {
 describe("pro browser ask persistence", () => {
   beforeEach(() => {
     sendChatGptPromptMock.mockReset();
+    recoverChatGptAnswerFromThreadMock.mockReset();
     openChatGptBrowserMock.mockReset();
     // Default to a realistic unreachable status so pro browser check keeps
     // working; auto-recovery tests override per-case.
@@ -861,8 +868,9 @@ describe("pro browser ask persistence", () => {
     // spells out the recover command.
     const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-send-"));
     const thread = "https://chatgpt.com/g/g-p-abc-demo/c/timed-out-thread";
+    const requestId = "9cb9650622e74a62bd9074c42a311945";
     sendChatGptPromptMock.mockRejectedValueOnce(
-      Object.assign(new Error("Timed out after 4 min (240000ms) waiting for ChatGPT to respond."), { thread })
+      Object.assign(new Error("Timed out after 4 min (240000ms) waiting for ChatGPT to respond."), { thread, requestId })
     );
 
     await expect(
@@ -875,6 +883,8 @@ describe("pro browser ask persistence", () => {
     };
     expect(record.blocker?.thread).toBe(thread);
     expect(record.blocker?.next_step).toContain(`pro browser recover --target-url ${thread}`);
+    expect(record.blocker?.next_step).toContain(`--request-id ${requestId}`);
+    expect(record.blocker?.next_step).not.toContain("pro browser ask");
   });
 
   it("queues behind a live lock holder by default, with no --busy-wait-ms passed", async () => {
@@ -1046,21 +1056,70 @@ describe("pro browser ask persistence", () => {
       title: "ChatGPT",
       answer: "the recovered verdict",
       modelHints: [],
-      warnings: []
+      requestVerified: false,
+      warnings: [
+        "request_unverified: recovered the latest answer in the named conversation without a request ID. Verify the preceding question before using this as a review."
+      ]
     });
     const out: string[] = [];
+    const err: string[] = [];
     await runCli(
       ["pro", "browser", "recover", "--target-url", "https://chatgpt.com/c/recovered-thread", "--cwd", cwd],
-      { cwd, stdout: (line) => out.push(line), stderr: () => {} }
+      { cwd, stdout: (line) => out.push(line), stderr: (line) => err.push(line) }
     );
     const text = out.join("\n");
     expect(text).toContain("\tdone\t");
     expect(text).toContain("the recovered verdict");
+    expect(err).toContainEqual(expect.stringContaining("request_unverified"));
 
     // Recorded durably: `pro latest` re-prints it.
     const latest: string[] = [];
     await runCli(["pro", "latest", "--cwd", cwd], { cwd, stdout: (line) => latest.push(line), stderr: () => {} });
     expect(latest.join("\n")).toContain("the recovered verdict");
+  });
+
+  it("correlates recovery to a validated browser request id", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-recover-"));
+    const requestId = "9cb9650622e74a62bd9074c42a311945";
+    recoverChatGptAnswerFromThreadMock.mockResolvedValueOnce({
+      url: "https://chatgpt.com/c/recovered-correlated",
+      title: "ChatGPT",
+      answer: "the correlated verdict",
+      modelHints: [],
+      warnings: [],
+      requestId,
+      requestVerified: true
+    });
+    const err: string[] = [];
+
+    await runCli(
+      [
+        "pro",
+        "browser",
+        "recover",
+        "--target-url",
+        "https://chatgpt.com/c/recovered-correlated",
+        "--request-id",
+        requestId
+      ],
+      { cwd, stdout: () => {}, stderr: (line) => err.push(line) }
+    );
+
+    expect(recoverChatGptAnswerFromThreadMock).toHaveBeenCalledWith(expect.objectContaining({ requestId }));
+    expect(err).toContain(`request_id: ${requestId}`);
+    expect(err).toContain("request_verified: yes");
+  });
+
+  it("rejects a malformed recovery request id before touching the browser", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-recover-"));
+
+    await expect(
+      runCli(
+        ["pro", "browser", "recover", "--target-url", "https://chatgpt.com/c/recovered", "--request-id", "not-a-request"],
+        { cwd, stdout: () => {}, stderr: () => {} }
+      )
+    ).rejects.toThrow(/request-id.*32.*hex/i);
+    expect(recoverChatGptAnswerFromThreadMock).not.toHaveBeenCalled();
   });
 
   it("records a blocked consult when the visible browser send fails", async () => {
@@ -2183,20 +2242,23 @@ describe("pro browser ask model/project selection", () => {
     expect(text).toContain("--timeout-ms");
   });
 
-  it("suggests a concrete doubled --timeout-ms rerun command on send timeout", async () => {
+  it("suggests correlated recovery instead of resending after a submitted timeout", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-select-"));
+    const thread = "https://chatgpt.com/c/timeout-recovery";
+    const requestId = "bfa9650622e74a62bd9074c42a311942";
     sendChatGptPromptMock.mockRejectedValueOnce(
-      new Error("Timed out after 90000ms waiting for ChatGPT to respond. Raise --timeout-ms and retry (Pro extended already uses a higher default).")
+      Object.assign(new Error("Timed out after 90000ms waiting for ChatGPT to respond."), { thread, requestId })
     );
 
-    await expect(
-      runCli(["pro", "browser", "ask", "Review this"], { cwd, stdout: () => {}, stderr: () => {} })
-    ).rejects.toThrow(/--timeout-ms 180000/);
+    await expect(runCli(["pro", "browser", "ask", "Review this"], { cwd, stdout: () => {}, stderr: () => {} })).rejects.toThrow(
+      new RegExp(`pro browser recover.*--request-id ${requestId}`)
+    );
 
     const out: string[] = [];
     await runCli(["pro", "latest"], { cwd, stdout: (line) => out.push(line), stderr: () => {} });
     const text = out.join("\n");
-    expect(text).toContain("pro browser ask --timeout-ms 180000");
+    expect(text).toContain(`pro browser recover --target-url ${thread} --request-id ${requestId}`);
+    expect(text).not.toContain("pro browser ask --timeout-ms");
   });
 
   it("prints a saved-artifact footer with a re-print command after a successful ask", async () => {
@@ -2691,7 +2753,7 @@ describe("pro browser ask model/project selection", () => {
     });
     const out: string[] = [];
 
-    await runCli(["ask", "--json", "Structured please"], {
+    await runCli(["ask", "--json", "--session-key", "codex-thread-json", "Structured please"], {
       cwd,
       stdout: (line) => out.push(line),
       stderr: () => {}
@@ -2703,12 +2765,147 @@ describe("pro browser ask model/project selection", () => {
       thread: string;
       answer: string;
       warnings: string[];
+      session_key: string;
     };
     expect(payload.status).toBe("done");
     expect(payload.task_id).toMatch(/^task_/);
     expect(payload.thread).toBe("https://chatgpt.com/c/json");
     expect(payload.answer).toBe("json answer");
+    expect(payload.session_key).toBe("codex-thread-json");
     expect(payload.warnings).toEqual([expect.stringContaining("model_selection_warning")]);
+  });
+
+  it("starts an ordinary consult in a fresh chat while keeping the default project", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-send-"));
+    await writeLocalConfig(cwd, { token: "test-token", browserDefaults: { project: "sandbox-default" } });
+    sendChatGptPromptMock.mockResolvedValueOnce({
+      url: "https://chatgpt.com/g/g-p-abc-sandbox-default/c/fresh-default",
+      title: "ChatGPT",
+      answer: "fresh",
+      modelHints: [],
+      warnings: []
+    });
+
+    await runCli(["ask", "Ordinary consult"], { cwd, stdout: () => {}, stderr: () => {} });
+
+    expect(sendChatGptPromptMock).toHaveBeenCalledWith(
+      expect.objectContaining({ newChat: true, project: "sandbox-default" })
+    );
+  });
+
+  it("scopes --continue to the current session key", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-send-"));
+    const { BridgeStore } = await import("../src/store.js");
+    const store = new BridgeStore(cwd);
+    await store.writeSession({
+      direction: "codex_to_chatgpt",
+      backend: "chatgpt-control",
+      task_id: "task_client_a",
+      thread: "https://chatgpt.com/g/g-p-abc-notes/c/client-a",
+      session_key: "client-a",
+      status: "done"
+    });
+    await store.writeSession({
+      direction: "codex_to_chatgpt",
+      backend: "chatgpt-control",
+      task_id: "task_client_b",
+      thread: "https://chatgpt.com/g/g-p-abc-notes/c/client-b",
+      session_key: "client-b",
+      status: "done"
+    });
+    sendChatGptPromptMock.mockResolvedValueOnce({
+      url: "https://chatgpt.com/g/g-p-abc-notes/c/client-a",
+      title: "ChatGPT",
+      answer: "continued a",
+      modelHints: [],
+      warnings: []
+    });
+
+    await runCli(["ask", "--continue", "--session-key", "client-a", "--project", "notes", "Follow up"], {
+      cwd,
+      stdout: () => {},
+      stderr: () => {}
+    });
+
+    expect(sendChatGptPromptMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        targetUrl: "https://chatgpt.com/g/g-p-abc-notes/c/client-a",
+        navigateToTargetUrl: true
+      })
+    );
+    expect(sendChatGptPromptMock).toHaveBeenCalledWith(expect.not.objectContaining({ newChat: true }));
+  });
+
+  it("uses CODEX_THREAD_ID as the CLI session key fallback", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-send-"));
+    process.env.CODEX_THREAD_ID = "codex-thread-env";
+    const { BridgeStore } = await import("../src/store.js");
+    const store = new BridgeStore(cwd);
+    await store.writeSession({
+      direction: "codex_to_chatgpt",
+      backend: "chatgpt-control",
+      task_id: "task_env",
+      thread: "https://chatgpt.com/c/env-thread",
+      session_key: "codex-thread-env",
+      status: "done"
+    });
+    sendChatGptPromptMock.mockResolvedValueOnce({
+      url: "https://chatgpt.com/c/env-thread",
+      title: "ChatGPT",
+      answer: "continued env",
+      modelHints: [],
+      warnings: []
+    });
+
+    await runCli(["ask", "--continue", "Follow up"], { cwd, stdout: () => {}, stderr: () => {} });
+
+    expect(sendChatGptPromptMock).toHaveBeenCalledWith(
+      expect.objectContaining({ targetUrl: "https://chatgpt.com/c/env-thread", navigateToTargetUrl: true })
+    );
+  });
+
+  it("refuses an unkeyed --continue instead of using the repo-global latest session", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-send-"));
+    delete process.env.PRODEX_SESSION_KEY;
+    delete process.env.CODEX_THREAD_ID;
+
+    await expect(
+      runCli(["ask", "--continue", "Follow up"], { cwd, stdout: () => {}, stderr: () => {} })
+    ).rejects.toThrow(/--session-key|--continue-task/i);
+    expect(sendChatGptPromptMock).not.toHaveBeenCalled();
+  });
+
+  it("allows explicit --continue-task without a session key", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-send-"));
+    delete process.env.PRODEX_SESSION_KEY;
+    delete process.env.CODEX_THREAD_ID;
+    const { BridgeStore } = await import("../src/store.js");
+    const store = new BridgeStore(cwd);
+    await store.writeSession({
+      direction: "codex_to_chatgpt",
+      backend: "chatgpt-control",
+      task_id: "task_deliberate",
+      thread: "https://chatgpt.com/c/deliberate",
+      session_key: "another-client",
+      status: "done"
+    });
+    sendChatGptPromptMock.mockResolvedValueOnce({
+      url: "https://chatgpt.com/c/deliberate",
+      title: "ChatGPT",
+      answer: "deliberate continuation",
+      modelHints: [],
+      warnings: []
+    });
+
+    await runCli(["ask", "--continue-task", "task_deliberate", "Follow up"], {
+      cwd,
+      stdout: () => {},
+      stderr: () => {}
+    });
+
+    expect(sendChatGptPromptMock).toHaveBeenCalledWith(
+      expect.objectContaining({ targetUrl: "https://chatgpt.com/c/deliberate", navigateToTargetUrl: true })
+    );
   });
 
   it("emits blocked-consult JSON on stdout when --json is set", async () => {

@@ -107,6 +107,7 @@ export interface WriteSessionInput {
   id?: string;
   direction: Session["direction"];
   backend: Session["backend"];
+  session_key?: string;
   project?: string;
   thread?: string;
   task_id?: string;
@@ -554,6 +555,7 @@ export class BridgeStore {
           id,
           direction: input.direction,
           backend: input.backend,
+          session_key: input.session_key,
           project: input.project,
           thread: input.thread,
           task_id: input.task_id,
@@ -571,6 +573,7 @@ export class BridgeStore {
       id: input.id,
       direction: input.direction,
       backend: input.backend,
+      session_key: input.session_key ?? existing?.session_key,
       project: input.project,
       thread: input.thread,
       task_id: input.task_id,
@@ -597,6 +600,7 @@ export class BridgeStore {
       id: existing.id,
       direction: existing.direction,
       backend: existing.backend,
+      session_key: existing.session_key,
       project: existing.project,
       thread: existing.thread,
       task_id: existing.task_id,

@@ -20,6 +20,18 @@ Install the `prodex` binary with `npm install -g @youdie006/prodex` (note the sc
 The same operating rules apply to every client: manual-first, explicit `pro browser ...`
 sends only, stop on blockers, no bypass, low volume, local only (see the README).
 
+Each stdio MCP connection gets one default `session_key`. An ordinary `pro_consult`
+starts a fresh chat; `new_chat: false` does not reuse whichever conversation another
+session left in the shared tab. A `continue_thread: true` call searches only the same
+session key and project. Logical agents sharing one connection should use distinct
+explicit keys and preserve them for follow-ups. An explicit key also keeps continuity
+across an MCP process restart; `continue_task` deliberately names a recorded consult.
+
+After updating the installed package, reconnect the MCP server or restart the agent
+client. A running stdio process keeps the old code until it exits. The dedicated
+browser profile is unchanged, so restarting Codex/Claude does not require signing in
+to ChatGPT again.
+
 ## Claude Code
 
 See [claude.md](claude.md), or:
@@ -51,7 +63,9 @@ or a per-server `"timeout"`.
 Keep the client budget longer than the ordinary consult budget. Current
 browser-only builds block `tools: ["deep-research"]` before sending because
 automatic report retrieval depended on an internal API. Run research manually
-in ChatGPT; `pro_recover` only accepts a finished, rendered conversation answer.
+in ChatGPT. Recover a timed-out ordinary answer with both the returned `thread` and
+`request_id`; recovery without a request ID is retained for old records but is marked
+unverified.
 
 Approval gate (verified on Codex 0.142.5): Codex asks for per-call approval
 before invoking prodex MCP tools. In interactive `codex` sessions you simply

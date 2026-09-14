@@ -132,7 +132,9 @@ describe("pro_consult MCP tool registration", () => {
       title: "ChatGPT",
       answer: "the answer that finished after prodex stopped waiting",
       modelHints: [],
-      warnings: []
+      warnings: [],
+      requestId: "9cb9650622e74a62bd9074c42a311945",
+      requestVerified: true
     });
     const server = createServer(cwd, {
       browserConsult: (input) => performBrowserConsultForMcp(cwd, input),
@@ -145,14 +147,23 @@ describe("pro_consult MCP tool registration", () => {
 
     const result = (await client.callTool({
       name: "pro_recover",
-      arguments: { thread: "https://chatgpt.com/c/recovered" }
+      arguments: {
+        thread: "https://chatgpt.com/c/recovered",
+        request_id: "9cb9650622e74a62bd9074c42a311945"
+      }
     })) as { content: Array<{ type: string; text: string }>; isError?: boolean };
     await client.close();
 
     expect(result.isError ?? false).toBe(false);
-    expect(result.content[0].text).toContain("the answer that finished after prodex stopped waiting");
+    const payload = JSON.parse(result.content[0].text);
+    expect(payload.answer).toContain("the answer that finished after prodex stopped waiting");
+    expect(payload.request_id).toBe("9cb9650622e74a62bd9074c42a311945");
+    expect(payload.request_verified).toBe(true);
     expect(recoverChatGptAnswerFromThreadMock).toHaveBeenCalledWith(
-      expect.objectContaining({ targetUrl: "https://chatgpt.com/c/recovered" })
+      expect.objectContaining({
+        targetUrl: "https://chatgpt.com/c/recovered",
+        requestId: "9cb9650622e74a62bd9074c42a311945"
+      })
     );
   });
 
@@ -198,6 +209,46 @@ describe("pro_consult MCP tool registration", () => {
     expect(payload.thread).toBe("https://chatgpt.com/c/mcp-consult");
     expect(payload.answer).toContain("mcp consult answer");
   });
+
+  it("assigns one stable, distinct default session key per MCP server", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-consult-"));
+    const seen: string[] = [];
+    const connect = async () => {
+      const server = createServer(cwd, {
+        browserConsult: async (input) => {
+          seen.push(input.session_key ?? "");
+          return { session_key: input.session_key };
+        }
+      });
+      return connectClient(server);
+    };
+    const first = await connect();
+    await first.callTool({ name: "pro_consult", arguments: { prompt: "first" } });
+    await first.callTool({ name: "pro_consult", arguments: { prompt: "second" } });
+    await first.close();
+    const second = await connect();
+    await second.callTool({ name: "pro_consult", arguments: { prompt: "third" } });
+    await second.close();
+
+    expect(seen[0]).toMatch(/^mcp-/);
+    expect(seen[1]).toBe(seen[0]);
+    expect(seen[2]).not.toBe(seen[0]);
+  });
+
+  it("validates explicit MCP session keys", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-consult-"));
+    const browserConsult = vi.fn(async () => ({}));
+    const client = await connectClient(createServer(cwd, { browserConsult }));
+
+    const invalid = (await client.callTool({
+      name: "pro_consult",
+      arguments: { prompt: "question", session_key: "not an identifier with prose" }
+    })) as { isError?: boolean };
+    await client.close();
+
+    expect(invalid.isError).toBe(true);
+    expect(browserConsult).not.toHaveBeenCalled();
+  });
 });
 
 describe("performBrowserConsultForMcp", () => {
@@ -239,6 +290,52 @@ describe("performBrowserConsultForMcp", () => {
     await performBrowserConsultForMcp(cwd, { prompt: "Fresh consult", new_chat: true });
 
     expect(sendChatGptPromptMock).toHaveBeenCalledWith(expect.objectContaining({ newChat: true }));
+  });
+
+  it("does not let new_chat false opt into the shared current tab", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-consult-"));
+    sendChatGptPromptMock.mockResolvedValueOnce({
+      url: "https://chatgpt.com/c/mcp-default-fresh",
+      title: "ChatGPT",
+      answer: "fresh",
+      modelHints: [],
+      warnings: []
+    });
+
+    await performBrowserConsultForMcp(cwd, { prompt: "Fresh by default", new_chat: false, session_key: "mcp-client-a" });
+
+    expect(sendChatGptPromptMock).toHaveBeenCalledWith(expect.objectContaining({ newChat: true }));
+  });
+
+  it("returns and records browser request correlation evidence", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-consult-"));
+    sendChatGptPromptMock.mockResolvedValueOnce({
+      url: "https://chatgpt.com/c/mcp-correlated",
+      title: "ChatGPT",
+      answer: "correlated",
+      modelHints: [],
+      modelSlug: "gpt-6-pro",
+      warnings: [],
+      requestId: "9cb9650622e74a62bd9074c42a311945",
+      requestVerified: true
+    });
+
+    const outcome = await performBrowserConsultForMcp(cwd, {
+      prompt: "Correlation check",
+      session_key: "mcp-client-a"
+    });
+    const { BridgeStore } = await import("../src/store.js");
+    const receipts = await new BridgeStore(cwd).listReceipts({ kind: "consult_answer_saved", task_id: outcome.task_id });
+
+    expect(outcome.request_id).toBe("9cb9650622e74a62bd9074c42a311945");
+    expect(outcome.request_verified).toBe(true);
+    expect(outcome.session_key).toBe("mcp-client-a");
+    expect(receipts[0]?.metadata).toEqual(
+      expect.objectContaining({
+        request_id: "9cb9650622e74a62bd9074c42a311945",
+        request_verified: true
+      })
+    );
   });
 
   it("keeps truncation warnings visible in the MCP notes", async () => {
