@@ -4,6 +4,27 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Changed
+- Browser consults and recovery read rendered page content only. Hidden ChatGPT endpoints, session-token access, and persisted browser-state probes were removed. Deep-research sends and automatic conversation/project deletion now stop with explicit unsupported guidance; visible project/conversation lists are not a complete account-history listing.
+- Legacy result artifacts without recorded hashes remain readable but carry an explicit unverified-integrity warning in CLI and MCP output. Session cancellation help now distinguishes stale metadata cleanup from stopping an active browser request.
+
+### Fixed
+- Repo applies serialize cooperating writers across processes and recheck the file preimage under ownership. Browser locks use acquisition-specific ownership and never evict a live request solely because it is old. Registry temporary files are exclusive and reject symlink targets.
+- Browser recovery validates the saved control port and canonical profile path, recognizes supported Chromium/Edge/Brave process names, and refuses a relaunch when owned processes could not be terminated. Virtual-display allocation is serialized so simultaneous startups cannot overwrite the same authority cookie.
+- Recovered answers must belong to the requested thread and remain stable and non-generating. Send metadata stays pinned to the accepted conversation.
+- Interactive targets navigate inside the send lock, command previews quote shell arguments, and prompt input interruption restores terminal state.
+- Public issue reports omit raw private diagnostics. Generic MCP metadata redacts nested thread/project context, including blocked summaries. Expired HTTP tokens give explicit renewal/restart instructions, and renewal preserves custom listener settings.
+- Package publish dry runs use an isolated read-only loopback registry, independent of an already-published version. Package smoke uses a reserved non-CDP endpoint and isolated state, with automatic browser login disabled. PR checks combine paginated file/comment JSON before parsing.
+- Login and CLI/MCP recovery share window-mode precedence: explicit mode flags, then non-empty environment settings (including false values), then the saved mode. `--headed` explicitly selects visible reauthentication, conflicting modes are rejected, and failed virtual-display setup no longer falls back to a desktop window.
+- Login preserves the saved profile for the selected control port and the saved minimized preference. Reusing a running virtual browser no longer allocates another display or invents a default profile; new login/recovery launches record the actual display and mode.
+- New virtual displays use authenticated Linux abstract Unix sockets instead of TCP. Legacy TCP displays are left untouched and skipped for new launches; existing browsers and X servers need a deliberate restart to migrate. Failed Xvfb startup reports its error and cleans up only the process started by that invocation.
+- Browser loss while waiting for an answer no longer lets auto-recovery resend the same prompt. CLI and MCP consults preserve the blocked result and direct the caller to recover the original conversation; a missing thread URL asks for manual inspection before another send.
+- A failed browser restart no longer records recovery as complete. The restart attempt is recorded separately, and `browser_recovered` is written only after the replacement browser is ready.
+- CI runs the full release verification once instead of repeating it in the metadata step.
+- GitHub Release notes recognize both current plain version headings and older bracketed headings, and stop at the next release regardless of its format.
+
 ## 0.40.6
 
 ### Fixed

@@ -65,6 +65,8 @@ Equivalent from outside the repo:
 prodex setup --cwd /absolute/path/to/your/repo --token-ttl-hours 24
 ```
 
+Token-bearing MCP URLs are secrets. Keep the renewed URL in your own trusted private MCP client configuration.
+
 Expired tokens are rejected by `prodex start` and by the HTTP MCP server. Run `prodex setup --token-ttl-hours <hours>` to rotate the URL, restart `prodex start`, then reconnect clients using `prodex status --show-token --url-only`. Plain `setup` preserves the existing token and expiry; changing the TTL preserves the listener unless `--host` or `--port` is supplied.
 
 ## Start The Local Server

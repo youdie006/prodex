@@ -21,7 +21,7 @@ One-time setup (owner, on npmjs.com): open the package → Settings → Trusted 
 
 ## Release checks
 
-GitHub Actions runs `npm ci`, `npm run build`, `npm run release:check`, and `npm run release:verify` on pushes to `main` and pull requests. The workflow installs `ripgrep` because the repo-search smoke checks require `rg`. It verifies release readiness only; it does not publish anything.
+GitHub Actions runs `npm ci`, `npm run build`, `npm run release:check -- --metadata-only`, and `npm run release:verify` on pushes to `main` and pull requests. The metadata step checks package readiness; the verification step runs the full test and package checks once. The workflow installs `ripgrep` because the repo-search smoke checks require `rg`. It verifies release readiness only; it does not publish anything.
 
 Before sharing a package tarball, run:
 
@@ -38,6 +38,8 @@ npm run release:verify
 ```
 
 This runs tests, typecheck, build, package smoke, and `doctor` without weakening the publish guard.
+
+Package smoke runs tarball publish dry-runs against an isolated, read-only loopback registry. This keeps repeat verification working after the package version has already been published. It does not establish that a version is available on npm; the separate release dry-run and actual publish still enforce registry readiness. No package is uploaded by the smoke check.
 
 If direct `npm pack` is blocked because a WSL/Windows mount reports normal source files as executable, build the publish tarball from a temporary Linux staging directory:
 

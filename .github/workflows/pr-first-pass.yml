@@ -24,8 +24,9 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          set -o pipefail
           gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" \
-            --paginate --jq '[.[] | {path: .filename, additions: .additions, deletions: .deletions}]' > files.json
+            --paginate --jq '[.[] | {path: .filename, additions: .additions, deletions: .deletions}]' | jq -s 'add // []' > files.json
           echo "count=$(node -p 'JSON.parse(require("fs").readFileSync("files.json","utf8")).length')" >> "$GITHUB_OUTPUT"
 
       - name: Write the first pass
@@ -47,8 +48,9 @@ jobs:
           # One comment per PR rather than one per push: a thread of near-identical
           # bot comments buries the human discussion it is meant to support.
           marker="<!-- prodex-first-pass -->"
+          set -o pipefail
           existing=$(gh api "repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
-            --paginate --jq "[.[] | select(.body | startswith(\"$marker\")) | .id] | first // empty")
+            --paginate --jq "[.[] | select(.body | startswith(\"$marker\")) | .id]" | jq -sr 'add | first // empty')
           if [ -n "$existing" ]; then
             gh api --method PATCH "repos/${{ github.repository }}/issues/comments/$existing" -f body="$marker
           $BODY" > /dev/null

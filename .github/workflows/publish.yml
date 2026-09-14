@@ -85,9 +85,9 @@ jobs:
           version="${GITHUB_REF_NAME#v}"
           # Take the section for this version out of CHANGELOG.md; fall back to
           # a pointer rather than failing the publish that already succeeded.
-          notes="$(awk -v v="## [$version]" '
-            index($0, v) == 1 { on = 1; next }
-            on && /^## \[/ { exit }
+          notes="$(awk -v v="$version" '
+            $0 == "## " v || $0 == "## [" v "]" || index($0, "## [" v "] - ") == 1 { on = 1; next }
+            on && /^## / { exit }
             on { print }
           ' CHANGELOG.md)"
           if [ -z "$(printf "%s" "$notes" | tr -d "[:space:]")" ]; then

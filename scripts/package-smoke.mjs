@@ -3,6 +3,7 @@ import { createHash, createHmac } from "node:crypto";
 import { execFile, spawn } from "node:child_process";
 import { chmod, cp, mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from "node:fs/promises";
 import net from "node:net";
+import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -10,6 +11,7 @@ import { promisify } from "node:util";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { publishTarballDryRun } from "./npm-dry-run.mjs";
 
 const execFileAsync = promisify(execFile);
 const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
@@ -39,19 +41,22 @@ const REQUIRED_MCP_TOOLS = [
 assertSmokeRedaction();
 
 const tmp = await mkdtemp(path.join(tmpdir(), "prodex-package-smoke-"));
-// Every prodex this smoke spawns inherits this environment, and a bridge
-// registers its root in the machine-wide registry when it is created.
-// Measured: one release:verify added nine /tmp/prodex-package-smoke-* roots to
-// the user's real ~/.local/share/prodex/bridges.json, and `pro blockers` on
-// this machine reported "across 77 bridge roots" where 19 were real. Point the
-// registry and the login record at this run's own directory, the way the
-// vitest setup already does. The browser send lock is deliberately NOT moved:
-// the smoke sends through the shared browser, and that lock is what keeps it
-// from typing into another session's consult.
+// These checks use dry runs and a reserved non-CDP endpoint, never an account.
+// Keep every child process's persistent state inside this run's directory.
 process.env.PRODEX_BRIDGES_REGISTRY = path.join(tmp, "bridges.json");
 process.env.PRODEX_LAST_LOGIN_FILE = path.join(tmp, "last-login.json");
+process.env.PRODEX_SEND_LOCK_FILE = path.join(tmp, "browser-send.lock");
+process.env.PRODEX_NO_AUTO_LOGIN = "1";
+const unavailableBrowser = createServer((_request, response) => {
+  response.writeHead(503, { "Connection": "close" });
+  response.end();
+});
 
 try {
+  await new Promise((resolve, reject) => {
+    unavailableBrowser.once("error", reject);
+    unavailableBrowser.listen(65534, "127.0.0.1", resolve);
+  });
   const packed = await packPackage(tmp);
   await assertPackageFileScope(packed.files);
   const consumerDir = path.join(tmp, "consumer");
@@ -105,7 +110,7 @@ try {
   assertIncludes(help.stdout, "prodex pro ask [--dry-run] [--cwd /absolute/path/to/repo] [--file path] [--attach path] [--tool deep-research|web-search|create-image]", "installed help output");
   assertIncludes(
     help.stdout,
-    "prodex pro browser login [--cwd /absolute/path/to/repo] [--dry-run] [--source-cli /absolute/path/to/dist/cli.js] [--profile-dir path] [--port 9333] [--url https://chatgpt.com/...] [--launch-timeout-ms 5000]",
+    "prodex pro browser login [--cwd /absolute/path/to/repo] [--dry-run] [--source-cli /absolute/path/to/dist/cli.js] [--profile-dir path] [--port 9333] [--url https://chatgpt.com/...] [--launch-timeout-ms 5000] [--wait|--no-wait] [--headed|--headless|--minimized|--virtual-display]",
     "installed help output"
   );
   assertIncludes(
@@ -811,7 +816,7 @@ try {
   );
   const missingBridgeSourceCwdCheck = await runExpectFailure(
     binPath,
-    ["pro", "browser", "check", "--cwd", consumerDir, "--source-cli", installedSourceCli, "--port", "65534", "--timeout-ms", "10"],
+    ["pro", "browser", "check", "--cwd", consumerDir, "--source-cli", installedSourceCli, "--port", "65534", "--timeout-ms", "500"],
     { cwd: path.dirname(consumerDir) }
   );
   assertIncludes(
@@ -1171,7 +1176,7 @@ try {
       "--port",
       "65534",
       "--timeout-ms",
-      "10",
+      "500",
       "--source-cli",
       installedSourceCli,
       "--file",
@@ -1228,7 +1233,7 @@ try {
   );
   assertIncludes(confirmWithoutTarget.stderr, "--confirm-target requires --target-url", "installed pro browser ask target confirmation guard");
   await assertMissingFile(path.join(confirmWithoutTargetDir, ".bridge"), "installed confirm-without-target bridge");
-  const browserSmoke = await runExpectFailure(binPath, ["pro", "browser", "smoke", "--port", "65534", "--timeout-ms", "10"], {
+  const browserSmoke = await runExpectFailure(binPath, ["pro", "browser", "smoke", "--port", "65534", "--timeout-ms", "500"], {
     cwd: consumerDir,
     timeout: 60_000
   });
@@ -1244,7 +1249,7 @@ try {
   await mkdir(browserSmokeLauncher, { recursive: true });
   const browserSmokeCwd = await runExpectFailure(
     binPath,
-    ["pro", "browser", "smoke", "--cwd", browserSmokeCwdTarget, "--port", "65534", "--timeout-ms", "10", "--source-cli", installedSourceCli],
+    ["pro", "browser", "smoke", "--cwd", browserSmokeCwdTarget, "--port", "65534", "--timeout-ms", "500", "--source-cli", installedSourceCli],
     {
       cwd: browserSmokeLauncher,
       timeout: 60_000
@@ -1270,7 +1275,7 @@ try {
   await mkdir(browserSmokeNoSourceLauncher, { recursive: true });
   const browserSmokeCwdNoSource = await runExpectFailure(
     binPath,
-    ["pro", "browser", "smoke", "--cwd", browserSmokeCwdNoSourceTarget, "--port", "65534", "--timeout-ms", "10"],
+    ["pro", "browser", "smoke", "--cwd", browserSmokeCwdNoSourceTarget, "--port", "65534", "--timeout-ms", "500"],
     {
       cwd: browserSmokeNoSourceLauncher,
       timeout: 60_000
@@ -1289,7 +1294,7 @@ try {
     `- next_step: Run \`cd ${shellQuotedForSmoke(browserSmokeCwdNoSourceTarget)} && prodex pro browser login --port 65534\` to reopen`,
     "installed pro browser smoke cwd no-source blocker output"
   );
-  const browserCheck = await runExpectFailure(binPath, ["pro", "browser", "check", "--port", "65534", "--timeout-ms", "10"], {
+  const browserCheck = await runExpectFailure(binPath, ["pro", "browser", "check", "--port", "65534", "--timeout-ms", "500"], {
     cwd: consumerDir,
     timeout: 60_000
   });
@@ -1298,7 +1303,7 @@ try {
   assertIncludes(browserCheck.stdout, "prodex pro browser login", "installed pro browser check output");
   const sourceBrowserCheck = await runExpectFailure(
     binPath,
-    ["pro", "browser", "check", "--port", "65534", "--timeout-ms", "10", "--source-cli", installedSourceCli],
+    ["pro", "browser", "check", "--port", "65534", "--timeout-ms", "500", "--source-cli", installedSourceCli],
     {
       cwd: consumerDir,
       timeout: 60_000
@@ -1315,7 +1320,7 @@ try {
   await writeFile(path.join(corruptSourceCheckDir, ".bridge", "config.local.json"), "{not json", "utf8");
   const corruptSourceBrowserCheck = await runExpectFailure(
     binPath,
-    ["pro", "browser", "check", "--port", "65534", "--timeout-ms", "10", "--source-cli", installedSourceCli],
+    ["pro", "browser", "check", "--port", "65534", "--timeout-ms", "500", "--source-cli", installedSourceCli],
     {
       cwd: corruptSourceCheckDir,
       timeout: 60_000
@@ -1339,7 +1344,7 @@ try {
   );
   const cwdBrowserCheck = await runExpectFailure(
     binPath,
-    ["pro", "browser", "check", "--cwd", productCheckTargetDir, "--port", "65534", "--timeout-ms", "10"],
+    ["pro", "browser", "check", "--cwd", productCheckTargetDir, "--port", "65534", "--timeout-ms", "500"],
     {
       cwd: productCheckLauncherDir,
       timeout: 60_000
@@ -1475,6 +1480,7 @@ try {
     `package_smoke: ok tarball=${path.basename(packed.filename)} http_onboarding=ok installed_http_mcp=ok http_write_flow=ok http_task_finalizers=ok http_result_artifact_flow=ok http_result_artifact_tamper=ok http_receipt_session_tools=ok configured_doctor=ok tunnel_url=ok package_boundary=ok installed_untrusted_result=ok installed_release_pack=ok installed_release_pack_cli=ok installed_release_pack_source_cli=ok installed_release_git_matrix=ok installed_release_pack_publish_dry_run=ok installed_release_pack_publish_command=ok stdio_write_flow=ok stdio_search_overflow=ok stdio_non_git_write=ok stdio_task_flow=ok stdio_task_finalizers=ok stdio_result_artifact_flow=ok stdio_result_artifact_tamper=ok stdio_receipt_session_tools=ok tools=${REQUIRED_MCP_TOOLS.join(",")}`
   );
 } finally {
+  if (unavailableBrowser.listening) await new Promise((resolve) => unavailableBrowser.close(resolve));
   await rm(tmp, { recursive: true, force: true });
 }
 
@@ -1561,11 +1567,7 @@ function normalizePackagePath(value) {
 }
 
 async function assertNpmPublishDryRun(tarballPath, cwd, label, version = rootPackageVersion) {
-  const result = await run(npmCommand, ["publish", "--dry-run", tarballPath], {
-    cwd,
-    timeout: 120_000,
-    maxBuffer: 20 * 1024 * 1024
-  });
+  const result = await publishTarballDryRun(tarballPath);
   const output = `${result.stdout}\n${result.stderr}`;
   assertIncludes(output, `prodex@${version}`, `${label} npm publish dry-run output`);
   assertIncludes(output, "Publishing to", `${label} npm publish dry-run output`);
@@ -1932,7 +1934,7 @@ async function smokeInstalledProBlockedConsult(binPath, cwd) {
   assertIncludes(latest.stdout, "- code: browser_unreachable", "installed pro latest blocked output");
   assertIncludes(latest.stdout, "- retryable: true", "installed pro latest blocked output");
   assertIncludes(latest.stdout, "pro browser login", "installed pro latest blocked output");
-  const check = await runExpectFailure(binPath, ["pro", "browser", "check", "--port", "65534", "--timeout-ms", "10"], { cwd, timeout: 60_000 });
+  const check = await runExpectFailure(binPath, ["pro", "browser", "check", "--port", "65534", "--timeout-ms", "500"], { cwd, timeout: 60_000 });
   assertIncludes(check.stdout, `latest_pro: blocked ${taskId}`, "installed pro browser check blocked output");
   assertNotIncludes(check.stdout, `latest_pro: ok ${taskId} blocked`, "installed pro browser check blocked output");
   return taskId;
@@ -2746,7 +2748,7 @@ async function smokeInstalledHttpOnboarding(binPath, cwd) {
   assertNotIncludes(nonExpiringStatus.stdout, '"token_status": "none"', "installed non-expiring status output");
   const nonExpiringProductCheck = await runExpectFailure(
     binPath,
-    ["pro", "browser", "check", "--cwd", nonExpiringCwd, "--port", "65534", "--timeout-ms", "10"],
+    ["pro", "browser", "check", "--cwd", nonExpiringCwd, "--port", "65534", "--timeout-ms", "500"],
     { cwd: launcherCwd }
   );
   const nonExpiringProductCheckOutput = `${nonExpiringProductCheck.stdout}\n${nonExpiringProductCheck.stderr}`;

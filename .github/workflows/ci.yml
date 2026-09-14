@@ -43,7 +43,7 @@ jobs:
         run: npm run build
 
       - name: Run release metadata check
-        run: npm run release:check
+        run: npm run release:check -- --metadata-only
 
       - name: Run release verification
         run: npm run release:verify
