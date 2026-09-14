@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.40.6
+
+### Fixed
+- A consult could return an older conversation's answer. When the page never reports the prompt posting, prodex finds where it landed by matching the prompt against the recent conversations - and identity is a PREFIX test, the first 120 normalized characters, because a composer tool prefixes the prompt and attachments append to it so neither end is reliable alone. Two consults that open the same way are indistinguishable to it, which is what an agent working from a template or a debate loop does every round. Measured on two prompts sharing a 125-character preamble and differing at character 142: sending the newer one picked the older conversation, whose answer would have come back as this send's. An ambiguous prefix is now resolved by the whole prompt, nothing is picked when that cannot single one out either, and the recorded sample of each conversation grew from 600 characters to 4000 so longer prompts can still be told apart.
+
 ## 0.40.5
 
 ### Fixed

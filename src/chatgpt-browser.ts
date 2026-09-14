@@ -6121,7 +6121,10 @@ export function recentConversationsExpression(limit = 4): string {
       }
       const user = chain.find((entry) => entry && entry.author && entry.author.role === "user" && entry.content);
       const text = user ? (user.content.parts || []).filter((part) => typeof part === "string").join("") : "";
-      out.push({ id: item.id, userText: text.slice(0, 600) });
+      // Long enough that two consults sharing an opening can still be told
+      // apart by the rest of the prompt; bounded so a huge --file send does
+      // not drag its whole payload back through the bridge.
+      out.push({ id: item.id, userText: text.slice(0, 4000) });
     } catch (error) {
       // A conversation we cannot read is simply not a match.
     }
@@ -6130,9 +6133,47 @@ export function recentConversationsExpression(limit = 4): string {
 })()`;
 }
 
-/** Which of those conversations is the one this send posted into, if any. */
+/**
+ * Which of those conversations is the one this send posted into, if any.
+ *
+ * Identity is a PREFIX test - the first 120 normalized characters - because a
+ * composer tool prefixes the prompt and attachments append to it, so neither
+ * end is reliable on its own. Two consults that open the same way therefore
+ * look identical to it, which is not hypothetical: an agent working from a
+ * template, or a debate loop, repeats its opening every round. Taking the
+ * first match then reads an OLDER conversation and returns its answer as this
+ * send's - measured on two prompts sharing a 125-character preamble and
+ * differing at character 142, where sending the newer one picked the older.
+ *
+ * So an ambiguous prefix is resolved by the whole prompt, and if that cannot
+ * single one out either, nothing is picked. The caller falls back to its other
+ * evidence, which costs a wait; picking wrong costs the wrong answer.
+ */
 export function pickLandedConversation(candidates: LandedConversationCandidate[], sentPrompt: string): string | undefined {
-  return candidates.find((candidate) => transcriptMatchesSentPrompt(candidate.userText, sentPrompt))?.id;
+  const matches = candidates.filter((candidate) => transcriptMatchesSentPrompt(candidate.userText, sentPrompt));
+  if (matches.length <= 1) return matches[0]?.id;
+  const whole = matches.filter((candidate) => transcriptContainsWholeSentPrompt(candidate.userText, sentPrompt));
+  return whole.length === 1 ? whole[0].id : undefined;
+}
+
+/**
+ * The stricter test, for telling apart conversations the prefix cannot.
+ *
+ * Still a containment test - the transcript wraps the prompt - but of the
+ * whole prompt rather than its opening. A prompt longer than the recorded
+ * sample cannot match, which leaves the caller with nothing to pick, and
+ * nothing is the safe answer here.
+ */
+export function transcriptContainsWholeSentPrompt(userText: string, sentPrompt: string): boolean {
+  const normalize = (value: string): string =>
+    value
+      .replace(/\\([\\`*_{}[\]()#+\-.!>~|])/g, "$1")
+      .replace(/\s+/g, " ")
+      .trim();
+  const seen = normalize(userText);
+  const sent = normalize(sentPrompt);
+  if (seen.length === 0 || sent.length === 0) return false;
+  return seen.includes(sent);
 }
 
 export function transcriptAnswerExpression(conversationId: string): string {
