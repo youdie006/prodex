@@ -58,7 +58,7 @@ export async function startHttpMcpServer(options: StartHttpMcpServerOptions): Pr
         // HOW to authorize without leaking anything token-specific.
         writeJson(res, 401, {
           error: "unauthorized",
-          hint: "Provide a valid token via `?prodex_token=<token>` or `Authorization: Bearer <token>`. If your token expired, regenerate the profile with `prodex setup` and re-read the URL from `prodex status`."
+          hint: "Provide a valid token via `?prodex_token=<token>` or `Authorization: Bearer <token>`. If your token expired, run `prodex setup --token-ttl-hours <hours>`, restart `prodex start`, and read the new URL with `prodex status --show-token --url-only`."
         });
         return;
       }

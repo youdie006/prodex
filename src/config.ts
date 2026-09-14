@@ -132,9 +132,9 @@ export async function writeLocalConfig(cwd: string, input: WriteLocalConfigInput
   await ensureBridgeLocalFiles(cwd);
   await assertLocalConfigTargetSafe(cwd);
   const now = new Date().toISOString();
-  const host = normalizeLoopbackHttpHost(input.host ?? "127.0.0.1");
-  const port = input.port ?? 8787;
   const existing = await readExistingConfig(cwd);
+  const host = normalizeLoopbackHttpHost(input.host ?? existing?.host ?? "127.0.0.1");
+  const port = input.port ?? existing?.port ?? 8787;
   // A setup re-run that only adjusts defaults/host/port must NOT rotate the
   // token - that would silently 401 every client holding the old MCP URL.
   // Rotation happens only when the caller explicitly asks for a token
@@ -304,7 +304,7 @@ export function getTokenExpiryStatus(config: Pick<LocalConfig, "token_expires_at
     ? {
         status: "expired",
         token_expires_at: config.token_expires_at,
-        warning: `Token expired at ${config.token_expires_at}. Run \`prodex setup\` to create a new URL.`
+        warning: `Token expired at ${config.token_expires_at}. Run \`prodex setup --token-ttl-hours <hours>\` to create a new URL, then restart \`prodex start\`.`
       }
     : { status: "valid", token_expires_at: config.token_expires_at };
 }

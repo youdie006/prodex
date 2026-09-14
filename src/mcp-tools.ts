@@ -1,7 +1,7 @@
 import { BridgeStore, MAX_FETCHABLE_RESULT_ARTIFACT_BYTES, type ListReceiptsInput } from "./store.js";
 import { readRepoFile, searchRepoWithMetadata } from "./repo.js";
 import { applyRepoWriteDryRun, createRepoWriteDryRun, stageReviewedPaths } from "./repo-write.js";
-import type { BridgeFile, SourceSchema } from "./schema.js";
+import type { Blocker, BridgeFile, Result, SourceSchema } from "./schema.js";
 import type { z } from "zod";
 
 type BridgeSource = z.infer<typeof SourceSchema>;
@@ -21,6 +21,34 @@ export interface McpToolContext {
 
 type SessionRecord = Awaited<ReturnType<BridgeStore["getSessionReadOnly"]>>;
 
+function redactContextText(text: string, privateValues: Array<string | undefined> = []): string {
+  let redacted = text;
+  for (const value of privateValues) {
+    if (value) redacted = redacted.replaceAll(value, "[redacted]");
+  }
+  return redacted.replace(/https?:\/\/(?:chatgpt\.com|chat\.openai\.com)(?![\w.-])(?:[/?#][^\s<>"'`)]*)?/gi, "[redacted ChatGPT URL]");
+}
+
+function redactBlockerForMcp(blocker: Blocker | undefined, privateValues: Array<string | undefined> = []): Blocker | undefined {
+  if (!blocker) return undefined;
+  const context = [blocker.thread, ...privateValues];
+  return {
+    code: blocker.code,
+    message: redactContextText(blocker.message, context),
+    retryable: blocker.retryable,
+    ...(blocker.next_step !== undefined ? { next_step: redactContextText(blocker.next_step, context) } : {})
+  };
+}
+
+function redactResultForMcp(result: Result): Result {
+  return {
+    ...result,
+    summary: result.status === "blocked" ? redactContextText(result.summary, [result.blocker?.thread]) : result.summary,
+    blocker: redactBlockerForMcp(result.blocker),
+    warnings: result.warnings.map((warning) => redactContextText(warning, [result.blocker?.thread]))
+  };
+}
+
 /**
  * Drop the ChatGPT project name and thread URL before a session crosses the
  * MCP boundary. Both are personal context (the same way receipts redact the
@@ -32,6 +60,8 @@ function redactSessionForMcp(session: SessionRecord): SessionRecord {
   const redacted: Record<string, unknown> = { ...session };
   if (Object.hasOwn(redacted, "project")) redacted.project = undefined;
   if (Object.hasOwn(redacted, "thread")) redacted.thread = undefined;
+  redacted.blocker = redactBlockerForMcp(session.blocker, [session.thread, session.project]);
+  redacted.warnings = session.warnings.map((warning) => redactContextText(warning, [session.thread, session.project]));
   return redacted as SessionRecord;
 }
 
@@ -45,13 +75,18 @@ type TaskRecord = Awaited<ReturnType<BridgeStore["getTaskReadOnly"]>>;
  * raw task file keeps them for local CLI inspection.
  */
 function redactTaskForMcp(task: TaskRecord): TaskRecord {
-  if (!task || typeof task !== "object" || !("provenance" in task) || !task.provenance) return task;
-  const provenance = task.provenance as Record<string, unknown>;
-  if (!Object.hasOwn(provenance, "thread") && !Object.hasOwn(provenance, "project")) return task;
+  const provenance = task.provenance;
   const redactedProvenance = { ...provenance };
   if (Object.hasOwn(redactedProvenance, "thread")) redactedProvenance.thread = undefined;
   if (Object.hasOwn(redactedProvenance, "project")) redactedProvenance.project = undefined;
-  return { ...task, provenance: redactedProvenance } as TaskRecord;
+  if (provenance?.warnings) {
+    redactedProvenance.warnings = provenance.warnings.map((warning) => redactContextText(warning, [provenance.thread, provenance.project]));
+  }
+  return {
+    ...task,
+    ...(provenance ? { provenance: redactedProvenance } : {}),
+    blocker: redactBlockerForMcp(task.blocker, [provenance?.thread, provenance?.project])
+  } as TaskRecord;
 }
 
 export function createMcpToolHandlers(context: McpToolContext) {
@@ -94,7 +129,7 @@ export function createMcpToolHandlers(context: McpToolContext) {
     async bridge_claim_task(input: { task_id: string; claimed_by?: string }) {
       assertMcpTextField(input.task_id, "task_id", MAX_MCP_SHORT_TEXT_BYTES);
       assertMcpTextField(input.claimed_by, "claimed_by", MAX_MCP_SHORT_TEXT_BYTES);
-      return { task: await store.claimTask(input.task_id, input.claimed_by ?? claimedBy) };
+      return { task: redactTaskForMcp(await store.claimTask(input.task_id, input.claimed_by ?? claimedBy)) };
     },
 
     async bridge_complete_task(input: { task_id: string; summary: string; artifacts?: McpBridgeFileInput[]; commands?: string[]; warnings?: string[] }) {
@@ -111,7 +146,7 @@ export function createMcpToolHandlers(context: McpToolContext) {
         warnings: input.warnings,
         provenance: { adapter: "mcp" }
       });
-      return { result };
+      return { result: redactResultForMcp(result) };
     },
 
     async bridge_block_task(input: {
@@ -145,16 +180,16 @@ export function createMcpToolHandlers(context: McpToolContext) {
         },
         provenance: { adapter: "mcp" }
       });
-      return { result };
+      return { result: redactResultForMcp(result) };
     },
 
     async bridge_list_results() {
-      return { results: await store.listFinalizedResultsReadOnly() };
+      return { results: (await store.listFinalizedResultsReadOnly()).map(redactResultForMcp) };
     },
 
     async bridge_fetch_result(input: { task_id: string }) {
       assertMcpTextField(input.task_id, "task_id", MAX_MCP_SHORT_TEXT_BYTES);
-      return { result: await store.getFinalizedResultReadOnly(input.task_id) };
+      return { result: redactResultForMcp(await store.getFinalizedResultReadOnly(input.task_id)) };
     },
 
     async bridge_fetch_result_artifact(input: { task_id: string; path?: string }) {

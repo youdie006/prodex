@@ -469,7 +469,7 @@ export class BridgeStore {
     taskId: string,
     artifactPath?: string,
     options: { maxBytes?: number } = {}
-  ): Promise<{ artifact: BridgeFile; content: string }> {
+  ): Promise<{ artifact: BridgeFile; content: string; warnings?: string[] }> {
     return this.readResultArtifactText(taskId, artifactPath, { ...options, readOnly: true });
   }
 
@@ -477,7 +477,7 @@ export class BridgeStore {
     taskId: string,
     artifactPath?: string,
     options: { maxBytes?: number; readOnly?: boolean } = {}
-  ): Promise<{ artifact: BridgeFile; content: string }> {
+  ): Promise<{ artifact: BridgeFile; content: string; warnings?: string[] }> {
     const result = options.readOnly ? await this.getResultReadOnly(taskId) : await this.getResult(taskId);
     if (options.readOnly) {
       await this.assertTrustedTaskCompletionReceiptReadOnly(taskId, result);
@@ -497,7 +497,13 @@ export class BridgeStore {
     if (artifact.sha256 && sha256(content) !== artifact.sha256) {
       throw new Error(`Result artifact changed after finalization for ${taskId}: ${artifact.path} sha256 mismatch`);
     }
-    return { artifact, content };
+    return {
+      artifact,
+      content,
+      ...(!artifact.sha256 ? {
+        warnings: ["legacy_artifact_unverified: this artifact has no recorded sha256; its current contents cannot be verified against finalization."]
+      } : {})
+    };
   }
 
   private async withResultArtifactHashes(artifacts: BridgeFile[]): Promise<BridgeFile[]> {

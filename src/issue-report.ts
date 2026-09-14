@@ -46,14 +46,18 @@ export function issueAreaLabel(code: string): string | undefined {
 /**
  * Build the report. Only the failure travels: never the prompt, the answer, or
  * the summary, because a public issue must not become where a private consult
- * leaks. Everything included here is either environment or blocker metadata.
+ * leaks. Blocker prose can contain answers, paths and thread URLs, so it stays
+ * local too. Public reports carry a code and a fixed diagnostic summary.
  */
 export function buildIssueReport(consult: BlockedConsultLike, environment: ReportEnvironment): IssueReport {
   if (consult.status !== "blocked" || !consult.blocker) {
     throw new Error(`${consult.task_id} is not a failure (status ${consult.status}), so there is nothing to report.`);
   }
-  const code = (consult.blocker.code ?? "unknown").trim();
-  const message = (consult.blocker.message ?? "").trim();
+  const rawCode = (consult.blocker.code ?? "unknown").trim();
+  const code = /^[a-z][a-z0-9_]{0,79}$/.test(rawCode) ? rawCode : "unknown";
+  const message = code === "smoke_token_mismatch"
+    ? "The browser response did not match the smoke-test token."
+    : "Consult blocked; detailed diagnostics are kept in the local receipt.";
   const area = issueAreaLabel(code);
   const body = [
     "A consult was blocked. Filed from its receipt, so the prompt and the answer are not included.",
@@ -67,7 +71,8 @@ export function buildIssueReport(consult: BlockedConsultLike, environment: Repor
     `| platform | ${environment.platform} |`,
     `| node | ${environment.nodeVersion} |`,
     "",
-    ...(consult.blocker.next_step ? ["What it told the caller to do:", "", `> ${consult.blocker.next_step}`, ""] : []),
+    "Private error details and recovery instructions are omitted. Review the local receipt before sharing more context.",
+    "",
     "Receipt (local, not attached): " + consult.task_id
   ].join("\n");
   return {

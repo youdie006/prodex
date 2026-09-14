@@ -168,6 +168,7 @@ export async function runResultsCommand(rest: string[], io: CliIO): Promise<numb
       try {
         const resolvedTaskId = taskId === "latest" ? await latestResultTaskId(targetStore, { readOnly: true }) : taskId;
         const artifact = await targetStore.readFinalizedResultArtifactText(resolvedTaskId, artifactPath);
+        for (const warning of artifact.warnings ?? []) io.stderr(warning);
         io.stdout(artifact.content);
       } catch (error) {
         throw sourceAwareResultError(error, undefined, resultOptions);

@@ -4,6 +4,8 @@ Use this path when you want a ChatGPT Project to hand tasks back to this local r
 
 This is not the ChatGPT Pro browser adapter. It does not open ChatGPT, read cookies, or automate a web session. It starts a local HTTP MCP server that exposes the same bridge/repo tools as the Claude stdio server.
 
+Generic task, session and result responses redact personal ChatGPT thread metadata, including nested blockers and recovery URLs in diagnostic text. Local CLI records retain that context for recovery. Legacy result artifacts without a recorded hash are readable with a `legacy_artifact_unverified` warning; a signed completion receipt does not verify unhashed artifact bytes.
+
 ## What It Is
 
 `prodex start` runs a local Streamable HTTP MCP server.
@@ -63,7 +65,7 @@ Equivalent from outside the repo:
 prodex setup --cwd /absolute/path/to/your/repo --token-ttl-hours 24
 ```
 
-Expired tokens are rejected by `prodex start` and by the HTTP MCP server. Rerun `setup` to rotate the URL.
+Expired tokens are rejected by `prodex start` and by the HTTP MCP server. Run `prodex setup --token-ttl-hours <hours>` to rotate the URL, restart `prodex start`, then reconnect clients using `prodex status --show-token --url-only`. Plain `setup` preserves the existing token and expiry; changing the TTL preserves the listener unless `--host` or `--port` is supplied.
 
 ## Start The Local Server
 

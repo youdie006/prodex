@@ -23,11 +23,13 @@ describe("a bug report built from a blocked consult", () => {
   it("carries what someone would need to reproduce it", () => {
     const report = buildIssueReport(blocked, environment);
     expect(report.title).toContain("browser_send_failed");
-    expect(report.title).toContain("model selector button not found");
+    expect(report.title).toContain("Consult blocked");
+    expect(report.title).not.toContain("model selector button not found");
     expect(report.body).toContain("0.36.5");
     expect(report.body).toContain("linux");
     expect(report.body).toContain("v22.22.0");
-    expect(report.body).toContain("Resolve the visible browser issue manually");
+    expect(report.body).toContain("Private error details and recovery instructions are omitted");
+    expect(report.body).not.toContain(blocked.blocker.next_step);
     expect(report.labels).toContain("bug");
   });
 

@@ -277,6 +277,9 @@ describe("HTTP MCP server", () => {
     const response = await fetch(`${running.url}/mcp?prodex_token=test-token`, { method: "POST", body: "{}" });
 
     expect(response.status).toBe(401);
+    const body = await response.json() as { hint: string };
+    expect(body.hint).toContain("prodex setup --token-ttl-hours <hours>");
+    expect(body.hint).toContain("restart");
   });
 });
 

@@ -64,8 +64,8 @@ export async function runSetupCommand(rest: string[], io: CliIO): Promise<number
       ? await runBrowserDefaultsWizard(resolvePromptUser(io), io.stdout)
       : parseBrowserDefaultFlags(rest);
     const config = await writeLocalConfig(targetCwd, {
-      host: readFlag(rest, "--host") ?? "127.0.0.1",
-      port: readPortFlag(rest, "--port") ?? 8787,
+      host: readFlag(rest, "--host"),
+      port: readPortFlag(rest, "--port"),
       token: readFlag(rest, "--token"),
       tokenTtlHours: readPositiveNumberFlag(rest, "--token-ttl-hours"),
       browserDefaults
