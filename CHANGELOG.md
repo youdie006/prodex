@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Legacy result artifacts without recorded hashes remain readable but carry an explicit unverified-integrity warning in CLI and MCP output. Session cancellation help now distinguishes stale metadata cleanup from stopping an active browser request.
 
 ### Fixed
+- Test state isolation is restored before and after every test, including when a preceding case deletes its override. Registry, browser lock and launch-record fixtures cannot fall back to the user's default state in the next test.
 - Repo applies serialize cooperating writers across processes and recheck the file preimage under ownership. Browser locks use acquisition-specific ownership and never evict a live request solely because it is old. Registry temporary files are exclusive and reject symlink targets.
 - Browser recovery validates the saved control port and canonical profile path, recognizes supported Chromium/Edge/Brave process names, and refuses a relaunch when owned processes could not be terminated. Virtual-display allocation is serialized so simultaneous startups cannot overwrite the same authority cookie.
 - Recovered answers must belong to the requested thread and remain stable and non-generating. Send metadata stays pinned to the accepted conversation.
