@@ -6,6 +6,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.40.7
+
 ### Changed
 - Browser consults and recovery read rendered page content only. Hidden ChatGPT endpoints, session-token access, and persisted browser-state probes were removed. Deep-research sends and automatic conversation/project deletion now stop with explicit unsupported guidance; visible project/conversation lists are not a complete account-history listing.
 - Legacy result artifacts without recorded hashes remain readable but carry an explicit unverified-integrity warning in CLI and MCP output. Session cancellation help now distinguishes stale metadata cleanup from stopping an active browser request.
