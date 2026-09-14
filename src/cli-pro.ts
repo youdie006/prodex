@@ -1491,13 +1491,17 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
         !parsedAskPro.optionArgs.includes("--no-auto-login") &&
         (parsedAskPro.optionArgs.includes("--auto-login") || io.isInteractive === true);
       let consult: Awaited<ReturnType<typeof sendChatGptPrompt>>;
+      // Declared out here so a retry that fails still reports what recovery
+      // did: the notes used to live inside the inner catch and were attached
+      // to the ANSWER, so a recovered browser whose retry then died recorded
+      // nothing about the recovery at all.
+      const recoveryNotes: string[] = [];
       try {
         try {
           consult = await sendOnce();
         } catch (error) {
           const firstBlocker = browserSendBlockerFromError(error);
           if (firstBlocker.code !== "browser_unreachable" || !autoLoginAllowed) throw error;
-          const recoveryNotes: string[] = [];
           const recovered = await attemptBrowserAutoRecovery(io.stderr, {
             ...(browserPort !== undefined ? { port: browserPort } : {}),
             notes: recoveryNotes
@@ -1522,7 +1526,7 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
         // What the send had already noticed before it died. These used to go
         // out with the result, so a failure dropped them - including the note
         // that would explain it, like having just moved off the Work surface.
-        const blockedWarnings = sendWarningsFromError(error).map(redactProject);
+        const blockedWarnings = [...recoveryNotes, ...sendWarningsFromError(error)].map(redactProject);
         for (const warning of blockedWarnings) io.stderr(warning);
         const persistedBlocker = {
           ...blocker,
@@ -2003,6 +2007,21 @@ function autoClearDisabledByEnv(env: Record<string, string | undefined> = proces
   return raw === "1" || raw === "true" || raw === "yes";
 }
 
+/**
+ * What recovery did to the browser, in the words the receipt keeps.
+ *
+ * Both halves are recorded because both change what the answer came from. The
+ * ending case takes someone's running browser with it; the launch case is the
+ * quieter one and used to record nothing at all - measured, killing the
+ * dedicated browser and sending with --auto-login recovered in three seconds
+ * and left warnings: [] on the receipt, the result and the task.
+ */
+export function browserRecoveredNote(ended: readonly number[]): string {
+  return ended.length > 0
+    ? `browser_recovered: the dedicated browser stopped answering its control port and prodex ended it (pid ${ended.join(", ")}) and started a fresh one before sending. Anything it was doing at the time is gone; the profile and login were kept.`
+    : "browser_recovered: the dedicated browser was not running, so prodex started it with the saved profile before sending. The login was kept; anything the old browser had open is gone.";
+}
+
 export async function attemptBrowserAutoRecovery(
   stderr: (line: string) => void,
   options: {
@@ -2044,9 +2063,7 @@ export async function attemptBrowserAutoRecovery(
     stderr(`recover: the browser stopped answering; ending it (pid ${wedged.join(", ")}) and starting a fresh one...`);
     // Ending someone's browser is not a progress line to scroll past: it goes on
     // the receipt, where an agent or a person reading `pro latest` will see it.
-    options.notes?.push(
-      `browser_recovered: the dedicated browser stopped answering its control port and prodex ended it (pid ${wedged.join(", ")}) and started a fresh one before sending. Anything it was doing at the time is gone; the profile and login were kept.`
-    );
+    options.notes?.push(browserRecoveredNote(wedged));
     await endWedgedBrowser(wedged);
     // Wait for the profile lock to actually clear rather than guessing at a
     // delay: the replacement launch fails outright if the old process still
@@ -2089,6 +2106,9 @@ export async function attemptBrowserAutoRecovery(
       if (outcome?.minimized) stderr("recover: window minimized again");
     }
     stderr("recover: browser READY - retrying the send...");
+    // The wedged branch above records what it ended; this branch records that
+    // the browser was gone and this answer came from one prodex started.
+    if (wedged.length === 0) options.notes?.push(browserRecoveredNote([]));
     return true;
   } catch (error) {
     stderr(`recover: failed - ${errorMessage(error)}`);
