@@ -36,6 +36,7 @@ beforeEach(() => {
 
 afterEach(() => {
   delete process.env.PRODEX_MIN_SEND_INTERVAL_MS;
+  vi.unstubAllEnvs();
 });
 
 describe("pro_consult MCP tool registration", () => {
@@ -249,6 +250,24 @@ describe("pro_consult MCP tool registration", () => {
     expect(invalid.isError).toBe(true);
     expect(browserConsult).not.toHaveBeenCalled();
   });
+
+  it("advertises task-driven dialogue and explicit user approval, not a fixed two-turn loop", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-policy-"));
+    const browserConsult = vi.fn(async () => ({}));
+    const client = await connectClient(createServer(cwd, { browserConsult }));
+    const tools = await client.listTools();
+    const consult = tools.tools.find((tool) => tool.name === "pro_consult")!;
+    expect(consult.description).toContain("concrete unresolved question");
+    expect(consult.description).toContain("repetitive");
+    expect(consult.description).toContain("PRODEX_MAX_AUTO_FOLLOWUPS");
+    expect(consult.inputSchema.properties).toHaveProperty("user_approved");
+    await client.callTool({
+      name: "pro_consult",
+      arguments: { prompt: "User asked to continue", continue_task: "task_20260915_010000_parent", user_approved: true }
+    });
+    await client.close();
+    expect(browserConsult).toHaveBeenCalledWith(expect.objectContaining({ user_approved: true }), undefined);
+  });
 });
 
 describe("performBrowserConsultForMcp", () => {
@@ -330,6 +349,9 @@ describe("performBrowserConsultForMcp", () => {
     expect(outcome.request_id).toBe("9cb9650622e74a62bd9074c42a311945");
     expect(outcome.request_verified).toBe(true);
     expect(outcome.session_key).toBe("mcp-client-a");
+    expect(outcome.model_used).toBe("gpt-6-pro");
+    expect(outcome.continuation).toEqual({ continue_task: outcome.task_id, session_key: "mcp-client-a" });
+    expect(outcome.followup_budget).toEqual({ limit: 5, used: 0, remaining: 5 });
     expect(receipts[0]?.metadata).toEqual(
       expect.objectContaining({
         request_id: "9cb9650622e74a62bd9074c42a311945",
@@ -373,5 +395,156 @@ describe("performBrowserConsultForMcp", () => {
     expect(receipts.some((receipt) => receipt.kind === "consult_answer_saved" && receipt.task_id === outcome.task_id)).toBe(
       true
     );
+  });
+});
+
+describe("MCP follow-up approval checkpoints", () => {
+  const thread = "https://chatgpt.com/c/dialogue-budget";
+  const answer = {
+    url: thread,
+    title: "ChatGPT",
+    answer: "What is the height?",
+    modelHints: [],
+    modelSlug: "gpt-6-pro",
+    requestId: "9cb9650622e74a62bd9074c42a311945",
+    requestVerified: true,
+    warnings: []
+  };
+
+  async function start() {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-followup-"));
+    sendChatGptPromptMock.mockResolvedValue(answer);
+    const root = await performBrowserConsultForMcp(cwd, { prompt: "Width is 17", session_key: "caller-a", effort: "Pro" });
+    return { cwd, root };
+  }
+
+  it("returns reusable exact-target arguments and structured parent/model evidence", async () => {
+    const { cwd, root } = await start();
+    expect(root.continuation).toEqual({ continue_task: root.task_id, session_key: "caller-a", effort: "Pro" });
+    expect(root.pro_verified).toBe(true);
+    sendChatGptPromptMock.mockResolvedValueOnce({ ...answer, answer: "391" });
+    const next = await performBrowserConsultForMcp(cwd, { ...root.continuation, prompt: "The height is 23" });
+    expect(next.answer).toBe("391");
+    expect(next.continued_from).toBe(root.task_id);
+    expect(next.continuation?.continue_task).toBe(next.task_id);
+    expect(next.followup_budget).toEqual({ limit: 5, used: 1, remaining: 4 });
+    expect(sendChatGptPromptMock).toHaveBeenLastCalledWith(expect.objectContaining({ targetUrl: thread, effort: "Pro" }));
+    expect(sendChatGptPromptMock).toHaveBeenLastCalledWith(expect.not.objectContaining({ newChat: true }));
+  });
+
+  it("shares the limit across MCP clients and older task references without another send", async () => {
+    vi.stubEnv("PRODEX_MAX_AUTO_FOLLOWUPS", "1");
+    const { cwd, root } = await start();
+    await performBrowserConsultForMcp(cwd, { prompt: "Height is 23", continue_task: root.task_id, session_key: "caller-a" });
+    const { BridgeStore } = await import("../src/store.js");
+    const store = new BridgeStore(cwd);
+    const before = (await store.listTasks()).length;
+    const client = await connectClient(createServer(cwd, { browserConsult: (input) => performBrowserConsultForMcp(cwd, input) }));
+    const result = await client.callTool({ name: "pro_consult", arguments: { prompt: "More review", continue_task: root.task_id, session_key: "caller-b" } });
+    await client.close();
+    const payload = JSON.parse((result.content as Array<{ text: string }>)[0].text);
+    expect(payload.status).toBe("awaiting_user");
+    expect(payload.task_id).toBeNull();
+    expect(payload.continuation.continue_task).toBe(root.task_id);
+    expect(payload.followup_budget).toEqual({ limit: 1, used: 1, remaining: 0 });
+    expect(payload.blocker.code).toBe("followup_approval_required");
+    expect(sendChatGptPromptMock).toHaveBeenCalledTimes(2);
+    expect((await store.listTasks()).length).toBe(before);
+  });
+
+  it("requires approval before every follow-up with a zero budget, without persisting approval in the handle", async () => {
+    vi.stubEnv("PRODEX_MAX_AUTO_FOLLOWUPS", "0");
+    const { cwd, root } = await start();
+    const blocked = await performBrowserConsultForMcp(cwd, { ...root.continuation, prompt: "Height is 23" });
+    expect(blocked.status).toBe("awaiting_user");
+    expect(sendChatGptPromptMock).toHaveBeenCalledTimes(1);
+    const approved = await performBrowserConsultForMcp(cwd, { ...blocked.continuation, prompt: "Height is 23", user_approved: true });
+    expect(approved.status).toBe("done");
+    expect(approved.continuation).not.toHaveProperty("user_approved");
+    const again = await performBrowserConsultForMcp(cwd, { ...approved.continuation, prompt: "One more check" });
+    expect(again.status).toBe("awaiting_user");
+    expect(sendChatGptPromptMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("consumes a failed attempt and never automatically retries it", async () => {
+    vi.stubEnv("PRODEX_MAX_AUTO_FOLLOWUPS", "1");
+    const { cwd, root } = await start();
+    sendChatGptPromptMock.mockRejectedValueOnce(new Error("send_timeout: answer is not finished"));
+    await expect(performBrowserConsultForMcp(cwd, { ...root.continuation, prompt: "Height is 23" })).rejects.toThrow(/send_timeout/);
+    const outcome = await performBrowserConsultForMcp(cwd, { ...root.continuation, prompt: "Do not resend without approval" });
+    expect(outcome.status).toBe("awaiting_user");
+    expect(sendChatGptPromptMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("renews only after user approval and spends the renewed budget normally", async () => {
+    vi.stubEnv("PRODEX_MAX_AUTO_FOLLOWUPS", "1");
+    const { cwd, root } = await start();
+    const first = await performBrowserConsultForMcp(cwd, { ...root.continuation, prompt: "Height is 23" });
+    expect(first.followup_budget?.remaining).toBe(0);
+    const approved = await performBrowserConsultForMcp(cwd, { ...first.continuation, prompt: "User requested another review", user_approved: true });
+    expect(approved.followup_budget).toEqual({ limit: 1, used: 0, remaining: 1 });
+    const next = await performBrowserConsultForMcp(cwd, { ...approved.continuation, prompt: "A concrete unresolved detail" });
+    expect(next.followup_budget?.remaining).toBe(0);
+    const stopped = await performBrowserConsultForMcp(cwd, { ...next.continuation, prompt: "No more without approval" });
+    expect(stopped.status).toBe("awaiting_user");
+    expect(sendChatGptPromptMock).toHaveBeenCalledTimes(4);
+  });
+
+  it("also gates implicit same-session continuation", async () => {
+    vi.stubEnv("PRODEX_MAX_AUTO_FOLLOWUPS", "0");
+    const { cwd, root } = await start();
+    const outcome = await performBrowserConsultForMcp(cwd, { prompt: "Height is 23", session_key: "caller-a", continue_thread: true });
+    expect(outcome.status).toBe("awaiting_user");
+    expect(outcome.continued_from).toBe(root.task_id);
+    expect(outcome.continuation?.continue_task).toBe(root.task_id);
+    expect(sendChatGptPromptMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not change user-directed CLI continuation", async () => {
+    vi.stubEnv("PRODEX_MAX_AUTO_FOLLOWUPS", "0");
+    const { cwd, root } = await start();
+    const { runCli } = await import("../src/cli.js");
+    const lines: string[] = [];
+    await runCli(["ask", "--continue-task", root.task_id, "--json", "User typed this follow-up"], {
+      cwd, stdout: (line) => lines.push(line), stderr: () => {}
+    });
+    expect(JSON.parse(lines.join("\n")).status).toBe("done");
+    expect(sendChatGptPromptMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("starts a separate topic with its own budget", async () => {
+    vi.stubEnv("PRODEX_MAX_AUTO_FOLLOWUPS", "0");
+    const { cwd, root } = await start();
+    const nextThread = "https://chatgpt.com/c/separate-topic";
+    sendChatGptPromptMock.mockResolvedValueOnce({ ...answer, url: nextThread });
+    const next = await performBrowserConsultForMcp(cwd, { prompt: "A separate user task", session_key: "caller-a" });
+    expect(next.thread).toBe(nextThread);
+    expect(next.task_id).not.toBe(root.task_id);
+    expect(next.continued_from).toBeUndefined();
+    expect(next.followup_budget).toEqual({ limit: 0, used: 0, remaining: 0 });
+  });
+
+  it("fails closed on invalid budget configuration before sending", async () => {
+    vi.stubEnv("PRODEX_MAX_AUTO_FOLLOWUPS", "unlimited");
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-followup-"));
+    sendChatGptPromptMock.mockResolvedValueOnce(answer);
+    await expect(performBrowserConsultForMcp(cwd, { prompt: "Question" })).rejects.toThrow(/PRODEX_MAX_AUTO_FOLLOWUPS/);
+    expect(sendChatGptPromptMock).not.toHaveBeenCalled();
+  });
+
+  it("does not recommend automated continuation of an unverified answer", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-followup-"));
+    sendChatGptPromptMock.mockResolvedValueOnce({ ...answer, requestVerified: false });
+    const outcome = await performBrowserConsultForMcp(cwd, { prompt: "Question" });
+    expect(outcome.request_verified).toBe(false);
+    expect(outcome.continuation).toBeUndefined();
+  });
+
+  it("does not recommend automated continuation of a partial answer", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-followup-"));
+    sendChatGptPromptMock.mockResolvedValueOnce({ ...answer, warnings: ["answer_incomplete: still generating"] });
+    const outcome = await performBrowserConsultForMcp(cwd, { prompt: "Question" });
+    expect(outcome.continuation).toBeUndefined();
+    expect(outcome.warnings).toContain("answer_incomplete: still generating");
   });
 });

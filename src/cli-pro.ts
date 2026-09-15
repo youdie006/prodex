@@ -98,7 +98,8 @@ import {
 import { getTokenExpiryStatus, loadBrowserDefaults, loadLocalConfig } from "./config.js";
 import { withBrowserSendLock } from "./browser-send-lock.js";
 import { blockerCause, buildBlockerReport, CATCH_ALL_CODES, type BlockerConsult } from "./blocker-report.js";
-import { projectIdFromSidebar, resolveContinuationThread } from "./continue-thread.js";
+import { isChatGptConversationUrl, projectIdFromSidebar, resolveContinuationThread } from "./continue-thread.js";
+import { FollowupApprovalRequired, reserveFollowup, resolveMaxAutoFollowups, type FollowupBudget } from "./followup-budget.js";
 import { readBridgeRoots } from "./registry.js";
 import { ProdexRequestIdSchema, SessionKeySchema } from "./schema.js";
 import { BridgeStore, MAX_FETCHABLE_RESULT_ARTIFACT_BYTES } from "./store.js";
@@ -1218,7 +1219,11 @@ export function createBrowserSendProgressPrinter(
   };
 }
 
-export async function runAskProCommand(rest: string[], io: CliIO): Promise<number> {
+export async function runAskProCommand(
+  rest: string[],
+  io: CliIO,
+  beforeSend?: (target: { store: BridgeStore; thread?: string; continuedFrom?: string }) => Promise<void>
+): Promise<number> {
     const parsedAskPro = parseAskProArgs(rest);
     const hasDryRunMode = parsedAskPro.optionArgs.includes("--dry-run");
     const hasSendMode = parsedAskPro.optionArgs.includes("--send");
@@ -1495,6 +1500,13 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
     const sourceCli = resolveOptionalFileFlag(io.cwd, parsedAskPro.optionArgs, "--source-cli");
     const bundle = await buildDryRunBundle(targetCwd, { prompt: promptText, files });
     if (hasSendMode) {
+      // MCP approval checkpoints run after target validation but before any
+      // task creation, pacing, browser recovery, or prompt send.
+      await beforeSend?.({
+        store: targetStore,
+        ...(normalizedTargetUrl ? { thread: normalizedTargetUrl } : {}),
+        ...(continuedFromTaskId ? { continuedFrom: continuedFromTaskId } : {})
+      });
       await enforceVisibleBrowserSendPacing(targetCwd, io.stderr);
       const browserCommandOptions = {
         cwd: targetCwd,
@@ -1832,6 +1844,8 @@ export async function runAskProCommand(rest: string[], io: CliIO): Promise<numbe
               ...(consult.requestId ? { request_id: consult.requestId } : {}),
               ...(consult.requestVerified !== undefined ? { request_verified: consult.requestVerified } : {}),
               ...(continuedFromTaskId ? { continued_from: continuedFromTaskId } : {}),
+              ...(consult.modelSlug ? { model_used: consult.modelSlug } : {}),
+              ...(proVerified !== undefined ? { pro_verified: proVerified } : {}),
               destination: {
                 observed: destination.destination,
                 ...(destination.verified !== undefined ? { verified: destination.verified } : {})
@@ -1938,6 +1952,8 @@ export interface BrowserConsultInput {
   continue_thread?: boolean;
   /** Continue one named past consult, when the newest is not the one meant. */
   continue_task?: string;
+  /** Caller attestation: the user explicitly requested/approved this continuation. */
+  user_approved?: boolean;
   /** Explicitly request the default fresh-chat behavior; false does not reuse the shared tab. */
   new_chat?: boolean;
   /** Send even when the requested model/effort could not be applied. Off by default. */
@@ -1945,13 +1961,21 @@ export interface BrowserConsultInput {
 }
 
 export interface BrowserConsultOutcome {
-  task_id: string;
+  /** Null for a response-only approval checkpoint: no consult task was created. */
+  task_id: string | null;
   status: string;
   thread: string;
   answer: string;
   session_key?: string;
   request_id?: string;
   request_verified?: boolean;
+  model_used?: string;
+  pro_verified?: boolean;
+  continued_from?: string;
+  continuation?: Pick<BrowserConsultInput, "continue_task" | "session_key" | "model" | "effort" | "project">;
+  followup_budget?: FollowupBudget;
+  blocker?: { code: string; message: string; retryable: boolean; next_step: string };
+  warnings?: string[];
   notes: string[];
 }
 
@@ -2050,8 +2074,19 @@ export async function performBrowserConsultForMcp(
   const stdoutLines: string[] = [];
   const stderrLines: string[] = [];
   const sessionKey = resolveProdexSessionKey(input.session_key);
+  const limit = resolveMaxAutoFollowups();
+  let followupBudget: FollowupBudget = { limit, used: 0, remaining: limit };
+  let continuationTarget: { taskId: string; thread: string } | undefined;
+  const continuationArgs = (taskId: string): NonNullable<BrowserConsultOutcome["continuation"]> => ({
+    continue_task: taskId,
+    ...(sessionKey ? { session_key: sessionKey } : {}),
+    ...(input.model !== undefined ? { model: input.model } : {}),
+    ...(input.effort !== undefined ? { effort: input.effort } : {}),
+    ...(input.project !== undefined ? { project: input.project } : {})
+  });
   const argv = [
     "--send",
+    "--json",
     // MCP callers have no terminal, so the interactive auto-recovery gate
     // never fired for them: a closed browser made every pro_consult fail with
     // a step the agent had to shell out for (the single most common field
@@ -2083,8 +2118,32 @@ export async function performBrowserConsultForMcp(
         if (onProgress && line.startsWith("progress:")) onProgress(line);
       },
       allowAskProBrowserSend: true
+    }, async ({ store, thread, continuedFrom }) => {
+      if (!thread || !continuedFrom) return;
+      continuationTarget = { taskId: continuedFrom, thread };
+      followupBudget = await reserveFollowup(store, {
+        thread,
+        taskId: continuedFrom,
+        userApproved: input.user_approved === true,
+        limit
+      });
     });
   } catch (error) {
+    if (error instanceof FollowupApprovalRequired && continuationTarget) {
+      const nextStep = "Ask the user whether to continue this task. Only after explicit approval, repeat the intended follow-up with user_approved:true and the same continuation target. Do not start a new chat or change session keys to evade this checkpoint.";
+      return {
+        task_id: null,
+        status: "awaiting_user",
+        thread: continuationTarget.thread,
+        answer: "",
+        ...(sessionKey ? { session_key: sessionKey } : {}),
+        continued_from: continuationTarget.taskId,
+        continuation: continuationArgs(continuationTarget.taskId),
+        followup_budget: error.budget,
+        blocker: { code: "followup_approval_required", message: error.message, retryable: false, next_step: nextStep },
+        notes: [error.message, nextStep]
+      };
+    }
     // A send whose ANSWER arrived and whose recording then failed prints the
     // answer and throws, so the CLI caller still has it. Rethrowing here threw
     // it away instead - the one case where that costs the most, since the
@@ -2103,19 +2162,19 @@ export async function performBrowserConsultForMcp(
       answer: rescued.answer,
       ...(sessionKey ? { session_key: sessionKey } : {}),
       ...browserMetadataFromNotes(notes),
+      followup_budget: followupBudget,
       notes
     };
   }
-  const header = stdoutLines[0] ?? "";
-  const [taskId = "", status = "", thread = ""] = header.split("\t");
+  const result = JSON.parse(stdoutLines.join("\n")) as BrowserConsultOutcome;
   const notes = stderrLines.filter((line) => !line.startsWith("progress:"));
+  const canContinue = result.status === "done" && result.request_verified === true && isChatGptConversationUrl(result.thread)
+    && !notes.some((line) => /^(?:session_record_warning|receipt_record_warning|answer_incomplete):/.test(line));
   return {
-    task_id: taskId,
-    status,
-    thread,
-    answer: stdoutLines.slice(2).join("\n"),
+    ...result,
     ...(sessionKey ? { session_key: sessionKey } : {}),
-    ...browserMetadataFromNotes(notes),
+    ...(canContinue && result.task_id ? { continuation: continuationArgs(result.task_id) } : {}),
+    followup_budget: followupBudget,
     notes
   };
 }

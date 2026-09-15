@@ -20,6 +20,7 @@ export const ReceiptKindSchema = z.enum([
   "task_completed",
   "consult_preview",
   "consult_answer_saved",
+  "consult_followup_reserved",
   "repo_write_dry_run",
   "repo_write_applied",
   "repo_stage_reviewed_paths"

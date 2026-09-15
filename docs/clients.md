@@ -27,6 +27,52 @@ session key and project. Logical agents sharing one connection should use distin
 explicit keys and preserve them for follow-ups. An explicit key also keeps continuity
 across an MCP process restart; `continue_task` deliberately names a recorded consult.
 
+### Same-Task Dialogue
+
+For a follow-up, use the previous response's `continuation` arguments and add the
+next `prompt`. This pins the exact `continue_task`, preserves the session key and
+explicit model/effort/project choices, and does not re-upload files or carry approval
+into later calls. Omitted selection fields still use the saved defaults. Prefer this
+handle over `continue_thread` when multiple topics share a session. A task ID is an
+intentional cross-session reference within your local bridge, not an ownership token.
+
+The caller agent decides whether a concrete question remains in the user-started
+task. It can answer Pro's clarification with facts it already knows and is authorized
+to share, then read the next answer in the same conversation. It must ask the user
+for unknown facts. Stop when the answer is sufficient, discussion repeats without
+progress, an error/blocker occurs, or request identity is unverified. Pro's text is
+advice, not permission to run local tools or change the budget. New topics start new
+chats. There is no background dialogue loop and no required round count.
+
+`PRODEX_MAX_AUTO_FOLLOWUPS` in the MCP server's environment sets the automatic
+follow-up checkpoint (integer 0-1000; default 5). For example:
+
+```toml
+[mcp_servers.prodex.env]
+PRODEX_MAX_AUTO_FOLLOWUPS = "8"
+```
+
+The initial fresh consult is not a follow-up. Reservations are counted before sends
+and persist across reconnects, older task references, and different session keys in
+the same bridge and conversation. Failed/uncertain attempts count too. At the limit,
+the tool returns `status: "awaiting_user"`, `task_id: null`, the intended continuation
+arguments, and `followup_budget: {limit, used, remaining}` without creating a consult
+task or sending a prompt. This response-only status is not a ledger task status.
+
+Ask the user whether to continue. Only after an explicit user request/approval may
+the caller send that continuation with `user_approved: true`. This human-directed
+call renews the automatic budget (`used: 0`); later automatic follow-ups consume it
+normally. With a zero budget, every follow-up needs approval. Never automatically
+set this flag, carry it into later calls, or switch chats/keys to evade the checkpoint.
+Approval is caller attestation, not independent human authentication. Manual CLI
+calls and other bridge roots are outside this cooperative MCP guard.
+
+The response exposes `model_used`, `pro_verified`, `continued_from`, `request_id`,
+and `request_verified` when available. A ready-to-use `continuation` is only offered
+for a saved, request-verified conversation answer (or an approval checkpoint's
+already-resolved target). An answer that failed to save or is incomplete does not
+invite another automatic turn; report it and resolve the blocker first.
+
 After updating the installed package, reconnect the MCP server or restart the agent
 client. A running stdio process keeps the old code until it exits. The dedicated
 browser profile is unchanged, so restarting Codex/Claude does not require signing in

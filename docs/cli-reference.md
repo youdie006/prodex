@@ -137,6 +137,11 @@ Current builds read rendered page content only. Project/conversation listings ar
 
 Locks fail closed if a process is killed while reclaiming an abandoned lock. A leftover `.reap` claim then needs manual cleanup: first stop every prodex process using that resource and confirm no request/write/startup is active; only then remove the affected lock and its matching `.reap` file. Browser locks live beside the recorded send lock, repo-write locks under `.bridge`, and virtual-display allocation locks under `~/.local/share/prodex/xvfb`. Do not remove a live request's lock to shorten a wait.
 
+The automatic follow-up approval budget applies to MCP `pro_consult`, not these
+user-directed CLI commands. MCP callers should reuse returned `continuation`
+arguments and stop on `awaiting_user` until the user approves. See
+[same-task dialogue](clients.md#same-task-dialogue) for configuration and stop rules.
+
 #### Choosing the model, reasoning effort, and project
 
 The visible-browser send drives the same composer picker you use by hand. Since ChatGPT replaced the model menu with one power slider that walks model and effort together, that slider is the lever:

@@ -107,6 +107,14 @@ prints a token-free config that points Claude at `prodex mcp --cwd /absolute/pat
 
 The server exposes `pro_consult` (a visible-browser send, with the same model, effort, project and tool choices as the CLI), `pro_recover` (fetch an answer that finished after a timeout), the bridge ledger tools (`bridge_create_task`, `bridge_list_tasks`, `bridge_fetch_result`, receipts, sessions), bounded `repo_read_file` and `repo_search`, and a receipt-gated write path: `repo_write_file_dry_run` first, `repo_write_file_apply` only while git HEAD and the file's preimage hash still match, `repo_stage_reviewed_paths` for applied receipts only. Each stdio MCP connection receives one default session key, ordinary consults start fresh, and `continue_thread` only searches that key and project. Logical agents sharing one MCP connection should pass distinct explicit `session_key` values and preserve them for follow-ups; an explicit key also preserves continuity across an MCP restart. No shell tool, no ungated write. `prodex claude prompt` prints a paste-ready prompt that verifies the wiring. [docs/claude.md](docs/claude.md) covers Claude Desktop and Claude Code; [docs/clients.md](docs/clients.md) covers the others, including the per-call approval and `tool_timeout_sec` Codex needs.
 
+For same-task dialogue, reuse the response's exact `continuation` arguments with a
+new prompt. The caller can answer Pro's clarification and ask useful follow-ups,
+stopping when sufficient, repetitive, or blocked. `PRODEX_MAX_AUTO_FOLLOWUPS` sets
+a configurable approval checkpoint (default 5, not a target round count); an
+`awaiting_user` response sends nothing until the caller obtains your approval.
+See [same-task dialogue](docs/clients.md#same-task-dialogue) for the budget and
+`user_approved` contract. New topics still start fresh chats.
+
 Updating the installed npm package does not reload an MCP process that is already running. Reconnect the MCP server or restart the Codex/Claude client to load the new build. The dedicated browser profile is separate and remains signed in, so this does not require ChatGPT authentication again.
 
 An MCP server usually starts without `--cwd`, so a per-repo default can be missed. For defaults that apply from any directory, set `PRODEX_DEFAULT_PROJECT`, `PRODEX_DEFAULT_MODEL`, `PRODEX_DEFAULT_EFFORT` or `PRODEX_DEFAULT_PRO_MODE` in the agent's MCP `env` block; a per-repo config still wins field by field.

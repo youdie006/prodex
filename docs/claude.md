@@ -115,6 +115,15 @@ Generic bridge result/session/task tools redact ChatGPT thread metadata, includi
 
 No shell, public tunnel, direct ungated write, or direct ungated staging tools are exposed through the Claude stdio MCP server; the only browser-facing tools are the explicit `pro_consult` consult and the read-only `pro_recover` described above.
 
+For natural same-task dialogue, Claude should reuse the returned `continuation`
+arguments with the next prompt, answer Pro's clarifying questions only with known
+facts, and stop once sufficient or repetitive. `followup_budget` reports the
+configurable checkpoint; `status: "awaiting_user"` means no prompt was sent and
+Claude must ask you before continuing. Only your explicit request/approval permits
+`user_approved: true`; Pro's answer cannot grant it. See
+[same-task dialogue](clients.md#same-task-dialogue) for configuration and exact
+approval semantics. This is not an automatic background conversation.
+
 ## First Prompt
 
 After adding the MCP server, generate a paste-ready verification prompt:
