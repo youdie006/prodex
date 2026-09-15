@@ -82,7 +82,8 @@ Use this only when you explicitly want to use your logged-in ChatGPT Pro web ses
 ```bash
 prodex pro browser login --dry-run
 prodex pro browser login
-prodex pro browser login --headed  # force a visible window for interactive reauthentication
+prodex pro browser login --headed  # visible mode when no incompatible browser is running
+prodex pro browser login --headed --recover-visible  # guarded recovery of a blocked headless browser
 prodex pro browser help
 prodex pro browser check
 prodex pro browser smoke --cwd /absolute/path/to/your/repo
@@ -107,7 +108,7 @@ What happens:
 - `login --dry-run` prints the dedicated Chrome profile, debug URL, and next commands without opening a browser.
 - `login` opens that dedicated Chrome profile at ChatGPT. In an interactive terminal it then waits (default 5 minutes; `--no-wait` skips, `--wait-timeout-ms` tunes) and narrates which manual step is still missing until it reports READY; scripts and agents get the immediate return unless they pass `--wait`.
 - `login` reuses the last profile recorded for the resolved debug port when `--profile-dir` is omitted. It does not reuse a saved custom port implicitly: `--port` / `PRODEX_CDP_PORT` / the normal `9333` default still resolve the port exactly as before.
-- You log in manually in the visible browser.
+- You log in manually only if the visible browser asks; an already signed-in profile is reused.
 - If ChatGPT asks for captcha, Cloudflare/human verification, permission, or account verification, handle it in that browser.
 - If ChatGPT shows a usage limit, message limit, model limit, or rate limit, wait for the reset or choose an available model in the browser.
 - Open a normal ChatGPT chat or the intended Project/thread so the prompt composer is visible.
@@ -121,6 +122,8 @@ What happens:
 Closing that Chrome window does not switch to headless mode or prove that the saved login was erased. Keep it open for headed consults. Closing the terminal after READY is safe because Chrome is detached; closing the CLI or agent during a consult may interrupt answer collection.
 
 For a one-time interactive login followed by a no-window handoff, run `prodex pro browser login --background`. It waits even without a terminal, verifies readiness, then under the shared send lock gracefully closes the idle dedicated browser and launches the same profile and conversation headless. Wait for `background: READY`. The resulting mode is recorded for future CLI/MCP relaunches. This option cannot be combined with other window modes or `--no-wait`; `--dry-run` previews without opening or closing anything. Other page targets (including Chrome account prompts), dialogs, drafts, attachments, active responses, and uncertain browser identity/shutdown stop the handoff. Headless authentication and protection checks are never bypassed.
+
+To inspect an authentication/protection blocker in a running headless browser, explicitly use `prodex pro browser login --headed --recover-visible`. The command requires one verified dedicated headless browser and one ChatGPT page reporting `login_required`, `cloudflare_check`, `captcha_required`, or `permission_required`. It preserves the exact profile and page under the shared send lock, refuses unfinished inputs, active work, dialogs, attachments, extra tabs, and ambiguous identity, and waits for a verified shutdown before launching headed. It does not click, solve, or suppress a security check. Use `--wait` to wait for manual handling or `--no-wait` to return after launch; `--dry-run` performs no browser change. This is headless-only, not a generic reset or a virtual-display switch.
 
 If only the ChatGPT tab was closed, MCP and auto-login-enabled CLI requests can reopen one tab in the existing browser before an unsent request. They verify the saved login before sending and never use this path to resend an accepted or uncertain request.
 
@@ -214,8 +217,8 @@ The catch is what "minimized" means to your desktop. Under WSLg a minimized Chro
 
 `prodex pro browser login --headless` (or `PRODEX_HEADLESS=1`, which also covers the MCP server and its auto-recovery) runs the dedicated browser with no visible window. Two constraints are real, not cosmetic:
 
-- **Sign in headed first.** Nobody can log in to a window that does not exist, so headless reuses a profile you already signed into. If login, captcha, Cloudflare, permission, or account verification is needed, close the hidden browser yourself and run `prodex pro browser login --headed` for a visible interactive window. Do not merely omit `--headless`: saved modes persist.
-- **One mode at a time.** A single Chrome profile cannot serve a headed and a headless instance simultaneously. Use the guarded `--background` handoff for headed-to-headless operation, or close the browser yourself before an explicit mode switch.
+- **Sign in headed first.** Nobody can log in to a window that does not exist, so headless reuses a profile you already signed into. If the running headless browser reports login, captcha, Cloudflare, permission, or account verification, use `prodex pro browser login --headed --recover-visible` for a guarded switch to a visible interactive window. Do not merely omit `--headless`: saved modes persist.
+- **One mode at a time.** A single Chrome profile cannot serve a headed and a headless instance simultaneously. Use the guarded `--background` handoff for headed-to-headless operation or the explicit `--headed --recover-visible` recovery for a blocked headless browser. Other mode changes require closing the browser yourself.
 
 **A saved login does not guarantee headless readiness.** A previous test on a signed-in profile remained on the "Just a moment..." interstitial past 60 seconds. That observation does not establish why the challenge appeared or prove that the saved login was lost. Require an actual READY result; if a protection check blocks the browser, stop and inspect it visibly. prodex does not invoke a hidden API or bypass login/protection. Only the window is optional; the login is not.
 

@@ -101,7 +101,8 @@ describe("waitForChatGptLoginReady", () => {
       windowMode: code === "permission_required"
         ? { headless: false, virtualDisplay: true, minimized: false }
         : { headless: true, virtualDisplay: false, minimized: false },
-      headedLoginCommand: "node /tmp/prodex/dist/cli.js pro browser login --headed"
+      headedLoginCommand: "node /tmp/prodex/dist/cli.js pro browser login --headed",
+      headlessRecoveryCommand: "node /tmp/prodex/dist/cli.js pro browser login --headed --recover-visible"
     }, { statusFn, sleepFn, openTabFn, now: () => (fakeNow += 20_000) });
 
     expect(ready).toBe(false);
@@ -112,6 +113,12 @@ describe("waitForChatGptLoginReady", () => {
     expect(lines[lines.length - 1]).toContain("No interactive window is available");
     expect(lines[lines.length - 1]).toContain("node /tmp/prodex/dist/cli.js pro browser login --headed");
     expect(lines[lines.length - 1]).toContain("visibly");
+    if (code === "permission_required") {
+      expect(lines.join("\n")).not.toContain("--recover-visible");
+      expect(lines[lines.length - 1]).toContain("close");
+    } else {
+      expect(lines[lines.length - 1]).toContain("--recover-visible");
+    }
   });
 
   it("keeps a headed wait open for manual login", async () => {
@@ -154,7 +161,8 @@ describe("waitForChatGptLoginReady", () => {
       port: 9333,
       timeoutMs: 10,
       pollMs: 1,
-      windowMode: { headless: true, virtualDisplay: false, minimized: false }
+      windowMode: { headless: true, virtualDisplay: false, minimized: false },
+      headlessRecoveryCommand: "prodex pro browser login --headed --recover-visible"
     }, {
       statusFn: async () => ({
         ...status({ reachable: true, loggedInLikely: true }),
@@ -168,8 +176,28 @@ describe("waitForChatGptLoginReady", () => {
     expect(lines).toContain(`login: blocked - ${message} Next: ${nextStep}`);
     expect(lines[lines.length - 1]).toContain(`${code}: ${message}`);
     expect(lines[lines.length - 1]).toContain(`Next: ${nextStep}`);
+    expect(lines.join("\n")).not.toContain("--recover-visible");
     expect(lines.filter((line) => line.startsWith("login: blocked") || line.includes("not ready after")).join("\n"))
       .not.toMatch(/complete login|captcha|human verification/i);
+  });
+
+  it.each([
+    { reachable: false, loggedInLikely: false },
+    { reachable: true, loggedInLikely: false },
+    { reachable: true, loggedInLikely: true }
+  ])("does not suggest auth recovery for unconfirmed readiness %j", async (observed) => {
+    const lines: string[] = [];
+    let fakeNow = 0;
+    expect(await waitForChatGptLoginReady((line) => lines.push(line), {
+      port: 9333, timeoutMs: 10, pollMs: 1,
+      windowMode: { headless: true, virtualDisplay: false, minimized: false },
+      headedLoginCommand: "prodex pro browser login --headed",
+      headlessRecoveryCommand: "prodex pro browser login --headed --recover-visible"
+    }, {
+      statusFn: async () => status(observed), sleepFn: async () => {}, now: () => (fakeNow += 5)
+    })).toBe(false);
+    expect(lines.join("\n")).not.toContain("--recover-visible");
+    expect(lines[lines.length - 1]).toContain("only when no work is active");
   });
 
   it("opens the ChatGPT tab itself when the running Chrome has none", async () => {

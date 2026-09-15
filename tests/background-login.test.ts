@@ -5,6 +5,7 @@ const open = vi.hoisted(() => vi.fn());
 const readLaunch = vi.hoisted(() => vi.fn());
 const record = vi.hoisted(() => vi.fn());
 const close = vi.hoisted(() => vi.fn());
+const closeBlockedHeadless = vi.hoisted(() => vi.fn());
 const actualHeadless = vi.hoisted(() => vi.fn());
 
 vi.mock("../src/chatgpt-browser.js", async (original) => ({
@@ -15,7 +16,11 @@ vi.mock("../src/chatgpt-browser.js", async (original) => ({
   recordBrowserLoginLaunch: record,
   findWedgedBrowser: () => []
 }));
-vi.mock("../src/browser-handoff.js", () => ({ closeIdleChatGptBrowserForHandoff: close, getDedicatedBrowserHeadlessMode: actualHeadless }));
+vi.mock("../src/browser-handoff.js", () => ({
+  closeIdleChatGptBrowserForHandoff: close,
+  closeBlockedHeadlessBrowserForVisibleAuth: closeBlockedHeadless,
+  getDedicatedBrowserHeadlessMode: actualHeadless
+}));
 
 import { runCli } from "../src/cli.js";
 
@@ -37,13 +42,63 @@ beforeEach(() => {
   readLaunch.mockResolvedValue(saved);
   record.mockResolvedValue(undefined);
   close.mockResolvedValue({ url: thread });
+  closeBlockedHeadless.mockResolvedValue({ url: thread });
   actualHeadless.mockReturnValueOnce(false).mockReturnValue(true);
   open.mockReturnValue({ port: 9333, profileDir: saved.profile_dir, waitForEarlyExit: async () => undefined });
   out = []; errors = [];
 });
+
+describe("explicit visible authentication recovery", () => {
+  it.each([{ flags: [] }, { flags: ["--headless"] }, { flags: ["--minimized"] }, { flags: ["--virtual-display"] }, { flags: ["--background"] }])(
+    "rejects an invalid recovery mode %j",
+    async ({ flags }) => {
+      await expect(run(["--recover-visible", ...flags])).rejects.toThrow(/--recover-visible.*--headed|cannot combine/i);
+      expect(closeBlockedHeadless).not.toHaveBeenCalled();
+      expect(open).not.toHaveBeenCalled();
+    }
+  );
+
+  it("previews the exact source-aware profile and port without touching the browser", async () => {
+    expect(await run(["--headed", "--recover-visible", "--dry-run", "--source-cli", "/bin/true"])).toBe(0);
+    const text = out.join("\n");
+    expect(text).toContain("node /usr/bin/true pro browser login --source-cli /usr/bin/true");
+    expect(text).toContain("--profile-dir /saved/profile --port 9333 --headed --recover-visible");
+    expect(closeBlockedHeadless).not.toHaveBeenCalled();
+    expect(open).not.toHaveBeenCalled();
+  });
+
+  it("replaces only the guarded headless browser with the same page and profile", async () => {
+    readLaunch.mockResolvedValue({ ...saved, headless: true });
+    actualHeadless.mockReset().mockReturnValue(false);
+    expect(await run(["--headed", "--recover-visible", "--no-wait"])).toBe(0);
+    expect(closeBlockedHeadless).toHaveBeenCalledWith({ port: 9333, profileDir: saved.profile_dir });
+    expect(open).toHaveBeenCalledWith({ port: 9333, profileDir: saved.profile_dir, headless: false, url: thread });
+    expect(record).toHaveBeenCalledWith({ port: 9333, profile_dir: saved.profile_dir, headless: false, minimized: false });
+    expect(closeBlockedHeadless.mock.invocationCallOrder[0]).toBeLessThan(open.mock.invocationCallOrder[0]);
+    expect(out.join("\n")).toMatch(/log in manually only if ChatGPT requests it/i);
+  });
+
+  it("does not record or wait when the headed replacement mode is not verified", async () => {
+    readLaunch.mockResolvedValue({ ...saved, headless: true });
+    actualHeadless.mockReset().mockReturnValue(true);
+    await expect(run(["--headed", "--recover-visible", "--wait"])).rejects.toThrow(/still headless|not actually headed/i);
+    expect(record).not.toHaveBeenCalled();
+    expect(status).toHaveBeenCalledTimes(2);
+  });
+});
 afterEach(() => { vi.unstubAllEnvs(); });
 
 describe("one-time background login", () => {
+  it.each([undefined, "usage_limit", "composer_not_ready"])("does not suggest auth recovery after an unsupported headless failure %s", async (code) => {
+    readLaunch.mockResolvedValue({ ...saved, headless: true });
+    status.mockResolvedValue({ ...ready, hasComposer: false,
+      ...(code ? { blocker: { code, message: code, retryable: false, next_step: "Inspect the reported state." } } : {}) });
+    expect(await run(["--headless", "--wait-timeout-ms", "1"])).toBe(1);
+    expect(out.filter((line) => line.startsWith("headless:")).join("\n") + errors.join("\n")).not.toContain("--recover-visible");
+    expect(closeBlockedHeadless).not.toHaveBeenCalled();
+    expect(open).not.toHaveBeenCalled();
+  });
+
   it("previews the complete handoff without touching a browser", async () => {
     expect(await run(["--background", "--dry-run"])).toBe(0);
     expect(out.join("\n")).toMatch(/same profile.*headless/i);

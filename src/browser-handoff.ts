@@ -11,7 +11,9 @@ type PageStatus = Parameters<typeof detectChatGptPageBlocker>[0] & {
   url: string; hasComposer: boolean; generating: boolean; awaitingResponseChoice?: boolean; openDialogText?: string;
 };
 type IdleState = { status: PageStatus; draft: boolean; dialog: boolean; attachments: boolean; unpersisted: boolean };
+type VisibleAuthState = { status: PageStatus; filledTextControl: boolean; dialog: boolean; attachments: boolean; unpersisted: boolean };
 type Identity = { main: number; pids: number[]; headless: boolean };
+const VISIBLE_AUTH_BLOCKERS = new Set(["login_required", "cloudflare_check", "captcha_required", "permission_required"]);
 
 function blocked(message: string): never {
   throw new ChatGptBrowserBlockerError({
@@ -161,10 +163,73 @@ async function verifyIdle(page: DevtoolsPage): Promise<void> {
   }
 }
 
+async function verifyVisibleAuthRecovery(page: DevtoolsPage): Promise<void> {
+  const expression = `(() => {
+    const status = ${statusExpression()};
+    const visible = (e) => e.getClientRects().length > 0 && getComputedStyle(e).visibility !== 'hidden' && getComputedStyle(e).display !== 'none';
+    const textControls = [...document.querySelectorAll('textarea,[contenteditable="true"],[role="textbox"],input:not([type=hidden]):not([type=checkbox]):not([type=radio]):not([type=file]):not([type=button]):not([type=submit]):not([type=reset]):not([type=image]):not([type=range]):not([type=color])')];
+    const filledTextControl = textControls.some((e) => {
+      if (!visible(e)) return false;
+      const text = e instanceof HTMLInputElement || e instanceof HTMLTextAreaElement ? e.value : e.innerText || e.textContent || '';
+      return text.trim().length > 0;
+    });
+    const attachmentState = ${attachmentPresenceExpression()};
+    return { status, filledTextControl,
+      dialog: [...document.querySelectorAll('dialog[open],[role="dialog"],[aria-modal="true"]')].some(visible),
+      attachments: attachmentState.removed > 0 || [...document.querySelectorAll('input[type="file"]')].some(e => e.files?.length > 0) || [...document.querySelectorAll('[role="progressbar"]')].some(visible),
+      unpersisted: !location.pathname.includes('/c/') && !!document.querySelector('[data-message-author-role]')
+    };
+  })()`;
+  const reply = await request(page.webSocketDebuggerUrl, "Runtime.evaluate", { expression, returnByValue: true }) as {
+    result?: { value?: VisibleAuthState }; exceptionDetails?: unknown;
+  };
+  const value = reply?.result?.value;
+  if (reply?.exceptionDetails || !value?.status || [value.filledTextControl, value.dialog, value.attachments, value.unpersisted].some((v) => typeof v !== "boolean")) {
+    blocked("Could not verify the blocked page's input and dialog state.");
+  }
+  const state = value.status;
+  const blocker = detectChatGptPageBlocker(state);
+  if (state.url !== page.url || !blocker || !VISIBLE_AUTH_BLOCKERS.has(blocker.code)) {
+    blocked("Visible recovery requires an explicit login, Cloudflare, captcha, or permission blocker; no browser was closed.");
+  }
+  if (state.generating || state.awaitingResponseChoice || state.openDialogText || value.filledTextControl || value.dialog || value.attachments || value.unpersisted) {
+    blocked("The page has active work, filled input, attachments, or a dialog; no browser was closed.");
+  }
+}
+
 function alive(pid: number): boolean {
   try { process.kill(pid, 0); return true; } catch (error) {
     return (error as NodeJS.ErrnoException).code !== "ESRCH";
   }
+}
+
+function matchingBrowserPids(port: number, profileDir: string): number[] {
+  const listed = spawnSync("ps", ["-Ao", "user,pid,command"], { encoding: "utf8", timeout: 5_000 });
+  if (listed.status !== 0 || typeof listed.stdout !== "string") blocked("Could not verify that the dedicated browser stayed closed.");
+  return findLaunchedBrowserProcesses(listed.stdout, { port, profileDir });
+}
+
+async function waitForQuietShutdown(identity: Identity, port: number, profileDir: string): Promise<void> {
+  const deadline = Date.now() + 12_000;
+  let quietSince: number | undefined;
+  while (Date.now() < deadline) {
+    if (!identity.pids.some(alive)) {
+      const replacement = matchingBrowserPids(port, profileDir).filter((pid) => !identity.pids.includes(pid));
+      if (replacement.length > 0) blocked("A new matching browser process appeared during shutdown; no replacement was launched by prodex.");
+      try {
+        await fetch(`http://127.0.0.1:${port}/json/version`, { signal: AbortSignal.timeout(2_000) });
+        blocked("The old browser exited, but its control port is still active; no replacement was launched.");
+      } catch (error) {
+        if (error instanceof ChatGptBrowserBlockerError) throw error;
+        const cause = (error as Error & { cause?: NodeJS.ErrnoException }).cause;
+        if (cause?.code !== "ECONNREFUSED") blocked("The old browser exited, but its control port could not be verified closed.");
+      }
+      quietSince ??= Date.now();
+      if (Date.now() - quietSince >= 2_000) return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  blocked("The dedicated browser did not remain fully closed. It was not force-killed and no replacement was launched.");
 }
 
 /** Caller holds the shared browser send lock through this close AND relaunch. */
@@ -184,16 +249,28 @@ export async function closeIdleChatGptBrowserForHandoff(options: { port: number;
   }
   await verifyIdle(current);
   await request(socket, "Browser.close");
-  const deadline = Date.now() + 10_000;
-  while (Date.now() < deadline) {
-    if (!identity.pids.some(alive)) {
-      try { await readJson(port, "version"); } catch (error) {
-        const cause = (error as Error & { cause?: NodeJS.ErrnoException }).cause;
-        if (cause?.code === "ECONNREFUSED") return { url: page.url };
-        blocked("The old browser exited, but its control port could not be verified closed.");
-      }
-    }
-    await new Promise((resolve) => setTimeout(resolve, 250));
+  await waitForQuietShutdown(identity, port, profileDir);
+  return { url: page.url };
+}
+
+/** Caller holds the shared browser send lock through this close AND headed relaunch. */
+export async function closeBlockedHeadlessBrowserForVisibleAuth(options: { port: number; profileDir: string }): Promise<{ url: string }> {
+  const { port, profileDir } = options;
+  if (!Number.isInteger(port) || port < 1 || port > 65535 || !path.isAbsolute(profileDir)) blocked("Invalid browser handoff identity.");
+  const identity = browserIdentity(port, profileDir);
+  if (!identity.headless) blocked("Visible recovery requires an actually headless dedicated browser; no browser was closed.");
+  const page = await singlePage(port);
+  const version = await readJson(port, "version") as { webSocketDebuggerUrl?: unknown };
+  const socket = localSocket(version?.webSocketDebuggerUrl, port, "browser");
+  await verifyVisibleAuthRecovery(page);
+  const current = await singlePage(port);
+  const currentVersion = await readJson(port, "version") as { webSocketDebuggerUrl?: unknown };
+  if (current.id !== page.id || current.url !== page.url || current.webSocketDebuggerUrl !== page.webSocketDebuggerUrl ||
+      currentVersion.webSocketDebuggerUrl !== socket || browserIdentity(port, profileDir).main !== identity.main) {
+    blocked("The browser or page changed during visible recovery verification.");
   }
-  blocked("The dedicated browser did not finish closing. It was not force-killed and no replacement was launched.");
+  await verifyVisibleAuthRecovery(current);
+  await request(socket, "Browser.close");
+  await waitForQuietShutdown(identity, port, profileDir);
+  return { url: page.url };
 }

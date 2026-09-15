@@ -15,13 +15,14 @@ beforeEach(async () => { profile = await mkdtemp(path.join(tmpdir(), "prodex-han
 afterEach(async () => { vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks(); await rm(profile, { recursive: true, force: true }); });
 
 const url = "https://chatgpt.com/c/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
-type Options = { extraPage?: string; nativeVisibility?: "visible" | "hidden" | "unknown"; profileMismatch?: boolean; ephemeralFlag?: string; draft?: boolean; generating?: boolean; dialog?: boolean; attachments?: boolean; temporary?: boolean; targetChanged?: boolean; closeError?: boolean; lingering?: boolean; foreignSocket?: boolean };
+type Options = { extraPage?: string; iframe?: boolean; nativeVisibility?: "visible" | "hidden" | "unknown"; profileMismatch?: boolean; ephemeralFlag?: string; headless?: boolean; blockerText?: string; filledControl?: boolean; draft?: boolean; generating?: boolean; dialog?: boolean; attachments?: boolean; unpersisted?: boolean; temporary?: boolean; targetChanged?: boolean; closeError?: boolean; lingering?: boolean; replacement?: boolean; jsDialog?: boolean; foreignSocket?: boolean };
 
 function fixture(options: Options = {}) {
   vi.useFakeTimers();
   const data = { closed: false, closeCalls: 0, socketCount: 0, lists: 0, expressions: [] as string[] };
-  const processLine = `tester 123456789 /usr/bin/google-chrome --remote-debugging-port=19333 --user-data-dir=${options.profileMismatch ? "/wrong/profile" : profile} --no-first-run ${options.ephemeralFlag ?? ""}`;
-  ps.mockImplementation(() => ({ status: 0, stdout: data.closed && !options.lingering ? "" : processLine }));
+  const processLine = `tester 123456789 /usr/bin/google-chrome --remote-debugging-port=19333 --user-data-dir=${options.profileMismatch ? "/wrong/profile" : profile} --no-first-run ${options.headless ? "--headless=new" : ""} ${options.ephemeralFlag ?? ""}`;
+  const replacementLine = `tester 223456789 /usr/bin/google-chrome --remote-debugging-port=19333 --user-data-dir=${profile} --headless=new`;
+  ps.mockImplementation(() => ({ status: 0, stdout: data.closed ? (options.lingering ? processLine : options.replacement ? replacementLine : "") : processLine }));
   vi.spyOn(process, "kill").mockImplementation(((_pid: number, signal: unknown) => {
     expect(signal).toBe(0);
     if (data.closed && !options.lingering) throw Object.assign(new Error("gone"), { code: "ESRCH" });
@@ -34,6 +35,7 @@ function fixture(options: Options = {}) {
     const currentUrl = options.temporary ? "https://chatgpt.com/?temporary-chat=true" : options.targetChanged && data.lists > 1 ? "https://chatgpt.com/" : url;
     return { ok: true, json: async () => [
       { id: "one", type: "page", title: "ChatGPT", url: currentUrl, webSocketDebuggerUrl: options.foreignSocket ? "ws://remote.invalid:19333/devtools/page/one" : "ws://127.0.0.1:19333/devtools/page/one" },
+      ...(options.iframe ? [{ id: "frame", type: "iframe", title: "Challenge", url: "https://challenges.cloudflare.com/", webSocketDebuggerUrl: "ws://127.0.0.1:19333/devtools/page/frame" }] : []),
       ...(options.extraPage ? [{ id: "two", type: "page", title: "Other", url: options.extraPage, webSocketDebuggerUrl: "ws://127.0.0.1:19333/devtools/page/two" }] : [])
     ] };
   }));
@@ -56,10 +58,14 @@ function fixture(options: Options = {}) {
             if (options.closeError) { this.emit("message", JSON.stringify({ id: request.id, error: { message: "refused" } })); return; }
             data.closed = true;
           }
+          if (request.method === "Runtime.evaluate" && options.jsDialog) return;
+          const blockerText = options.blockerText ?? "New chat Projects Pro";
           this.emit("message", JSON.stringify({ id: request.id, result: request.method === "Runtime.evaluate" ? { result: { value: {
-            status: { url, title: "ChatGPT", textSample: "New chat Projects Pro", visibleButtonLabels: [], hasComposer: true,
+            status: { url, title: blockerText === "Just a moment" ? "Just a moment..." : "ChatGPT", textSample: blockerText,
+              blockerTextSample: blockerText, blockerScanTextSample: blockerText, visibleButtonLabels: [], hasComposer: options.blockerText === undefined,
               generating: options.generating === true, modelHints: ["Pro"], visibilityState: "visible", openDialogText: "" },
-            draft: options.draft === true, dialog: options.dialog === true, attachments: options.attachments === true, unpersisted: false
+            draft: options.draft === true, filledTextControl: options.filledControl === true, dialog: options.dialog === true,
+            attachments: options.attachments === true, unpersisted: options.unpersisted === true
           } } } : {} }));
         });
       }
@@ -77,6 +83,17 @@ async function run(options: Options = {}) {
   const data = fixture(options);
   const { closeIdleChatGptBrowserForHandoff } = await import("../src/browser-handoff.js");
   const promise = closeIdleChatGptBrowserForHandoff({ port: 19333, profileDir: profile })
+    .then((value) => ({ value, error: undefined }), (error: Error) => ({ value: undefined, error }));
+  await vi.advanceTimersByTimeAsync(20_000);
+  const result = await promise;
+  expect(data.socketCount).toBe(0);
+  return { ...data, ...result };
+}
+
+async function runRecovery(options: Options = {}) {
+  const data = fixture({ headless: true, blockerText: "Just a moment", ...options });
+  const { closeBlockedHeadlessBrowserForVisibleAuth } = await import("../src/browser-handoff.js");
+  const promise = closeBlockedHeadlessBrowserForVisibleAuth({ port: 19333, profileDir: profile })
     .then((value) => ({ value, error: undefined }), (error: Error) => ({ value: undefined, error }));
   await vi.advanceTimersByTimeAsync(20_000);
   const result = await promise;
@@ -127,6 +144,51 @@ describe("graceful dedicated-browser handoff", () => {
   it("does not force kill a browser that stays alive", async () => {
     const result = await run({ lingering: true });
     expect(result.error).toBeDefined();
+    expect(result.closeCalls).toBe(1);
+  });
+  it("blocks a matching replacement that appears during headed-to-headless shutdown", async () => {
+    const result = await run({ replacement: true });
+    expect(result.error?.message).toMatch(/replacement|matching browser/i);
+    expect(result.closeCalls).toBe(1);
+  });
+});
+
+describe("visible authentication recovery", () => {
+  it("gracefully closes one challenged headless ChatGPT page after a quiet control-port interval", async () => {
+    const result = await runRecovery({ iframe: true });
+    expect(result.error).toBeUndefined();
+    expect(result.value).toEqual({ url });
+    expect(result.closeCalls).toBe(1);
+    expect(result.expressions.every((expression) => !expression.includes("iframe"))).toBe(true);
+    expect(result.expressions).toHaveLength(2);
+    expect(result.expressions.every((expression) => expression.includes("filledTextControl"))).toBe(true);
+    expect(result.expressions.every((expression) => expression.includes("input:not([type=hidden])"))).toBe(true);
+    expect(result.expressions.every((expression) => expression.includes("getClientRects"))).toBe(true);
+    expect(result.expressions.every((expression) => !expression.includes("filledTextValue"))).toBe(true);
+  });
+
+  it.each(["Log in to ChatGPT", "captcha", "permission required"])("accepts the existing detector's %s auth blocker", async (blockerText) => {
+    const result = await runRecovery({ blockerText });
+    expect(result.error).toBeUndefined();
+    expect(result.closeCalls).toBe(1);
+  });
+
+  it.each([
+    { headless: false }, { blockerText: "" }, { blockerText: "usage limit" }, { extraPage: "https://chatgpt.com/" },
+    { profileMismatch: true }, { filledControl: true }, { generating: true }, { dialog: true }, { attachments: true },
+    { unpersisted: true }, { temporary: true }, { targetChanged: true }, { foreignSocket: true },
+    { ephemeralFlag: "--incognito" }, { ephemeralFlag: "--guest" }, { ephemeralFlag: "--profile-directory=Profile 1" },
+    { jsDialog: true }
+  ])("refuses an unsafe or non-auth recovery before closing %j", async (options) => {
+    const result = await runRecovery(options);
+    expect(result.error).toBeDefined();
+    expect(result.closeCalls).toBe(0);
+  });
+
+  it("blocks instead of launching through a replacement process that appears during shutdown", async () => {
+    const result = await runRecovery({ replacement: true });
+    expect(result.error).toBeDefined();
+    expect(result.error?.message).toMatch(/replacement|matching browser/i);
     expect(result.closeCalls).toBe(1);
   });
 });

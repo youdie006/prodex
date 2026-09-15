@@ -1397,7 +1397,7 @@ export function detectChatGptPageBlocker(state: ChatGptPageTextState & { title?:
   if (rendered) return rendered;
   // The interstitial can have an empty body. Never use a conversation title
   // alone when the composer exists or its state was not actually checked.
-  if (state.hasComposer === false && /^just a moment\.{0,3}$/i.test(state.title?.trim() ?? "")) {
+  if (state.hasComposer === false && /^(?:just a moment|잠시만 기다리십시오)(?:\.{0,3}|…)$/i.test(state.title?.trim() ?? "")) {
     return detectChatGptBlocker("Just a moment", []);
   }
   return undefined;

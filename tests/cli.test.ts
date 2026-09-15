@@ -2402,7 +2402,7 @@ describe("runCli", () => {
     const text = out.join("\n");
     expect(text).toContain('prodex pro ask [--dry-run] [--cwd /absolute/path/to/repo] [--file path] [--attach path] [--tool deep-research|web-search|create-image] "prompt"  # dry-run preview');
     expect(text).toContain(
-      "prodex pro browser login [--cwd /absolute/path/to/repo] [--dry-run] [--source-cli /absolute/path/to/dist/cli.js] [--profile-dir path] [--port 9333] [--url https://chatgpt.com/...] [--launch-timeout-ms 5000] [--wait|--no-wait] [--headed|--headless|--minimized|--virtual-display] [--wait-timeout-ms 300000] [--background]  # preview/open browser login"
+      "prodex pro browser login [--cwd /absolute/path/to/repo] [--dry-run] [--source-cli /absolute/path/to/dist/cli.js] [--profile-dir path] [--port 9333] [--url https://chatgpt.com/...] [--launch-timeout-ms 5000] [--wait|--no-wait] [--headed|--headless|--minimized|--virtual-display] [--wait-timeout-ms 300000] [--background] [--recover-visible]  # preview/open browser login"
     );
     expect(text).toContain(
       "prodex pro browser check [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 1500]"
@@ -4809,7 +4809,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     // login reuses it (no second window) rather than spawning and handing off.
     expect(out.join("\n")).toContain("Chrome is already running for ChatGPT - reusing it (no new window opened).");
     expect(out.join("\n")).not.toContain("Opened the dedicated Chrome window");
-    expect(out.join("\n")).toContain("1. Log in manually at https://chatgpt.com/c/review-thread in the dedicated Chrome window.");
+    expect(out.join("\n")).toContain("1. The existing profile is open at https://chatgpt.com/c/review-thread; log in manually only if ChatGPT requests it.");
     expect(out.join("\n")).not.toContain("1. Log in manually at https://chatgpt.com/ in the dedicated Chrome window.");
     expect(out.join("\n")).toContain("Closing this Chrome window does not switch it to headless mode.");
     expect(out.join("\n")).not.toContain("You can close this Chrome window after login");

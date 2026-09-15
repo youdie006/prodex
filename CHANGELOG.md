@@ -4,6 +4,24 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.40.15
+
+### Added
+- `pro browser login --headed --recover-visible` explicitly opens a blocked dedicated headless session in a visible window using the same profile and page. The transition shares the send lock, verifies actual process identity, and refuses other tabs, active work, unfinished input, dialogs, and uncertain shutdown. It never handles a security challenge or resends a prompt automatically.
+
+### Fixed
+- Recognize the Korean title-only verification screen observed on macOS, including Unicode ellipses, while keeping the composer-absent and exact-title checks that prevent ordinary conversation titles from becoming login blockers.
+- Hidden login guidance distinguishes a guarded headless recovery from a virtual-display session instead of suggesting a mode switch that an already-running browser refuses. Reused-profile instructions ask for login only when ChatGPT actually requests it.
+- Guarded browser transitions verify sustained process/port absence before relaunch rather than trusting a single refused connection during shutdown.
+- Readiness failures recommend guarded visible recovery only for its supported authentication/protection blockers. Usage limits, active responses, missing composers, and unknown readiness retain their own next steps; virtual-display inspection explains the required manual close.
+
+### Verification And Limits
+- Full `npm run release:verify` passed after the changes, including tests, typecheck, build, installed CLI/HTTP-MCP/stdio-MCP package checks and doctor. Node 20 focused browser/login/window-mode regressions passed (131 tests). Earlier runs exposed obsolete help/login-guide expectations; those were updated and rechecked. The unsupported-recovery guidance regressions failed before their fix and passed afterwards.
+- WSL's installed 0.40.14 produced a real `gpt-6-pro` answer with matching request identity and `pro_verified: true` in a non-tmux MCP session. This was headed operation, not headless verification.
+- The macOS 0.40.15 candidate switched the blocked headless browser to the same profile/page in a visible window. A later status check observed READY. Its subsequent Pro request stopped when the tab left the original conversation; no answer was accepted or prompt resent. A bounded original-thread recovery then stopped at `login_required`. The reason for that authentication-state change is unresolved; do not present another login as a demonstrated fix.
+- Live headless Pro operation remains unverified: the headless browser encountered Cloudflare. Visible-window recovery is explicit and optional, not successful headless operation. After the user objected to repeated windows, live window-opening and authentication attempts were stopped. No protection check was bypassed and no authentication data was extracted.
+- These are source/candidate verification results, not a public 0.40.15 release or an update to the globally installed package. The final tag, publication and machine installation records belong in the version-specific GitHub Release when publication is completed.
+
 ## 0.40.14
 
 ### Fixed

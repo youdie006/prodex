@@ -1491,6 +1491,17 @@ Show more`;
       textSample: "", blockerScanTextSample: "", visibleButtonLabels: [] })?.code).toBe("cloudflare_check");
   });
 
+  it.each(["Just a moment…", "잠시만 기다리십시오…", "잠시만 기다리십시오..."])("recognizes the observed localized verification title %s", (title) => {
+    expect(detectChatGptPageBlocker({ title, hasComposer: false,
+      textSample: "", blockerTextSample: "", blockerScanTextSample: "", visibleButtonLabels: [] })?.code).toBe("cloudflare_check");
+    for (const hasComposer of [true, undefined]) {
+      expect(detectChatGptPageBlocker({ title, hasComposer,
+        textSample: "", blockerTextSample: "", blockerScanTextSample: "", visibleButtonLabels: [] })).toBeUndefined();
+    }
+    expect(detectChatGptPageBlocker({ title: `Discussion of ${title}`, hasComposer: false,
+      textSample: "", blockerTextSample: "", blockerScanTextSample: "", visibleButtonLabels: [] })).toBeUndefined();
+  });
+
   it("does not turn a chat title into a challenge when a composer exists or its state is unknown", () => {
     for (const hasComposer of [true, undefined]) {
       expect(detectChatGptPageBlocker({ title: "Just a moment...", hasComposer,
