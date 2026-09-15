@@ -249,6 +249,8 @@ Reports are deduplicated by blocker code, so something that stays broken adds to
 
 **Can I close the terminal after login?** Yes, once login is READY: the dedicated Chrome is launched separately. Keep that browser running for consults. If a CLI or agent exits during a request, ChatGPT may still finish it; recover the original thread and request ID rather than automatically sending the question again.
 
+**It stopped with `browser_tab_crashed` or `Runtime.enable`.** Chrome can leave an "Aw, Snap!" tab listed on its control port even though that tab's renderer has crashed. Before typing a new prompt, prodex can reload a confirmed crashed tab once at the same conversation address and records `browser_tab_recovered`. A timeout alone never authorizes a reload. A crash after a prompt was submitted stops without resending; inspect the original conversation, then recover with both `--target-url` and `--request-id` from the blocker. Other tabs, the browser profile, and saved login are left alone.
+
 **A send failed with `send_ui_changed`.** ChatGPT redesigned the composer or send control. Update (`npm i -g @youdie006/prodex@latest`); if it persists, `prodex pro report-issue`, and paste the prompt by hand meanwhile.
 
 **It stopped with `tab_not_visible`.** A tab counts as watchable only while its window is not minimized and it is the active tab. Leave the dedicated window behind your editor and it sends in the background; prodex never steals focus (`PRODEX_ACTIVATE_TAB=1` if you want the tab pulled forward on a stopped send).

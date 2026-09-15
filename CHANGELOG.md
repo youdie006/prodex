@@ -6,7 +6,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.40.12
+
 ### Fixed
+- Detect Chrome renderer crashes through Inspector events instead of waiting for `Runtime.enable` to time out. Before typing, recover a confirmed crashed tab once at its original address; crashes after submission stop without resending and preserve the original request identity for recovery.
 - Browser connections work on supported Node 20 installations without a native global WebSocket, using an explicit `ws` fallback while preserving the native Node 22 path.
 - Implicit continuation treats a resolved project ID as authoritative and refuses ambiguous project names rather than selecting another project's newer thread. Incomplete or explicitly unverified answers stop implicit continuation without falling back to an older topic.
 - Public issue reports omit title-derived task identifiers, which can contain private project or task details.

@@ -85,6 +85,24 @@ export class ChatGptBrowserBlockerError extends Error {
   }
 }
 
+function crashedTabBlocker(thread?: string, requestId?: string): NonNullable<ChatGptBrowserStatus["blocker"]> {
+  return {
+    code: "browser_tab_crashed",
+    message: "Chrome reported that this ChatGPT tab's renderer crashed. The browser itself may still be running.",
+    retryable: false,
+    next_step: requestId
+      ? `Do not resend automatically. Reload the crashed tab at the same address, then ${thread
+        ? `collect the original answer with \`prodex pro browser recover --target-url ${thread} --request-id ${requestId}\`.`
+        : `find [prodex-request:${requestId}] in the original conversation before recovering its answer; its thread URL was not captured.`}`
+      : "Before typing, prodex can reload a confirmed crashed tab once at the same address. If it crashes again, inspect Chrome's error screen; do not restart other tabs or resend an uncertain request.",
+    ...(thread ? { thread } : {})
+  };
+}
+
+function isCrashedTabError(error: unknown): error is ChatGptBrowserBlockerError {
+  return error instanceof ChatGptBrowserBlockerError && error.blocker.code === "browser_tab_crashed";
+}
+
 function unsupportedChatGptOperationError(operation: string, nextStep: string): ChatGptBrowserBlockerError {
   return new ChatGptBrowserBlockerError({
     code: "unsupported_chatgpt_operation",
@@ -1864,9 +1882,16 @@ export async function getChatGptBrowserStatus(options: { port?: number; timeoutM
   // `pro browser check --timeout-ms 5000` measured 65 seconds because every
   // evaluate silently used the default. Agents read that silence as a hung
   // bridge and start "recovering" a browser that is merely busy.
-  const state = await evaluateOnPage<ChatGptPageStatus>(page.page, statusExpression(), {
-    ...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {})
-  });
+  let state: ChatGptPageStatus;
+  try {
+    state = await evaluateOnPage<ChatGptPageStatus>(page.page, statusExpression(), {
+      ...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {})
+    });
+  } catch (error) {
+    if (!isCrashedTabError(error)) throw error;
+    return { reachable: true, loggedInLikely: false, hasComposer: false, modelHints: [],
+      url: page.page.url, blocker: crashedTabBlocker(page.page.url) };
+  }
   const loggedInLikely = inferChatGptPageLoggedInLikely(state);
   // The busy verdict is checked against the transcript here too, so `check`
   // does not report a finished conversation as one still being written.
@@ -2353,6 +2378,38 @@ async function reloadPageAndAwaitComposer(page: DevtoolsPage): Promise<{ rendere
     await cdp.send("Runtime.enable");
     const rendered = await reloadAndAwaitComposer(cdp, RELOAD_SETTLE_TIMEOUT_MS);
     return { rendered, dialogsAnswered: [...cdp.dialogsAnswered] };
+  } finally {
+    cdp.close();
+  }
+}
+
+/** A crashed renderer cannot mark its document or enable Runtime before reload. */
+async function recoverCrashedPageBeforeSend(port: number, page: DevtoolsPage): Promise<{ state: ChatGptPageStatus; reloaded: boolean }> {
+  const cdp = await connectCdp(page.webSocketDebuggerUrl, 2_000);
+  try {
+    if (!cdp.crashed()) return { state: await readSettledChatGptPageStatus(page), reloaded: false };
+    const response = await fetch(`http://127.0.0.1:${port}/json/list`, { signal: AbortSignal.timeout(2_000) });
+    if (!response.ok) throw new Error("Could not verify the crashed tab before reload");
+    const pages = await response.json() as DevtoolsPage[];
+    const current = pages.find((candidate) => candidate.webSocketDebuggerUrl === page.webSocketDebuggerUrl && candidate.id === page.id);
+    if (!current) throw new Error("The crashed ChatGPT tab closed before recovery; nothing was reloaded");
+    assertChatGptTargetUrlMatches(current.url, page.url);
+    if (!cdp.crashed()) return { state: await readSettledChatGptPageStatus(page), reloaded: false };
+    const reply = await cdp.send("Page.reload");
+    if (reply.error?.message) throw new Error(`Page.reload failed: ${reply.error.message}`);
+    const deadline = Date.now() + RELOAD_SETTLE_TIMEOUT_MS;
+    while (Date.now() < deadline) {
+      await sleep(250);
+      try {
+        const state = await cdp.evaluate<ChatGptPageStatus>(statusExpression());
+        if (detectChatGptPageBlocker(state)) return { state, reloaded: true };
+        assertChatGptTargetUrlMatches(state.url, page.url);
+        if (state.hasComposer) return { state, reloaded: true };
+      } catch (error) {
+        if (!/execution context|cannot find context|Runtime\.evaluate failed/i.test(error instanceof Error ? error.message : String(error))) throw error;
+      }
+    }
+    throw new ChatGptBrowserBlockerError(crashedTabBlocker(page.url));
   } finally {
     cdp.close();
   }
@@ -3840,7 +3897,20 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
     assertChatGptPageAvailable();
   }
   const page = pageResult.page;
-  let status = await readSettledChatGptPageStatus(page);
+  const preflightWarnings: string[] = [];
+  let status: ChatGptPageStatus;
+  try {
+    status = await readSettledChatGptPageStatus(page);
+  } catch (error) {
+    if (!isCrashedTabError(error)) throw error;
+    emitProgress("waiting", "Chrome reported a crashed tab; checking same-tab recovery before typing");
+    const recovered = await recoverCrashedPageBeforeSend(port, page);
+    status = recovered.state;
+    if (recovered.reloaded) {
+      preflightWarnings.push("browser_tab_recovered: Chrome reported a crashed tab; reloaded the same conversation before typing. No previous prompt was resent.");
+      emitProgress("waiting", "crashed tab reloaded at the same address; rechecking readiness");
+    }
+  }
   status = await ensureVisibleChatGptPage(port, page, status);
   const blocker = detectChatGptPageBlocker(status);
   if (blocker) {
@@ -4010,7 +4080,7 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
   let beforeSubmit!: ChatGptAnswerState;
   let boundProjectId: string | undefined;
   let submitButtonFound = false;
-  const sendWarnings: string[] = [];
+  const sendWarnings: string[] = [...preflightWarnings];
   // Anything the page put in front of prodex was answered on the caller's
   // behalf. The note is read at return time - there are several return paths -
   // so it is folded into the array rather than pushed from each of them.
@@ -4172,6 +4242,7 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
     // looks the way it looked when it refused, and the selection failures this
     // project keeps hitting are invisible in the error text alone.
     await captureOnFailure(`send-${new Date().toISOString().replace(/[:.]/g, "-")}`);
+    if (isCrashedTabError(error)) throw attachSendWarnings(new ChatGptBrowserBlockerError(crashedTabBlocker(undefined, requestId)), sendWarnings);
     throw attachSendWarnings(error, sendWarnings);
   } finally {
     cdp.close();
@@ -4186,7 +4257,8 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
     await sleep(500);
     try {
       finalState = await evaluateOnPage<ChatGptAnswerState>(page, answerExpression());
-    } catch {
+    } catch (error) {
+      if (isCrashedTabError(error)) throw attachSendWarnings(new ChatGptBrowserBlockerError(crashedTabBlocker(undefined, requestId)), sendWarnings);
       // Transient CDP failure (command timeout, mid-poll navigation): retry the
       // poll rather than aborting the whole send.
       continue;
@@ -4274,6 +4346,7 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
       // completed or partial result salvage after the polling deadline.
       finalState = observedState;
     } catch (error) {
+      if (isCrashedTabError(error)) throw attachSendWarnings(new ChatGptBrowserBlockerError(crashedTabBlocker(pinnedThreadUrl, requestId)), sendWarnings);
       if (error instanceof ChatGptBrowserBlockerError) throw error;
       // Transient CDP failure while the answer is streaming: retry. A throw here
       // would discard an already-streamed partial answer and skip the salvage
@@ -4282,7 +4355,7 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
       // sitting out the whole budget on it only delays the recovery.
       consecutiveReadFailures += 1;
       if (consecutiveReadFailures >= CONSECUTIVE_READ_FAILURES_BEFORE_GIVING_UP) {
-        throw new ChatGptBrowserBlockerError(browserLostMidWaitBlocker(pinnedThreadUrl ?? finalState?.url));
+        throw new ChatGptBrowserBlockerError(browserLostMidWaitBlocker(pinnedThreadUrl ?? finalState?.url, requestId));
       }
       continue;
     }
@@ -5063,8 +5136,9 @@ async function getChatGptPageVisibility(pages: DevtoolsPage[]): Promise<Map<stri
             page.webSocketDebuggerUrl,
             await evaluateOnPage<string>(page, "document.visibilityState", { timeoutMs: PAGE_VISIBILITY_PROBE_TIMEOUT_MS })
           );
-        } catch {
-          // Leave visibility unknown; untargeted sends treat unknown ChatGPT pages conservatively.
+        } catch (error) {
+          if (isCrashedTabError(error)) visibilityByPage.set(page.webSocketDebuggerUrl, "crashed");
+          // Other failures leave visibility unknown; untargeted sends treat them conservatively.
         }
       })
   );
@@ -5116,6 +5190,7 @@ async function connectCdp(webSocketUrl: string, timeoutMs?: number): Promise<{
   evaluate: <T>(expression: string) => Promise<T>;
   /** Dialog types answered on this connection, so a caller can say it happened. */
   dialogsAnswered: string[];
+  crashed: () => boolean;
   close: () => void;
 }> {
   const effectiveTimeoutMs = resolveCdpTimeoutMs(timeoutMs);
@@ -5124,8 +5199,9 @@ async function connectCdp(webSocketUrl: string, timeoutMs?: number): Promise<{
   let id = 0;
   const pending = new Map<
     number,
-    { resolve: (value: CdpResponse) => void; reject: (error: Error) => void; timer?: ReturnType<typeof setTimeout> }
+    { method: string; resolve: (value: CdpResponse) => void; reject: (error: Error) => void; timer?: ReturnType<typeof setTimeout> }
   >();
+  let crashError: ChatGptBrowserBlockerError | undefined;
   /** Types of JavaScript dialog answered on this connection. */
   const dialogsAnswered: string[] = [];
   ws.addEventListener("message", (event) => {
@@ -5137,6 +5213,21 @@ async function connectCdp(webSocketUrl: string, timeoutMs?: number): Promise<{
       // A malformed/binary frame must not throw inside the listener (it would
       // be uncaught); drop it - a real response arrives on a later frame or
       // the per-command timeout fires.
+      return;
+    }
+    const method = (message as { method?: string }).method;
+    if (method === "Inspector.targetCrashed") {
+      crashError = new ChatGptBrowserBlockerError(crashedTabBlocker());
+      for (const [messageId, waiter] of pending) {
+        if (waiter.method === "Inspector.enable" || waiter.method === "Page.reload") continue;
+        if (waiter.timer) clearTimeout(waiter.timer);
+        pending.delete(messageId);
+        waiter.reject(crashError);
+      }
+      return;
+    }
+    if (method === "Inspector.targetReloadedAfterCrash") {
+      crashError = undefined;
       return;
     }
     if (message.id && pending.has(message.id)) {
@@ -5162,7 +5253,7 @@ async function connectCdp(webSocketUrl: string, timeoutMs?: number): Promise<{
   ws.addEventListener("close", () => {
     for (const [messageId, waiter] of pending) {
       if (waiter.timer) clearTimeout(waiter.timer);
-      waiter.reject(new Error("Chrome DevTools websocket closed"));
+      waiter.reject(crashError ?? new Error("Chrome DevTools websocket closed"));
       pending.delete(messageId);
     }
   });
@@ -5212,6 +5303,7 @@ async function connectCdp(webSocketUrl: string, timeoutMs?: number): Promise<{
   /** The timeout that closed this socket, so later commands can name it rather than a bare closed socket. */
   let closedByTimeout: string | undefined;
   const send = (method: string, params: Record<string, unknown> = {}) => {
+    if (crashError && method !== "Inspector.enable" && method !== "Page.reload") return Promise.reject(crashError);
     // Once a timeout has closed the socket, every later command would sit out
     // its own full timeout for an answer that cannot come. Measured cost of not
     // checking: a 14-probe confirmation loop turning into minutes of silence.
@@ -5235,7 +5327,7 @@ async function connectCdp(webSocketUrl: string, timeoutMs?: number): Promise<{
         ws.close();
         reject(new Error(closedByTimeout));
       }, Math.max(1, effectiveTimeoutMs));
-      pending.set(messageId, { resolve, reject, timer });
+      pending.set(messageId, { method, resolve, reject, timer });
       ws.send(JSON.stringify({ id: messageId, method, params }));
     });
   };
@@ -5248,6 +5340,14 @@ async function connectCdp(webSocketUrl: string, timeoutMs?: number): Promise<{
   // caller's diagnosis from "command timed out: Runtime.enable" - which at
   // least names what was being attempted - into a bare "websocket closed".
   // Nothing waits on the arming, so a build without the domain is no worse off.
+  // Inspector is browser-side and replays an existing renderer crash. Runtime
+  // and DOM commands cannot diagnose that state because the renderer is gone.
+  try {
+    await send("Inspector.enable");
+  } catch (error) {
+    ws.close();
+    throw error;
+  }
   ws.send(JSON.stringify({ id: ++id, method: "Page.enable", params: {} }));
   const evaluate = async <T>(expression: string) => {
     const response = await send("Runtime.evaluate", { expression, returnByValue: true, awaitPromise: true });
@@ -5255,7 +5355,7 @@ async function connectCdp(webSocketUrl: string, timeoutMs?: number): Promise<{
     if (response.result?.exceptionDetails) throw new Error("Runtime.evaluate failed");
     return response.result?.result?.value as T;
   };
-  return { send, evaluate, dialogsAnswered, close: () => ws.close() };
+  return { send, evaluate, dialogsAnswered, crashed: () => crashError !== undefined, close: () => ws.close() };
 }
 
 // In-page reasoning-header placeholder test, shared by statusExpression and
@@ -5859,7 +5959,7 @@ export function chunkComposerText(text: string, size: number = COMPOSER_INSERT_C
 // failures in a row is not a moment - it is a browser that went away.
 const CONSECUTIVE_READ_FAILURES_BEFORE_GIVING_UP = 5;
 
-export function browserLostMidWaitBlocker(threadUrl: string | undefined): NonNullable<ChatGptBrowserStatus["blocker"]> {
+export function browserLostMidWaitBlocker(threadUrl: string | undefined, requestId?: string): NonNullable<ChatGptBrowserStatus["blocker"]> {
   // Killing the browser aborts a streaming answer too, so promise nothing
   // about the answer itself - only say where to look. Deep research is the one
   // case that genuinely keeps going without us.
@@ -5870,8 +5970,8 @@ export function browserLostMidWaitBlocker(threadUrl: string | undefined): NonNul
     // Retrying the send would duplicate a prompt that has already posted.
     retryable: false,
     next_step: threadUrl
-      ? `Run \`prodex pro browser login\` to reopen the browser, then collect the answer with \`prodex pro browser recover --target-url ${threadUrl}\` (MCP: pro_recover with thread ${threadUrl}).`
-      : "Run `prodex pro browser login` to reopen the browser, then inspect the original chat before asking again. The prompt was already submitted; prodex did not capture its thread URL.",
+      ? `Run \`prodex pro browser login\` to reopen the browser, then collect the answer with \`prodex pro browser recover --target-url ${threadUrl}${requestId ? ` --request-id ${requestId}` : ""}\` (MCP: pro_recover with thread ${threadUrl}${requestId ? ` and request_id ${requestId}` : ""}).`
+      : `Run \`prodex pro browser login\` to reopen the browser, then inspect the original chat before asking again. The prompt was already submitted; prodex did not capture its thread URL.${requestId ? ` Find [prodex-request:${requestId}] in that conversation before recovering its answer; do not resend automatically.` : ""}`,
     ...(threadUrl ? { thread: threadUrl } : {})
   };
 }

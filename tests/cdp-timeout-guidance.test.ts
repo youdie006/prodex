@@ -22,6 +22,12 @@ describe("what a stalled DevTools command tells the caller to do", () => {
     expect(blocker.next_step).toMatch(/dialog/i);
     expect(blocker.next_step).toMatch(/reopen|`prodex pro browser login`/i);
   });
+
+  it("distinguishes a confirmed crash from a slow tab and avoids duplicate sends", () => {
+    expect(blocker.next_step).toMatch(/Aw, Snap|crash/i);
+    expect(blocker.next_step).toMatch(/same (?:address|conversation|URL)/i);
+    expect(blocker.next_step).toMatch(/do not resend automatically/i);
+  });
 });
 
 // The first command of most sends is the surface probe, and it swallowed its

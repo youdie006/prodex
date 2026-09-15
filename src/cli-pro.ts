@@ -2856,8 +2856,9 @@ export function browserSendBlockerFromError(error: unknown): { code: string; mes
       message,
       retryable: true,
       next_step:
-        "The ChatGPT tab stopped responding. A very long thread does it, and so does an open JavaScript dialog - that one halts the page outright, and no retry gets past it because the browser will not let a late client dismiss it. " +
-        "Look at the visible window and close any dialog sitting on it, or reopen the window with `prodex pro browser login`. For a heavy thread, retry with `--new-chat` for a fresh, light one."
+        "The ChatGPT tab stopped responding; a timeout alone does not prove it crashed. A long thread or an open JavaScript dialog can also stall it. " +
+        "Inspect the visible tab: if Chrome shows 'Aw, Snap!', reload only that tab at the same address. Close an ordinary dialog manually; login, verification, and permission prompts require your action. " +
+        "If the browser is gone, reopen it with `prodex pro browser login`. Do not resend automatically when the prompt may already have posted; recover its original thread and request ID. Use `--new-chat` only for a new request after the original is accounted for."
     };
   }
   return {
