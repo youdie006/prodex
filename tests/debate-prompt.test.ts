@@ -4,6 +4,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { runCli } from "../src/cli.js";
+import { shellQuote } from "../src/cli-args.js";
 
 async function runDebatePrompt(args: string[]): Promise<string> {
   const cwd = await mkdtemp(path.join(tmpdir(), "prodex-debate-prompt-"));
@@ -57,6 +58,6 @@ describe("pro debate-prompt", () => {
       stderr: () => {}
     });
 
-    expect(out.join("\n")).toContain(`node ${sourceCli} ask`);
+    expect(out.join("\n")).toContain(`node ${shellQuote(sourceCli)} ask`);
   });
 });

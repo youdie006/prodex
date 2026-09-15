@@ -2,6 +2,11 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   test: {
+    reporters: process.env.CI ? ["default", "json"] : ["default"],
+    outputFile: process.env.CI ? { json: "test-results/vitest.json" } : undefined,
+    // Native Windows record writers spawn Node children. Excessive file-level
+    // parallelism makes their I/O contend and can exhaust per-test deadlines.
+    maxWorkers: process.platform === "win32" ? 4 : undefined,
     // Keep every test hermetic: BridgeStore.ensure() registers its root in
     // the machine-wide bridges registry, which must never be polluted with
     // throwaway test directories.
@@ -15,9 +20,9 @@ export default defineConfig({
     // 5000ms", a shape that carries NO subprocess output, which is why nothing
     // about it was diagnosable. The suite already granted explicit budgets to
     // the two tests that visibly needed them (40_000 in cdp-port, 20_000 in
-    // cli); the subprocess tests were simply missed. 30s keeps a genuine hang
-    // failing - the whole suite runs in under a minute - while leaving a real
-    // margin instead of 1.2x.
+    // cli); the subprocess tests were simply missed. 30s bounds each test
+    // while leaving a real margin instead of 1.2x. Full-suite duration varies
+    // across native OSes.
     testTimeout: 30_000,
   },
 });

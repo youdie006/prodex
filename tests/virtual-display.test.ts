@@ -33,6 +33,11 @@ vi.mock("node:net", async (importOriginal) => {
   return { ...actual, default: { ...actual.default, connect: mocks.connect } };
 });
 
+vi.mock("node:path", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:path")>();
+  return { ...actual, default: actual.posix };
+});
+
 vi.mock("node:os", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:os")>();
   return { ...actual, default: { ...actual.default, homedir: mocks.homedir } };
@@ -44,6 +49,11 @@ vi.mock("../src/safe-file.js", () => ({
 }));
 
 const { ensureVirtualDisplay } = await import("../src/chatgpt-browser.js");
+const nativePlatform = process.platform;
+
+function setPlatformForTest(platform: NodeJS.Platform): void {
+  Object.defineProperty(process, "platform", { value: platform });
+}
 
 class FakeChild extends EventEmitter {
   readonly pid = 42001;
@@ -85,8 +95,9 @@ function isAbstractConnect(options: unknown): options is { path: string } {
 }
 
 async function settleVirtualDisplay(result: Promise<unknown>): Promise<void> {
+  const settled = result.catch(() => undefined);
   await vi.runAllTimersAsync();
-  await result.catch(() => undefined);
+  await settled;
 }
 
 async function runVirtualDisplay<T>(result: Promise<T>): Promise<T> {
@@ -98,6 +109,7 @@ describe("virtual X display transport", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.resetAllMocks();
+    setPlatformForTest("linux");
     mocks.homedir.mockReturnValue("/virtual-home");
     mocks.mkdir.mockResolvedValue(undefined);
     mocks.chmod.mockResolvedValue(undefined);
@@ -109,6 +121,7 @@ describe("virtual X display transport", () => {
   });
 
   afterEach(() => {
+    setPlatformForTest(nativePlatform);
     vi.useRealTimers();
   });
 
@@ -198,17 +211,13 @@ describe("virtual X display transport", () => {
   });
 
   it("fails clearly before probing or creating state on unsupported platforms", async () => {
-    const originalPlatform = process.platform;
-    Object.defineProperty(process, "platform", { value: "darwin" });
+    const unsupportedPlatform = nativePlatform === "linux" ? "darwin" : nativePlatform;
+    setPlatformForTest(unsupportedPlatform);
     mocks.connect.mockImplementation(() => socketThat(true));
     mocks.readFile.mockResolvedValue(Buffer.from("legacy-authority"));
-    try {
-      await expect(ensureVirtualDisplay({ displayNumber: 111 })).rejects.toThrow(/Linux.*only/i);
-      expect(mocks.connect).not.toHaveBeenCalled();
-      expect(mocks.mkdir).not.toHaveBeenCalled();
-      expect(mocks.spawn).not.toHaveBeenCalled();
-    } finally {
-      Object.defineProperty(process, "platform", { value: originalPlatform });
-    }
+    await expect(ensureVirtualDisplay({ displayNumber: 111 })).rejects.toThrow(/Linux.*only/i);
+    expect(mocks.connect).not.toHaveBeenCalled();
+    expect(mocks.mkdir).not.toHaveBeenCalled();
+    expect(mocks.spawn).not.toHaveBeenCalled();
   });
 });

@@ -1,6 +1,6 @@
 {
   "name": "@youdie006/prodex",
-  "version": "0.40.17",
+  "version": "0.40.18",
   "description": "Local receipt bus for coordinating Codex execution with ChatGPT Pro/Projects consultation.",
   "author": "youdie006",
   "license": "MIT",
@@ -26,18 +26,22 @@
   ],
   "type": "module",
   "bin": {
-    "prodex": "dist/cli.js"
+    "prodex": "prodex.mjs"
   },
   "exports": {},
   "files": [
+    "prodex.mjs",
     "dist",
     "LICENSE",
     "README.md",
+    "SECURITY.md",
     "docs/claude.md",
     "docs/clients.md",
     "docs/http-mcp.md",
     "docs/releasing.md",
     "docs/cli-reference.md",
+    "docs/platform-verification.md",
+    "scripts/npm-command.mjs",
     "scripts/release-check.mjs",
     "scripts/release-pack.mjs"
   ],
@@ -49,6 +53,7 @@
     "release:pack": "node scripts/release-pack.mjs",
     "release:verify": "node scripts/release-check.mjs --verification-only",
     "smoke:package": "node scripts/package-smoke.mjs",
+    "smoke:browser": "node scripts/browser-launch-smoke.mjs",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "prepack": "npm run build",

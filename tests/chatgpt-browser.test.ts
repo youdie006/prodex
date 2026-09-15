@@ -106,6 +106,17 @@ afterEach(() => {
 });
 
 describe("ChatGPT browser adapter", () => {
+  const observedCloudflare502 = [
+    "Bad gateway",
+    "Error code 502",
+    "Visit cloudflare.com for more information.",
+    "2026-09-15 13:09:45 UTC",
+    "You",
+    "Browser",
+    "Working"
+  ].join("\n");
+  const cloudflare502Core = "Bad gateway\nError code 502\nVisit cloudflare.com for more information.";
+
   it("matches the complete marked request with rendered markdown and attachment labels", () => {
     const requestId = "a".repeat(32);
     const sent = `## Research\nreview **these results**\n[prodex-request:${requestId}]`;
@@ -201,6 +212,34 @@ Show more`;
     await vi.advanceTimersByTimeAsync(10_000);
 
     await expect(send).resolves.toMatchObject({ url: thread, answer: "the requested answer" });
+  });
+
+  it("does not resend or navigate when the observed Cloudflare 502 appears after submit", async () => {
+    vi.useFakeTimers();
+    const thread = "https://chatgpt.com/c/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+    const evaluations = installFakeChatGptSendCdp(thread, [
+      { ...fakeAnswerState(thread, "", false), assistantMessageCount: 0, userMessageCount: 0 },
+      {
+        ...fakeAnswerState("https://chatgpt.com/", "", false),
+        hasComposer: false,
+        assistantMessageCount: 0,
+        blockerTextSample: observedCloudflare502,
+        blockerScanTextSample: observedCloudflare502
+      }
+    ]);
+
+    const send = sendChatGptPrompt({ port: 19338, prompt: "answer this", targetUrl: thread, timeoutMs: 2_000 });
+    const rejection = expect(send).rejects.toMatchObject({
+      blocker: {
+        code: "chatgpt_service_error",
+        retryable: false,
+        next_step: expect.stringContaining("Do not automatically resend")
+      }
+    });
+    void rejection.catch(() => undefined);
+    await vi.advanceTimersByTimeAsync(10_000);
+    await rejection;
+    expect(evaluations.some((expression) => expression.includes("location.assign("))).toBe(false);
   });
 
   it("waits for a hydrating power slider before choosing the legacy picker path", async () => {
@@ -1573,6 +1612,65 @@ Show more`;
     expect(inferLoggedInLikely("채팅 기록\nChatGPT Pro\n새 채팅\n프로젝트\n로그인\n내 첫 프로젝트", ["프로필"])).toBe(true);
     // An actual logged-out screen (sign-up prompt or a Log in button) still reads as logged out.
     expect(inferLoggedInLikely("Welcome back\nLog in\nSign up for free", ["Log in"])).toBe(false);
+  });
+
+  it("classifies the observed composer-absent Cloudflare 502 as a service error", () => {
+    const blocker = detectChatGptPageBlocker({
+      title: "chatgpt.com | 502: Bad gateway",
+      hasComposer: false,
+      textSample: observedCloudflare502,
+      blockerTextSample: observedCloudflare502,
+      blockerScanTextSample: observedCloudflare502,
+      visibleButtonLabels: []
+    });
+
+    expect(blocker).toMatchObject({ code: "chatgpt_service_error", retryable: true });
+    expect(blocker?.message).toMatch(/502|service/i);
+    expect(blocker?.message).toMatch(/not evidence.*session expired/i);
+    expect(blocker?.message).not.toMatch(/browser connection.*working/i);
+    expect(blocker?.next_step).toContain("check the original conversation before retrying");
+    expect(blocker?.next_step).not.toMatch(/log in|login|captcha|usage limit/i);
+  });
+
+  it("does not require Cloudflare status details beyond the composer-absent 502 error core", () => {
+    expect(
+      detectChatGptPageBlocker({
+        hasComposer: false,
+        textSample: cloudflare502Core,
+        blockerTextSample: cloudflare502Core,
+        blockerScanTextSample: cloudflare502Core,
+        visibleButtonLabels: []
+      })?.code
+    ).toBe("chatgpt_service_error");
+  });
+
+  it("does not classify a normal chat discussing the observed Cloudflare 502 template", () => {
+    expect(
+      detectChatGptPageBlocker({
+        title: "Cloudflare 502 discussion",
+        hasComposer: true,
+        textSample: `User\n${observedCloudflare502}\nAssistant\nThis is a service error.`,
+        blockerTextSample: "New chat\nProjects\nChatGPT Pro",
+        blockerScanTextSample: "Conversation controls",
+        visibleButtonLabels: ["Profile menu", "Send prompt"]
+      })
+    ).toBeUndefined();
+  });
+
+  it.each([
+    ["Verifying you are human. ", "cloudflare_check"],
+    ["Log in\nSign up for free\n", "login_required"],
+    ["Please solve this captcha to continue\n", "captcha_required"]
+  ])("preserves %s blocker precedence over the observed 502 template", (prefix, code) => {
+    expect(
+      detectChatGptPageBlocker({
+        hasComposer: false,
+        textSample: `${prefix}${observedCloudflare502}`,
+        blockerTextSample: `${prefix}${observedCloudflare502}`,
+        blockerScanTextSample: `${prefix}${observedCloudflare502}`,
+        visibleButtonLabels: []
+      })?.code
+    ).toBe(code);
   });
 
   it("detects a title-only Cloudflare interstitial without a composer", () => {

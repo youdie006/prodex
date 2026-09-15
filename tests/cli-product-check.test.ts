@@ -2,6 +2,8 @@ import { link, mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import { BrowserProcessInspectionError } from "../src/browser-process.js";
+import { shellQuote } from "../src/cli-args.js";
 import { BridgeStore } from "../src/store.js";
 import { useDefaultCdpPort } from "./helpers/default-cdp-port.js";
 
@@ -68,6 +70,37 @@ async function runBrowserCheck(): Promise<string> {
 }
 
 describe("browser product check", () => {
+  it("reports unverified process identity without aborting the remaining checks or suggesting login", async () => {
+    const prior = browserStatusFixture.status;
+    browserStatusFixture.status = { ...prior, reachable: false, blocker: {
+      code: "browser_unreachable", message: "Connection refused", retryable: true,
+      next_step: "Run `prodex pro browser login`."
+    } };
+    findWedgedBrowserMock.mockImplementation(() => {
+      throw new BrowserProcessInspectionError("Windows could not provide complete browser process identity.");
+    });
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-process-identity-"));
+    const store = new BridgeStore(cwd);
+    await store.ensure();
+    const out: string[] = [];
+    try {
+      const code = await runCli(["pro", "browser", "check", "--cwd", cwd, "--port", "12345"], {
+        cwd, stdout: (line) => out.push(line), stderr: () => {}
+      });
+      const text = out.join("\n");
+      expect(code).toBe(1);
+      expect(text).toContain("chatgpt: browser_process_unverified");
+      expect(text).toContain("Leave the existing browser unchanged");
+      expect(text).toContain("latest_pro: missing");
+      expect(text).toContain(`cd ${shellQuote(cwd)} && prodex pro browser check --port 12345`);
+      expect(text).not.toContain("pro browser login");
+      expect(text).not.toContain("pro browser reset");
+    } finally {
+      browserStatusFixture.status = prior;
+      findWedgedBrowserMock.mockReturnValue([]);
+    }
+  });
+
   it("does not recommend a browser reset for uncertain control errors", async () => {
     const prior = browserStatusFixture.status;
     browserStatusFixture.status = { ...prior, reachable: false, blocker: {
@@ -182,7 +215,9 @@ describe("browser product check", () => {
 
     expect(code).toBe(1);
     expect(text).toContain("chatgpt: blocked captcha_required");
-    expect(text).toContain(`next: Solve it manually in the visible browser, then run \`node ${sourceCli} pro browser smoke --source-cli ${sourceCli}\`.`);
+    expect(text).toContain(
+      `next: Solve it manually in the visible browser, then run \`node ${shellQuote(sourceCli)} pro browser smoke --source-cli ${shellQuote(sourceCli)}\`.`
+    );
   });
 
   it("preserves explicit cwd and port in source-checkout smoke recovery commands", async () => {
@@ -197,7 +232,7 @@ describe("browser product check", () => {
     expect(code).toBe(1);
     expect(text).toContain("chatgpt: blocked captcha_required");
     expect(text).toContain(
-      `next: Solve it manually in the visible browser, then run \`cd ${targetCwd} && node ${sourceCli} pro browser smoke --source-cli ${sourceCli} --port 12345\`.`
+      `next: Solve it manually in the visible browser, then run \`cd ${shellQuote(targetCwd)} && node ${shellQuote(sourceCli)} pro browser smoke --source-cli ${shellQuote(sourceCli)} --port 12345\`.`
     );
   });
 
@@ -228,7 +263,7 @@ describe("browser product check", () => {
     expect(code).toBe(1);
     expect(text).toContain("chatgpt: blocked ambiguous_chatgpt_tabs");
     expect(text).toContain(
-      `next: Close extra ChatGPT windows, leave only the intended tab visible, or run \`node ${sourceCli} pro browser ask --source-cli ${sourceCli} --target-url <chatgpt-url> --confirm-target "prompt"\`.`
+      `next: Close extra ChatGPT windows, leave only the intended tab visible, or run \`node ${shellQuote(sourceCli)} pro browser ask --source-cli ${shellQuote(sourceCli)} --target-url <chatgpt-url> --confirm-target "prompt"\`.`
     );
   });
 
@@ -259,7 +294,7 @@ describe("browser product check", () => {
     expect(code).toBe(1);
     expect(text).toContain("chatgpt: blocked ambiguous_chatgpt_tabs");
     expect(text).toContain(
-      `next: Close extra ChatGPT windows, leave only the intended tab visible, or run \`cd ${targetCwd} && node ${sourceCli} pro browser ask --source-cli ${sourceCli} --port 12345 --target-url <chatgpt-url> --confirm-target "prompt"\`.`
+      `next: Close extra ChatGPT windows, leave only the intended tab visible, or run \`cd ${shellQuote(targetCwd)} && node ${shellQuote(sourceCli)} pro browser ask --source-cli ${shellQuote(sourceCli)} --port 12345 --target-url <chatgpt-url> --confirm-target "prompt"\`.`
     );
   });
 
@@ -361,7 +396,7 @@ describe("browser product check", () => {
 
     expect(text).toContain("chatgpt: blocked logged_in=true composer=false");
     expect(text).toContain(
-      `next: Open a normal ChatGPT chat or Project thread, select the Pro/Thinking model, then run \`cd ${targetCwd} && node ${sourceCli} pro browser smoke --source-cli ${sourceCli} --port 12345\`.`
+      `next: Open a normal ChatGPT chat or Project thread, select the Pro/Thinking model, then run \`cd ${shellQuote(targetCwd)} && node ${shellQuote(sourceCli)} pro browser smoke --source-cli ${shellQuote(sourceCli)} --port 12345\`.`
     );
   });
 

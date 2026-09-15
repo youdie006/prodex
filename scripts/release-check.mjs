@@ -4,6 +4,7 @@ import { lstat, readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import { execNpm } from "./npm-command.mjs";
 
 const execFileAsync = promisify(execFile);
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -159,7 +160,7 @@ async function runFullReleaseVerification(rootDir) {
   ];
   for (const [command, commandArgs] of checks) {
     const key = [command, ...commandArgs].join(" ");
-    await run(commandForPlatform(command), commandArgs, rootDir, CHECK_TIMEOUT_MS[key] ?? CHECK_TIMEOUT_MS.default);
+    await run(command, commandArgs, rootDir, CHECK_TIMEOUT_MS[key] ?? CHECK_TIMEOUT_MS.default);
   }
 }
 
@@ -205,7 +206,7 @@ async function assertPackedFileModes(rootDir, packageJson) {
 async function readPackedFiles(rootDir) {
   let stdout;
   try {
-    ({ stdout } = await execFileAsync(commandForPlatform("npm"), ["pack", "--json", "--dry-run", "--ignore-scripts"], {
+    ({ stdout } = await execNpm(["pack", "--json", "--dry-run", "--ignore-scripts"], {
       cwd: rootDir,
       timeout: 120_000,
       maxBuffer: 20 * 1024 * 1024
@@ -282,6 +283,9 @@ function findNonExecutableBinPackedFiles(files, packageJson) {
 }
 
 async function findNonExecutableBinSourceFiles(rootDir, packageJson) {
+  // Windows ACLs do not map to POSIX execute bits. npm still reports package
+  // bin entries with canonical executable modes in the packed file metadata.
+  if (process.platform === "win32") return [];
   const invalid = [];
   for (const packagePath of packageBinPaths(packageJson)) {
     const filePath = path.join(rootDir, packagePath);
@@ -349,11 +353,18 @@ async function run(command, commandArgs, cwd, timeoutMs = 300_000) {
   const commandLine = [command, ...commandArgs].join(" ");
   console.log(`release_check: ${commandLine}`);
   try {
-    await execFileAsync(command, commandArgs, {
-      cwd,
-      timeout: timeoutMs,
-      maxBuffer: 20 * 1024 * 1024
-    });
+    const execute = command === "npm"
+      ? execNpm(commandArgs, {
+          cwd,
+          timeout: timeoutMs,
+          maxBuffer: 20 * 1024 * 1024
+        })
+      : execFileAsync(command === "node" ? process.execPath : command, commandArgs, {
+          cwd,
+          timeout: timeoutMs,
+          maxBuffer: 20 * 1024 * 1024
+        });
+    await execute;
   } catch (error) {
     // Surface the real failure: the one-line detail used to show the FIRST
     // stderr line, which npm noise ("npm warn ...") could occupy while the
@@ -374,10 +385,6 @@ function printCapturedOutputTail(error, commandLine) {
     console.error(`release_check: ${commandLine} ${label} tail:`);
     for (const line of tail) console.error(`  ${line}`);
   }
-}
-
-function commandForPlatform(command) {
-  return process.platform === "win32" && command === "npm" ? "npm.cmd" : command;
 }
 
 function parseArgs(values) {

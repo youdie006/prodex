@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
+import { normalizeNpmEnvironment } from "../scripts/npm-command.mjs";
 
 const execFileAsync = promisify(execFile);
 const repoRoot = path.resolve(import.meta.dirname, "..");
@@ -269,8 +270,19 @@ describe("release-check", () => {
       },
       executableReadme: true
     });
+    const fakeCommands = process.platform === "win32"
+      ? await createFakeReleaseCommands(root, {
+          packStdout: JSON.stringify([{ files: [
+            { path: "package.json", mode: 420 },
+            { path: "LICENSE", mode: 420 },
+            { path: "README.md", mode: 493 }
+          ] }])
+        })
+      : undefined;
 
-    const result = await runReleaseCheck(root);
+    const result = await runReleaseCheck(root, fakeCommands
+      ? { pathPrefix: fakeCommands.binDir, logPath: fakeCommands.logPath }
+      : {});
 
     const output = `${result.stdout}\n${result.stderr}`;
     expect(result.code).toBe(1);
@@ -299,7 +311,7 @@ describe("release-check", () => {
     expect(result.stdout).toContain("release_metadata=ok");
   });
 
-  it("fails release metadata when package bin files are not executable", async () => {
+  it.skipIf(process.platform === "win32")("fails release metadata when package bin files are not executable", async () => {
     const root = await createPackModeFixture({
       packageJson: {
         name: "demo-pack-bin-mode",
@@ -318,6 +330,56 @@ describe("release-check", () => {
     expect(output).toContain("release metadata failed");
     expect(output).toContain("package bin entries must be executable");
     expect(output).toContain("cli.js");
+    expect(result.stdout).not.toContain("release_metadata=ok");
+  });
+
+  it.skipIf(process.platform !== "win32")("accepts package bin source files without POSIX execute bits on Windows", async () => {
+    const root = await createPackModeFixture({
+      packageJson: {
+        name: "demo-pack-bin-mode",
+        version: "1.0.0",
+        license: "MIT",
+        bin: { demo: "cli.js" },
+        files: ["cli.js", "README.md"]
+      },
+      executableBin: false
+    });
+
+    const result = await runReleaseCheck(root);
+
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("release_metadata=ok");
+  });
+
+  it("rejects nested package bins when packed metadata marks them non-executable", async () => {
+    const root = await createPackModeFixture({
+      packageJson: {
+        name: "demo-pack-nested-bin-mode",
+        version: "1.0.0",
+        license: "MIT",
+        bin: { demo: "dist/cli.js" },
+        files: ["dist/cli.js", "README.md"]
+      },
+      executableBin: true
+    });
+    const fakeCommands = await createFakeReleaseCommands(root, {
+      packStdout: JSON.stringify([{ files: [
+        { path: "package.json", mode: 420 },
+        { path: "LICENSE", mode: 420 },
+        { path: "README.md", mode: 420 },
+        { path: "dist/cli.js", mode: 420 }
+      ] }])
+    });
+
+    const result = await runReleaseCheck(root, {
+      pathPrefix: fakeCommands.binDir,
+      logPath: fakeCommands.logPath
+    });
+
+    const output = `${result.stdout}\n${result.stderr}`;
+    expect(result.code).toBe(1);
+    expect(output).toContain("package bin entries must be executable");
+    expect(output).toContain("dist/cli.js");
     expect(result.stdout).not.toContain("release_metadata=ok");
   });
 
@@ -571,14 +633,18 @@ async function createPackModeFixture(options: {
   await writeFile(path.join(root, "README.md"), "# Demo\n", "utf8");
   await chmod(path.join(root, "README.md"), options.executableReadme ? 0o755 : 0o644);
   if (options.packageJson.bin) {
-    await writeFile(path.join(root, "cli.js"), "#!/usr/bin/env node\nconsole.log('demo')\n", "utf8");
-    await chmod(path.join(root, "cli.js"), options.executableBin ? 0o755 : 0o644);
+    for (const packagePath of packageBinPaths(options.packageJson as { bin?: string | Record<string, string> })) {
+      const filePath = path.join(root, packagePath);
+      await mkdir(path.dirname(filePath), { recursive: true });
+      await writeFile(filePath, "#!/usr/bin/env node\nconsole.log('demo')\n", "utf8");
+      await chmod(filePath, options.executableBin ? 0o755 : 0o644);
+    }
   }
   return root;
 }
 
-function expectedNpmCommand(): "npm" | "npm.cmd" {
-  return process.platform === "win32" ? "npm.cmd" : "npm";
+function expectedNpmCommand(): "npm" {
+  return "npm";
 }
 
 async function createFakeReleaseCommands(
@@ -587,18 +653,27 @@ async function createFakeReleaseCommands(
 ): Promise<{ binDir: string; logPath: string }> {
   const binDir = path.join(root, "fake-bin");
   const logPath = path.join(root, "release-check-commands.log");
+  const npmCliPath = path.join(binDir, "npm-cli.mjs");
+  const packageJson = JSON.parse(await readFile(path.join(root, "package.json"), "utf8")) as { bin?: string | Record<string, string> };
+  const defaultPackStdout = JSON.stringify([{ files: [
+    { path: "package.json", mode: 420 },
+    { path: "LICENSE", mode: 420 },
+    ...packageBinPaths(packageJson).map((packagePath) => ({ path: packagePath, mode: 493 }))
+  ] }]);
   await mkdir(binDir, { recursive: true });
   await mkdir(path.join(root, "dist"), { recursive: true });
-  await writeFile(path.join(root, "dist", "cli.js"), "#!/usr/bin/env node\nconsole.log('doctor')\n", "utf8");
+  await writeFile(
+    path.join(root, "dist", "cli.js"),
+    [
+      '#!/usr/bin/env node',
+      'import { appendFileSync } from "node:fs";',
+      `appendFileSync(${JSON.stringify(logPath)}, "node\\tdist/cli.js doctor\\t" + process.cwd() + "\\n");`,
+      "console.log('doctor');"
+    ].join("\n"),
+    "utf8"
+  );
   await chmod(path.join(root, "dist", "cli.js"), 0o755);
-  await Promise.all([
-    writeFakeCommand(path.join(binDir, "npm"), "npm", logPath, options.failCommand, options.packStdout, options.silentFail),
-    writeFakeCommand(path.join(binDir, "npm.cmd.mjs"), "npm.cmd", logPath, options.failCommand, options.packStdout, options.silentFail),
-    writeFakeCommand(path.join(binDir, "node"), "node", logPath, options.failCommand, undefined, options.silentFail),
-    writeFakeCommand(path.join(binDir, "node.cmd.mjs"), "node", logPath, options.failCommand, undefined, options.silentFail),
-    writeWindowsCommandWrapper(path.join(binDir, "npm.cmd"), "npm.cmd.mjs"),
-    writeWindowsCommandWrapper(path.join(binDir, "node.cmd"), "node.cmd.mjs")
-  ]);
+  await writeFakeCommand(npmCliPath, "npm", logPath, options.failCommand, options.packStdout ?? defaultPackStdout, options.silentFail);
   return { binDir, logPath };
 }
 
@@ -614,17 +689,13 @@ async function writeFakeCommand(filePath: string, command: string, logPath: stri
       ...(silentFail ? [] : [`  console.error("fake release-check command failed: " + commandLine);`]),
       "  process.exit(42);",
       "}",
-      `if (${JSON.stringify(command === "npm" || command === "npm.cmd")} && process.argv[2] === "pack") {`,
+      `if (${JSON.stringify(command === "npm")} && process.argv[2] === "pack") {`,
       `  console.log(${JSON.stringify(packStdout ?? JSON.stringify([{ files: [{ path: "package.json", mode: 420 }, { path: "LICENSE", mode: 420 }, { path: "dist/cli.js", mode: 493 }] }]))});`,
       "}"
     ].join("\n"),
     "utf8"
   );
   await chmod(filePath, 0o755);
-}
-
-async function writeWindowsCommandWrapper(filePath: string, moduleFileName: string): Promise<void> {
-  await writeFile(filePath, `@echo off\r\n"${process.execPath}" "%~dp0${moduleFileName}" %*\r\n`, "utf8");
 }
 
 function packageBinPaths(packageJson: { bin?: string | Record<string, string> }): string[] {
@@ -649,12 +720,13 @@ async function runReleaseCheck(
   const env = {
     ...process.env,
     ...(options.pathPrefix ? { PATH: `${options.pathPrefix}${path.delimiter}${process.env.PATH ?? ""}` } : {}),
+    ...(options.pathPrefix ? { npm_execpath: path.join(options.pathPrefix, "npm-cli.mjs") } : {}),
     ...(options.logPath ? { PRODEX_RELEASE_CHECK_LOG: options.logPath } : {})
   };
   try {
     const result = await execFileAsync(process.execPath, args, {
       cwd: repoRoot,
-      env
+      env: normalizeNpmEnvironment(env)
     });
     return { code: 0, stdout: result.stdout, stderr: result.stderr };
   } catch (error) {

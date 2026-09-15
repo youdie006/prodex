@@ -1,10 +1,18 @@
-import { spawnSync } from "node:child_process";
 import { realpathSync } from "node:fs";
 import path from "node:path";
 import WebSocket from "ws";
 import {
+  BrowserProcessInspectionError,
+  browserProcessFlagValue,
+  browserProcessHasFlag,
+  findMatchingBrowserProcesses,
+  inspectBrowserProcesses,
+  isMainBrowserProcess,
+  type BrowserProcessInfo
+} from "./browser-process.js";
+import {
   ChatGptBrowserBlockerError, attachmentPresenceExpression, composerTextStateExpression, detectChatGptPageBlocker,
-  findLaunchedBrowserProcesses, inferChatGptPageLoggedInLikely, statusExpression, type DevtoolsPage
+  inferChatGptPageLoggedInLikely, statusExpression, type DevtoolsPage
 } from "./chatgpt-browser.js";
 
 type PageStatus = Parameters<typeof detectChatGptPageBlocker>[0] & {
@@ -23,17 +31,20 @@ function blocked(message: string): never {
 }
 
 function browserIdentity(port: number, profileDir: string): Identity {
-  const listed = spawnSync("ps", ["-Ao", "user,pid,command"], { encoding: "utf8", timeout: 5_000 });
-  if (listed.status !== 0 || typeof listed.stdout !== "string") blocked("Could not verify the dedicated browser process.");
-  const pids = findLaunchedBrowserProcesses(listed.stdout, { port, profileDir });
-  const mains = listed.stdout.split(/\r?\n/).filter((line) => {
-    const pid = Number(/^\s*\S+\s+(\d+)\s/.exec(line)?.[1]);
-    return pids.includes(pid) && !/\s--type=/.test(line) && new RegExp(`--remote-debugging-port=${port}(?!\\d)`).test(line);
-  });
+  let processes: BrowserProcessInfo[];
+  try {
+    processes = inspectBrowserProcesses();
+  } catch (error) {
+    if (!(error instanceof BrowserProcessInspectionError)) throw error;
+    blocked("Could not verify the dedicated browser process.");
+  }
+  const matching = findMatchingBrowserProcesses(processes, { port, profileDir });
+  const mains = matching.filter(isMainBrowserProcess);
   if (mains.length !== 1) blocked("Could not identify exactly one dedicated browser for this port.");
-  if (/\s--(?:incognito|guest)(?:\s|=|$)/.test(mains[0])) blocked("An incognito or guest browser cannot preserve its login through a restart.");
-  if (/\s--profile-directory(?:\s|=|$)/.test(mains[0])) blocked("An explicitly selected Chrome sub-profile cannot be preserved by this handoff; no browser was closed.");
-  const actualProfile = /--user-data-dir=(.*?)(?=\s--|$)/.exec(mains[0])?.[1];
+  const main = mains[0];
+  if (browserProcessHasFlag(main, "incognito") || browserProcessHasFlag(main, "guest")) blocked("An incognito or guest browser cannot preserve its login through a restart.");
+  if (browserProcessHasFlag(main, "profile-directory")) blocked("An explicitly selected Chrome sub-profile cannot be preserved by this handoff; no browser was closed.");
+  const actualProfile = browserProcessFlagValue(main, "user-data-dir");
   if (!actualProfile || !path.isAbsolute(actualProfile)) blocked("The browser profile could not be verified.");
   try {
     if (realpathSync(actualProfile) !== realpathSync(profileDir)) blocked("The actual browser profile differs from the requested profile.");
@@ -41,7 +52,11 @@ function browserIdentity(port: number, profileDir: string): Identity {
     if (error instanceof ChatGptBrowserBlockerError) throw error;
     blocked("The browser profile path could not be verified.");
   }
-  return { main: Number(/^\s*\S+\s+(\d+)\s/.exec(mains[0])![1]), pids, headless: /\s--headless(?:\s|=|$)/.test(mains[0]) };
+  return {
+    main: main.processId,
+    pids: matching.map((processInfo) => processInfo.processId),
+    headless: browserProcessHasFlag(main, "headless")
+  };
 }
 
 export function getDedicatedBrowserHeadlessMode(options: { port: number; profileDir: string }): boolean {
@@ -204,9 +219,13 @@ function alive(pid: number): boolean {
 }
 
 function matchingBrowserPids(port: number, profileDir: string): number[] {
-  const listed = spawnSync("ps", ["-Ao", "user,pid,command"], { encoding: "utf8", timeout: 5_000 });
-  if (listed.status !== 0 || typeof listed.stdout !== "string") blocked("Could not verify that the dedicated browser stayed closed.");
-  return findLaunchedBrowserProcesses(listed.stdout, { port, profileDir });
+  try {
+    return findMatchingBrowserProcesses(inspectBrowserProcesses(), { port, profileDir })
+      .map((processInfo) => processInfo.processId);
+  } catch (error) {
+    if (!(error instanceof BrowserProcessInspectionError)) throw error;
+    blocked("Could not verify that the dedicated browser stayed closed.");
+  }
 }
 
 async function waitForQuietShutdown(identity: Identity, port: number, profileDir: string): Promise<void> {

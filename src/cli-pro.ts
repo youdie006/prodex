@@ -1,6 +1,7 @@
 import { existsSync, realpathSync, statSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { BrowserProcessInspectionError } from "./browser-process.js";
 import { buildDryRunBundle } from "./bundle.js";
 import {
   type BrowserWindowMode,
@@ -3591,10 +3592,21 @@ export async function printProductCheck(store: BridgeStore, io: CliIO, args: str
     // report both as "not running": the browser really is gone, or it is still
     // there and has stopped answering. The second keeps burning CPU until
     // somebody notices, and nobody notices a message that says it is absent.
-    const wedged = statusMeansBrowserDead(browserStatus)
-      ? findWedgedBrowser({ ...(browserCommandOptions.port !== undefined ? { port: browserCommandOptions.port } : {}) })
-      : [];
-    const blocker = wedged.length > 0 ? wedgedBrowserBlocker(wedged, browserCommandOptions.port ?? DEFAULT_CDP_PORT) : browserStatus.blocker;
+    let blocker = browserStatus.blocker;
+    if (statusMeansBrowserDead(browserStatus)) {
+      try {
+        const wedged = findWedgedBrowser({ ...(browserCommandOptions.port !== undefined ? { port: browserCommandOptions.port } : {}) });
+        if (wedged.length > 0) blocker = wedgedBrowserBlocker(wedged, browserCommandOptions.port ?? DEFAULT_CDP_PORT);
+      } catch (error) {
+        if (!(error instanceof BrowserProcessInspectionError)) throw error;
+        blocker = {
+          code: "browser_process_unverified",
+          message: "The operating system could not verify browser process identity.",
+          retryable: false,
+          next_step: `Leave the existing browser unchanged. Check OS process-inspection permissions, then run \`${formatBrowserCheckCommand(sourceCli, browserCommandOptions)}\`.`
+        };
+      }
+    }
     io.stdout(`chatgpt: ${blocker?.code ?? "unreachable"} - ${blocker?.message ?? "browser is not reachable"}`);
     const nextStep = productCheckBrowserNextStep(blocker?.next_step, sourceCli, browserCommandOptions);
     if (nextStep) io.stdout(`next: ${nextStep}`);

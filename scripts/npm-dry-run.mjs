@@ -1,11 +1,8 @@
-import { execFile } from "node:child_process";
 import { createServer } from "node:http";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { promisify } from "node:util";
-
-const run = promisify(execFile);
+import { execNpm } from "./npm-command.mjs";
 
 // npm 11 checks registry versions even for a tarball dry-run. Packaging tests
 // need an empty read-only registry, not the current public release state.
@@ -31,7 +28,7 @@ export async function publishTarballDryRun(tarballPath) {
     // loses credentials; the actual publish step retains its OIDC environment.
     const excludedEnv = /^(?:npm_config_|npm_id_token$|npm_token$|node_auth_token$|actions_id_token_request_|sigstore_id_token$|circle_oidc_token)/i;
     const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !excludedEnv.test(key)));
-    const result = await run(process.platform === "win32" ? "npm.cmd" : "npm", [
+    const result = await execNpm([
       "publish", "--dry-run", path.resolve(tarballPath), "--ignore-scripts", "--provenance=false",
       `--registry=${registry}`, `--userconfig=${userConfig}`, `--globalconfig=${globalConfig}`,
       `--cache=${path.join(root, "cache")}`, "--fetch-retries=0"

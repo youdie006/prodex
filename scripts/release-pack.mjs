@@ -5,10 +5,10 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import { execNpm } from "./npm-command.mjs";
 
 const execFileAsync = promisify(execFile);
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
 
 try {
   const args = parseArgs(process.argv.slice(2));
@@ -71,7 +71,7 @@ async function ensureDistBuiltForSource(root) {
   const tsconfigPath = path.join(root, "tsconfig.json");
   const srcDir = path.join(root, "src");
   if (!(await pathExists(tsconfigPath)) || !(await pathExists(srcDir))) return false;
-  await execFileAsync(npmCommand, ["run", "build"], { cwd: root, maxBuffer: 20 * 1024 * 1024 });
+  await execNpm(["run", "build"], { cwd: root, maxBuffer: 20 * 1024 * 1024 });
   return true;
 }
 
@@ -211,7 +211,11 @@ async function run(command, commandArgs, cwd) {
 
 async function runNpmPack(commandArgs, cwd, label) {
   try {
-    return await run(npmCommand, commandArgs, cwd);
+    return await execNpm(commandArgs, {
+      cwd,
+      timeout: 120_000,
+      maxBuffer: 20 * 1024 * 1024
+    });
   } catch (error) {
     throw new Error(`${label} failed: ${commandFailureDetail(error)}`);
   }
@@ -340,7 +344,12 @@ function errorMessage(error) {
 }
 
 function shellQuote(value) {
-  return /^[A-Za-z0-9_./:@=-]+$/.test(value) ? value : `'${value.replaceAll("'", "'\\''")}'`;
+  const shellSafe = /^[A-Za-z0-9_./:@=-]+$/.test(value);
+  if (shellSafe && (process.platform !== "win32" || !value.startsWith("@"))) return value;
+  const escaped = process.platform === "win32"
+    ? value.replaceAll("'", "''")
+    : value.replaceAll("'", "'\\''");
+  return `'${escaped}'`;
 }
 
 async function readReleaseGitStatus(root) {

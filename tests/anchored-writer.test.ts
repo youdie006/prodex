@@ -5,7 +5,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { BridgeStore, setBridgeStoreTestHooks } from "../src/store.js";
-import { anchorCurrentDirectory } from "../src/store-writer.js";
+import { anchorCurrentDirectory, runAnchoredJob } from "../src/store-writer.js";
 
 // The store writes a record by rendering an open directory handle as a path -
 // /proc/self/fd/N - and joining the file name onto it, so the write lands in the
@@ -48,13 +48,21 @@ describe("anchoring the writer's working directory", () => {
     setBridgeStoreTestHooks({});
   });
 
+  it.each(["..\\outside", "nested\\file", ...(process.platform === "win32" ? ["C:outside", "file:stream"] : [])])("rejects Windows path syntax: %s", async (name) => {
+    const here = statSync(process.cwd(), { bigint: true });
+    const anchor = { dev: here.dev.toString(), ino: here.ino.toString() };
+    expect(() => anchorCurrentDirectory(anchor, [name])).toThrow(/refuses to descend/i);
+    await expect(runAnchoredJob({ anchor, segments: [], fileName: name, mode: 0o600, op: "deleteIfPresent" }))
+      .rejects.toThrow(/refuses the file name/i);
+  });
+
   it("refuses a storage directory that has been swapped for a symlink", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "prodex-anchored-"));
     const outside = await mkdtemp(path.join(tmpdir(), "prodex-outside-"));
     const store = new BridgeStore(root);
     await store.ensure();
     await rename(path.join(root, ".bridge", "receipts"), path.join(root, ".bridge", "receipts-real"));
-    await symlink(outside, path.join(root, ".bridge", "receipts"));
+    await symlink(outside, path.join(root, ".bridge", "receipts"), process.platform === "win32" ? "junction" : "dir");
     setBridgeStoreTestHooks({ disableDirectoryFdPaths: true });
 
     await expect(store.writeReceipt({ kind: "consult_preview", summary: "Should not land outside" })).rejects.toThrow(
@@ -81,6 +89,16 @@ describe("anchoring the writer's working directory", () => {
 describe("removing an artifact without traversable directory fd paths", () => {
   afterEach(() => {
     setBridgeStoreTestHooks({});
+  });
+
+  it.skipIf(process.platform === "win32")("removes a POSIX artifact containing a colon", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-anchored-colon-"));
+    const store = new BridgeStore(root);
+    await store.ensure();
+    setBridgeStoreTestHooks({ disableDirectoryFdPaths: true });
+    const artifact = await store.writeArtifactText(".bridge/artifacts/colon:file.txt", "local artifact");
+    await store.deleteArtifactTextIfPresent(artifact);
+    expect(await store.hasArtifactText(artifact)).toBe(false);
   });
 
   it("descends to the artifact's own directory and removes only it", async () => {

@@ -1027,9 +1027,9 @@ describe("MCP tool handlers", () => {
     setSafeFileTestHooks({
       beforeOpen: async (filePath) => {
         if (!swapped && filePath === repoFile) {
-          swapped = true;
           await rm(repoFile);
           await symlink(outsideFile, repoFile);
+          swapped = true;
         }
       }
     });
@@ -1041,6 +1041,7 @@ describe("MCP tool handlers", () => {
         preimage_sha256: dryRun.preimage_sha256
       })
     ).rejects.toThrow(/symlink|changed|escapes/i);
+    expect(swapped, "the host must actually create the security-test symlink").toBe(true);
     expect(await readFile(outsideFile, "utf8")).toBe("outside\n");
   });
 
@@ -1296,7 +1297,7 @@ describe("MCP tool handlers", () => {
     await writeFile(path.join(cwd, "notes.md"), "old\n", "utf8");
     await mkdir(path.join(cwd, ".bridge", "artifacts"), { recursive: true });
     await writeFile(path.join(cwd, ".bridge", "artifacts", "aliased.txt"), "old\n", "utf8");
-    await symlink(path.join(cwd, ".bridge"), path.join(cwd, "bridge-alias"));
+    await symlink(path.join(cwd, ".bridge"), path.join(cwd, "bridge-alias"), process.platform === "win32" ? "junction" : "dir");
     const head = await initGitRepo(cwd);
     const handlers = createMcpToolHandlers({ cwd });
 

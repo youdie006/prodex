@@ -37,6 +37,7 @@ import {
 import { startHttpMcpServer } from "./http-mcp.js";
 import { createMcpToolHandlers } from "./mcp-tools.js";
 import { runMcpServer } from "./mcp.js";
+import { execNpm } from "../scripts/npm-command.mjs";
 import { readVerifiedUtf8File, writeVerifiedUtf8File } from "./safe-file.js";
 import { ReceiptKindSchema, TaskStatusSchema, type BridgeFile, type Receipt } from "./schema.js";
 import { BridgeStore, MAX_FETCHABLE_RESULT_ARTIFACT_BYTES, type ListReceiptsInput } from "./store.js";
@@ -930,7 +931,7 @@ type ReleasePackStatus = {
 
 async function readReleasePackStatus(cwd: string, packageJson: { bin?: unknown }, sourceCli?: string, releaseHintCwd?: string): Promise<ReleasePackStatus> {
   try {
-    const { stdout } = await execFileAsync(commandForPlatform("npm"), ["pack", "--json", "--dry-run", "--ignore-scripts"], {
+    const { stdout } = await execNpm(["pack", "--json", "--dry-run", "--ignore-scripts"], {
       cwd,
       timeout: 120_000,
       maxBuffer: 20 * 1024 * 1024
@@ -1101,10 +1102,6 @@ function writeCommandOutput(output: string, write: (line: string) => void): void
   const trimmed = output.replace(/\r?\n$/, "");
   if (!trimmed) return;
   for (const line of trimmed.split(/\r?\n/)) write(line);
-}
-
-function commandForPlatform(command: string): string {
-  return process.platform === "win32" && command === "npm" ? "npm.cmd" : command;
 }
 
 function firstErrorLine(error: unknown): string {

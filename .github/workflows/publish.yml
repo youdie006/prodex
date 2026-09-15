@@ -24,8 +24,14 @@ permissions:
   id-token: write
 
 jobs:
+  verify-platforms:
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+
   publish:
     name: publish to npm
+    needs: verify-platforms
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:

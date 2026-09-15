@@ -38,7 +38,7 @@ describe("browser send lock ownership", () => {
     for (const victim of victims) {
       await expect(readFile(victim, "utf8")).resolves.toBe("keep me\n");
     }
-    expect((await stat(dir)).mode & 0o777).toBe(0o700);
+    if (process.platform !== "win32") expect((await stat(dir)).mode & 0o777).toBe(0o700);
   });
 
   it("does not reap a live owner solely because its timestamp is old", async () => {

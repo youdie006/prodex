@@ -1,6 +1,7 @@
 import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { createRequire } from "node:module";
 import { registerBridgeRoot } from "./registry.js";
+import { ensureBridgeGitignore } from "./bridge-gitignore.js";
 import { closeSync, constants, existsSync, openSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { link, lstat, mkdir, open, readdir, realpath, rename, rm, stat } from "node:fs/promises";
@@ -990,28 +991,7 @@ export class BridgeStore {
 
   private async ensureBridgeGitignore(): Promise<void> {
     const ignorePath = path.join(this.bridgeDir, ".gitignore");
-    let current = "";
-    try {
-      current = await readVerifiedUtf8File(ignorePath, () => this.assertBridgeGitignoreTargetSafe());
-    } catch (error) {
-      if (!isErrorCode(error, "ENOENT")) throw error;
-    }
-    const required = [
-      "tasks/*.json",
-      "results/*.json",
-      "sessions/*.json",
-      "receipts/*.json",
-      "artifacts/*",
-      "config.local.json",
-      "receipt-key.local",
-      "last-browser-send",
-      "!.gitignore"
-    ];
-    const lines = new Set(current.split(/\r?\n/).filter(Boolean));
-    for (const line of required) lines.add(line);
-    await writeVerifiedUtf8File(ignorePath, `${Array.from(lines).join("\n")}\n`, () => this.assertBridgeGitignoreTargetSafe(), {
-      create: true
-    });
+    await ensureBridgeGitignore(ignorePath, () => this.assertBridgeGitignoreTargetSafe());
   }
 
   async hasReadyBridgeStorageReadOnly(): Promise<boolean> {
@@ -1189,6 +1169,11 @@ export class BridgeStore {
       throw new Error(`Bridge record path must stay under .bridge/${kind}`);
     }
     await this.assertStorageDirIsRealDirectory(kind);
+    if (job.op === "cleanupTempHardLinks") {
+      await storeTestHooks.beforeRecordTempCleanup?.(kind, filePath);
+    } else if (job.op === "writeByRename" || job.op === "linkIfAbsent") {
+      await storeTestHooks.beforeRecordRename?.(kind, filePath);
+    }
     const outcome = await runAnchoredWrite(this.bridgeDir, [kind], {
       ...job,
       fileName: path.basename(filePath),
@@ -1749,9 +1734,17 @@ async function openNoFollowDirectory(dirPath: string, label: string): Promise<Fi
   const noFollowFlag = typeof constants.O_NOFOLLOW === "number" ? constants.O_NOFOLLOW : 0;
   const directoryFlag = typeof constants.O_DIRECTORY === "number" ? constants.O_DIRECTORY : 0;
   try {
+    const before = await lstat(dirPath, { bigint: true });
+    if (before.isSymbolicLink() || !before.isDirectory()) {
+      throw new Error(`${label} must be a real directory and must not be a symlink`);
+    }
     const handle = await open(dirPath, constants.O_RDONLY | directoryFlag | noFollowFlag);
     try {
       await assertOpenDirectoryHandle(handle);
+      const opened = await handle.stat({ bigint: true });
+      if (opened.dev !== before.dev || opened.ino !== before.ino) {
+        throw new Error(`${label} changed while opening the directory`);
+      }
       return handle;
     } catch (error) {
       await handle.close().catch(() => undefined);
@@ -1774,7 +1767,8 @@ async function ensurePrivateDirectory(dirPath: string, label: string): Promise<v
 async function chmodPrivateDirectory(dirPath: string, label: string): Promise<void> {
   const handle = await openNoFollowDirectory(dirPath, label);
   try {
-    await handle.chmod(BRIDGE_DIRECTORY_MODE);
+    // Windows uses inherited ACLs; fchmod on a read-only directory is EPERM.
+    if (process.platform !== "win32") await handle.chmod(BRIDGE_DIRECTORY_MODE);
     await assertOpenDirectoryHandle(handle);
   } finally {
     await handle.close();

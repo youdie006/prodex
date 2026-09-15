@@ -442,5 +442,5 @@ function cancel(io: TuiIo): number {
 
 /** Quote only what a shell would need quoted, so the echo can be pasted. */
 export function formatCommand(args: string[]): string {
-  return args.map(shellQuote).join(" ");
+  return args.map((arg) => shellQuote(arg)).join(" ");
 }

@@ -169,7 +169,7 @@ describe("local bridge config", () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "prodex-config-"));
     const outside = await mkdtemp(path.join(tmpdir(), "prodex-config-outside-"));
     await mkdir(outside, { recursive: true });
-    await symlink(outside, path.join(cwd, ".bridge"), "dir");
+    await symlink(outside, path.join(cwd, ".bridge"), process.platform === "win32" ? "junction" : "dir");
 
     await expect(writeLocalConfig(cwd, { port: 9797, token: "test-token" })).rejects.toThrow(/symlink|real directory/);
     await expect(loadLocalConfig(cwd)).rejects.toThrow(/symlink|real directory/);
@@ -208,13 +208,14 @@ describe("local bridge config", () => {
     setSafeFileTestHooks({
       beforeOpen: async (filePath, operation) => {
         if (!swapped && operation === "write" && filePath === localConfigPath(cwd)) {
-          swapped = true;
           await symlink(outsideConfig, localConfigPath(cwd));
+          swapped = true;
         }
       }
     });
 
     await expect(writeLocalConfig(cwd, { port: 9797, token: "test-token" })).rejects.toThrow(/symlink|changed/i);
+    expect(swapped, "the host must actually create the security-test symlink").toBe(true);
     expect(await readFile(outsideConfig, "utf8")).toBe("outside\n");
   });
 
@@ -244,14 +245,15 @@ describe("local bridge config", () => {
     setSafeFileTestHooks({
       beforeOpen: async (filePath, operation) => {
         if (!swapped && operation === "read" && filePath === localConfigPath(cwd)) {
-          swapped = true;
           await rm(localConfigPath(cwd));
           await symlink(outsideConfig, localConfigPath(cwd));
+          swapped = true;
         }
       }
     });
 
     await expect(loadLocalConfig(cwd)).rejects.toThrow(/symlink|changed/i);
+    expect(swapped, "the host must actually create the security-test symlink").toBe(true);
   });
 });
 

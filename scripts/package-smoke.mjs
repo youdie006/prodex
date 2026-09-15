@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { createHash, createHmac } from "node:crypto";
 import { execFile, spawn } from "node:child_process";
-import { chmod, cp, mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { chmod, cp, mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
 import net from "node:net";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
@@ -11,11 +11,12 @@ import { promisify } from "node:util";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { execNpm, normalizeNpmEnvironment } from "./npm-command.mjs";
 import { publishTarballDryRun } from "./npm-dry-run.mjs";
 
 const execFileAsync = promisify(execFile);
-const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const nodeEntrypointsByCommand = new Map();
 const rootPackageVersion = JSON.parse(await readFile(path.join(repoRoot, "package.json"), "utf8")).version;
 const REQUIRED_MCP_TOOLS = [
   "bridge_create_task",
@@ -40,7 +41,7 @@ const REQUIRED_MCP_TOOLS = [
 
 assertSmokeRedaction();
 
-const tmp = await mkdtemp(path.join(tmpdir(), "prodex-package-smoke-"));
+const tmp = await realpath(await mkdtemp(path.join(tmpdir(), "prodex-package-smoke-")));
 // These checks use dry runs and a reserved non-CDP endpoint, never an account.
 // Keep every child process's persistent state inside this run's directory.
 process.env.PRODEX_BRIDGES_REGISTRY = path.join(tmp, "bridges.json");
@@ -51,31 +52,39 @@ const unavailableBrowser = createServer((_request, response) => {
   response.writeHead(503, { "Connection": "close" });
   response.end();
 });
+let unavailablePort;
 
 try {
   await new Promise((resolve, reject) => {
     unavailableBrowser.once("error", reject);
-    unavailableBrowser.listen(65534, "127.0.0.1", resolve);
+    unavailableBrowser.listen(0, "127.0.0.1", resolve);
   });
+  const unavailableAddress = unavailableBrowser.address();
+  if (!unavailableAddress || typeof unavailableAddress === "string") throw new Error("Missing isolated browser fixture address");
+  unavailablePort = String(unavailableAddress.port);
   const packed = await packPackage(tmp);
   await assertPackageFileScope(packed.files);
   const consumerDir = path.join(tmp, "consumer");
+  const consumerDirArg = shellQuotedForSmoke(consumerDir);
   await mkdir(consumerDir, { recursive: true });
   await writeFile(path.join(consumerDir, "package.json"), `${JSON.stringify({ private: true, type: "module" }, null, 2)}\n`);
 
-  await run(npmCommand, ["install", "--ignore-scripts", "--no-audit", "--no-fund", "--package-lock=false", packed.filename], {
+  await execNpm(["install", "--ignore-scripts", "--no-audit", "--no-fund", "--package-lock=false", packed.filename], {
     cwd: consumerDir,
     timeout: 120_000
   });
 
   const installedPackageDir = path.join(consumerDir, "node_modules", "@youdie006", "prodex");
+  const installedPackageDirArg = shellQuotedForSmoke(installedPackageDir);
   const binPath = path.join(consumerDir, "node_modules", ".bin", process.platform === "win32" ? "prodex.cmd" : "prodex");
   const installedPackageJson = JSON.parse(await readFile(path.join(installedPackageDir, "package.json"), "utf8"));
   if (installedPackageJson.scripts?.prepublishOnly !== "node scripts/release-check.mjs") {
     throw new Error("installed package.json must keep prepublishOnly wired to release-check");
   }
   const installedSourceCli = path.join(installedPackageDir, "dist", "cli.js");
-  const sourcePrefix = `node ${installedSourceCli}`;
+  const installedSourceCliArg = shellQuotedForSmoke(installedSourceCli);
+  if (process.platform === "win32") nodeEntrypointsByCommand.set(binPath, path.join(installedPackageDir, installedPackageJson.bin.prodex));
+  const sourcePrefix = `node ${installedSourceCliArg}`;
   const version = await run(binPath, ["--version"], { cwd: consumerDir });
   if (version.stdout.trim() !== installedPackageJson.version) {
     throw new Error(`Installed --version returned ${version.stdout.trim()}, expected ${installedPackageJson.version}`);
@@ -289,7 +298,7 @@ try {
     },
     {
       args: ["pro", "browser", "ask", "--source-cli", installedSourceCli, "--help"],
-      expected: `${sourcePrefix} pro browser ask --source-cli ${installedSourceCli}`
+      expected: `${sourcePrefix} pro browser ask --source-cli ${installedSourceCliArg}`
     },
     {
       args: ["pro", "show", "latest", "--source-cli", installedSourceCli, "--help"],
@@ -431,7 +440,7 @@ try {
   });
   assertIncludes(
     sourceReleaseStatus.stdout,
-    `node ${installedSourceCli} release status --source-cli ${installedSourceCli} --cwd ${installedPackageDir}`,
+    `node ${installedSourceCliArg} release status --source-cli ${installedSourceCliArg} --cwd ${installedPackageDirArg}`,
     "installed source release status --cwd output"
   );
   const releasePackDestination = path.join(tmp, "installed-release-pack");
@@ -456,7 +465,11 @@ try {
     throw new Error(`installed release-pack expected exactly one tarball, found: ${releasePackTarballs.join(", ")}`);
   }
   const releasePackTarballPath = path.join(releasePackDestination, releasePackTarballs[0]);
-  assertIncludes(releasePackSuccess.stdout, `release_pack_verify: npm publish --dry-run ${releasePackTarballPath}`, "installed release-pack success output");
+  assertIncludes(
+    releasePackSuccess.stdout,
+    `release_pack_verify: npm publish --dry-run ${shellQuotedForSmoke(releasePackTarballPath)}`,
+    "installed release-pack success output"
+  );
   await assertInstalledReleasePackTarballModes(releasePackTarballPath, packed.files, "installed release-pack tarball");
   await assertNpmPublishDryRun(releasePackTarballPath, consumerDir, "installed release-pack tarball", installedPackageJson.version);
   const releasePackCliDestination = path.join(tmp, "installed-release-pack-cli");
@@ -479,7 +492,11 @@ try {
     throw new Error(`installed release pack CLI expected exactly one tarball, found: ${releasePackCliTarballs.join(", ")}`);
   }
   const releasePackCliTarballPath = path.join(releasePackCliDestination, releasePackCliTarballs[0]);
-  assertIncludes(releasePackCliSuccess.stdout, `release_pack_verify: npm publish --dry-run ${releasePackCliTarballPath}`, "installed release pack CLI output");
+  assertIncludes(
+    releasePackCliSuccess.stdout,
+    `release_pack_verify: npm publish --dry-run ${shellQuotedForSmoke(releasePackCliTarballPath)}`,
+    "installed release pack CLI output"
+  );
   await assertInstalledReleasePackTarballModes(releasePackCliTarballPath, packed.files, "installed release pack CLI tarball");
   await assertNpmPublishDryRun(releasePackCliTarballPath, consumerDir, "installed release pack CLI tarball");
   const releasePackSourceCliDestination = path.join(tmp, "installed-release-pack-source-cli");
@@ -500,12 +517,12 @@ try {
   assertIncludes(releasePackSourceCliSuccess.stdout, "release_pack=ok", "installed source release pack CLI output");
   assertIncludes(
     releasePackSourceCliSuccess.stdout,
-    `release_pack_next: run \`npm run release:verify\` and \`node ${installedSourceCli} release status --source-cli ${installedSourceCli} --cwd ${installedPackageDir}\` before publishing this tarball.`,
+    `release_pack_next: run \`npm run release:verify\` and \`node ${installedSourceCliArg} release status --source-cli ${installedSourceCliArg} --cwd ${installedPackageDirArg}\` before publishing this tarball.`,
     "installed source release pack CLI output"
   );
   assertIncludes(
     releasePackSourceCliSuccess.stdout,
-    `release_pack_publish_blocked: fix git readiness before npm publish; run \`node ${installedSourceCli} release status --source-cli ${installedSourceCli} --cwd ${installedPackageDir}\`, then rerun release pack after blockers are clear.`,
+    `release_pack_publish_blocked: fix git readiness before npm publish; run \`node ${installedSourceCliArg} release status --source-cli ${installedSourceCliArg} --cwd ${installedPackageDirArg}\`, then rerun release pack after blockers are clear.`,
     "installed source release pack CLI output"
   );
   assertNotIncludes(releasePackSourceCliSuccess.stdout, "release_pack_publish: npm publish", "installed source release pack CLI output");
@@ -542,7 +559,7 @@ try {
   const releasePackGitReadyTarballPath = path.join(releasePackGitReadyDestination, releasePackGitReadyTarballs[0]);
   assertIncludes(
     releasePackGitReadySuccess.stdout,
-    `release_pack_verify: npm publish --dry-run ${releasePackGitReadyTarballPath}`,
+    `release_pack_verify: npm publish --dry-run ${shellQuotedForSmoke(releasePackGitReadyTarballPath)}`,
     "installed git-ready release pack CLI output"
   );
   assertIncludes(
@@ -552,7 +569,7 @@ try {
   );
   assertIncludes(
     releasePackGitReadySuccess.stdout,
-    `release_pack_publish: npm publish ${releasePackGitReadyTarballPath}`,
+    `release_pack_publish: npm publish ${shellQuotedForSmoke(releasePackGitReadyTarballPath)}`,
     "installed git-ready release pack CLI output"
   );
   await assertInstalledReleasePackTarballModes(releasePackGitReadyTarballPath, packed.files, "installed git-ready release pack CLI tarball");
@@ -604,13 +621,13 @@ try {
   await writeFile(path.join(releaseCheckSilentDir, "LICENSE"), "MIT License\n");
   const releaseCheckFakeBin = path.join(tmp, "release-check-silent-pack-bin");
   await mkdir(releaseCheckFakeBin, { recursive: true });
-  await writeFakeNpmSilentFailure(releaseCheckFakeBin);
+  const releaseCheckSilentNpmCli = await writeFakeNpmSilentFailure(releaseCheckFakeBin);
   const releaseCheckSilent = await runExpectFailure(
     process.execPath,
     [path.join(installedPackageDir, "scripts", "release-check.mjs"), "--metadata-only", "--root", releaseCheckSilentDir],
     {
       cwd: consumerDir,
-      env: { PATH: `${releaseCheckFakeBin}${path.delimiter}${process.env.PATH ?? ""}` }
+      env: { npm_execpath: releaseCheckSilentNpmCli }
     }
   );
   assertIncludes(releaseCheckSilent.stderr, "npm pack dry-run failed: exit code 42", "installed release-check silent npm failure output");
@@ -623,8 +640,22 @@ try {
   );
   await writeFile(path.join(privatePackageDir, "LICENSE"), "MIT License\n");
   await writeFile(path.join(privatePackageDir, "README.md"), "# Private demo\n");
-  await chmod(path.join(privatePackageDir, "README.md"), 0o755);
-  const privateReleaseStatus = await run(binPath, ["release", "status", "--cwd", privatePackageDir], { cwd: consumerDir });
+  let privateModeEnv;
+  if (process.platform === "win32") {
+    // Windows chmod cannot express this negative archive-mode fixture.
+    const npmCli = await writeFakeNpmDryRun(privatePackageDir, JSON.stringify([{ files: [
+      { path: "package.json", mode: 0o644 },
+      { path: "LICENSE", mode: 0o644 },
+      { path: "README.md", mode: 0o755 }
+    ] }]));
+    privateModeEnv = { npm_execpath: npmCli };
+  } else {
+    await chmod(path.join(privatePackageDir, "README.md"), 0o755);
+  }
+  const privateReleaseStatus = await run(binPath, ["release", "status", "--cwd", privatePackageDir], {
+    cwd: consumerDir,
+    env: privateModeEnv
+  });
   assertIncludes(privateReleaseStatus.stdout, "metadata: blocked", "installed private release status output");
   assertIncludes(privateReleaseStatus.stdout, "private: true", "installed private release status output");
   assertIncludes(privateReleaseStatus.stdout, "pack: blocked packed files have unexpected executable modes", "installed private release status output");
@@ -662,109 +693,109 @@ try {
   assertIncludes(onboard.stdout, "prodex onboarding", "installed onboard output");
   assertNotIncludes(onboard.stdout, "\t", "installed onboard output");
   assertIncludes(onboard.stdout, "\n4. ChatGPT Project HTTP MCP:", "installed onboard output");
-  assertIncludes(onboard.stdout, `prodex init --cwd ${consumerDir}`, "installed onboard output");
-  assertIncludes(onboard.stdout, `prodex doctor --cwd ${consumerDir}`, "installed onboard output");
-  assertIncludes(onboard.stdout, `prodex claude config --cwd ${consumerDir}`, "installed onboard output");
-  assertIncludes(onboard.stdout, `prodex claude prompt --cwd ${consumerDir}`, "installed onboard output");
-  assertIncludes(onboard.stdout, `prodex setup --cwd ${consumerDir} --token-ttl-hours 24`, "installed onboard output");
+  assertIncludes(onboard.stdout, `prodex init --cwd ${consumerDirArg}`, "installed onboard output");
+  assertIncludes(onboard.stdout, `prodex doctor --cwd ${consumerDirArg}`, "installed onboard output");
+  assertIncludes(onboard.stdout, `prodex claude config --cwd ${consumerDirArg}`, "installed onboard output");
+  assertIncludes(onboard.stdout, `prodex claude prompt --cwd ${consumerDirArg}`, "installed onboard output");
+  assertIncludes(onboard.stdout, `prodex setup --cwd ${consumerDirArg} --token-ttl-hours 24`, "installed onboard output");
   assertIncludes(
     onboard.stdout,
     "Keep this terminal open while ChatGPT uses the bridge; run the next commands in a second terminal.",
     "installed onboard output"
   );
-  assertIncludes(onboard.stdout, `prodex project prompt --cwd ${consumerDir}`, "installed onboard output");
+  assertIncludes(onboard.stdout, `prodex project prompt --cwd ${consumerDirArg}`, "installed onboard output");
   assertAppearsBefore(
     onboard.stdout,
     "HTTP MCP uses a short-lived token",
-    `prodex status --cwd ${consumerDir} --show-token --url-only`,
+    `prodex status --cwd ${consumerDirArg} --show-token --url-only`,
     "installed onboard output"
   );
   assertIncludes(onboard.stdout, "authorizes all enabled bridge tools", "installed onboard token authority warning");
   assertIncludes(onboard.stdout, "repo_write_file_apply", "installed onboard token authority warning");
-  assertIncludes(onboard.stdout, `cd ${consumerDir}`, "installed onboard output");
-  assertIncludes(onboard.stdout, `prodex pro ask --cwd ${consumerDir} "Review this repo"  # dry-run/manual preview`, "installed onboard output");
+  assertIncludes(onboard.stdout, `cd ${consumerDirArg}`, "installed onboard output");
+  assertIncludes(onboard.stdout, `prodex pro ask --cwd ${consumerDirArg} "Review this repo"  # dry-run/manual preview`, "installed onboard output");
   assertNotIncludes(onboard.stdout, "--file README.md", "installed onboard output");
   assertIncludes(onboard.stdout, "prodex pro browser login --dry-run  # preview, no browser opens", "installed onboard output");
   assertIncludes(onboard.stdout, "prodex pro browser login  # opens visible browser", "installed onboard output");
   assertIncludes(onboard.stdout, "prodex pro browser help", "installed onboard output");
-  assertIncludes(onboard.stdout, `prodex pro browser check --cwd ${consumerDir}`, "installed onboard output");
-  assertIncludes(onboard.stdout, `prodex pro browser ask --cwd ${consumerDir} "Review this repo"  # visible-browser send`, "installed onboard output");
-  assertIncludes(onboard.stdout, `prodex pro list --cwd ${consumerDir}`, "installed onboard output");
-  assertIncludes(onboard.stdout, `prodex pro latest --cwd ${consumerDir}`, "installed onboard output");
-  assertIncludes(onboard.stdout, `prodex results show latest --cwd ${consumerDir}`, "installed onboard output");
-  assertIncludes(onboard.stdout, `prodex results artifact latest --cwd ${consumerDir}`, "installed onboard output");
-  assertIncludes(onboard.stdout, `prodex results reseal <task-id> --confirm-current-result --cwd ${consumerDir}`, "installed onboard output");
+  assertIncludes(onboard.stdout, `prodex pro browser check --cwd ${consumerDirArg}`, "installed onboard output");
+  assertIncludes(onboard.stdout, `prodex pro browser ask --cwd ${consumerDirArg} "Review this repo"  # visible-browser send`, "installed onboard output");
+  assertIncludes(onboard.stdout, `prodex pro list --cwd ${consumerDirArg}`, "installed onboard output");
+  assertIncludes(onboard.stdout, `prodex pro latest --cwd ${consumerDirArg}`, "installed onboard output");
+  assertIncludes(onboard.stdout, `prodex results show latest --cwd ${consumerDirArg}`, "installed onboard output");
+  assertIncludes(onboard.stdout, `prodex results artifact latest --cwd ${consumerDirArg}`, "installed onboard output");
+  assertIncludes(onboard.stdout, `prodex results reseal <task-id> --confirm-current-result --cwd ${consumerDirArg}`, "installed onboard output");
   assertIncludes(onboard.stdout, "Cloudflare", "installed onboard output");
   assertIncludes(onboard.stdout, "usage-limit", "installed onboard output");
   assertNotIncludes(onboard.stdout, "prodex_token=", "installed onboard output");
   const sourceOnboard = await run(binPath, ["onboard", "--cwd", consumerDir, "--source-cli", installedSourceCli], { cwd: path.dirname(consumerDir) });
   assertNotIncludes(sourceOnboard.stdout, "\t", "installed source onboard output");
   assertIncludes(sourceOnboard.stdout, "\n4. ChatGPT Project HTTP MCP:", "installed source onboard output");
-  assertIncludes(sourceOnboard.stdout, `${sourcePrefix} init --cwd ${consumerDir}`, "installed source onboard output");
+  assertIncludes(sourceOnboard.stdout, `${sourcePrefix} init --cwd ${consumerDirArg}`, "installed source onboard output");
   assertIncludes(
     sourceOnboard.stdout,
-    `${sourcePrefix} doctor --cwd ${consumerDir} --source-cli ${installedSourceCli}`,
+    `${sourcePrefix} doctor --cwd ${consumerDirArg} --source-cli ${installedSourceCliArg}`,
     "installed source onboard output"
   );
   assertIncludes(
     sourceOnboard.stdout,
-    `${sourcePrefix} claude config --cwd ${consumerDir} --source-cli ${installedSourceCli}`,
+    `${sourcePrefix} claude config --cwd ${consumerDirArg} --source-cli ${installedSourceCliArg}`,
     "installed source onboard output"
   );
   assertIncludes(
     sourceOnboard.stdout,
-    `${sourcePrefix} claude prompt --cwd ${consumerDir} --source-cli ${installedSourceCli}`,
+    `${sourcePrefix} claude prompt --cwd ${consumerDirArg} --source-cli ${installedSourceCliArg}`,
     "installed source onboard output"
   );
-  assertIncludes(sourceOnboard.stdout, `${sourcePrefix} setup --cwd ${consumerDir} --token-ttl-hours 24`, "installed source onboard output");
+  assertIncludes(sourceOnboard.stdout, `${sourcePrefix} setup --cwd ${consumerDirArg} --token-ttl-hours 24`, "installed source onboard output");
   assertIncludes(
     sourceOnboard.stdout,
-    `${sourcePrefix} start --cwd ${consumerDir} --source-cli ${installedSourceCli}`,
-    "installed source onboard output"
-  );
-  assertIncludes(
-    sourceOnboard.stdout,
-    `${sourcePrefix} status --cwd ${consumerDir} --show-token --url-only --source-cli ${installedSourceCli}`,
-    "installed source onboard output"
-  );
-  assertIncludes(sourceOnboard.stdout, `${sourcePrefix} project prompt --cwd ${consumerDir} --source-cli ${installedSourceCli}`, "installed source onboard output");
-  assertIncludes(
-    sourceOnboard.stdout,
-    `${sourcePrefix} pro browser login --dry-run --source-cli ${installedSourceCli}  # preview, no browser opens`,
+    `${sourcePrefix} start --cwd ${consumerDirArg} --source-cli ${installedSourceCliArg}`,
     "installed source onboard output"
   );
   assertIncludes(
     sourceOnboard.stdout,
-    `${sourcePrefix} pro browser login --source-cli ${installedSourceCli}  # opens visible browser`,
+    `${sourcePrefix} status --cwd ${consumerDirArg} --show-token --url-only --source-cli ${installedSourceCliArg}`,
+    "installed source onboard output"
+  );
+  assertIncludes(sourceOnboard.stdout, `${sourcePrefix} project prompt --cwd ${consumerDirArg} --source-cli ${installedSourceCliArg}`, "installed source onboard output");
+  assertIncludes(
+    sourceOnboard.stdout,
+    `${sourcePrefix} pro browser login --dry-run --source-cli ${installedSourceCliArg}  # preview, no browser opens`,
     "installed source onboard output"
   );
   assertIncludes(
     sourceOnboard.stdout,
-    `${sourcePrefix} pro browser help --source-cli ${installedSourceCli}`,
+    `${sourcePrefix} pro browser login --source-cli ${installedSourceCliArg}  # opens visible browser`,
     "installed source onboard output"
   );
   assertIncludes(
     sourceOnboard.stdout,
-    `${sourcePrefix} pro browser check --source-cli ${installedSourceCli} --cwd ${consumerDir}`,
+    `${sourcePrefix} pro browser help --source-cli ${installedSourceCliArg}`,
     "installed source onboard output"
   );
   assertIncludes(
     sourceOnboard.stdout,
-    `${sourcePrefix} pro browser smoke --source-cli ${installedSourceCli} --cwd ${consumerDir}`,
+    `${sourcePrefix} pro browser check --source-cli ${installedSourceCliArg} --cwd ${consumerDirArg}`,
     "installed source onboard output"
   );
   assertIncludes(
     sourceOnboard.stdout,
-    `${sourcePrefix} pro browser ask --source-cli ${installedSourceCli} --cwd ${consumerDir} "Review this repo"  # visible-browser send`,
+    `${sourcePrefix} pro browser smoke --source-cli ${installedSourceCliArg} --cwd ${consumerDirArg}`,
     "installed source onboard output"
   );
-  assertIncludes(sourceOnboard.stdout, `${sourcePrefix} pro list --source-cli ${installedSourceCli} --cwd ${consumerDir}`, "installed source onboard output");
-  assertIncludes(sourceOnboard.stdout, `${sourcePrefix} pro latest --source-cli ${installedSourceCli} --cwd ${consumerDir}`, "installed source onboard output");
-  assertIncludes(sourceOnboard.stdout, `${sourcePrefix} results show latest --cwd ${consumerDir}`, "installed source onboard output");
-  assertIncludes(sourceOnboard.stdout, `${sourcePrefix} results artifact latest --cwd ${consumerDir}`, "installed source onboard output");
   assertIncludes(
     sourceOnboard.stdout,
-    `${sourcePrefix} results reseal <task-id> --confirm-current-result --cwd ${consumerDir}`,
+    `${sourcePrefix} pro browser ask --source-cli ${installedSourceCliArg} --cwd ${consumerDirArg} "Review this repo"  # visible-browser send`,
+    "installed source onboard output"
+  );
+  assertIncludes(sourceOnboard.stdout, `${sourcePrefix} pro list --source-cli ${installedSourceCliArg} --cwd ${consumerDirArg}`, "installed source onboard output");
+  assertIncludes(sourceOnboard.stdout, `${sourcePrefix} pro latest --source-cli ${installedSourceCliArg} --cwd ${consumerDirArg}`, "installed source onboard output");
+  assertIncludes(sourceOnboard.stdout, `${sourcePrefix} results show latest --cwd ${consumerDirArg}`, "installed source onboard output");
+  assertIncludes(sourceOnboard.stdout, `${sourcePrefix} results artifact latest --cwd ${consumerDirArg}`, "installed source onboard output");
+  assertIncludes(
+    sourceOnboard.stdout,
+    `${sourcePrefix} results reseal <task-id> --confirm-current-result --cwd ${consumerDirArg}`,
     "installed source onboard output"
   );
   assertNotIncludes(sourceOnboard.stdout, "prodex init --cwd", "installed source onboard output");
@@ -796,13 +827,13 @@ try {
   const missingSetupCwdStatus = await runExpectFailure(binPath, ["status", "--cwd", consumerDir], { cwd: path.dirname(consumerDir) });
   assertIncludes(
     missingSetupCwdStatus.stderr,
-    `Run \`prodex setup --cwd ${consumerDir}\` first.`,
+    `Run \`prodex setup --cwd ${consumerDirArg}\` first.`,
     "installed missing setup --cwd status output"
   );
   const missingSetupSourceStatus = await runExpectFailure(binPath, ["status", "--source-cli", installedSourceCli], { cwd: consumerDir });
   assertIncludes(
     missingSetupSourceStatus.stderr,
-    `Run \`node ${installedSourceCli} setup\` first.`,
+    `Run \`node ${installedSourceCliArg} setup\` first.`,
     "installed source missing setup status output"
   );
   assertNotIncludes(missingSetupSourceStatus.stderr, "Run `prodex setup`", "installed source missing setup status output");
@@ -811,17 +842,17 @@ try {
   });
   assertIncludes(
     missingSetupSourceCwdStatus.stderr,
-    `Run \`node ${installedSourceCli} setup --cwd ${consumerDir}\` first.`,
+    `Run \`node ${installedSourceCliArg} setup --cwd ${consumerDirArg}\` first.`,
     "installed source missing setup --cwd status output"
   );
   const missingBridgeSourceCwdCheck = await runExpectFailure(
     binPath,
-    ["pro", "browser", "check", "--cwd", consumerDir, "--source-cli", installedSourceCli, "--port", "65534", "--timeout-ms", "500"],
+    ["pro", "browser", "check", "--cwd", consumerDir, "--source-cli", installedSourceCli, "--port", unavailablePort, "--timeout-ms", "500"],
     { cwd: path.dirname(consumerDir) }
   );
   assertIncludes(
     missingBridgeSourceCwdCheck.stdout,
-    `bridge: missing (.bridge) - run \`node ${installedSourceCli} init --cwd ${consumerDir}\``,
+    `bridge: missing (.bridge) - run \`node ${installedSourceCliArg} init --cwd ${consumerDirArg}\``,
     "installed source product check --cwd bridge output"
   );
   const missingTunnelPublicUrl = await runExpectFailure(binPath, ["tunnel", "url"], { cwd: consumerDir });
@@ -846,7 +877,7 @@ try {
   );
   assertIncludes(
     missingSetupSourceTunnel.stderr,
-    `tunnel url requires local MCP setup. Run \`node ${installedSourceCli} setup\` first.`,
+    `tunnel url requires local MCP setup. Run \`node ${installedSourceCliArg} setup\` first.`,
     "installed source missing setup tunnel output"
   );
   assertNotIncludes(missingSetupSourceTunnel.stderr, "Run `prodex setup`", "installed source missing setup tunnel output");
@@ -859,38 +890,38 @@ try {
   assertIncludes(projectPrompt.stdout, "bridge_get_task", "installed project prompt output");
   assertIncludes(projectPrompt.stdout, "bridge_fetch_result", "installed project prompt output");
   assertIncludes(projectPrompt.stdout, "bridge_fetch_result_artifact", "installed project prompt output");
-  assertIncludes(projectPrompt.stdout, `prodex tasks list --status new --cwd ${consumerDir}`, "installed project prompt output");
-  assertIncludes(projectPrompt.stdout, `prodex tasks show <task-id> --cwd ${consumerDir}`, "installed project prompt output");
+  assertIncludes(projectPrompt.stdout, `prodex tasks list --status new --cwd ${consumerDirArg}`, "installed project prompt output");
+  assertIncludes(projectPrompt.stdout, `prodex tasks show <task-id> --cwd ${consumerDirArg}`, "installed project prompt output");
   assertIncludes(
     projectPrompt.stdout,
-    `prodex tasks complete <task-id> --cwd ${consumerDir} --summary "prodex MCP verification result" --artifact .bridge/artifacts/results/mcp-verification.md="prodex MCP verification artifact"`,
+    `prodex tasks complete <task-id> --cwd ${consumerDirArg} --summary "prodex MCP verification result" --artifact .bridge/artifacts/results/mcp-verification.md="prodex MCP verification artifact"`,
     "installed project prompt output"
   );
   assertIncludes(projectPrompt.stdout, "local completion done", "installed project prompt output");
-  assertIncludes(projectPrompt.stdout, `prodex status --cwd ${consumerDir}`, "installed project prompt output");
-  assertIncludes(projectPrompt.stdout, `prodex doctor --cwd ${consumerDir}`, "installed project prompt output");
+  assertIncludes(projectPrompt.stdout, `prodex status --cwd ${consumerDirArg}`, "installed project prompt output");
+  assertIncludes(projectPrompt.stdout, `prodex doctor --cwd ${consumerDirArg}`, "installed project prompt output");
   assertNotIncludes(projectPrompt.stdout, "prodex_token=", "installed project prompt output");
   const sourceProjectPrompt = await run(binPath, ["project", "prompt", "--cwd", consumerDir, "--source-cli", installedSourceCli], {
     cwd: path.dirname(consumerDir)
   });
-  assertIncludes(sourceProjectPrompt.stdout, `${sourcePrefix} tasks list --status new --cwd ${consumerDir}`, "installed source project prompt output");
-  assertIncludes(sourceProjectPrompt.stdout, `${sourcePrefix} tasks show <task-id> --cwd ${consumerDir}`, "installed source project prompt output");
+  assertIncludes(sourceProjectPrompt.stdout, `${sourcePrefix} tasks list --status new --cwd ${consumerDirArg}`, "installed source project prompt output");
+  assertIncludes(sourceProjectPrompt.stdout, `${sourcePrefix} tasks show <task-id> --cwd ${consumerDirArg}`, "installed source project prompt output");
   assertIncludes(
     sourceProjectPrompt.stdout,
-    `${sourcePrefix} tasks complete <task-id> --cwd ${consumerDir} --summary "prodex MCP verification result" --artifact .bridge/artifacts/results/mcp-verification.md="prodex MCP verification artifact"`,
+    `${sourcePrefix} tasks complete <task-id> --cwd ${consumerDirArg} --summary "prodex MCP verification result" --artifact .bridge/artifacts/results/mcp-verification.md="prodex MCP verification artifact"`,
     "installed source project prompt output"
   );
   assertIncludes(sourceProjectPrompt.stdout, "bridge_fetch_result_artifact", "installed source project prompt output");
-  assertIncludes(sourceProjectPrompt.stdout, `${sourcePrefix} status --cwd ${consumerDir}`, "installed source project prompt output");
-  assertIncludes(sourceProjectPrompt.stdout, `${sourcePrefix} doctor --cwd ${consumerDir}`, "installed source project prompt output");
+  assertIncludes(sourceProjectPrompt.stdout, `${sourcePrefix} status --cwd ${consumerDirArg}`, "installed source project prompt output");
+  assertIncludes(sourceProjectPrompt.stdout, `${sourcePrefix} doctor --cwd ${consumerDirArg}`, "installed source project prompt output");
   assertIncludes(
     sourceProjectPrompt.stdout,
-    `${sourcePrefix} status --cwd ${consumerDir} --source-cli ${installedSourceCli}`,
+    `${sourcePrefix} status --cwd ${consumerDirArg} --source-cli ${installedSourceCliArg}`,
     "installed source project prompt output"
   );
   assertIncludes(
     sourceProjectPrompt.stdout,
-    `${sourcePrefix} doctor --cwd ${consumerDir} --source-cli ${installedSourceCli}`,
+    `${sourcePrefix} doctor --cwd ${consumerDirArg} --source-cli ${installedSourceCliArg}`,
     "installed source project prompt output"
   );
   assertNotIncludes(sourceProjectPrompt.stdout, "prodex tasks list --status new", "installed source project prompt output");
@@ -902,32 +933,32 @@ try {
   assertIncludes(claudePrompt.stdout, "bridge_get_task", "installed Claude prompt output");
   assertIncludes(claudePrompt.stdout, "bridge_fetch_result", "installed Claude prompt output");
   assertIncludes(claudePrompt.stdout, "bridge_fetch_result_artifact", "installed Claude prompt output");
-  assertIncludes(claudePrompt.stdout, `prodex tasks list --status new --cwd ${consumerDir}`, "installed Claude prompt output");
-  assertIncludes(claudePrompt.stdout, `prodex tasks show <task-id> --cwd ${consumerDir}`, "installed Claude prompt output");
+  assertIncludes(claudePrompt.stdout, `prodex tasks list --status new --cwd ${consumerDirArg}`, "installed Claude prompt output");
+  assertIncludes(claudePrompt.stdout, `prodex tasks show <task-id> --cwd ${consumerDirArg}`, "installed Claude prompt output");
   assertIncludes(
     claudePrompt.stdout,
-    `prodex tasks complete <task-id> --cwd ${consumerDir} --summary "prodex Claude MCP verification result" --artifact .bridge/artifacts/results/claude-verification.md="prodex Claude MCP verification artifact"`,
+    `prodex tasks complete <task-id> --cwd ${consumerDirArg} --summary "prodex Claude MCP verification result" --artifact .bridge/artifacts/results/claude-verification.md="prodex Claude MCP verification artifact"`,
     "installed Claude prompt output"
   );
-  assertIncludes(claudePrompt.stdout, `prodex claude config --cwd ${consumerDir}`, "installed Claude prompt output");
-  assertIncludes(claudePrompt.stdout, `prodex doctor --cwd ${consumerDir}`, "installed Claude prompt output");
+  assertIncludes(claudePrompt.stdout, `prodex claude config --cwd ${consumerDirArg}`, "installed Claude prompt output");
+  assertIncludes(claudePrompt.stdout, `prodex doctor --cwd ${consumerDirArg}`, "installed Claude prompt output");
   assertNotIncludes(claudePrompt.stdout, "prodex_token=", "installed Claude prompt output");
   const sourceClaudePrompt = await run(binPath, ["claude", "prompt", "--cwd", consumerDir, "--source-cli", installedSourceCli], {
     cwd: path.dirname(consumerDir)
   });
-  assertIncludes(sourceClaudePrompt.stdout, `${sourcePrefix} tasks list --status new --cwd ${consumerDir}`, "installed source Claude prompt output");
-  assertIncludes(sourceClaudePrompt.stdout, `${sourcePrefix} tasks show <task-id> --cwd ${consumerDir}`, "installed source Claude prompt output");
+  assertIncludes(sourceClaudePrompt.stdout, `${sourcePrefix} tasks list --status new --cwd ${consumerDirArg}`, "installed source Claude prompt output");
+  assertIncludes(sourceClaudePrompt.stdout, `${sourcePrefix} tasks show <task-id> --cwd ${consumerDirArg}`, "installed source Claude prompt output");
   assertIncludes(
     sourceClaudePrompt.stdout,
-    `${sourcePrefix} tasks complete <task-id> --cwd ${consumerDir} --summary "prodex Claude MCP verification result" --artifact .bridge/artifacts/results/claude-verification.md="prodex Claude MCP verification artifact"`,
+    `${sourcePrefix} tasks complete <task-id> --cwd ${consumerDirArg} --summary "prodex Claude MCP verification result" --artifact .bridge/artifacts/results/claude-verification.md="prodex Claude MCP verification artifact"`,
     "installed source Claude prompt output"
   );
   assertIncludes(sourceClaudePrompt.stdout, "bridge_fetch_result_artifact", "installed source Claude prompt output");
-  assertIncludes(sourceClaudePrompt.stdout, `${sourcePrefix} claude config --cwd ${consumerDir} --source-cli ${installedSourceCli}`, "installed source Claude prompt output");
-  assertIncludes(sourceClaudePrompt.stdout, `${sourcePrefix} doctor --cwd ${consumerDir}`, "installed source Claude prompt output");
+  assertIncludes(sourceClaudePrompt.stdout, `${sourcePrefix} claude config --cwd ${consumerDirArg} --source-cli ${installedSourceCliArg}`, "installed source Claude prompt output");
+  assertIncludes(sourceClaudePrompt.stdout, `${sourcePrefix} doctor --cwd ${consumerDirArg}`, "installed source Claude prompt output");
   assertIncludes(
     sourceClaudePrompt.stdout,
-    `${sourcePrefix} doctor --cwd ${consumerDir} --source-cli ${installedSourceCli}`,
+    `${sourcePrefix} doctor --cwd ${consumerDirArg} --source-cli ${installedSourceCliArg}`,
     "installed source Claude prompt output"
   );
   assertNotIncludes(sourceClaudePrompt.stdout, "prodex tasks list --status new", "installed source Claude prompt output");
@@ -976,17 +1007,17 @@ try {
   });
   assertIncludes(
     sourceBrowserLoginGuide.stdout,
-    `1. Run \`${sourcePrefix} pro browser login --source-cli ${installedSourceCli}\` without \`--dry-run\` to open the dedicated Chrome window.`,
+    `1. Run \`${sourcePrefix} pro browser login --source-cli ${installedSourceCliArg}\` without \`--dry-run\` to open the dedicated Chrome window.`,
     "installed source browser login guide"
   );
   assertIncludes(
     sourceBrowserLoginGuide.stdout,
-    `Run \`${sourcePrefix} pro browser check --source-cli ${installedSourceCli}\` to confirm the session is reachable.`,
+    `Run \`${sourcePrefix} pro browser check --source-cli ${installedSourceCliArg}\` to confirm the session is reachable.`,
     "installed source browser login guide"
   );
   assertIncludes(
     sourceBrowserLoginGuide.stdout,
-    `Run \`${sourcePrefix} pro browser smoke --source-cli ${installedSourceCli}\` to verify a real Pro response path.`,
+    `Run \`${sourcePrefix} pro browser smoke --source-cli ${installedSourceCliArg}\` to verify a real Pro response path.`,
     "installed source browser login guide"
   );
   assertNotIncludes(sourceBrowserLoginGuide.stdout, "Run `prodex pro browser login`", "installed source browser login guide");
@@ -995,12 +1026,12 @@ try {
   });
   assertIncludes(
     sourceCwdBrowserLoginGuide.stdout,
-    `Run \`cd ${consumerDir} && ${sourcePrefix} pro browser check --source-cli ${installedSourceCli}\` to confirm the session is reachable.`,
+    `Run \`cd ${consumerDirArg} && ${sourcePrefix} pro browser check --source-cli ${installedSourceCliArg}\` to confirm the session is reachable.`,
     "installed source cwd browser login guide"
   );
   assertIncludes(
     sourceCwdBrowserLoginGuide.stdout,
-    `Run \`cd ${consumerDir} && ${sourcePrefix} pro browser smoke --source-cli ${installedSourceCli}\` to verify a real Pro response path.`,
+    `Run \`cd ${consumerDirArg} && ${sourcePrefix} pro browser smoke --source-cli ${installedSourceCliArg}\` to verify a real Pro response path.`,
     "installed source cwd browser login guide"
   );
   const customBrowserProfile = path.join(tmp, "custom-browser-profile");
@@ -1026,17 +1057,17 @@ try {
   );
   assertIncludes(
     customBrowserLoginGuide.stdout,
-    `${sourcePrefix} pro browser login --source-cli ${installedSourceCli} --profile-dir ${customBrowserProfile} --port 12345 --url https://chatgpt.com/g/g-demo/project --launch-timeout-ms 12000`,
+    `${sourcePrefix} pro browser login --source-cli ${installedSourceCliArg} --profile-dir ${shellQuotedForSmoke(customBrowserProfile)} --port 12345 --url https://chatgpt.com/g/g-demo/project --launch-timeout-ms 12000`,
     "installed custom browser login guide"
   );
   assertIncludes(
     customBrowserLoginGuide.stdout,
-    `${sourcePrefix} pro browser check --source-cli ${installedSourceCli} --port 12345`,
+    `${sourcePrefix} pro browser check --source-cli ${installedSourceCliArg} --port 12345`,
     "installed custom browser login guide"
   );
   assertIncludes(
     customBrowserLoginGuide.stdout,
-    `${sourcePrefix} pro browser smoke --source-cli ${installedSourceCli} --port 12345`,
+    `${sourcePrefix} pro browser smoke --source-cli ${installedSourceCliArg} --port 12345`,
     "installed custom browser login guide"
   );
   const browserHelp = await run(binPath, ["pro", "browser", "help"], { cwd: consumerDir });
@@ -1073,22 +1104,22 @@ try {
   const sourceBrowserHelp = await run(binPath, ["pro", "browser", "help", "--source-cli", installedSourceCli], { cwd: consumerDir });
   assertIncludes(
     sourceBrowserHelp.stdout,
-    `${sourcePrefix} pro browser login --source-cli ${installedSourceCli} [--cwd /absolute/path/to/repo] [--dry-run]`,
+    `${sourcePrefix} pro browser login --source-cli ${installedSourceCliArg} [--cwd /absolute/path/to/repo] [--dry-run]`,
     "installed source browser help"
   );
   assertIncludes(
     sourceBrowserHelp.stdout,
-    `${sourcePrefix} pro browser check --source-cli ${installedSourceCli}`,
+    `${sourcePrefix} pro browser check --source-cli ${installedSourceCliArg}`,
     "installed source browser help"
   );
   assertIncludes(
     sourceBrowserHelp.stdout,
-    `${sourcePrefix} pro browser smoke --source-cli ${installedSourceCli} [--cwd /absolute/path/to/repo]`,
+    `${sourcePrefix} pro browser smoke --source-cli ${installedSourceCliArg} [--cwd /absolute/path/to/repo]`,
     "installed source browser help"
   );
   assertIncludes(
     sourceBrowserHelp.stdout,
-    `${sourcePrefix} pro browser ask --source-cli ${installedSourceCli} [--cwd /absolute/path/to/repo] [--session-key id] [--port 9333] [--timeout-ms 300000] [--busy-wait-ms 600000] [--target-url url --confirm-target] [--new-chat] [--continue | --continue-task task_id] [--temporary] [--allow-model-fallback] [--stdin] [--json] [--auto-login|--no-auto-login] [--file path] [--attach path] [--tool deep-research|web-search|create-image] [--model Pro] [--pro-mode 기본|확장] [--effort 즉시|중간|높음|"매우 높음"|Max|Ultra|Pro] [--project "name" | --project-new "name"] "prompt"`,
+    `${sourcePrefix} pro browser ask --source-cli ${installedSourceCliArg} [--cwd /absolute/path/to/repo] [--session-key id] [--port 9333] [--timeout-ms 300000] [--busy-wait-ms 600000] [--target-url url --confirm-target] [--new-chat] [--continue | --continue-task task_id] [--temporary] [--allow-model-fallback] [--stdin] [--json] [--auto-login|--no-auto-login] [--file path] [--attach path] [--tool deep-research|web-search|create-image] [--model Pro] [--pro-mode 기본|확장] [--effort 즉시|중간|높음|"매우 높음"|Max|Ultra|Pro] [--project "name" | --project-new "name"] "prompt"`,
     "installed source browser help"
   );
   assertIncludes(
@@ -1103,17 +1134,17 @@ try {
     });
     assertIncludes(
       sourceBrowserSubcommandHelp.stdout,
-      `${sourcePrefix} pro browser login --source-cli ${installedSourceCli} [--cwd /absolute/path/to/repo] [--dry-run]`,
+      `${sourcePrefix} pro browser login --source-cli ${installedSourceCliArg} [--cwd /absolute/path/to/repo] [--dry-run]`,
       `installed source browser ${subcommand} help`
     );
     assertIncludes(
       sourceBrowserSubcommandHelp.stdout,
-      `${sourcePrefix} pro browser smoke --source-cli ${installedSourceCli} [--cwd /absolute/path/to/repo]`,
+      `${sourcePrefix} pro browser smoke --source-cli ${installedSourceCliArg} [--cwd /absolute/path/to/repo]`,
       `installed source browser ${subcommand} help`
     );
     assertIncludes(
       sourceBrowserSubcommandHelp.stdout,
-      `${sourcePrefix} pro browser ask --source-cli ${installedSourceCli}`,
+      `${sourcePrefix} pro browser ask --source-cli ${installedSourceCliArg}`,
       `installed source browser ${subcommand} help`
     );
     assertNotIncludes(sourceBrowserSubcommandHelp.stdout, "Use `prodex pro ask`", `installed source browser ${subcommand} help`);
@@ -1122,7 +1153,7 @@ try {
     cwd: consumerDir
   });
   assertIncludes(invalidBrowserPort.stderr, "--port must be an integer from 1 to 65535", "installed invalid browser port output");
-  const invalidBrowserTimeout = await runExpectFailure(binPath, ["pro", "browser", "check", "--port", "65534", "--timeout-ms", "0"], {
+  const invalidBrowserTimeout = await runExpectFailure(binPath, ["pro", "browser", "check", "--port", unavailablePort, "--timeout-ms", "0"], {
     cwd: consumerDir
   });
   assertIncludes(invalidBrowserTimeout.stderr, "--timeout-ms must be a positive integer", "installed invalid browser timeout output");
@@ -1140,7 +1171,7 @@ try {
   });
   assertIncludes(invalidProAskPort.stderr, "--port must be an integer from 1 to 65535", "installed invalid pro browser ask port output");
   await assertMissingFile(path.join(consumerDir, ".bridge"), "installed consumer bridge after invalid pro browser ask port");
-  const invalidProAskTimeout = await runExpectFailure(binPath, ["pro", "browser", "ask", "--port", "65534", "--timeout-ms", "0", "Review this"], {
+  const invalidProAskTimeout = await runExpectFailure(binPath, ["pro", "browser", "ask", "--port", unavailablePort, "--timeout-ms", "0", "Review this"], {
     cwd: consumerDir
   });
   assertIncludes(invalidProAskTimeout.stderr, "--timeout-ms must be a positive integer", "installed invalid pro browser ask timeout output");
@@ -1177,7 +1208,7 @@ try {
       "--cwd",
       browserAskCwdTarget,
       "--port",
-      "65534",
+      unavailablePort,
       "--timeout-ms",
       "500",
       "--source-cli",
@@ -1237,7 +1268,7 @@ try {
   );
   assertIncludes(confirmWithoutTarget.stderr, "--confirm-target requires --target-url", "installed pro browser ask target confirmation guard");
   await assertMissingFile(path.join(confirmWithoutTargetDir, ".bridge"), "installed confirm-without-target bridge");
-  const browserSmoke = await runExpectFailure(binPath, ["pro", "browser", "smoke", "--port", "65534", "--timeout-ms", "500"], {
+  const browserSmoke = await runExpectFailure(binPath, ["pro", "browser", "smoke", "--port", unavailablePort, "--timeout-ms", "500"], {
     cwd: consumerDir,
     timeout: 60_000
   });
@@ -1253,7 +1284,7 @@ try {
   await mkdir(browserSmokeLauncher, { recursive: true });
   const browserSmokeCwd = await runExpectFailure(
     binPath,
-    ["pro", "browser", "smoke", "--cwd", browserSmokeCwdTarget, "--port", "65534", "--timeout-ms", "500", "--source-cli", installedSourceCli],
+    ["pro", "browser", "smoke", "--cwd", browserSmokeCwdTarget, "--port", unavailablePort, "--timeout-ms", "500", "--source-cli", installedSourceCli],
     {
       cwd: browserSmokeLauncher,
       timeout: 60_000
@@ -1279,7 +1310,7 @@ try {
   await mkdir(browserSmokeNoSourceLauncher, { recursive: true });
   const browserSmokeCwdNoSource = await runExpectFailure(
     binPath,
-    ["pro", "browser", "smoke", "--cwd", browserSmokeCwdNoSourceTarget, "--port", "65534", "--timeout-ms", "500"],
+    ["pro", "browser", "smoke", "--cwd", browserSmokeCwdNoSourceTarget, "--port", unavailablePort, "--timeout-ms", "500"],
     {
       cwd: browserSmokeNoSourceLauncher,
       timeout: 60_000
@@ -1298,7 +1329,7 @@ try {
     "- next_step: Leave the existing browser open",
     "installed pro browser smoke cwd no-source blocker output"
   );
-  const browserCheck = await runExpectFailure(binPath, ["pro", "browser", "check", "--port", "65534", "--timeout-ms", "500"], {
+  const browserCheck = await runExpectFailure(binPath, ["pro", "browser", "check", "--port", unavailablePort, "--timeout-ms", "500"], {
     cwd: consumerDir,
     timeout: 60_000
   });
@@ -1307,7 +1338,7 @@ try {
   assertNotIncludes(browserCheck.stdout, "pro browser login", "installed pro browser check output");
   const sourceBrowserCheck = await runExpectFailure(
     binPath,
-    ["pro", "browser", "check", "--port", "65534", "--timeout-ms", "500", "--source-cli", installedSourceCli],
+    ["pro", "browser", "check", "--port", unavailablePort, "--timeout-ms", "500", "--source-cli", installedSourceCli],
     {
       cwd: consumerDir,
       timeout: 60_000
@@ -1324,7 +1355,7 @@ try {
   await writeFile(path.join(corruptSourceCheckDir, ".bridge", "config.local.json"), "{not json", "utf8");
   const corruptSourceBrowserCheck = await runExpectFailure(
     binPath,
-    ["pro", "browser", "check", "--port", "65534", "--timeout-ms", "500", "--source-cli", installedSourceCli],
+    ["pro", "browser", "check", "--port", unavailablePort, "--timeout-ms", "500", "--source-cli", installedSourceCli],
     {
       cwd: corruptSourceCheckDir,
       timeout: 60_000
@@ -1332,7 +1363,7 @@ try {
   );
   assertIncludes(
     corruptSourceBrowserCheck.stdout,
-    `config: failed local MCP config is corrupt. Run \`node ${installedSourceCli} setup\` to replace .bridge/config.local.json.`,
+    `config: failed local MCP config is corrupt. Run \`node ${installedSourceCliArg} setup\` to replace .bridge/config.local.json.`,
     "installed corrupt source pro browser check output"
   );
   assertNotIncludes(corruptSourceBrowserCheck.stdout, "Run `prodex setup`", "installed corrupt source pro browser check output");
@@ -1348,7 +1379,7 @@ try {
   );
   const cwdBrowserCheck = await runExpectFailure(
     binPath,
-    ["pro", "browser", "check", "--cwd", productCheckTargetDir, "--port", "65534", "--timeout-ms", "500"],
+    ["pro", "browser", "check", "--cwd", productCheckTargetDir, "--port", unavailablePort, "--timeout-ms", "500"],
     {
       cwd: productCheckLauncherDir,
       timeout: 60_000
@@ -1369,7 +1400,7 @@ try {
     ["status", "check"],
     ["doctor", "check"]
   ]) {
-    const staleAlias = await runExpectFailure(binPath, ["pro", "browser", alias, "--port", "65534", "--timeout-ms", "1"], {
+    const staleAlias = await runExpectFailure(binPath, ["pro", "browser", alias, "--port", unavailablePort, "--timeout-ms", "1"], {
       cwd: consumerDir
     });
     assertIncludes(staleAlias.stderr, `Use \`prodex pro browser ${replacement}\``, `installed pro browser ${alias} alias guard`);
@@ -1489,7 +1520,7 @@ try {
 }
 
 async function packPackage(destination) {
-  const { stdout } = await run(npmCommand, ["pack", "--json", "--pack-destination", destination], {
+  const { stdout } = await execNpm(["pack", "--json", "--pack-destination", destination], {
     cwd: repoRoot,
     timeout: 120_000,
     maxBuffer: 20 * 1024 * 1024
@@ -1507,14 +1538,18 @@ async function packPackage(destination) {
 function assertPackageFileScope(files) {
   const paths = files.map((file) => file.path);
   const allowedExact = new Set([
+    "prodex.mjs",
     "LICENSE",
     "README.md",
+    "SECURITY.md",
     "docs/claude.md",
     "docs/clients.md",
     "docs/http-mcp.md",
     "docs/cli-reference.md",
     "docs/releasing.md",
+    "docs/platform-verification.md",
     "package.json",
+    "scripts/npm-command.mjs",
     "scripts/release-check.mjs",
     "scripts/release-pack.mjs"
   ]);
@@ -1527,18 +1562,27 @@ function assertPackageFileScope(files) {
   if (unexpected.length > 0) {
     throw new Error(`packed files unexpectedly included non-public paths: ${unexpected.slice(0, 10).join(", ")}`);
   }
+  const bin = files.find((file) => file.path === "prodex.mjs");
+  if (typeof bin?.mode !== "number" || (bin.mode & 0o111) === 0) {
+    throw new Error("packed prodex.mjs bin must be executable");
+  }
 }
 
 async function assertInstalledReleasePackTarballModes(tarballPath, packedFiles, label) {
   const consumer = await mkdtemp(path.join(tmp, "release-pack-consumer-"));
   await writeFile(path.join(consumer, "package.json"), `${JSON.stringify({ private: true }, null, 2)}\n`, "utf8");
-  await run(npmCommand, ["install", "--ignore-scripts", "--no-audit", "--no-fund", "--package-lock=false", tarballPath], {
+  await execNpm(["install", "--ignore-scripts", "--no-audit", "--no-fund", "--package-lock=false", tarballPath], {
     cwd: consumer,
     timeout: 120_000,
     maxBuffer: 20 * 1024 * 1024
   });
   const installedRoot = path.join(consumer, "node_modules", "@youdie006", "prodex");
   const installedPackageJson = JSON.parse(await readFile(path.join(installedRoot, "package.json"), "utf8"));
+  if (process.platform === "win32") {
+    const launched = await execNpm(["exec", "--offline", "--no", "--", "prodex", "--version"], { cwd: consumer, timeout: 30_000 });
+    if (launched.stdout.trim() !== installedPackageJson.version) throw new Error(`${label} Windows installed bin did not execute`);
+    return;
+  }
   const binPaths = packageBinPaths(installedPackageJson);
   for (const file of packedFiles) {
     const packagePath = normalizePackagePath(file.path);
@@ -1938,7 +1982,7 @@ async function smokeInstalledProBlockedConsult(binPath, cwd) {
   assertIncludes(latest.stdout, "- code: browser_control_unavailable", "installed pro latest blocked output");
   assertIncludes(latest.stdout, "- retryable: false", "installed pro latest blocked output");
   assertNotIncludes(latest.stdout, "pro browser login", "installed pro latest blocked output");
-  const check = await runExpectFailure(binPath, ["pro", "browser", "check", "--port", "65534", "--timeout-ms", "500"], { cwd, timeout: 60_000 });
+  const check = await runExpectFailure(binPath, ["pro", "browser", "check", "--port", unavailablePort, "--timeout-ms", "500"], { cwd, timeout: 60_000 });
   assertIncludes(check.stdout, `latest_pro: blocked ${taskId}`, "installed pro browser check blocked output");
   assertNotIncludes(check.stdout, `latest_pro: ok ${taskId} blocked`, "installed pro browser check blocked output");
   return taskId;
@@ -2111,13 +2155,13 @@ async function smokeInstalledReleaseGitReadiness(binPath, tmp, launcherCwd) {
   await writeFile(path.join(malformedPackDir, "LICENSE"), "MIT License\n");
   const fakeBin = path.join(tmp, "release-malformed-pack-bin");
   await mkdir(fakeBin, { recursive: true });
-  await writeFakeNpmDryRun(
+  const malformedNpmCli = await writeFakeNpmDryRun(
     fakeBin,
     '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":420},{"mode":420}]}]\n'
   );
   const malformedPack = await run(binPath, ["release", "status", "--cwd", malformedPackDir], {
     cwd: launcherCwd,
-    env: { PATH: `${fakeBin}${path.delimiter}${process.env.PATH ?? ""}` }
+    env: { npm_execpath: malformedNpmCli }
   });
   assertIncludes(malformedPack.stdout, "metadata: ok", "installed release status malformed pack output");
   assertIncludes(malformedPack.stdout, "pack: blocked npm pack dry-run failed", "installed release status malformed pack output");
@@ -2133,10 +2177,10 @@ async function smokeInstalledReleaseGitReadiness(binPath, tmp, launcherCwd) {
   await writeFile(path.join(silentPackDir, "LICENSE"), "MIT License\n");
   const silentFakeBin = path.join(tmp, "release-silent-pack-bin");
   await mkdir(silentFakeBin, { recursive: true });
-  await writeFakeNpmSilentFailure(silentFakeBin);
+  const silentNpmCli = await writeFakeNpmSilentFailure(silentFakeBin);
   const silentPack = await run(binPath, ["release", "status", "--cwd", silentPackDir], {
     cwd: launcherCwd,
-    env: { PATH: `${silentFakeBin}${path.delimiter}${process.env.PATH ?? ""}` }
+    env: { npm_execpath: silentNpmCli }
   });
   assertIncludes(silentPack.stdout, "metadata: ok", "installed release status silent pack output");
   assertIncludes(
@@ -2159,13 +2203,13 @@ async function smokeInstalledReleaseGitReadiness(binPath, tmp, launcherCwd) {
   await symlink(outsideReadme, path.join(symlinkPackDir, "README.md"));
   const symlinkFakeBin = path.join(tmp, "release-symlink-pack-bin");
   await mkdir(symlinkFakeBin, { recursive: true });
-  await writeFakeNpmDryRun(
+  const symlinkNpmCli = await writeFakeNpmDryRun(
     symlinkFakeBin,
     '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":420},{"path":"README.md","mode":420}]}]\n'
   );
   const symlinkPack = await run(binPath, ["release", "status", "--cwd", symlinkPackDir], {
     cwd: launcherCwd,
-    env: { PATH: `${symlinkFakeBin}${path.delimiter}${process.env.PATH ?? ""}` }
+    env: { npm_execpath: symlinkNpmCli }
   });
   assertIncludes(symlinkPack.stdout, "metadata: ok", "installed release status symlink pack output");
   assertIncludes(
@@ -2278,9 +2322,10 @@ async function createReleaseGitFixture(cwd, options) {
   await mkdir(path.join(cwd, "scripts"), { recursive: true });
   await writeFile(
     path.join(cwd, "package.json"),
-    `${JSON.stringify({ name: path.basename(cwd), version: "1.0.0", license: "MIT", files: ["LICENSE", "scripts/release-check.mjs"] }, null, 2)}\n`
+    `${JSON.stringify({ name: path.basename(cwd), version: "1.0.0", license: "MIT", files: ["LICENSE", "scripts/npm-command.mjs", "scripts/release-check.mjs"] }, null, 2)}\n`
   );
   await writeFile(path.join(cwd, "LICENSE"), "MIT License\n");
+  await writeFile(path.join(cwd, "scripts", "npm-command.mjs"), await readFile(path.join(repoRoot, "scripts", "npm-command.mjs"), "utf8"));
   await writeFile(path.join(cwd, "scripts", "release-check.mjs"), await readFile(path.join(repoRoot, "scripts", "release-check.mjs"), "utf8"));
   await execFileAsync("git", ["init"], { cwd });
   await execFileAsync("git", ["config", "user.email", "release@example.com"], { cwd });
@@ -2317,23 +2362,13 @@ async function initPackageSmokeReleaseGitReadyRepo(cwd) {
 async function writeFakeNpmDryRun(binDir, stdout) {
   const script = path.join(binDir, "fake-npm.mjs");
   await writeFile(script, `process.stdout.write(${JSON.stringify(stdout)});\n`);
-  await writeFakeNpmLauncher(binDir, script);
+  return script;
 }
 
 async function writeFakeNpmSilentFailure(binDir) {
   const script = path.join(binDir, "fake-npm-silent-failure.mjs");
   await writeFile(script, "process.exit(42);\n");
-  await writeFakeNpmLauncher(binDir, script);
-}
-
-async function writeFakeNpmLauncher(binDir, script) {
-  const commandPath = path.join(binDir, npmCommand);
-  if (process.platform === "win32") {
-    await writeFile(commandPath, `@echo off\r\n"${process.execPath}" "${script}" %*\r\n`);
-    return;
-  }
-  await writeFile(commandPath, `#!/bin/sh\nexec "${process.execPath}" "${script}" "$@"\n`);
-  await chmod(commandPath, 0o755);
+  return script;
 }
 
 async function smokeStdioMcp(binPath, cwd) {
@@ -2752,7 +2787,7 @@ async function smokeInstalledHttpOnboarding(binPath, cwd) {
   assertNotIncludes(nonExpiringStatus.stdout, '"token_status": "none"', "installed non-expiring status output");
   const nonExpiringProductCheck = await runExpectFailure(
     binPath,
-    ["pro", "browser", "check", "--cwd", nonExpiringCwd, "--port", "65534", "--timeout-ms", "500"],
+    ["pro", "browser", "check", "--cwd", nonExpiringCwd, "--port", unavailablePort, "--timeout-ms", "500"],
     { cwd: launcherCwd }
   );
   const nonExpiringProductCheckOutput = `${nonExpiringProductCheck.stdout}\n${nonExpiringProductCheck.stderr}`;
@@ -2763,12 +2798,12 @@ async function smokeInstalledHttpOnboarding(binPath, cwd) {
   );
   assertIncludes(
     nonExpiringProductCheckOutput,
-    `rerun \`prodex setup --cwd ${nonExpiringCwd} --token-ttl-hours <hours>\``,
+    `rerun \`prodex setup --cwd ${shellQuotedForSmoke(nonExpiringCwd)} --token-ttl-hours <hours>\``,
     "installed non-expiring product check output"
   );
   assertIncludes(
     nonExpiringProductCheckOutput,
-    `bridge: missing (.bridge) - run \`prodex init --cwd ${nonExpiringCwd}\``,
+    `bridge: missing (.bridge) - run \`prodex init --cwd ${shellQuotedForSmoke(nonExpiringCwd)}\``,
     "installed non-expiring product check output"
   );
   assertNotIncludes(nonExpiringProductCheckOutput, nonExpiringToken, "installed non-expiring product check output");
@@ -2882,7 +2917,8 @@ async function smokeInstalledHttpOnboarding(binPath, cwd) {
   );
   assertIncludes(invalidTunnelScheme.stderr, "--public-url must use http or https", "installed tunnel url invalid scheme output");
 
-  const child = spawn(binPath, ["start", "--cwd", cwd], {
+  const launch = resolveDirectLaunch(binPath, ["start", "--cwd", cwd]);
+  const child = spawn(launch.command, launch.args, {
     cwd: launcherCwd,
     stdio: ["ignore", "pipe", "pipe"]
   });
@@ -3150,13 +3186,14 @@ async function terminateChild(child, stdout, stderr) {
     return;
   }
   const exit = new Promise((resolve) => child.once("exit", (code, signal) => resolve({ code, signal })));
-  child.kill("SIGTERM");
+  const terminationRequested = child.kill("SIGTERM");
   const result = await withTimeout(
     exit,
     10_000,
     "Timed out stopping installed HTTP server"
   );
-  if (result.code !== 0 && result.signal !== "SIGTERM") {
+  const expectedTermination = process.platform === "win32" ? terminationRequested : result.signal === "SIGTERM";
+  if (result.code !== 0 && !expectedTermination) {
     throw new Error(
       `Installed HTTP server exited unexpectedly with code=${result.code} signal=${result.signal}. stdout:\n${redactSmokeSecrets(stdout)}\nstderr:\n${redactSmokeSecrets(stderr)}`
     );
@@ -3164,12 +3201,20 @@ async function terminateChild(child, stdout, stderr) {
 }
 
 async function run(command, args, options = {}) {
-  return execFileAsync(command, args, {
+  const launch = resolveDirectLaunch(command, args);
+  return execFileAsync(launch.command, launch.args, {
     timeout: options.timeout ?? 30_000,
     maxBuffer: options.maxBuffer ?? 5 * 1024 * 1024,
     cwd: options.cwd,
-    env: options.env ? { ...process.env, ...options.env } : undefined
+    env: options.env ? normalizeNpmEnvironment({ ...process.env, ...options.env }) : undefined
   });
+}
+
+function resolveDirectLaunch(command, args) {
+  const nodeEntrypoint = nodeEntrypointsByCommand.get(command);
+  return nodeEntrypoint
+    ? { command: process.execPath, args: [nodeEntrypoint, ...args] }
+    : { command, args };
 }
 
 async function runExpectFailure(command, args, options = {}) {
@@ -3416,7 +3461,9 @@ function normalizeUsefulAbsolutePath(candidate) {
 }
 
 function shellQuotedForSmoke(value) {
-  return /^[A-Za-z0-9_./:@=-]+$/.test(value) ? value : `'${value.replaceAll("'", "'\\''")}'`;
+  const shellSafe = /^[A-Za-z0-9_./:@=-]+$/.test(value);
+  if (shellSafe && (process.platform !== "win32" || !value.startsWith("@"))) return value;
+  return `'${value.replaceAll("'", process.platform === "win32" ? "''" : "'\\''")}'`;
 }
 
 function assertAppearsBefore(text, earlier, later, label) {

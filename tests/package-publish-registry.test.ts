@@ -1,14 +1,11 @@
-import { execFile } from "node:child_process";
 import { createServer } from "node:http";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { promisify } from "node:util";
 import { afterEach, expect, it, vi } from "vitest";
 // @ts-expect-error - the packaging helper is a dependency-free Node script
 import { publishTarballDryRun } from "../scripts/npm-dry-run.mjs";
-
-const run = promisify(execFile);
+import { execNpm } from "../scripts/npm-command.mjs";
 
 afterEach(() => vi.unstubAllEnvs());
 
@@ -35,8 +32,7 @@ it.each(["local", "direct-token", "github-request"])("isolates a tarball dry-run
       name: "@youdie006/prodex", version: "0.40.6", license: "MIT",
       publishConfig: { access: "public" }
     }));
-    const npm = process.platform === "win32" ? "npm.cmd" : "npm";
-    const packed = await run(npm, ["pack", "--json", "--ignore-scripts"], { cwd, timeout: 30_000 });
+    const packed = await execNpm(["pack", "--json", "--ignore-scripts"], { cwd, timeout: 30_000 });
     const tarball = path.join(cwd, JSON.parse(packed.stdout)[0].filename);
     const result = await publishTarballDryRun(tarball);
     expect(`${result.stdout}\n${result.stderr}`).toContain("prodex@0.40.6");
