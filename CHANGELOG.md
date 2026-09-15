@@ -4,6 +4,16 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Fixed
+- Continuing an already-ready conversation reuses its composer instead of forcing a full page reload. A slow continuation navigation now reports `thread_not_ready` without claiming the conversation was deleted or recommending a new conversation. Known authentication and protection blockers keep their own classification; no prompt is sent before the target is ready.
+
+### Verification And Limits
+- PASS: 308 tests across browser, continuation, CLI send, warning persistence and CDP timeout guidance; typecheck; build; whitespace check. New regressions first failed on unwanted reloads, permanent timeout classification, lost protection classification and substring-only thread matching. An initial DOM fixture omitted a real composer container; it was corrected before verifying the thread-match regressions.
+- WSL virtual-display Chrome reused the saved login without a desktop window. The actual attached MCP returned a verified `gpt-6-pro` answer; its old continuation path then failed twice before sending. The corrected local build continued the exact task and returned `43` from the preceding answer's `42`, without restating that number in the question. Request identity, Pro evidence, exact thread equality and saved artifact hashes passed.
+- This source correction is not yet a published package or an update to the already-running MCP. Installed CLI remains 0.40.17 and the attached MCP remains 0.40.16; no Codex/MCP restart was performed. Virtual display is headed Chrome on Linux/WSL, not verified pure headless access. M3's earlier headless blocker is unchanged. Detailed runtime evidence is appended to the v0.40.17 GitHub Release record.
+
 ## 0.40.17
 
 ### Fixed

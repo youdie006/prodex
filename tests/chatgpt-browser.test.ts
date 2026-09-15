@@ -19,6 +19,7 @@ import {
   assertVisibleChatGptTab,
   ChatGptBrowserBlockerError,
   chatGptUrlsReferToSameTarget,
+  chatGptThreadReadyExpression,
   chatGptRequestMatchesUserTurn,
   idleChatGptNavigationExpression,
   chatGptBlockerErrorFromAnswerState,
@@ -226,6 +227,85 @@ Show more`;
     await vi.advanceTimersByTimeAsync(30_000);
     await expect(send).resolves.toMatchObject({ answer: "correct answer", requestVerified: true });
     expect(reads).toBeGreaterThan(1);
+  });
+
+  it.each([
+    "https://chatgpt.com/c/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+    "https://chatgpt.com/g/g-p-1234567890123456-project/c/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+  ])("continues an already-ready exact thread without reloading it: %s", async (thread) => {
+    vi.useFakeTimers();
+    const evaluations = installFakeChatGptSendCdp(thread, [
+      fakeAnswerState(thread, "previous answer", false),
+      { ...fakeAnswerState(thread, "continued answer", false), userMessageCount: 2, assistantMessageCount: 2 }
+    ]);
+    const base = FakeCdpWebSocket.evaluate;
+    FakeCdpWebSocket.evaluate = (expression) =>
+      expression === chatGptThreadReadyExpression(conversationIdFromThreadUrl(thread)!) ? true : base(expression);
+
+    const send = sendChatGptPrompt({ port: 19338, prompt: "continue this", targetUrl: thread, navigateToTargetUrl: true, timeoutMs: 10_000 });
+    void send.catch(() => undefined);
+    await vi.advanceTimersByTimeAsync(20_000);
+    await expect(send).resolves.toMatchObject({ answer: "continued answer", requestVerified: true });
+    expect(evaluations.some((expression) => expression.includes("location.assign("))).toBe(false);
+  });
+
+  it("navigates once when a resolved continuation is not the current ready thread", async () => {
+    vi.useFakeTimers();
+    const thread = "https://chatgpt.com/c/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+    const evaluations = installFakeChatGptSendCdp(thread, [
+      fakeAnswerState(thread, "previous answer", false),
+      { ...fakeAnswerState(thread, "continued answer", false), userMessageCount: 2, assistantMessageCount: 2 }
+    ]);
+    const base = FakeCdpWebSocket.evaluate;
+    let navigated = false;
+    FakeCdpWebSocket.evaluate = (expression) => {
+      if (expression === chatGptThreadReadyExpression(conversationIdFromThreadUrl(thread)!)) return navigated;
+      if (expression.includes("location.assign(")) navigated = true;
+      return base(expression);
+    };
+    const send = sendChatGptPrompt({ port: 19338, prompt: "continue this", targetUrl: thread, navigateToTargetUrl: true, timeoutMs: 10_000 });
+    void send.catch(() => undefined);
+    await vi.advanceTimersByTimeAsync(20_000);
+    await expect(send).resolves.toMatchObject({ answer: "continued answer", requestVerified: true });
+    expect(evaluations.filter((expression) => expression.includes("location.assign("))).toHaveLength(1);
+  });
+
+  it.each([
+    { blocked: false, code: "thread_not_ready" },
+    { blocked: true, code: "cloudflare_check" }
+  ])("reports $code when continuation navigation does not become ready, without typing", async ({ blocked, code }) => {
+    vi.useFakeTimers();
+    const thread = "https://chatgpt.com/c/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+    const evaluations = installFakeChatGptSendCdp(thread, [fakeAnswerState(thread, "previous answer", false)]);
+    const base = FakeCdpWebSocket.evaluate;
+    let navigated = false;
+    FakeCdpWebSocket.evaluate = (expression) => {
+      if (expression === chatGptThreadReadyExpression(conversationIdFromThreadUrl(thread)!)) return false;
+      if (expression.includes("location.assign(")) navigated = true;
+      const value = base(expression);
+      if (navigated && expression.includes("visibilityState: document.visibilityState")) {
+        return { ...(value as object), hasComposer: false, blockerScanTextSample: blocked ? "Verifying you are human" : "" };
+      }
+      return value;
+    };
+    const send = sendChatGptPrompt({ port: 19338, prompt: "continue this", targetUrl: thread, navigateToTargetUrl: true, timeoutMs: 20_000 });
+    const rejection = expect(send).rejects.toMatchObject({ blocker: { code, retryable: true } });
+    void rejection.catch(() => undefined);
+    await vi.advanceTimersByTimeAsync(30_000);
+    await rejection;
+    expect(evaluations.some((expression) => expression.includes("actualText: raw.slice"))).toBe(false);
+  });
+
+  it.each([
+    ["https://chatgpt.com/c/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", true],
+    ["https://chatgpt.com/g/g-p-1234567890123456-renamed/c/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee?x=1", true],
+    ["https://chatgpt.com/?next=aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", false],
+    ["https://chatgpt.com/c/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee0", false]
+  ])("requires the exact conversation path for ready-thread reuse: %s", (href, ready) => {
+    const editor = new FakeTextArea();
+    editor.parentElement = new FakeElement("FORM");
+    const doc = new FakeDocument([editor], []);
+    expect(evaluateBrowserStatusExpression(chatGptThreadReadyExpression("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"), doc, { href })).toBe(ready);
   });
 
   it("refuses a moved conversation without navigating over another session", async () => {

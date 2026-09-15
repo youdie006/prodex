@@ -338,19 +338,17 @@ describe("the shapes real records actually hold", () => {
   });
 });
 
-// A named conversation that cannot be opened is a specific, known cause, and it
-// used to arrive wearing the catch-all: the message said "It may have been
-// deleted" and the next step under it said "resolve the visible browser issue
-// manually" - about a browser that was working. Measured on a thread whose
-// project had been deleted.
-describe("a conversation that cannot be reached", () => {
-  it("names the cause instead of blaming the browser, and does not ask for a retry", async () => {
+describe("a conversation that has not finished loading", () => {
+  it("does not infer deletion from a navigation readiness timeout", async () => {
     const { chatGptThreadUnavailableBlocker } = await import("../src/chatgpt-browser.js");
     const blocker = chatGptThreadUnavailableBlocker("https://chatgpt.com/c/6aa23cb1");
-    expect(blocker.code).toBe("thread_unavailable");
-    expect(blocker.retryable).toBe(false);
+    expect(blocker.code).toBe("thread_not_ready");
+    expect(blocker.retryable).toBe(true);
+    expect(blocker.message).toMatch(/nothing was sent/i);
+    expect(blocker.message).not.toMatch(/deleted/i);
     expect(blocker.next_step).not.toMatch(/resolve the visible browser issue/i);
     expect(blocker.next_step).toMatch(/--continue/);
+    expect(blocker.next_step).not.toMatch(/will not bring it back|start a new/i);
     expect(blocker.thread).toBe("https://chatgpt.com/c/6aa23cb1");
   });
 });

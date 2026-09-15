@@ -2022,6 +2022,8 @@ async function dispatchEscapeKey(cdp: CdpConnection): Promise<void> {
 async function openChatGptThread(cdp: CdpConnection, url: string): Promise<void> {
   const conversationId = conversationIdFromThreadUrl(url);
   if (!conversationId) throw new Error(`Not a ChatGPT conversation URL: ${url}`);
+  // A same-thread follow-up must not discard a ready composer and start a new load.
+  if (await cdp.evaluate<boolean>(chatGptThreadReadyExpression(conversationId))) return;
   await cdp.evaluate(`location.assign(${JSON.stringify(url)})`);
   const deadline = Date.now() + RELOAD_SETTLE_TIMEOUT_MS;
   while (Date.now() < deadline) {
@@ -2034,18 +2036,12 @@ async function openChatGptThread(cdp: CdpConnection, url: string): Promise<void>
       if (cdpCommandTimedOut(error)) throw error;
     }
   }
+  const state = await cdp.evaluate<ChatGptPageStatus>(statusExpression());
+  const blocker = detectChatGptPageBlocker(state);
+  if (blocker) throw new ChatGptBrowserBlockerError({ ...blocker, thread: url });
   throw new ChatGptBrowserBlockerError(chatGptThreadUnavailableBlocker(url));
 }
 
-/**
- * The conversation a follow-up names cannot be opened.
- *
- * Retrying cannot undelete a thread, and the generic "resolve the visible
- * browser issue manually" this used to fall back to describes a browser that
- * is working fine - measured on a thread whose project had been deleted: the
- * cause was named in the message and then thrown away by the catch-all next
- * step underneath it.
- */
 /**
  * The composer's model selector never rendered.
  *
@@ -2067,12 +2063,12 @@ export function chatGptComposerNotReadyBlocker(reason?: string): NonNullable<Cha
 
 export function chatGptThreadUnavailableBlocker(url: string): NonNullable<ChatGptBrowserStatus["blocker"]> {
   return {
-    code: "thread_unavailable",
-    message: `ChatGPT did not open the conversation to continue (${url}). It may have been deleted, or its project was.`,
-    retryable: false,
+    code: "thread_not_ready",
+    message: `ChatGPT did not finish opening the conversation to continue (${url}) within the readiness wait. Nothing was sent.`,
+    retryable: true,
     next_step:
-      "That conversation cannot be reached, and retrying will not bring it back. Send without --continue to start a new one, " +
-      "or name a different consult with --continue-task <task_id> (`prodex pro list` shows them).",
+      "Wait for that conversation to finish loading and check its readiness before retrying the same --continue-task. " +
+      "If it remains unavailable, inspect its access or project state; a loading timeout alone does not prove deletion.",
     thread: url
   };
 }
@@ -2358,7 +2354,9 @@ export function reloadedDocumentReadyExpression(extraCondition = "true"): string
  */
 export function chatGptThreadReadyExpression(conversationId: string): string {
   return `(() => {${composerExpressionHelpers()}
-    if (!location.href.includes(${JSON.stringify(conversationId)})) return false;
+    const current = new URL(location.href);
+    const match = /\\/c\\/([0-9a-f-]{16,})\\/?$/i.exec(current.pathname);
+    if (current.origin !== "https://chatgpt.com" || match?.[1].toLowerCase() !== ${JSON.stringify(conversationId.toLowerCase())}) return false;
     return Boolean(findChatGptComposerCandidate());
   })()`;
 }
