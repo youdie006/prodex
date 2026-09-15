@@ -2317,6 +2317,14 @@ async function attemptMissingChatGptTabRecovery(
       if (status.blocker) throw new ChatGptBrowserBlockerError(status.blocker);
       return false;
     }
+    if (saved?.headless !== true && resolveBrowserWindowMode({ lastLogin: saved, forRelaunch: true }).headless) {
+      throw new ChatGptBrowserBlockerError({
+        code: "browser_mode_transition_required",
+        message: "The temporary visible browser is still running after its ChatGPT tab closed; reopening a tab would show another window.",
+        retryable: false,
+        next_step: "Fully quit only the dedicated browser, then retry to launch the saved profile headlessly. On macOS, closing a window alone does not quit Chrome. Do not log in again solely because this transition stopped."
+      });
+    }
     stderr("recover: the browser is running but its ChatGPT tab was closed; opening one tab and checking the saved login...");
     if (!await openChatGptTab(port)) return false;
     const deadline = Date.now() + 30_000;
@@ -2532,7 +2540,7 @@ async function completeVisibleAuthRecovery(
       sourceCli: options.sourceCli, commandOptions: options.commandOptions
     });
     io.stdout("recovery: visible browser opened with the same profile and page. Complete a manual step only if ChatGPT requests it; no prompt was sent.");
-    io.stdout("recovery: this visible window is temporary. After it closes, the next launch remains headless; another challenge stops without opening a visible window automatically.");
+    io.stdout("recovery: this visible window is temporary. After the dedicated browser fully exits, the next launch remains headless. On macOS, closing its window alone may leave Chrome running; prodex will not reopen that temporary visible window automatically.");
     if (!options.shouldWait) return 0;
     const ready = await waitForChatGptLoginReady(io.stderr, {
       port: opened.port,

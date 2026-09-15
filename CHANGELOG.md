@@ -4,6 +4,16 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.40.16
+
+### Fixed
+- Closing a temporary visible authentication window on macOS can leave its Chrome process alive. Automatic missing-tab recovery now refuses to reopen a visible window when the next requested mode is headless, records a non-retryable `browser_mode_transition_required` blocker, and distinguishes fully quitting the dedicated browser from closing its window. Existing headless tab recovery and an explicit headed override retain their normal behavior.
+
+### Release Record
+- Supersedes the 0.40.15 candidate/publication. Its cancellation request arrived after npm publication and GitHub Release creation had already completed; the existing tag was not moved or deleted. The follow-up contains the missing-tab guard found during deployment review. Headless ChatGPT Pro operation still requires a successful live readiness check; this correction does not bypass authentication or Cloudflare.
+- Local verification: Node 20 send/window-lifecycle regressions passed (148 tests), as did typecheck and normalized package build. The new blocked-window test first failed, then passed with the guard; its receipt is non-retryable, while existing headless and explicitly headed tab recovery remain covered. A full local run passed 1,543 tests but timed out in one existing HTTP-start test; that exact test passed on isolated rerun without a code change. The publication workflow reruns the full release verification before publishing.
+- On macOS, the dedicated browser was verified to have zero targets and the exact saved profile, then closed gracefully under the shared send lock. Two seconds of sustained process/port absence confirmed shutdown. No window was opened, no prompt sent, no force termination used, and the headless relaunch preference was retained. WSL's active browser was not closed. Final npm/GitHub publication and machine installation checks are recorded in the version-specific GitHub Release.
+
 ## 0.40.15
 
 ### Added
