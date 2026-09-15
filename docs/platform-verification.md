@@ -4,6 +4,110 @@ Open source does not mean every operating system, architecture, filesystem, or
 browser version has been tested. This record distinguishes configured CI jobs,
 completed checks, installed versions, and live account-dependent behavior.
 
+## Headless Compatibility Candidate (2026-09-16)
+
+Branch: `feat/headless-browser-compatibility`, based on `33bf9fe`.
+Package version remains `0.40.18`; these changes are unreleased. A staged
+candidate or a passing browser fixture is not an installed service update.
+
+The new optional `pro browser check --runtime` reports local CDP metadata and
+actual process mode separately from saved preferences. The account-free browser
+smoke now verifies DOM/input/file-selection capabilities and
+same-profile restart persistence using only a synthetic loopback-origin marker.
+It does not inspect or copy ChatGPT authentication data.
+
+### Account-Dependent Observations
+
+- WSL's existing browser reported login/composer signals and
+  `response_in_progress`. It was left untouched; no verification prompt was
+  submitted into another session's active conversation. Runtime evidence:
+  Chrome `144.0.7559.132`, CDP `1.3`, actual `headed`, saved `virtual-display`.
+- Physical M3's existing browser was actually headless and returned
+  `cloudflare_check`, with no composer. Runtime evidence: Chrome
+  `152.0.7977.84`, CDP `1.3`, actual/saved `headless`. No page reload, login,
+  profile migration, visible fallback, or protection bypass was attempted.
+- Consequently, this candidate has not demonstrated a new authenticated
+  pure-headless Pro answer or continuation on either account target.
+
+### Adoption Decision
+
+The examined [Camoufox gateway](https://github.com/Draivix/chatgpt-gateway/tree/e9b3f6a4e984409d5bd09f0d0eb1544c0c366e31/camoufox-gateway)
+uses a Python/Firefox control stack, not ProDex's Chromium CDP implementation.
+Its persistent daemon/profile ideas do not justify replacing ProDex's existing
+task storage, send serialization, and exact-thread continuation. Its README
+marks macOS untested; no cross-platform Pro success is inferred from it.
+No upstream source code, stealth configuration, password/IMAP login automation,
+or authentication material was adopted. An ordinary second browser driver
+would require separate implementation and live acceptance evidence, not simply
+setting `PRODEX_CHROME` to a Firefox executable.
+
+### Verification Results
+
+- PASS: 39 runtime/product-check regressions and TypeScript typecheck. New CLI
+  flag tests first failed with `Unknown option ... --runtime`, then passed.
+- PASS: native Windows and M3 candidate `check --runtime --help` without tmux
+  or browser side effects. Windows used temporary Node `22.22.0` x64, verified
+  against the distribution SHA-256; M3 used its existing Node `22.22.3` ARM.
+- FAIL: direct release metadata check on the Windows-mounted source tree found
+  unexpected executable modes on non-bin files. The existing normalized
+  `release:pack` path passed its unchanged strict metadata check and produced
+  a candidate tarball. At that point, uncommitted changes correctly blocked
+  publication guidance; no publication was attempted.
+- PASS: the final reviewed Linux-filesystem snapshot passed all 117 test files:
+  1,667 passed, zero failed, three platform exclusions. Source/test/script bytes
+  were compared with the working tree. Command:
+  `node node_modules/vitest/vitest.mjs run --maxWorkers=4 --reporter=json --outputFile=/tmp/prodex-headless-vitest-reviewed.json`.
+  Typecheck and build also passed. The final canonical-temp-path adjustment was
+  subsequently verified by the native browser smokes.
+- FAIL: the Windows-mounted source run passed 1,662 tests but had three CLI
+  startup/stdio-connection timeouts and three platform exclusions. The three
+  timeouts persisted in a focused rerun. Identical source on the Linux
+  filesystem passed; mounted-source startup performance is not claimed fixed.
+  No timeout or security assertion was relaxed to obtain the passing result.
+- FAIL (verification setup): the first Linux snapshot omitted `.github`, causing
+  seven workflow-file checks to fail with `ENOENT`. Copying the unchanged
+  workflows and rerunning the full suite resolved these setup errors.
+- Independent review led to cleanup ownership hardening: each recorded PID must
+  still match its browser/profile before receiving a signal, successor browsers
+  are refused, and recorded orphan children can be cleaned up. Both new
+  regressions failed before implementation, then passed. Pre-spawn launcher
+  failures were reviewed; no concrete unhandled post-spawn throw was found.
+
+### Completed Native Browser Checks
+
+All rows used ordinary Chromium-family browsers, fresh temporary profiles and
+loopback-only fixture pages. Every pass includes actual headless process proof,
+Runtime enable/evaluation, DOM control, keyboard and mouse input, synthetic file
+selection, a graceful browser restart preserving the local marker, and confirmed
+browser/server cleanup. No row tests ChatGPT or a logged-in account.
+
+| Target | Browser product | CDP | Result |
+| --- | --- | --- | --- |
+| WSL Linux x64, Node 22.22.0 | Chrome/144.0.7559.132 | 1.3 | PASS |
+| Physical M3 macOS ARM, Node 22.22.3 | Chrome/152.0.7977.84 | 1.3 | PASS |
+| Native Windows x64, temporary Node 22.22.0 | Chrome/153.0.8010.36 | 1.3 | PASS |
+| Native Windows x64, temporary Node 22.22.0 | Edg/153.0.4234.32 | 1.3 | PASS |
+
+Commands: `npm run smoke:browser` on WSL; the same
+`node scripts/browser-launch-smoke.mjs` on native Windows/M3, with an explicit
+`PRODEX_CHROME` path only for Edge. The copied M3 smoke/helper and runtime module
+SHA-256 hashes matched the local tested files. Candidate package smoke also
+passed installed CLI, HTTP MCP and stdio MCP, storage/write/artifact integrity,
+doctor, and credential-isolated publication dry-run checks. None of these
+temporary installations replaced the global CLI or a client-managed MCP.
+
+One intermediate Windows Chrome rerun stopped when CIM returned incomplete
+process identity during a bounded recheck. Cleanup completed. A bounded rerun
+and the final canonical-profile Chrome/Edge runs passed with unchanged strict
+identity requirements; the intermediate failure is not discarded. Native
+browser capability tests are separate from full Windows/macOS unit-suite CI.
+
+No release tag was created and no npm package or global installation was
+updated. The PR records the pushed source commit and native CI result separately
+from these local checks. Existing MCP clients and account browsers were not
+restarted. The Chromium engine was retained; no Firefox/Camoufox adapter was
+installed or advertised as supported.
+
 ## 0.40.18 verification
 
 Branch: `fix/cross-platform-verification`.

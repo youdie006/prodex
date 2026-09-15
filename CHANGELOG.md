@@ -6,7 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added
+- `pro browser check --runtime` reports bounded, read-only CDP browser/version metadata and the actual headless/headed process mode separately from saved launch preferences. Different ports/profiles, ambiguous processes, unsupported metadata, and unavailable identity remain unknown; a virtual-display preference is not reported as proof of the current display. Ordinary checks keep their existing probes and readiness semantics.
+- The account-free headless browser smoke now tests actual process mode, Runtime/DOM control, keyboard/mouse input, local file selection, and a same-profile restart using a synthetic local marker. It records exact browser/CDP/platform evidence and cleans up its own browser and loopback server. This replaces the earlier calculation-only check; it does not claim saved ChatGPT authentication or Pro access.
+
 ### Fixed
+- Account-free browser smoke cleanup revalidates each recorded PID against the browser executable and disposable profile before signaling it, refuses successor browsers, and can clean up verified child processes after their main process exits. Launch identity is checked against the requested canonical temporary profile and port before page control begins.
 - A blocked `pro browser login --background` handoff now preserves the temporary authentication window's headless relaunch preference. Chrome account confirmation or other handoff failures no longer silently change the next launch to a visible browser. A verified headless replacement records its actual mode; an explicit ordinary `--headed` selection still clears the temporary preference.
 - The browser login guide now explains Chrome's separate account-connection choice before authentication. If the same profile encounters an authentication or protection blocker after a verified signed-in headed handoff, readiness stops without directing the user into another login cycle. The observed blocker remains visible, and headless access is not claimed to work.
 

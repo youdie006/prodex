@@ -2,6 +2,7 @@ import { existsSync, realpathSync, statSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { BrowserProcessInspectionError } from "./browser-process.js";
+import { getBrowserRuntimeInfo } from "./browser-runtime.js";
 import { buildDryRunBundle } from "./bundle.js";
 import {
   type BrowserWindowMode,
@@ -640,8 +641,8 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
         return runCliFn(["chatgpt", browserSubcommand, ...browserArgs], io);
       }
       if (browserSubcommand === "check") {
-        if (printProBrowserHelpIfRequested(browserArgs, "pro browser check", io, { valueFlags: ["--cwd", "--port", "--timeout-ms", "--source-cli"] })) return 0;
-        assertOnlyOptions(browserArgs, "pro browser check", ["--cwd", "--port", "--timeout-ms", "--source-cli"]);
+        if (printProBrowserHelpIfRequested(browserArgs, "pro browser check", io, { valueFlags: ["--cwd", "--port", "--timeout-ms", "--source-cli"], booleanFlags: ["--runtime"] })) return 0;
+        assertOnlyOptions(browserArgs, "pro browser check", ["--cwd", "--port", "--timeout-ms", "--source-cli"], ["--runtime"]);
         const targetCwd = resolveCwdFlag(io.cwd, browserArgs);
         readPortFlag(browserArgs, "--port");
         readPositiveIntegerFlag(browserArgs, "--timeout-ms");
@@ -3578,6 +3579,12 @@ export async function printProductCheck(store: BridgeStore, io: CliIO, args: str
   // --timeout-ms is a usage or config error, not a browser-check failure.
   const checkPort = resolveCdpPort(readPortFlag(args, "--port"));
   const checkTimeoutMs = readPositiveIntegerFlag(args, "--timeout-ms") ?? 1500;
+  if (args.includes("--runtime")) {
+    const runtime = await getBrowserRuntimeInfo({
+      port: checkPort, timeoutMs: checkTimeoutMs, savedLaunch: await readLastBrowserLoginLaunch()
+    });
+    io.stdout(`browser_runtime: ${JSON.stringify(runtime)}`);
+  }
   const browserCommandOptions = {
     cwd: setupHintCwd,
     port: checkPort !== DEFAULT_CDP_PORT ? checkPort : undefined

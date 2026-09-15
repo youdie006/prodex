@@ -88,10 +88,24 @@ prodex pro browser login --headed  # visible mode when no incompatible browser i
 prodex pro browser login --headed --recover-visible  # guarded recovery of a blocked headless browser
 prodex pro browser help
 prodex pro browser check
+prodex pro browser check --runtime  # read-only version and actual process-mode evidence
 prodex pro browser smoke --cwd /absolute/path/to/your/repo
 ```
 
 If you use a non-default debug port or Chrome profile, pass it to `login`; the printed follow-up `check` and `smoke` commands keep the matching `--port`. To stop repeating `--port` on every command, export `PRODEX_CDP_PORT=<port>` once — explicit `--port` still wins. If you launch from outside the repo you want to inspect, pass `--cwd /absolute/path/to/your/repo` to `login`, `check`, or `smoke` so the command targets the same bridge. On slower first launches, add `--launch-timeout-ms 12000`.
+
+`check --runtime` adds one `browser_runtime: {...}` JSON line. `browser_product`
+and `protocol_version` come from the local CDP endpoint; `actual_mode` comes
+from the unique matching browser main process, not a user-agent string or saved
+setting. `saved_mode` is included only for the same port and profile.
+`resume_headless` describes a future relaunch preference, not the running mode.
+`mode_matches_saved: null` means unknown, including virtual-display settings
+whose actual display cannot be established by the headless flag alone. Missing
+or unrecognized metadata and inaccessible/ambiguous processes remain explicit
+uncertainty. The optional metadata request uses `--timeout-ms`; OS process
+inspection has its existing separate 10-second limit. It does not open, reload,
+close, or log in to a browser, and is not proof that ChatGPT Pro works. Existing
+ChatGPT blockers and the command's readiness exit code remain separate.
 
 For a source checkout, keep the follow-up commands in source-checkout form too:
 
