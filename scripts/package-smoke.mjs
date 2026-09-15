@@ -1193,9 +1193,10 @@ try {
   );
   assertIncludes(
     browserAskCwd.stderr,
-    `cd ${shellQuotedForSmoke(browserAskCwdTarget)} && ${sourcePrefix} pro browser login --source-cli ${installedSourceCli} --port 65534`,
+    "No automatic restart or prompt retry is allowed",
     "installed pro browser ask cwd output"
   );
+  assertNotIncludes(browserAskCwd.stderr, "pro browser login", "installed pro browser ask control-error guidance");
   await assertMissingFile(path.join(browserAskLauncher, ".bridge"), "installed pro browser ask cwd launcher bridge");
   const browserAskLatest = await run(binPath, ["pro", "latest", "--cwd", browserAskCwdTarget], { cwd: browserAskLauncher });
   assertIncludes(browserAskLatest.stdout, "status: blocked", "installed pro browser ask cwd latest output");
@@ -1240,12 +1241,12 @@ try {
     cwd: consumerDir,
     timeout: 60_000
   });
-  assertIncludes(browserSmoke.stderr, "No Chrome DevTools endpoint is reachable", "installed pro browser smoke output");
-  assertIncludes(browserSmoke.stderr, "prodex pro browser login", "installed pro browser smoke output");
+  assertIncludes(browserSmoke.stderr, "could not be inspected safely", "installed pro browser smoke output");
+  assertNotIncludes(browserSmoke.stderr, "pro browser login", "installed pro browser smoke output");
   assertIncludes(browserSmoke.stderr, "blocked consult recorded: task_", "installed pro browser smoke output");
   const blockedSmoke = await run(binPath, ["pro", "latest"], { cwd: consumerDir });
   assertIncludes(blockedSmoke.stdout, "status: blocked", "installed pro browser smoke blocker output");
-  assertIncludes(blockedSmoke.stdout, "- code: browser_unreachable", "installed pro browser smoke blocker output");
+  assertIncludes(blockedSmoke.stdout, "- code: browser_control_unavailable", "installed pro browser smoke blocker output");
   const browserSmokeCwdTarget = path.join(tmp, "browser smoke cwd target");
   const browserSmokeLauncher = path.join(tmp, "browser smoke launcher");
   await mkdir(browserSmokeCwdTarget, { recursive: true });
@@ -1260,16 +1261,16 @@ try {
   );
   assertIncludes(
     browserSmokeCwd.stderr,
-    `cd ${shellQuotedForSmoke(browserSmokeCwdTarget)} && ${sourcePrefix} pro browser login --source-cli ${installedSourceCli} --port 65534`,
+    "No automatic restart or prompt retry is allowed",
     "installed pro browser smoke cwd output"
   );
   await assertMissingFile(path.join(browserSmokeLauncher, ".bridge"), "installed pro browser smoke cwd launcher bridge");
   const blockedSmokeCwd = await run(binPath, ["pro", "latest", "--cwd", browserSmokeCwdTarget], { cwd: browserSmokeLauncher });
   assertIncludes(blockedSmokeCwd.stdout, "status: blocked", "installed pro browser smoke cwd blocker output");
-  assertIncludes(blockedSmokeCwd.stdout, "- code: browser_unreachable", "installed pro browser smoke cwd blocker output");
+  assertIncludes(blockedSmokeCwd.stdout, "- code: browser_control_unavailable", "installed pro browser smoke cwd blocker output");
   assertIncludes(
     blockedSmokeCwd.stdout,
-    `- next_step: Run \`cd ${shellQuotedForSmoke(browserSmokeCwdTarget)} && ${sourcePrefix} pro browser login --source-cli ${installedSourceCli} --port 65534\` to reopen`,
+    "- next_step: Leave the existing browser open",
     "installed pro browser smoke cwd blocker output"
   );
   const browserSmokeCwdNoSourceTarget = path.join(tmp, "browser smoke cwd nosource target");
@@ -1286,7 +1287,7 @@ try {
   );
   assertIncludes(
     browserSmokeCwdNoSource.stderr,
-    `cd ${shellQuotedForSmoke(browserSmokeCwdNoSourceTarget)} && prodex pro browser login --port 65534`,
+    "No automatic restart or prompt retry is allowed",
     "installed pro browser smoke cwd no-source output"
   );
   await assertMissingFile(path.join(browserSmokeNoSourceLauncher, ".bridge"), "installed pro browser smoke cwd no-source launcher bridge");
@@ -1294,7 +1295,7 @@ try {
   assertIncludes(blockedSmokeCwdNoSource.stdout, "status: blocked", "installed pro browser smoke cwd no-source blocker output");
   assertIncludes(
     blockedSmokeCwdNoSource.stdout,
-    `- next_step: Run \`cd ${shellQuotedForSmoke(browserSmokeCwdNoSourceTarget)} && prodex pro browser login --port 65534\` to reopen`,
+    "- next_step: Leave the existing browser open",
     "installed pro browser smoke cwd no-source blocker output"
   );
   const browserCheck = await runExpectFailure(binPath, ["pro", "browser", "check", "--port", "65534", "--timeout-ms", "500"], {
@@ -1302,8 +1303,8 @@ try {
     timeout: 60_000
   });
   assertIncludes(browserCheck.stdout, "prodex product check", "installed pro browser check output");
-  assertIncludes(browserCheck.stdout, "chatgpt: browser_unreachable", "installed pro browser check output");
-  assertIncludes(browserCheck.stdout, "prodex pro browser login", "installed pro browser check output");
+  assertIncludes(browserCheck.stdout, "chatgpt: browser_control_unavailable", "installed pro browser check output");
+  assertNotIncludes(browserCheck.stdout, "pro browser login", "installed pro browser check output");
   const sourceBrowserCheck = await runExpectFailure(
     binPath,
     ["pro", "browser", "check", "--port", "65534", "--timeout-ms", "500", "--source-cli", installedSourceCli],
@@ -1314,7 +1315,7 @@ try {
   );
   assertIncludes(
     sourceBrowserCheck.stdout,
-    `node ${installedSourceCli} pro browser login --source-cli ${installedSourceCli}`,
+    "No automatic restart or prompt retry is allowed",
     "installed source pro browser check output"
   );
   assertNotIncludes(sourceBrowserCheck.stdout, "prodex pro browser login", "installed source pro browser check output");
@@ -1934,9 +1935,9 @@ async function smokeInstalledProBlockedConsult(binPath, cwd) {
   }
   assertIncludes(latest.stdout, "status: blocked", "installed pro latest blocked output");
   assertIncludes(latest.stdout, "blocker:", "installed pro latest blocked output");
-  assertIncludes(latest.stdout, "- code: browser_unreachable", "installed pro latest blocked output");
-  assertIncludes(latest.stdout, "- retryable: true", "installed pro latest blocked output");
-  assertIncludes(latest.stdout, "pro browser login", "installed pro latest blocked output");
+  assertIncludes(latest.stdout, "- code: browser_control_unavailable", "installed pro latest blocked output");
+  assertIncludes(latest.stdout, "- retryable: false", "installed pro latest blocked output");
+  assertNotIncludes(latest.stdout, "pro browser login", "installed pro latest blocked output");
   const check = await runExpectFailure(binPath, ["pro", "browser", "check", "--port", "65534", "--timeout-ms", "500"], { cwd, timeout: 60_000 });
   assertIncludes(check.stdout, `latest_pro: blocked ${taskId}`, "installed pro browser check blocked output");
   assertNotIncludes(check.stdout, `latest_pro: ok ${taskId} blocked`, "installed pro browser check blocked output");

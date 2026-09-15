@@ -2507,6 +2507,9 @@ describe("pro browser ask model/project selection", () => {
     const out: string[] = [];
     const errs: string[] = [];
 
+    getChatGptBrowserStatusMock.mockResolvedValueOnce({
+      reachable: false, loggedInLikely: false, hasComposer: false, modelHints: [], blocker
+    });
     await runCli(["ask", "--auto-login", "Recover please"], {
       cwd,
       stdout: (line) => out.push(line),
@@ -2585,6 +2588,9 @@ describe("pro browser ask model/project selection", () => {
       });
       getChatGptBrowserStatusMock.mockResolvedValue({ reachable: true, loggedInLikely: true, hasComposer: true, modelHints: [] });
 
+      getChatGptBrowserStatusMock.mockResolvedValueOnce({
+        reachable: false, loggedInLikely: false, hasComposer: false, modelHints: [], blocker
+      });
       await runCli(["ask", "--port", "9333", "--auto-login", "Recover with profile"], { cwd, stdout: () => {}, stderr: () => {} });
 
       expect(openChatGptBrowserMock).toHaveBeenCalledWith(
@@ -2628,6 +2634,9 @@ describe("pro browser ask model/project selection", () => {
       });
       getChatGptBrowserStatusMock.mockResolvedValue({ reachable: true, loggedInLikely: true, hasComposer: true, modelHints: [] });
 
+      getChatGptBrowserStatusMock.mockResolvedValueOnce({
+        reachable: false, loggedInLikely: false, hasComposer: false, modelHints: [], blocker
+      });
       const outcome = await performBrowserConsultForMcp(cwd, { prompt: "consult after the browser died" });
 
       expect(openChatGptBrowserMock).toHaveBeenCalledWith(expect.objectContaining({ headless: true }));
@@ -2709,6 +2718,9 @@ describe("pro browser ask model/project selection", () => {
     getChatGptBrowserStatusMock.mockResolvedValue({ reachable: true, loggedInLikely: true, hasComposer: true, modelHints: [] });
     const out: string[] = [];
 
+    getChatGptBrowserStatusMock.mockResolvedValueOnce({
+      reachable: false, loggedInLikely: false, hasComposer: false, modelHints: [], blocker
+    });
     await runCli(["ask", "Recover please"], {
       cwd,
       stdout: (line) => out.push(line),

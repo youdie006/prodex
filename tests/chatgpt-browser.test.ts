@@ -1,6 +1,15 @@
 import { readFileSync } from "node:fs";
+import { createServer, type AddressInfo } from "node:net";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
+
+async function refusedDebugPort(): Promise<number> {
+  const server = createServer();
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const port = (server.address() as AddressInfo).port;
+  await new Promise<void>((resolve) => server.close(() => resolve()));
+  return port;
+}
 import {
   buildChromeLaunchArgs,
   assertChatGptPageAvailable,
@@ -165,14 +174,14 @@ Show more`;
     expect(assign).toHaveBeenCalledOnce();
   });
   it("returns a clear blocker when the local debug port is not reachable", async () => {
-    const status = await getChatGptBrowserStatus({ port: 9, timeoutMs: 100 });
+    const status = await getChatGptBrowserStatus({ port: await refusedDebugPort(), timeoutMs: 100 });
 
     expect(status.reachable).toBe(false);
     expect(status.blocker?.code).toBe("browser_unreachable");
   });
 
   it("includes the browser login next step when sending without a reachable browser", async () => {
-    await expect(sendChatGptPrompt({ port: 9, prompt: "test", timeoutMs: 100 })).rejects.toThrow(/pro browser login/);
+    await expect(sendChatGptPrompt({ port: await refusedDebugPort(), prompt: "test", timeoutMs: 100 })).rejects.toThrow(/pro browser login/);
   });
 
   it("sends through the normal DOM path with the fake CDP browser", async () => {

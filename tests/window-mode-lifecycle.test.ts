@@ -36,7 +36,8 @@ const unreachable = {
   reachable: false,
   loggedInLikely: false,
   hasComposer: false,
-  modelHints: [] as string[]
+  modelHints: [] as string[],
+  blocker: { code: "browser_unreachable", message: "connection refused", retryable: true }
 };
 
 function launch(profileDir = "/custom/profile", port = 9333) {
@@ -59,6 +60,13 @@ afterEach(() => {
 });
 
 describe("browser window mode precedence", () => {
+  it("keeps visible auth recovery temporary while the next launch remains headless", () => {
+    const lastLogin = { headless: false, minimized: false, resume_headless: true };
+    expect(resolveBrowserWindowMode({ lastLogin })).toEqual({ headless: false, virtualDisplay: false, minimized: false });
+    expect(resolveBrowserWindowMode({ lastLogin, forRelaunch: true })).toEqual({ headless: true, virtualDisplay: false, minimized: false });
+    expect(resolveBrowserWindowMode({ lastLogin, forRelaunch: true, flags: { headed: true } }).headless).toBe(false);
+    expect(resolveBrowserWindowMode({ lastLogin, forRelaunch: true, env: { PRODEX_HEADLESS: "0" } }).headless).toBe(false);
+  });
   it("treats a disabled environment setting as an explicit headed override", () => {
     expect(
       resolveBrowserWindowMode({
@@ -116,6 +124,29 @@ describe("browser window mode precedence", () => {
 });
 
 describe("pro browser login window lifecycle", () => {
+  it("reopens headless after the temporary visible auth browser has closed", async () => {
+    readLastBrowserLoginLaunchMock.mockResolvedValue({ profile_dir: "/custom/profile", port: 9333, headless: false, resume_headless: true });
+    getChatGptBrowserStatusMock.mockResolvedValueOnce(unreachable).mockResolvedValue(ready);
+    await runCli(["pro", "browser", "login", "--port", "9333", "--no-wait"], { cwd: "/tmp/project", stdout: () => {}, stderr: () => {} });
+    expect(openChatGptBrowserMock).toHaveBeenCalledWith(expect.objectContaining({ headless: true, profileDir: "/custom/profile" }));
+  });
+
+  it("reuses an open auth window without losing its headless relaunch preference", async () => {
+    const saved = { profile_dir: "/custom/profile", port: 9333, headless: false, minimized: false, resume_headless: true };
+    readLastBrowserLoginLaunchMock.mockResolvedValue(saved);
+    getChatGptBrowserStatusMock.mockResolvedValue(ready);
+    await runCli(["pro", "browser", "login", "--port", "9333", "--no-wait"], { cwd: "/tmp/project", stdout: () => {}, stderr: () => {} });
+    expect(openChatGptBrowserMock).not.toHaveBeenCalled();
+    expect(recordBrowserLoginLaunchMock).toHaveBeenCalledWith(saved);
+  });
+
+  it("clears the temporary headless preference when headed mode is explicitly selected", async () => {
+    readLastBrowserLoginLaunchMock.mockResolvedValue({ profile_dir: "/custom/profile", port: 9333, headless: false, resume_headless: true });
+    getChatGptBrowserStatusMock.mockResolvedValue(ready);
+    await runCli(["pro", "browser", "login", "--port", "9333", "--headed", "--no-wait"], { cwd: "/tmp/project", stdout: () => {}, stderr: () => {} });
+    expect(recordBrowserLoginLaunchMock).toHaveBeenCalledWith({ profile_dir: "/custom/profile", port: 9333, headless: false, minimized: false });
+  });
+
   it("reuses the saved profile on the same port and forwards resolved headed false explicitly", async () => {
     readLastBrowserLoginLaunchMock.mockResolvedValue({ profile_dir: "/custom/profile", port: 9333, headless: true });
     vi.stubEnv("PRODEX_HEADLESS", "0");
@@ -321,7 +352,7 @@ describe("unattended recovery window lifecycle", () => {
     });
     const loginOptions = openChatGptBrowserMock.mock.calls[0]?.[0];
     openChatGptBrowserMock.mockClear();
-    getChatGptBrowserStatusMock.mockResolvedValue(ready);
+    getChatGptBrowserStatusMock.mockReset().mockResolvedValueOnce(unreachable).mockResolvedValue(ready);
 
     const recovered = await attemptBrowserAutoRecovery(() => {}, { port: 9333 });
     const recoveryOptions = openChatGptBrowserMock.mock.calls[0]?.[0];
@@ -335,6 +366,7 @@ describe("unattended recovery window lifecycle", () => {
   });
 
   it("reports a virtual-display setup failure and never falls back to a desktop browser", async () => {
+    getChatGptBrowserStatusMock.mockReset().mockResolvedValueOnce(unreachable).mockResolvedValue(ready);
     readLastBrowserLoginLaunchMock.mockResolvedValue({ profile_dir: "/custom/profile", port: 9333, virtual_display: 77 });
     ensureVirtualDisplayMock.mockRejectedValue(new Error("xauth setup failed"));
     const errors: string[] = [];
@@ -349,7 +381,7 @@ describe("unattended recovery window lifecycle", () => {
   it("honors a false headless environment override during recovery", async () => {
     readLastBrowserLoginLaunchMock.mockResolvedValue({ profile_dir: "/custom/profile", port: 9333, headless: true });
     vi.stubEnv("PRODEX_HEADLESS", "false");
-    getChatGptBrowserStatusMock.mockResolvedValue(ready);
+    getChatGptBrowserStatusMock.mockReset().mockResolvedValueOnce(unreachable).mockResolvedValue(ready);
 
     const recovered = await attemptBrowserAutoRecovery(() => {}, { port: 9333 });
 
@@ -362,7 +394,7 @@ describe("unattended recovery window lifecycle", () => {
   it("restores the minimized mode selected by environment without reviving a saved virtual mode", async () => {
     readLastBrowserLoginLaunchMock.mockResolvedValue({ profile_dir: "/custom/profile", port: 9333, virtual_display: 77 });
     vi.stubEnv("PRODEX_MINIMIZE_WINDOW", "1");
-    getChatGptBrowserStatusMock.mockResolvedValue(ready);
+    getChatGptBrowserStatusMock.mockReset().mockResolvedValueOnce(unreachable).mockResolvedValue(ready);
 
     const recovered = await attemptBrowserAutoRecovery(() => {}, { port: 9333 });
 
@@ -376,7 +408,7 @@ describe("unattended recovery window lifecycle", () => {
   it("positively recovers with a saved virtual display and custom profile", async () => {
     readLastBrowserLoginLaunchMock.mockResolvedValue({ profile_dir: "/custom/profile", port: 9333, virtual_display: 77 });
     ensureVirtualDisplayMock.mockResolvedValue({ displayNumber: 77, xauthority: "/tmp/Xauthority-77", startedNow: false });
-    getChatGptBrowserStatusMock.mockResolvedValue(ready);
+    getChatGptBrowserStatusMock.mockReset().mockResolvedValueOnce(unreachable).mockResolvedValue(ready);
 
     const recovered = await attemptBrowserAutoRecovery(() => {}, { port: 9333 });
 
@@ -393,7 +425,7 @@ describe("unattended recovery window lifecycle", () => {
   it("records the actual mode and new display after recovery", async () => {
     readLastBrowserLoginLaunchMock.mockResolvedValue({ profile_dir: "/custom/profile", port: 9333, virtual_display: 77 });
     ensureVirtualDisplayMock.mockResolvedValue({ displayNumber: 78, xauthority: "/tmp/Xauthority-78", startedNow: true });
-    getChatGptBrowserStatusMock.mockResolvedValue(ready);
+    getChatGptBrowserStatusMock.mockReset().mockResolvedValueOnce(unreachable).mockResolvedValue(ready);
 
     expect(await attemptBrowserAutoRecovery(() => {}, { port: 9333 })).toBe(true);
     expect(recordBrowserLoginLaunchMock).toHaveBeenCalledWith({

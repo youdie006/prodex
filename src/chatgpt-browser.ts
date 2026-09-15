@@ -7,7 +7,7 @@ import path from "node:path";
 import WsWebSocket from "ws";
 
 import { captureBrowserDiagnostics, diagnosticsEnabled, diagnosticsNote } from "./browser-diagnostics.js";
-import { withCrossProcessFileLock } from "./safe-file.js";
+import { withCrossProcessFileLock, writeVerifiedUtf8File } from "./safe-file.js";
 import os from "node:os";
 
 import {
@@ -441,6 +441,8 @@ export interface BrowserLoginLaunchRecord {
   headless?: boolean;
   /** Whether the window was minimized out of the way after launching. */
   minimized?: boolean;
+  /** A visible authentication window is temporary; reopen headless after it closes. */
+  resume_headless?: boolean;
   /** X display number when the browser runs on a prodex virtual display. */
   virtual_display?: number;
 }
@@ -461,7 +463,7 @@ export async function recordBrowserLoginLaunch(record: BrowserLoginLaunchRecord)
   try {
     const file = lastBrowserLoginPath();
     await mkdir(path.dirname(file), { recursive: true });
-    await writeFile(file, `${JSON.stringify(record, null, 2)}\n`, "utf8");
+    await writeVerifiedUtf8File(file, `${JSON.stringify(record, null, 2)}\n`, async () => {}, { mode: 0o600 });
   } catch {
     // Advisory record only.
   }
@@ -475,6 +477,7 @@ export async function readLastBrowserLoginLaunch(): Promise<Partial<BrowserLogin
       ...(typeof parsed.port === "number" && Number.isInteger(parsed.port) ? { port: parsed.port } : {}),
       ...(typeof parsed.headless === "boolean" ? { headless: parsed.headless } : {}),
       ...(typeof parsed.minimized === "boolean" ? { minimized: parsed.minimized } : {}),
+      ...(typeof parsed.resume_headless === "boolean" ? { resume_headless: parsed.resume_headless } : {}),
       ...(typeof parsed.virtual_display === "number" && Number.isInteger(parsed.virtual_display)
         ? { virtual_display: parsed.virtual_display }
         : {})
@@ -803,7 +806,8 @@ function assertSingleBrowserWindowMode(
 export function resolveBrowserWindowMode(args: {
   flags?: { headed?: boolean; headless?: boolean; virtualDisplay?: boolean; minimized?: boolean };
   env?: Record<string, string | undefined>;
-  lastLogin?: { headless?: boolean; minimized?: boolean; virtual_display?: number };
+  lastLogin?: { headless?: boolean; minimized?: boolean; virtual_display?: number; resume_headless?: boolean };
+  forRelaunch?: boolean;
 }): BrowserWindowMode {
   const env = args.env ?? process.env;
   const flags = args.flags ?? {};
@@ -837,6 +841,9 @@ export function resolveBrowserWindowMode(args: {
   }
 
   const saved = args.lastLogin;
+  if (args.forRelaunch && saved?.resume_headless === true) {
+    return { headless: true, virtualDisplay: false, minimized: false };
+  }
   const selected = {
     headless: saved?.headless === true,
     virtualDisplay: saved?.virtual_display !== undefined,
@@ -5098,7 +5105,7 @@ export function fetchTimedOut(error: unknown): boolean {
  * and ending a busy browser takes the consult it is writing with it.
  */
 export function statusMeansBrowserDead(status: { reachable: boolean; blocker?: { code: string } | undefined }): boolean {
-  return !status.reachable && status.blocker?.code !== "browser_slow";
+  return !status.reachable && status.blocker?.code === "browser_unreachable";
 }
 
 async function findChatGptPage(
@@ -5106,26 +5113,23 @@ async function findChatGptPage(
   timeoutMs: number,
   targetUrl?: string
 ): Promise<{ ok: true; page?: DevtoolsPage; blocker?: ChatGptBrowserStatus["blocker"] } | { ok: false; blocker: ChatGptBrowserStatus["blocker"] }> {
+  let receivedResponse = false;
   try {
     const response = await fetch(`http://127.0.0.1:${port}/json/list`, { signal: AbortSignal.timeout(timeoutMs) });
+    receivedResponse = true;
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const pages = (await response.json()) as DevtoolsPage[];
+    if (!Array.isArray(pages)) throw new Error("Invalid Chrome DevTools page list");
     const visibilityByPage = await getChatGptPageVisibility(pages);
     const blocker = chatGptPageSelectionBlocker(pages, targetUrl, visibilityByPage);
     if (blocker) return { ok: true, blocker };
     return { ok: true, page: selectChatGptPage(pages, targetUrl, visibilityByPage) };
   } catch (error) {
-    // A port that answers too slowly is a browser that is BUSY, not one that is
-    // gone, and the two must not share a verdict: the silence check that
-    // decides whether to end a browser counted three slow answers on a loaded
-    // machine as three dead ones - the exact failure the comment above
-    // confirmBrowserSilence was written to prevent.
-    // A timeout on its own is not proof of life: with a small budget the
-    // timer fires before the connection reports anything, and a port nothing
-    // listens on would be called "busy". A raw TCP connect settles it, and
-    // only an ACCEPT counts - measured on WSL2, a closed loopback port does not
-    // refuse at all, it times out (1.5s), while a listening one accepts in 1ms.
-    if (fetchTimedOut(error) && (await portAccepts(port)) === "accepted") {
+    // An HTTP error or malformed reply proves the endpoint answered. Only a
+    // refused TCP connection permits stopped-browser recovery; an uncertain
+    // timeout must never authorize terminating an existing process.
+    const connection = receivedResponse ? "accepted" : await portAccepts(port);
+    if (fetchTimedOut(error) && connection === "accepted") {
       return {
         ok: false,
         blocker: {
@@ -5134,6 +5138,18 @@ async function findChatGptPage(
           retryable: true,
           next_step:
             "Wait a moment and retry. If the machine is under load (a test suite, a build), let it finish first. A tab wedged by a dialog looks like this too - check the visible window.",
+          ...(error instanceof Error ? { detail: error.message } : {})
+        } as ChatGptBrowserStatus["blocker"]
+      };
+    }
+    if (connection !== "refused") {
+      return {
+        ok: false,
+        blocker: {
+          code: "browser_control_unavailable",
+          message: `The Chrome DevTools endpoint on 127.0.0.1:${port} could not be inspected safely; this does not establish that Chrome stopped.`,
+          retryable: false,
+          next_step: "Leave the existing browser open and check its control connection. No automatic restart or prompt retry is allowed for this uncertain state.",
           ...(error instanceof Error ? { detail: error.message } : {})
         } as ChatGptBrowserStatus["blocker"]
       };

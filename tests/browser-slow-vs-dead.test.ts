@@ -39,9 +39,31 @@ describe("telling a slow browser from a dead one", () => {
   });
 
   it("still reports a port nothing listens on as unreachable", async () => {
-    const status = await getChatGptBrowserStatus({ port: 1, timeoutMs: 1_000 });
+    server = createServer();
+    await new Promise<void>((resolve) => server!.listen(0, "127.0.0.1", resolve));
+    const port = (server.address() as AddressInfo).port;
+    await new Promise<void>((resolve) => server!.close(() => resolve()));
+    server = undefined;
+    const status = await getChatGptBrowserStatus({ port, timeoutMs: 1_000 });
     expect(status.reachable).toBe(false);
     expect(status.blocker?.code).toBe("browser_unreachable");
+  });
+
+  it.each([
+    [503, "unavailable"],
+    [200, "not json"],
+    [200, "{}"]
+  ])("does not treat an HTTP %s control error as a stopped browser", async (code, body) => {
+    server = createServer((_request, response) => {
+      response.writeHead(code, { Connection: "close" });
+      response.end(body);
+    });
+    await new Promise<void>((resolve) => server!.listen(0, "127.0.0.1", resolve));
+    const port = (server.address() as AddressInfo).port;
+    const status = await getChatGptBrowserStatus({ port, timeoutMs: 300 });
+    expect(status.blocker?.code).toBe("browser_control_unavailable");
+    expect(statusMeansBrowserDead(status)).toBe(false);
+    expect(status.blocker?.next_step).not.toContain("login");
   });
 
   it("does not mistake a tiny timeout on a closed port for a busy browser", async () => {
@@ -61,5 +83,7 @@ describe("telling a slow browser from a dead one", () => {
     expect(statusMeansBrowserDead({ reachable: false, blocker: { code: "browser_unreachable" } })).toBe(true);
     expect(statusMeansBrowserDead({ reachable: false, blocker: { code: "browser_slow" } })).toBe(false);
     expect(statusMeansBrowserDead({ reachable: true })).toBe(false);
+    expect(statusMeansBrowserDead({ reachable: false })).toBe(false);
+    expect(statusMeansBrowserDead({ reachable: false, blocker: { code: "browser_control_unavailable" } })).toBe(false);
   });
 });

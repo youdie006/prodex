@@ -9,6 +9,10 @@ const ensureVirtualDisplayMock = vi.hoisted(() => vi.fn());
 const minimizeChatGptWindowMock = vi.hoisted(() => vi.fn());
 const recordBrowserLoginLaunchMock = vi.hoisted(() => vi.fn(async () => undefined));
 
+vi.mock("../src/browser-send-lock.js", () => ({
+  withBrowserSendLock: async (_waitMs: number, _onWait: (detail: string) => void, fn: () => Promise<unknown>) => fn()
+}));
+
 vi.mock("../src/chatgpt-browser.js", async () => {
   const actual = await vi.importActual<typeof import("../src/chatgpt-browser.js")>("../src/chatgpt-browser.js");
   return {
@@ -53,7 +57,7 @@ beforeEach(() => {
     profileDir: "/default/profile",
     waitForEarlyExit: async () => undefined
   });
-  getChatGptBrowserStatusMock.mockReset().mockResolvedValue(ready);
+  getChatGptBrowserStatusMock.mockReset().mockResolvedValueOnce(unreachable).mockResolvedValue(ready);
   endWedgedBrowserMock.mockReset().mockImplementation(async (pids: number[]) => ({ ended: pids, failed: [] }));
   ensureVirtualDisplayMock.mockReset().mockResolvedValue({
     displayNumber: 77,
@@ -70,7 +74,16 @@ afterEach(() => {
 });
 
 describe("unattended browser recovery", () => {
+  it("resumes headless after a temporary visible authentication window closes", async () => {
+    readLastBrowserLoginLaunchMock.mockResolvedValue({ profile_dir: "/custom/profile", port: 9333, headless: false, resume_headless: true });
+    openChatGptBrowserMock.mockReturnValue({ port: 9333, profileDir: "/custom/profile", waitForEarlyExit: async () => undefined });
+    expect(await attemptBrowserAutoRecovery(() => {}, { port: 9333 })).toBe(true);
+    expect(openChatGptBrowserMock).toHaveBeenCalledWith({ port: 9333, profileDir: "/custom/profile", headless: true });
+    expect(recordBrowserLoginLaunchMock).toHaveBeenCalledWith({ port: 9333, profile_dir: "/custom/profile", headless: true, minimized: false });
+  });
+
   it("refuses a saved browser identity from another control port", async () => {
+    getChatGptBrowserStatusMock.mockReset().mockResolvedValue(ready);
     readLastBrowserLoginLaunchMock.mockResolvedValue({
       profile_dir: "/profiles/profile-B",
       port: 9444,
@@ -118,6 +131,7 @@ describe("unattended browser recovery", () => {
       .mockResolvedValueOnce(unreachable)
       .mockResolvedValueOnce(unreachable)
       .mockResolvedValueOnce(unreachable)
+      .mockResolvedValueOnce(unreachable)
       .mockResolvedValue(ready);
     const lines: string[] = [];
 
@@ -135,6 +149,7 @@ describe("unattended browser recovery", () => {
     findWedgedBrowserMock.mockReturnValue([4242]);
     readLastBrowserLoginLaunchMock.mockResolvedValue({ profile_dir: "/custom/profile", port: 9333 });
     getChatGptBrowserStatusMock
+      .mockResolvedValueOnce(unreachable)
       .mockResolvedValueOnce(unreachable)
       .mockResolvedValueOnce(unreachable)
       .mockResolvedValueOnce(unreachable)
@@ -183,6 +198,7 @@ describe("unattended browser recovery", () => {
     getChatGptBrowserStatusMock.mockReset();
     getChatGptBrowserStatusMock
       .mockResolvedValueOnce(unreachable).mockResolvedValueOnce(unreachable).mockResolvedValueOnce(unreachable)
+      .mockResolvedValueOnce(unreachable)
       .mockResolvedValue({ reachable: true, loggedInLikely: true, hasComposer: true, modelHints: [] });
     openChatGptBrowserMock.mockReturnValue({ port: 9333, profileDir: "/custom/profile", waitForEarlyExit: async () => undefined });
     const notes: string[] = [];

@@ -73,7 +73,7 @@ describe("explicit visible authentication recovery", () => {
     expect(await run(["--headed", "--recover-visible", "--no-wait"])).toBe(0);
     expect(closeBlockedHeadless).toHaveBeenCalledWith({ port: 9333, profileDir: saved.profile_dir });
     expect(open).toHaveBeenCalledWith({ port: 9333, profileDir: saved.profile_dir, headless: false, url: thread });
-    expect(record).toHaveBeenCalledWith({ port: 9333, profile_dir: saved.profile_dir, headless: false, minimized: false });
+    expect(record).toHaveBeenCalledWith({ port: 9333, profile_dir: saved.profile_dir, headless: false, minimized: false, resume_headless: true });
     expect(closeBlockedHeadless.mock.invocationCallOrder[0]).toBeLessThan(open.mock.invocationCallOrder[0]);
     expect(out.join("\n")).toMatch(/log in manually only if ChatGPT requests it/i);
   });

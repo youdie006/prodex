@@ -22,6 +22,7 @@ const browserStatusFixture = vi.hoisted(() => ({
     }
   }
 }));
+const findWedgedBrowserMock = vi.hoisted(() => vi.fn(() => [] as number[]));
 
 vi.mock("../src/chatgpt-browser.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/chatgpt-browser.js")>();
@@ -29,7 +30,7 @@ vi.mock("../src/chatgpt-browser.js", async (importOriginal) => {
     ...actual,
     // The wedged-browser scan reads the real process table, so leave it stubbed
     // here: a Chrome running on this machine must not decide a unit test.
-    findWedgedBrowser: () => [],
+    findWedgedBrowser: findWedgedBrowserMock,
     getChatGptBrowserStatus: vi.fn(async () => browserStatusFixture.status)
   };
 });
@@ -67,6 +68,23 @@ async function runBrowserCheck(): Promise<string> {
 }
 
 describe("browser product check", () => {
+  it("does not recommend a browser reset for uncertain control errors", async () => {
+    const prior = browserStatusFixture.status;
+    browserStatusFixture.status = { ...prior, reachable: false, blocker: {
+      code: "browser_control_unavailable", message: "control reply invalid", retryable: false,
+      next_step: "Leave the existing browser open."
+    } };
+    findWedgedBrowserMock.mockReturnValue([4242]);
+    try {
+      const text = await runBrowserCheck();
+      expect(text).toContain("chatgpt: browser_control_unavailable");
+      expect(text).not.toContain("browser_wedged");
+      expect(text).not.toContain("pro browser reset");
+    } finally {
+      browserStatusFixture.status = prior;
+      findWedgedBrowserMock.mockReturnValue([]);
+    }
+  });
   it("echoes saved browser send defaults so users see what an ask will apply", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-product-check-"));
     const { writeLocalConfig } = await import("../src/config.js");

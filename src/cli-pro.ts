@@ -350,7 +350,7 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
           ? resolveBrowserProfileDirForLaunch(savedLaunchForPort.profile_dir)
           : undefined;
         const profileDir = requestedProfileDir ?? savedProfileDir;
-        let windowMode = resolveBrowserWindowMode({
+        const windowModeOptions = {
           flags: background ? (savedLaunchForPort?.headless === true ? { headless: true } : { headed: true }) : {
             ...(browserArgs.includes("--headed") ? { headed: true } : {}),
             ...(browserArgs.includes("--headless") ? { headless: true } : {}),
@@ -360,7 +360,8 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
           // Window mode is a user preference across launches; only the saved
           // profile and display identity are scoped to this resolved port.
           ...(savedLaunch ? { lastLogin: savedLaunch } : {})
-        });
+        };
+        let windowMode = resolveBrowserWindowMode({ ...windowModeOptions, forRelaunch: true });
         const commandOptions = {
           ...(targetCwd ? { cwd: targetCwd } : {}),
           ...(requestedProfileDir ? { profileDir: requestedProfileDir } : {}),
@@ -389,6 +390,7 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
         // "extra windows" problem, which then blocks sends as
         // ambiguous_chatgpt_tabs). Reuse the running instance instead.
         const alreadyRunning = (await getChatGptBrowserStatus({ port })).reachable;
+        if (alreadyRunning) windowMode = resolveBrowserWindowMode(windowModeOptions);
         if (background && alreadyRunning) {
           const { getDedicatedBrowserHeadlessMode } = await import("./browser-handoff.js");
           windowMode = { headless: getDedicatedBrowserHeadlessMode({ port, profileDir: profileDir ?? defaultChatGptProfileDir() }), virtualDisplay: false, minimized: false };
@@ -505,6 +507,10 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
             port: opened.port,
             headless,
             minimized,
+            ...(alreadyRunning && savedLaunchForPort?.resume_headless === true &&
+              !Object.values(windowModeOptions.flags).some((value) => typeof value === "boolean") &&
+              !["PRODEX_HEADLESS", "PRODEX_VIRTUAL_DISPLAY", "PRODEX_MINIMIZE_WINDOW"].some((key) => (process.env[key] ?? "").trim() !== "")
+              ? { resume_headless: true } : {}),
             ...(virtualDisplay
               ? { virtual_display: virtualDisplay.displayNumber }
               : wantsVirtualDisplay && savedLaunchForPort?.virtual_display !== undefined
@@ -2338,6 +2344,20 @@ export async function attemptBrowserAutoRecovery(
     notes?: string[];
   }
 ): Promise<boolean> {
+  try {
+    return await withBrowserSendLock(30_000, (detail) => stderr(`recover: ${detail}`),
+      () => recoverBrowserUnderSendLock(stderr, options));
+  } catch (error) {
+    stderr(`recover: failed - ${errorMessage(error)}`);
+    return false;
+  }
+}
+
+async function recoverBrowserUnderSendLock(
+  stderr: (line: string) => void,
+  options: { port?: number; notes?: string[] }
+): Promise<boolean> {
+  const recoveryPort = resolveCdpPort(options.port);
   // Launching is right when the browser is gone and wrong when it is only deaf:
   // a second Chrome on the same profile joins the wedged one rather than
   // replacing it, and the wedged one keeps burning CPU while nobody looks. This
@@ -2347,21 +2367,36 @@ export async function attemptBrowserAutoRecovery(
   // scanning the DEFAULT profile for a custom-profile user put a second,
   // healthy browser's renderers on the list this function kills.
   const lastLogin = await readLastBrowserLoginLaunch().catch(() => undefined);
-  const recoveryPort = resolveCdpPort(options.port);
   const savedIdentityBelongsToAnotherPort =
     lastLogin?.port !== undefined &&
-    lastLogin.port !== recoveryPort &&
-    (lastLogin.profile_dir !== undefined || lastLogin.virtual_display !== undefined);
+    lastLogin.port !== recoveryPort;
   if (savedIdentityBelongsToAnotherPort) {
     stderr(
       `recover: failed - saved browser identity belongs to port ${lastLogin.port}, not requested port ${recoveryPort}. Run \`prodex pro browser login --port ${recoveryPort} --headed\` with the intended profile before retrying; prodex will not launch an unknown account.`
     );
     return false;
   }
+  const current = await getChatGptBrowserStatus({ port: recoveryPort, timeoutMs: 2_000 });
+  if (current.reachable && current.loggedInLikely && current.hasComposer && !current.blocker) {
+    if (!lastLogin?.profile_dir) {
+      stderr("recover: stopped - a READY browser has no saved profile identity; no automatic retry is allowed.");
+      return false;
+    }
+    const { getDedicatedBrowserHeadlessMode } = await import("./browser-handoff.js");
+    // The process check also verifies canonical profile ownership.
+    getDedicatedBrowserHeadlessMode({ port: recoveryPort, profileDir: lastLogin.profile_dir });
+    stderr("recover: browser is READY - reusing it without relaunching...");
+    return true;
+  }
+  if (current.reachable || !statusMeansBrowserDead(current)) {
+    const state = current.blocker?.code ?? "not_ready";
+    stderr(`recover: stopped - browser is not confirmed stopped or ready (${state}); no browser was ended, launched, or changed.`);
+    return false;
+  }
   const lastLoginForPort = lastLogin?.port === undefined || lastLogin.port === recoveryPort ? lastLogin : undefined;
   let windowMode: BrowserWindowMode;
   try {
-    windowMode = resolveBrowserWindowMode({ ...(lastLogin ? { lastLogin } : {}) });
+    windowMode = resolveBrowserWindowMode({ ...(lastLogin ? { lastLogin } : {}), forRelaunch: true });
   } catch (error) {
     stderr(`recover: failed - ${errorMessage(error)}`);
     return false;
@@ -2491,12 +2526,13 @@ async function completeVisibleAuthRecovery(
     if (getDedicatedBrowserHeadlessMode({ port: opened.port, profileDir: opened.profileDir })) {
       throw new Error("The replacement browser is still headless; visible recovery was not recorded.");
     }
-    await recordBrowserLoginLaunch({ port: opened.port, profile_dir: opened.profileDir, headless: false, minimized: false });
+    await recordBrowserLoginLaunch({ port: opened.port, profile_dir: opened.profileDir, headless: false, minimized: false, resume_headless: true });
     printBrowserLoginGuide(io.stdout, {
       opened: true, reusedProfile: true, loginUrl: url, profileDir: opened.profileDir, port: opened.port,
       sourceCli: options.sourceCli, commandOptions: options.commandOptions
     });
     io.stdout("recovery: visible browser opened with the same profile and page. Complete a manual step only if ChatGPT requests it; no prompt was sent.");
+    io.stdout("recovery: this visible window is temporary. After it closes, the next launch remains headless; another challenge stops without opening a visible window automatically.");
     if (!options.shouldWait) return 0;
     const ready = await waitForChatGptLoginReady(io.stderr, {
       port: opened.port,
@@ -3532,7 +3568,9 @@ export async function printProductCheck(store: BridgeStore, io: CliIO, args: str
     // report both as "not running": the browser really is gone, or it is still
     // there and has stopped answering. The second keeps burning CPU until
     // somebody notices, and nobody notices a message that says it is absent.
-    const wedged = findWedgedBrowser({ ...(browserCommandOptions.port !== undefined ? { port: browserCommandOptions.port } : {}) });
+    const wedged = statusMeansBrowserDead(browserStatus)
+      ? findWedgedBrowser({ ...(browserCommandOptions.port !== undefined ? { port: browserCommandOptions.port } : {}) })
+      : [];
     const blocker = wedged.length > 0 ? wedgedBrowserBlocker(wedged, browserCommandOptions.port ?? DEFAULT_CDP_PORT) : browserStatus.blocker;
     io.stdout(`chatgpt: ${blocker?.code ?? "unreachable"} - ${blocker?.message ?? "browser is not reachable"}`);
     const nextStep = productCheckBrowserNextStep(blocker?.next_step, sourceCli, browserCommandOptions);
