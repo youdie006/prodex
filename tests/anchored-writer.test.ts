@@ -5,7 +5,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { BridgeStore, setBridgeStoreTestHooks } from "../src/store.js";
-import { anchorCurrentDirectory } from "../src/store-writer.js";
+import { anchorCurrentDirectory, runAnchoredJob } from "../src/store-writer.js";
 
 // The store writes a record by rendering an open directory handle as a path -
 // /proc/self/fd/N - and joining the file name onto it, so the write lands in the
@@ -46,6 +46,14 @@ describe("writing records without traversable directory fd paths", () => {
 describe("anchoring the writer's working directory", () => {
   afterEach(() => {
     setBridgeStoreTestHooks({});
+  });
+
+  it.each(["..\\outside", "C:outside", "nested\\file", "file:stream"])("rejects Windows path syntax: %s", async (name) => {
+    const here = statSync(process.cwd(), { bigint: true });
+    const anchor = { dev: here.dev.toString(), ino: here.ino.toString() };
+    expect(() => anchorCurrentDirectory(anchor, [name])).toThrow(/refuses to descend/i);
+    await expect(runAnchoredJob({ anchor, segments: [], fileName: name, mode: 0o600, op: "deleteIfPresent" }))
+      .rejects.toThrow(/refuses the file name/i);
   });
 
   it("refuses a storage directory that has been swapped for a symlink", async () => {

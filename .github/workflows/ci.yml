@@ -11,9 +11,31 @@ permissions:
 
 jobs:
   release-verify:
-    name: release verification
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
+    name: release verification (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Ubuntu 24.04 / Node.js 20
+            os: ubuntu-24.04
+            node: 20
+          - name: Ubuntu 24.04 / Node.js 22
+            os: ubuntu-24.04
+            node: 22
+          - name: Ubuntu 24.04 / Node.js 24
+            os: ubuntu-24.04
+            node: 24
+          - name: macOS 15 arm64 / Node.js 22
+            os: macos-15
+            node: 22
+          - name: macOS 15 Intel / Node.js 22
+            os: macos-15-intel
+            node: 22
+          - name: Windows Server 2025 x64 / Node.js 22
+            os: windows-2025
+            node: 22
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -21,20 +43,46 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: ${{ matrix.node }}
           cache: npm
 
-      - name: Install system dependencies
+      - name: Print runtime environment
+        run: node -e "console.log('node=' + process.version + ' platform=' + process.platform + ' arch=' + process.arch)"
+
+      - name: Ensure ripgrep is installed (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
         run: |
-          # The runner image usually ships ripgrep already; installing it again
-          # cost two runs their entire budget when apt-get update hung and the
-          # job was killed at the 20-minute timeout with nothing built.
           if command -v rg >/dev/null 2>&1; then
-            echo "ripgrep already present: $(rg --version | head -1)"
+            rg --version
             exit 0
           fi
-          timeout 300 sudo apt-get update || echo "apt-get update timed out; trying the install anyway"
+          timeout 300 sudo apt-get update
           timeout 300 sudo apt-get install -y ripgrep
+          rg --version
+
+      - name: Ensure ripgrep is installed (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          if command -v rg >/dev/null 2>&1; then
+            rg --version
+            exit 0
+          fi
+          brew install ripgrep
+          rg --version
+
+      - name: Ensure ripgrep is installed (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          if (Get-Command rg -ErrorAction SilentlyContinue) {
+            rg --version
+            exit 0
+          }
+          choco install ripgrep -y --no-progress
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          rg --version
 
       - name: Install dependencies
         run: npm ci

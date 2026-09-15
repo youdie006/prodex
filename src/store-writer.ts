@@ -16,7 +16,7 @@
 //
 // Everything after the anchoring uses the same helpers the in-process path uses,
 // on relative names.
-import { closeSync, constants, fstatSync, openSync } from "node:fs";
+import { closeSync, constants, fstatSync, lstatSync, openSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { link, lstat, readdir, rename, rm } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
@@ -54,7 +54,21 @@ function sameIdentity(a: DirectoryIdentity, b: DirectoryIdentity): boolean {
 function openDirectoryHere(name: string): number {
   const directoryFlag = typeof constants.O_DIRECTORY === "number" ? constants.O_DIRECTORY : 0;
   const noFollowFlag = typeof constants.O_NOFOLLOW === "number" ? constants.O_NOFOLLOW : 0;
-  return openSync(name, constants.O_RDONLY | directoryFlag | noFollowFlag);
+  const before = lstatSync(name, { bigint: true });
+  if (before.isSymbolicLink() || !before.isDirectory()) {
+    throw new Error("Anchored writer expected a real directory, not a symlink");
+  }
+  const fd = openSync(name, constants.O_RDONLY | directoryFlag | noFollowFlag);
+  try {
+    const opened = fstatSync(fd, { bigint: true });
+    if (opened.dev !== before.dev || opened.ino !== before.ino || !opened.isDirectory()) {
+      throw new Error("Anchored writer directory changed while opening");
+    }
+    return fd;
+  } catch (error) {
+    closeSync(fd);
+    throw error;
+  }
 }
 
 function currentDirectoryIdentity(): DirectoryIdentity {
@@ -76,10 +90,10 @@ export function anchorCurrentDirectory(anchor: DirectoryIdentity, segments: stri
     throw new Error("Anchored writer was not started in the directory the caller validated");
   }
   for (const segment of segments) {
-    if (segment.length === 0 || segment === "." || segment === ".." || segment.includes("/")) {
+    if (segment.length === 0 || segment === "." || segment === ".." || /[\\/:]/.test(segment)) {
       throw new Error(`Anchored writer refuses to descend into ${JSON.stringify(segment)}`);
     }
-    // O_NOFOLLOW proves the name is a real directory rather than a symlink, and
+    // The no-follow/identity checks reject symlinks and Windows junctions, and
     // the identity check after chdir proves we landed on that same directory
     // and not on something swapped in between the two calls.
     const fd = openDirectoryHere(segment);
@@ -121,7 +135,7 @@ export async function runAnchoredJob(job: AnchoredWriteJob): Promise<AnchoredWri
     }
   };
   const { fileName } = job;
-  if (fileName.length === 0 || fileName.includes("/") || fileName === "." || fileName === "..") {
+  if (fileName.length === 0 || /[\\/:]/.test(fileName) || fileName === "." || fileName === "..") {
     throw new Error(`Anchored writer refuses the file name ${JSON.stringify(fileName)}`);
   }
 

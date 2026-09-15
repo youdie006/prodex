@@ -397,7 +397,8 @@ async function chmodPrivateBridgeDirectory(cwd: string): Promise<void> {
   const bridgeDir = path.join(cwd, ".bridge");
   const handle = await openNoFollowDirectory(bridgeDir, ".bridge");
   try {
-    await handle.chmod(BRIDGE_DIRECTORY_MODE);
+    // Windows uses inherited ACLs; POSIX modes do not restrict Windows access.
+    if (process.platform !== "win32") await handle.chmod(BRIDGE_DIRECTORY_MODE);
     await assertDirectoryHandle(handle, ".bridge");
   } finally {
     await handle.close();
@@ -456,9 +457,17 @@ async function openNoFollowDirectory(dirPath: string, label: string): Promise<Fi
   const noFollowFlag = typeof constants.O_NOFOLLOW === "number" ? constants.O_NOFOLLOW : 0;
   const directoryFlag = typeof constants.O_DIRECTORY === "number" ? constants.O_DIRECTORY : 0;
   try {
+    const before = await lstat(dirPath, { bigint: true });
+    if (before.isSymbolicLink() || !before.isDirectory()) {
+      throw new Error(`${label} must be a real directory and must not be a symlink`);
+    }
     const handle = await open(dirPath, constants.O_RDONLY | directoryFlag | noFollowFlag);
     try {
       await assertDirectoryHandle(handle, label);
+      const opened = await handle.stat({ bigint: true });
+      if (opened.dev !== before.dev || opened.ino !== before.ino) {
+        throw new Error(`${label} changed while opening the directory`);
+      }
       return handle;
     } catch (error) {
       await handle.close().catch(() => undefined);

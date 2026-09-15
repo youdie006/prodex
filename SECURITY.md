@@ -28,6 +28,18 @@ session, or bridge endpoints to other users. Findings of particular interest:
 Explicitly out of scope (these are intentional non-features, see the README): hidden ChatGPT
 endpoints, cookie/token extraction, stealth automation, and public tunnel auto-setup.
 
+## Local storage permissions
+
+On POSIX filesystems ProDex applies owner-only modes to bridge directories and
+private files. Native Windows uses the directory's inherited Windows ACLs;
+Unix `0700`/`0600` mode bits do not provide owner-only access there. ProDex does
+not rewrite Windows ACLs. Keep the repository, `.bridge`, and browser profile
+under a private user-owned directory, not a shared drive or a directory writable
+by other users. Review the Windows Security permissions before storing private
+prompts or credentials. The same caution applies to mounted filesystems that
+ignore POSIX modes. Symlink/junction, file identity, and hard-link checks remain
+enabled independently of permission modes.
+
 ## Supported versions
 
 `prodex` is pre-release (`0.x`). Security fixes target the latest `main`.
