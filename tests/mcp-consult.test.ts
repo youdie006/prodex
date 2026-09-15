@@ -548,6 +548,8 @@ describe("MCP follow-up approval checkpoints", () => {
     expect(outcome.warnings).toContain("answer_incomplete: still generating");
   });
 
+  // Two durable consult histories plus the denial checks use child-backed
+  // writes on native macOS/Windows; Intel CI exceeded the default 30s budget.
   it.each(["incomplete", "unverified"])("refuses implicit continuation after an %s answer without selecting an older topic", async (quality) => {
     const { cwd } = await start();
     sendChatGptPromptMock.mockResolvedValueOnce({
@@ -567,5 +569,5 @@ describe("MCP follow-up approval checkpoints", () => {
     expect(sendChatGptPromptMock).toHaveBeenCalledTimes(2);
     expect((await store.listTasks()).length).toBe(before);
     expect((await store.listReceipts()).some((receipt) => receipt.kind === "consult_followup_reserved")).toBe(false);
-  });
+  }, 60_000);
 });

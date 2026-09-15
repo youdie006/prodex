@@ -220,6 +220,8 @@ describe("one-time background login", () => {
     });
     expect(await run(["--background", "--wait-timeout-ms", "50"])).toBe(1);
     expect(out.join("\n") + errors.join("\n")).toContain("cloudflare_check");
+    expect(errors.join("\n")).toContain("Sign-in was verified before the headless handoff");
+    expect(errors.join("\n")).not.toContain("--recover-visible");
     expect(out.join("\n")).not.toContain("background: READY");
     expect(out.join("\n")).not.toContain("profile is not signed in");
     expect(open).toHaveBeenCalledTimes(1);

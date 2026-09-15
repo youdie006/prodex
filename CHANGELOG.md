@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - A blocked `pro browser login --background` handoff now preserves the temporary authentication window's headless relaunch preference. Chrome account confirmation or other handoff failures no longer silently change the next launch to a visible browser. A verified headless replacement records its actual mode; an explicit ordinary `--headed` selection still clears the temporary preference.
+- The browser login guide now explains Chrome's separate account-connection choice before authentication. If the same profile encounters an authentication or protection blocker after a verified signed-in headed handoff, readiness stops without directing the user into another login cycle. The observed blocker remains visible, and headless access is not claimed to work.
+
+### Changed
+- The two-history uncertain-continuation tests have a dedicated 60-second budget after macOS Intel CI exceeded the default 30 seconds. All wrong-topic, task-count and receipt assertions remain enabled; global test and production timeouts are unchanged.
 
 ## 0.40.18
 

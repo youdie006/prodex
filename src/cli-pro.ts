@@ -2572,6 +2572,7 @@ async function completeBackgroundBrowserLogin(
       port: opened.port,
       timeoutMs: options.timeoutMs,
       windowMode: { headless: true, virtualDisplay: false, minimized: false },
+      verifiedHeadedHandoff: true,
       headedLoginCommand: options.headedLoginCommand,
       headlessRecoveryCommand: options.headlessRecoveryCommand
     });
@@ -2613,6 +2614,8 @@ export async function waitForChatGptLoginReady(
     timeoutMs?: number;
     pollMs?: number;
     windowMode?: BrowserWindowMode;
+    /** Set only after the same profile passed the signed-in headed handoff guard. */
+    verifiedHeadedHandoff?: boolean;
     headedLoginCommand?: string;
     headlessRecoveryCommand?: string;
   },
@@ -2666,6 +2669,12 @@ export async function waitForChatGptLoginReady(
     const blocker = status.blocker;
     const blockerNextStep = blocker?.next_step ? ` Next: ${blocker.next_step}` : "";
     if (!hasInteractiveWindow && blocker && needsVisibleAuthRecovery(blocker.code)) {
+      if (options.verifiedHeadedHandoff) {
+        stderr(`login: blocked - ${blocker.message}`);
+        stderr(`login: NOT READY - ${blocker.code}. Sign-in was verified before the headless handoff, but the same profile is not ready headlessly.`);
+        stderr("login: Another login is not a demonstrated fix. Stop automatic recovery and inspect this headless failure before another login or mode change. No further window will be opened automatically.");
+        return false;
+      }
       const visibleStep = options.windowMode?.headless === true && options.headlessRecoveryCommand
         ? `run \`${options.headlessRecoveryCommand}\` to handle it visibly.`
         : `${manualInspection} Handle the reported step visibly.`;
@@ -3459,6 +3468,9 @@ export function printBrowserLoginGuide(
     stdout(`Next: run \`${checkCommand}\` to confirm the session, then consult as usual.`);
     return;
   }
+  stdout("");
+  stdout("Chrome account connection is separate from ChatGPT sign-in. If Chrome asks, choose whether to connect the browser account yourself.");
+  stdout("'Use Chrome without an account' declines that browser connection, not your ChatGPT login. Keep the ChatGPT tab open after making that choice.");
   stdout("");
   stdout("Steps:");
   if (windowAvailable) {

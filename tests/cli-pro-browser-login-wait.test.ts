@@ -21,7 +21,7 @@ vi.mock("../src/chatgpt-browser.js", async (importOriginal) => {
 });
 
 const { runCli } = await import("../src/cli.js");
-const { browserReadinessNextStep, waitForChatGptLoginReady } = await import("../src/cli-pro.js");
+const { browserReadinessNextStep, printBrowserLoginGuide, waitForChatGptLoginReady } = await import("../src/cli-pro.js");
 
 function status(overrides: Partial<{ reachable: boolean; loggedInLikely: boolean; hasComposer: boolean }> = {}) {
   return {
@@ -32,6 +32,26 @@ function status(overrides: Partial<{ reachable: boolean; loggedInLikely: boolean
     ...overrides
   };
 }
+
+describe("browser authentication guide", () => {
+  it.each([true, false])("explains the separate Chrome account choice before authentication (opened=%s)", (opened) => {
+    const lines: string[] = [];
+    printBrowserLoginGuide((line) => lines.push(line), {
+      opened, loginUrl: "https://chatgpt.com/", profileDir: "/saved/profile", port: 9333
+    });
+    expect(lines.join("\n")).toContain("Chrome account connection is separate from ChatGPT sign-in");
+    expect(lines.join("\n")).toContain("Use Chrome without an account");
+    expect(lines.join("\n")).toContain("Keep the ChatGPT tab open after making that choice");
+  });
+
+  it("does not tell a headless user to handle an unseen Chrome account choice", () => {
+    const lines: string[] = [];
+    printBrowserLoginGuide((line) => lines.push(line), {
+      opened: true, headless: true, loginUrl: "https://chatgpt.com/", profileDir: "/saved/profile", port: 9333
+    });
+    expect(lines.join("\n")).not.toContain("Use Chrome without an account");
+  });
+});
 
 describe("waitForChatGptLoginReady", () => {
   it("walks the login states once each and reports READY", async () => {
@@ -149,6 +169,36 @@ describe("waitForChatGptLoginReady", () => {
     expect(call).toBe(2);
     expect(lines).toContain("login: blocked - ChatGPT requires login. Next: Log in in the visible browser.");
   });
+
+  it.each(["cloudflare_check", "captcha_required", "login_required", "permission_required"])(
+    "does not prescribe another login after a verified headed handoff reaches %s",
+    async (code) => {
+      const lines: string[] = [];
+      const statusFn = vi.fn(async () => ({
+        ...status({ reachable: true }),
+        blocker: { code, message: "The headless page needs verification.", retryable: true,
+          next_step: "Repeat the visible login." }
+      }));
+      const sleepFn = vi.fn(async () => {});
+      const openTabFn = vi.fn(async () => true);
+
+      expect(await waitForChatGptLoginReady((line) => lines.push(line), {
+        port: 9333, timeoutMs: 60_000,
+        windowMode: { headless: true, virtualDisplay: false, minimized: false },
+        verifiedHeadedHandoff: true,
+        headlessRecoveryCommand: "prodex pro browser login --headed --recover-visible"
+      }, { statusFn, sleepFn, openTabFn })).toBe(false);
+
+      expect(statusFn).toHaveBeenCalledTimes(1);
+      expect(sleepFn).not.toHaveBeenCalled();
+      expect(openTabFn).not.toHaveBeenCalled();
+      expect(lines.join("\n")).toContain(code);
+      expect(lines.join("\n")).toContain("Sign-in was verified before the headless handoff");
+      expect(lines.join("\n")).toContain("Another login is not a demonstrated fix");
+      expect(lines.join("\n")).not.toContain("Repeat the visible login");
+      expect(lines.join("\n")).not.toContain("--recover-visible");
+    }
+  );
 
   it.each([
     ["response_in_progress", "ChatGPT is still responding.", "Wait for the current response to finish."],
