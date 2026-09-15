@@ -12,6 +12,7 @@ const execFileAsync = promisify(execFile);
 export function findRipgrep(env: NodeJS.ProcessEnv = process.env, exists: (p: string) => boolean = existsSync): string {
   const pathDirs = (env.PATH ?? "").split(path.delimiter).filter(Boolean);
   const home = env.HOME ?? env.USERPROFILE ?? "";
+  const executable = process.platform === "win32" ? "rg.exe" : "rg";
   const fallbackDirs = [
     "/usr/bin",
     "/usr/local/bin",
@@ -22,7 +23,7 @@ export function findRipgrep(env: NodeJS.ProcessEnv = process.env, exists: (p: st
     ...(home ? [path.join(home, ".cargo", "bin"), path.join(home, ".local", "bin")] : [])
   ];
   for (const dir of [...pathDirs, ...fallbackDirs]) {
-    const candidate = path.join(dir, "rg");
+    const candidate = path.join(dir, executable);
     try {
       if (exists(candidate)) return candidate;
     } catch {
@@ -81,6 +82,9 @@ export function assertRepoRelativePath(repoPath: string): void {
   }
   if (path.isAbsolute(repoPath)) {
     throw new Error("Path must be repo-relative, not absolute");
+  }
+  if (process.platform === "win32" && repoPath.includes(":")) {
+    throw new Error("Path must not use a Windows alternate data stream");
   }
   const normalized = path.posix.normalize(repoPath.replaceAll("\\", "/"));
   if (normalized === "." || normalized.startsWith("../") || normalized === "..") {
@@ -226,10 +230,14 @@ function parseRipgrepJsonMatch(line: string): SearchResult | undefined {
   }
   if (!isRipgrepJsonMatch(event)) return undefined;
   return {
-    path: event.data.path.text.replace(/^\.\//, ""),
+    path: normalizeRipgrepMatchPath(event.data.path.text),
     line: event.data.line_number,
     text: stripOneTrailingLineEnding(event.data.lines.text)
   };
+}
+
+function normalizeRipgrepMatchPath(matchPath: string): string {
+  return matchPath.split(path.sep).join("/").replace(/^\.\//, "");
 }
 
 function isRipgrepJsonMatch(value: unknown): value is RipgrepJsonMatch {

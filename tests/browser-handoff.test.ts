@@ -15,14 +15,24 @@ beforeEach(async () => { profile = await mkdtemp(path.join(tmpdir(), "prodex-han
 afterEach(async () => { vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks(); await rm(profile, { recursive: true, force: true }); });
 
 const url = "https://chatgpt.com/c/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
-type Options = { extraPage?: string; iframe?: boolean; nativeVisibility?: "visible" | "hidden" | "unknown"; profileMismatch?: boolean; ephemeralFlag?: string; headless?: boolean; blockerText?: string; filledControl?: boolean; draft?: boolean; generating?: boolean; dialog?: boolean; attachments?: boolean; unpersisted?: boolean; temporary?: boolean; targetChanged?: boolean; closeError?: boolean; lingering?: boolean; replacement?: boolean; jsDialog?: boolean; foreignSocket?: boolean };
+type Options = { extraPage?: string; iframe?: boolean; nativeVisibility?: "visible" | "hidden" | "unknown"; profileMismatch?: boolean; processListFailure?: boolean; ephemeralFlag?: string; headless?: boolean; blockerText?: string; filledControl?: boolean; draft?: boolean; generating?: boolean; dialog?: boolean; attachments?: boolean; unpersisted?: boolean; temporary?: boolean; targetChanged?: boolean; closeError?: boolean; lingering?: boolean; replacement?: boolean; jsDialog?: boolean; foreignSocket?: boolean };
 
 function fixture(options: Options = {}) {
   vi.useFakeTimers();
   const data = { closed: false, closeCalls: 0, socketCount: 0, lists: 0, expressions: [] as string[] };
   const processLine = `tester 123456789 /usr/bin/google-chrome --remote-debugging-port=19333 --user-data-dir=${options.profileMismatch ? "/wrong/profile" : profile} --no-first-run ${options.headless ? "--headless=new" : ""} ${options.ephemeralFlag ?? ""}`;
   const replacementLine = `tester 223456789 /usr/bin/google-chrome --remote-debugging-port=19333 --user-data-dir=${profile} --headless=new`;
-  ps.mockImplementation(() => ({ status: 0, stdout: data.closed ? (options.lingering ? processLine : options.replacement ? replacementLine : "") : processLine }));
+  ps.mockImplementation((command: string) => {
+    if (options.processListFailure) return { status: 1, stdout: "", stderr: "Access denied" };
+    const lines = data.closed ? (options.lingering ? processLine : options.replacement ? replacementLine : "") : processLine;
+    if (command === "ps") return { status: 0, stdout: lines };
+    const records = lines ? lines.split("\n").map((line) => {
+      const pid = Number(/^\s*\S+\s+(\d+)\s/.exec(line)?.[1]);
+      const commandLine = line.replace(/^\s*\S+\s+\d+\s+/, "");
+      return { ExecutablePath: "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe", ProcessId: pid, CommandLine: commandLine };
+    }) : [];
+    return { status: 0, stdout: JSON.stringify(records) };
+  });
   vi.spyOn(process, "kill").mockImplementation(((_pid: number, signal: unknown) => {
     expect(signal).toBe(0);
     if (data.closed && !options.lingering) throw Object.assign(new Error("gone"), { code: "ESRCH" });
@@ -124,6 +134,12 @@ describe("graceful dedicated-browser handoff", () => {
     const result = await run({ closeError: true });
     expect(result.error).toBeDefined();
     expect(result.closeCalls).toBe(1);
+  });
+
+  it("refuses handoff when process inspection is inaccessible", async () => {
+    const result = await run({ processListFailure: true });
+    expect(result.error?.message).toContain("Could not verify the dedicated browser process");
+    expect(result.closeCalls).toBe(0);
   });
 
   it("distinguishes a visibly verified Chrome account chooser from ChatGPT login", async () => {

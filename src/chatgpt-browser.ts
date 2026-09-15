@@ -8,6 +8,7 @@ import WsWebSocket from "ws";
 
 import { captureBrowserDiagnostics, diagnosticsEnabled, diagnosticsNote } from "./browser-diagnostics.js";
 import { withCrossProcessFileLock, writeVerifiedUtf8File } from "./safe-file.js";
+import { findBrowserProcessesByPort, findMatchingBrowserProcesses, inspectBrowserProcesses, parsePosixProcessList } from "./browser-process.js";
 import os from "node:os";
 
 import {
@@ -46,6 +47,7 @@ export interface ChatGptBrowserOptions {
 export interface ChatGptBrowserLaunch {
   command: string;
   args: string[];
+  processId?: number;
   profileDir: string;
   port: number;
   waitForEarlyExit: (timeoutMs?: number) => Promise<ChatGptBrowserEarlyExit | undefined>;
@@ -1835,6 +1837,7 @@ export function openChatGptBrowser(options: ChatGptBrowserOptions = {}): ChatGpt
   return {
     command,
     args,
+    processId: child.pid,
     profileDir,
     port,
     waitForEarlyExit: (timeoutMs = 1000) => {
@@ -4640,52 +4643,11 @@ export function resolveConversationToDelete(
  * The port cannot tell a dead browser from an absent one; the process list can.
  */
 export function findLaunchedBrowserProcesses(psOutput: string, input: { port: number; profileDir: string }): number[] {
-  // `ps -Ao user,pid,command` leads with a user NAME, not a uid.
-  const pidOf = (line: string): number | undefined => {
-    const match = /^\s*\S+\s+(\d+)\s/.exec(line);
-    return match ? Number(match[1]) : undefined;
-  };
-  // Mentioning the flag is not being the browser: a shell, an editor, or the
-  // very tool running this scan can carry it on its command line, and this list
-  // is what gets SIGTERM. Caught live - the probe matched its own node process.
-  const isBrowserCommand = (line: string): boolean => {
-    const command = line.replace(/^\s*\S+\s+\d+\s+/, "").trim();
-    // Linux/PATH executables cannot contain spaces, so only the first token is
-    // eligible. This keeps a node/shell argument that names a browser from
-    // becoming a process prodex may terminate.
-    const firstToken = command.split(/\s+/, 1)[0];
-    if (
-      /(^|[/\\])(google[ -]?chrome(?:\.exe)?|chromium(?:-browser)?|chrome(?:\.exe)?|microsoft[ -]edge|msedge\.exe|brave[ -]browser)$/i.test(
-        firstToken
-      )
-    ) {
-      return true;
-    }
-    // macOS app executables and helpers have spaces in their absolute path.
-    // Match only anchored, known bundle layouts and require the next token to
-    // be a flag (or end-of-line), never arbitrary argument text.
-    return /^\/Applications\/(?:Google Chrome\.app\/Contents\/MacOS\/Google Chrome|Chromium\.app\/Contents\/MacOS\/Chromium|Microsoft Edge\.app\/Contents\/MacOS\/Microsoft Edge|Brave Browser\.app\/Contents\/MacOS\/Brave Browser|(?:Google Chrome|Chromium|Microsoft Edge|Brave Browser)\.app\/Contents\/Frameworks\/.*?\/Helpers\/(?:Google Chrome|Chromium|Microsoft Edge|Brave Browser) Helper(?: \([^)]*\))?)(?=\s--|$)/i.test(
-      command
-    );
-  };
-  const lines = psOutput.split(/\r?\n/).filter((line) => !/\bgrep\b/.test(line) && isBrowserCommand(line));
-  // Exactly this port: a plain substring test let port 9 match 9333.
-  const portFlag = new RegExp(`--remote-debugging-port=${input.port}(?!\\d)`);
-  const mains = lines.filter((line) => portFlag.test(line));
-  // The port is the instance's identity. A browser sharing the profile while
-  // listening on another port belongs to someone else, and treating it as ours
-  // made a check against an unused port report a healthy Chrome as wedged.
-  if (mains.length === 0) return [];
-  // Which profile the helpers belong to is the browser's answer, not the
-  // caller's: `check` has only a port, and matching against the profile it
-  // assumed both missed this browser's renderers and collected a stranger's.
-  // Read it off the process that answered to the port; fall back to what the
-  // caller passed only when the command line does not say.
-  // Stop at the next flag, so a profile path containing spaces survives.
-  const profileOf = (line: string): string | undefined => /--user-data-dir=(.*?)(?=\s+-{1,2}\w|\s*$)/.exec(line)?.[1];
-  const profileDir = profileOf(mains[0]) ?? input.profileDir;
-  const helpers = profileDir.length > 0 ? lines.filter((line) => profileOf(line) === profileDir && !mains.includes(line)) : [];
-  return [...mains, ...helpers].map(pidOf).filter((pid): pid is number => pid !== undefined);
+  return findBrowserProcessesByPort(parsePosixProcessList(psOutput), {
+    platform: "linux",
+    port: input.port,
+    fallbackProfileDir: input.profileDir
+  }).map((processInfo) => processInfo.processId);
 }
 
 /**
@@ -4699,12 +4661,12 @@ export function findLaunchedBrowserProcesses(psOutput: string, input: { port: nu
  */
 export function findWedgedBrowser(input: { port?: number; profileDir?: string } = {}): number[] {
   const port = resolveCdpPort(input.port);
-  const profileDir = input.profileDir ?? defaultChatGptProfileDir();
-  // -A over every user's processes is deliberate: the browser may have been
-  // launched by another shell session than the one asking.
-  const listed = spawnSync("ps", ["-Ao", "user,pid,command"], { encoding: "utf8", timeout: 10_000 });
-  if (listed.status !== 0 || typeof listed.stdout !== "string") return [];
-  return findLaunchedBrowserProcesses(listed.stdout, { port, profileDir });
+  const processes = inspectBrowserProcesses();
+  const matching = input.profileDir === undefined
+    ? findBrowserProcessesByPort(processes, { port, fallbackProfileDir: defaultChatGptProfileDir() })
+    : findMatchingBrowserProcesses(processes, { port, profileDir: input.profileDir });
+  return matching
+    .map((processInfo) => processInfo.processId);
 }
 
 export interface ProcessSignals {

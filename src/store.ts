@@ -1,6 +1,7 @@
 import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { createRequire } from "node:module";
 import { registerBridgeRoot } from "./registry.js";
+import { ensureBridgeGitignore } from "./bridge-gitignore.js";
 import { closeSync, constants, existsSync, openSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { link, lstat, mkdir, open, readdir, realpath, rename, rm, stat } from "node:fs/promises";
@@ -990,30 +991,7 @@ export class BridgeStore {
 
   private async ensureBridgeGitignore(): Promise<void> {
     const ignorePath = path.join(this.bridgeDir, ".gitignore");
-    let current = "";
-    try {
-      current = await readVerifiedUtf8File(ignorePath, () => this.assertBridgeGitignoreTargetSafe());
-    } catch (error) {
-      if (!isErrorCode(error, "ENOENT")) throw error;
-    }
-    const required = [
-      "tasks/*.json",
-      "results/*.json",
-      "sessions/*.json",
-      "receipts/*.json",
-      "artifacts/*",
-      "config.local.json",
-      "receipt-key.local",
-      "last-browser-send",
-      "!.gitignore"
-    ];
-    const lines = new Set(current.split(/\r?\n/).filter(Boolean));
-    for (const line of required) lines.add(line);
-    const updated = `${Array.from(lines).join("\n")}\n`;
-    if (updated === current) return;
-    await writeVerifiedUtf8File(ignorePath, updated, () => this.assertBridgeGitignoreTargetSafe(), {
-      create: true
-    });
+    await ensureBridgeGitignore(ignorePath, () => this.assertBridgeGitignoreTargetSafe());
   }
 
   async hasReadyBridgeStorageReadOnly(): Promise<boolean> {

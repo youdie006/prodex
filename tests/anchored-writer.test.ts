@@ -48,7 +48,7 @@ describe("anchoring the writer's working directory", () => {
     setBridgeStoreTestHooks({});
   });
 
-  it.each(["..\\outside", "C:outside", "nested\\file", "file:stream"])("rejects Windows path syntax: %s", async (name) => {
+  it.each(["..\\outside", "nested\\file", ...(process.platform === "win32" ? ["C:outside", "file:stream"] : [])])("rejects Windows path syntax: %s", async (name) => {
     const here = statSync(process.cwd(), { bigint: true });
     const anchor = { dev: here.dev.toString(), ino: here.ino.toString() };
     expect(() => anchorCurrentDirectory(anchor, [name])).toThrow(/refuses to descend/i);
@@ -89,6 +89,16 @@ describe("anchoring the writer's working directory", () => {
 describe("removing an artifact without traversable directory fd paths", () => {
   afterEach(() => {
     setBridgeStoreTestHooks({});
+  });
+
+  it.skipIf(process.platform === "win32")("removes a POSIX artifact containing a colon", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-anchored-colon-"));
+    const store = new BridgeStore(root);
+    await store.ensure();
+    setBridgeStoreTestHooks({ disableDirectoryFdPaths: true });
+    const artifact = await store.writeArtifactText(".bridge/artifacts/colon:file.txt", "local artifact");
+    await store.deleteArtifactTextIfPresent(artifact);
+    expect(await store.hasArtifactText(artifact)).toBe(false);
   });
 
   it("descends to the artifact's own directory and removes only it", async () => {

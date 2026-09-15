@@ -1440,19 +1440,24 @@ describe("BridgeStore", () => {
     const store = new BridgeStore(root);
     await store.ensure();
     let swapped = false;
+    const swapReceipts = async () => {
+      if (swapped) return;
+      swapped = true;
+      await rename(path.join(root, ".bridge", "receipts"), movedReceiptsDir);
+      await symlink(outside, path.join(root, ".bridge", "receipts"), process.platform === "win32" ? "junction" : "dir");
+    };
     setSafeFileTestHooks({
       beforeOpen: async (_filePath, operation) => {
-        if (!swapped && operation === "write") {
-          swapped = true;
-          await rename(path.join(root, ".bridge", "receipts"), movedReceiptsDir);
-          await symlink(outside, path.join(root, ".bridge", "receipts"), process.platform === "win32" ? "junction" : "dir");
-        }
+        if (operation === "write") await swapReceipts();
       }
     });
+    // The non-Linux backend writes inside a child, outside safe-file's hooks.
+    setBridgeStoreTestHooks({ beforeRecordRename: swapReceipts });
 
     await expect(
       store.writeReceipt({ kind: "consult_preview", summary: "Should not follow swapped receipt storage" })
     ).rejects.toThrow(/Bridge storage directory|record|symlink|ENOENT/i);
+    expect(swapped).toBe(true);
     expect(await readdir(outside)).toEqual([]);
   });
 

@@ -90,7 +90,7 @@ export function anchorCurrentDirectory(anchor: DirectoryIdentity, segments: stri
     throw new Error("Anchored writer was not started in the directory the caller validated");
   }
   for (const segment of segments) {
-    if (segment.length === 0 || segment === "." || segment === ".." || /[\\/:]/.test(segment)) {
+    if (segment.length === 0 || segment === "." || segment === ".." || /[\\/]/.test(segment) || (process.platform === "win32" && segment.includes(":"))) {
       throw new Error(`Anchored writer refuses to descend into ${JSON.stringify(segment)}`);
     }
     // The no-follow/identity checks reject symlinks and Windows junctions, and
@@ -135,7 +135,7 @@ export async function runAnchoredJob(job: AnchoredWriteJob): Promise<AnchoredWri
     }
   };
   const { fileName } = job;
-  if (fileName.length === 0 || /[\\/:]/.test(fileName) || fileName === "." || fileName === "..") {
+  if (fileName.length === 0 || /[\\/]/.test(fileName) || (process.platform === "win32" && fileName.includes(":")) || fileName === "." || fileName === "..") {
     throw new Error(`Anchored writer refuses the file name ${JSON.stringify(fileName)}`);
   }
 

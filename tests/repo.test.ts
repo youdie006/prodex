@@ -2,7 +2,7 @@ import { link, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { readRepoFile, resolveRepoPath, searchRepo, searchRepoWithMetadata } from "../src/repo.js";
+import { findRipgrep, readRepoFile, resolveRepoPath, searchRepo, searchRepoWithMetadata } from "../src/repo.js";
 import { setSafeFileTestHooks } from "../src/safe-file.js";
 
 describe("repo path policy", () => {
@@ -54,7 +54,11 @@ describe("repo path policy", () => {
     const outside = await mkdtemp(path.join(tmpdir(), "prodex-outside-"));
     await writeFile(path.join(outside, "file.txt"), "outside\n", "utf8");
     await mkdir(path.join(root, "links"));
-    await symlink(outside, path.join(root, "links", "outside"));
+    await symlink(
+      outside,
+      path.join(root, "links", "outside"),
+      process.platform === "win32" ? "junction" : "dir"
+    );
 
     expect(() => resolveRepoPath(root, "../secret.txt")).toThrow(/repo-relative/);
     expect(() => resolveRepoPath(root, path.join(root, "README.md"))).toThrow(/repo-relative/);
@@ -74,7 +78,7 @@ describe("repo path policy", () => {
         if (!swapped && filePath === repoFile) {
           swapped = true;
           await rm(repoFile);
-          await symlink(outsideFile, repoFile);
+          await symlink(outsideFile, repoFile, "file");
         }
       }
     });
@@ -210,7 +214,11 @@ describe("repo path policy", () => {
     const root = await mkdtemp(path.join(tmpdir(), "prodex-repo-"));
     await mkdir(path.join(root, ".bridge"), { recursive: true });
     await writeFile(path.join(root, ".bridge", "config.local.json"), '{"token":"secret"}\n', "utf8");
-    await symlink(path.join(root, ".bridge"), path.join(root, "bridge-alias"));
+    await symlink(
+      path.join(root, ".bridge"),
+      path.join(root, "bridge-alias"),
+      process.platform === "win32" ? "junction" : "dir"
+    );
 
     await expect(readRepoFile(root, "bridge-alias/config.local.json")).rejects.toThrow(/sensitive/);
   });
@@ -236,13 +244,22 @@ describe("repo path policy", () => {
     ]);
   });
 
-  it("parses search matches in files whose paths contain colons", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "prodex-repo-"));
-    await writeFile(path.join(root, "notes:today.md"), "needle:with:colon\n", "utf8");
+  it.runIf(process.platform !== "win32")(
+    "parses search matches in files whose paths contain colons",
+    async () => {
+      const root = await mkdtemp(path.join(tmpdir(), "prodex-repo-"));
+      await writeFile(path.join(root, "notes:today.md"), "needle:with:colon\n", "utf8");
 
-    await expect(searchRepo(root, "needle")).resolves.toEqual([
-      { path: "notes:today.md", line: 1, text: "needle:with:colon" }
-    ]);
+      await expect(searchRepo(root, "needle")).resolves.toEqual([
+        { path: "notes:today.md", line: 1, text: "needle:with:colon" }
+      ]);
+    }
+  );
+
+  it.runIf(process.platform === "win32")("rejects Windows alternate data stream paths", () => {
+    const root = path.join(path.parse(process.cwd()).root, "repo");
+
+    expect(() => resolveRepoPath(root, "notes:today.md")).toThrow(/alternate data stream/i);
   });
 
   it("reports search truncation metadata when more than the returned limit matches", async () => {
@@ -260,15 +277,17 @@ describe("repo path policy", () => {
     expect(result.limit).toBe(100);
   });
 
-  it("resolves ripgrep via fallback dirs even when PATH is narrowed", async () => {
+  it("keeps using the discovered ripgrep path after PATH is narrowed", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "prodex-repo-"));
     const emptyPath = await mkdtemp(path.join(tmpdir(), "prodex-empty-path-"));
     await writeFile(path.join(root, "README.md"), "needle\n", "utf8");
+    const ripgrepPath = findRipgrep();
+    expect(path.isAbsolute(ripgrepPath), `repo tests require ripgrep on PATH; received ${ripgrepPath}`).toBe(true);
+
+    await expect(searchRepo(root, "needle")).resolves.toEqual([{ path: "README.md", line: 1, text: "needle" }]);
     const previousPath = process.env.PATH;
     process.env.PATH = emptyPath;
     try {
-      // A narrowed PATH (e.g. an MCP server spawned with a minimal environment) no
-      // longer breaks repo_search: findRipgrep falls back to common install dirs.
       const result = await searchRepo(root, "needle");
       expect(result.some((match) => match.path === "README.md")).toBe(true);
     } finally {
@@ -387,7 +406,7 @@ describe("repo path policy", () => {
     const outside = await mkdtemp(path.join(tmpdir(), "prodex-outside-"));
     const rgConfig = path.join(await mkdtemp(path.join(tmpdir(), "prodex-rg-config-")), "ripgreprc");
     await writeFile(path.join(outside, "secret.txt"), "SECRET=outside\n", "utf8");
-    await symlink(outside, path.join(root, "outside-link"));
+    await symlink(outside, path.join(root, "outside-link"), process.platform === "win32" ? "junction" : "dir");
     await writeFile(rgConfig, "--follow\n", "utf8");
     const previousConfig = process.env.RIPGREP_CONFIG_PATH;
     process.env.RIPGREP_CONFIG_PATH = rgConfig;

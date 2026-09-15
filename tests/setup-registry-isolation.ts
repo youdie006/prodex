@@ -3,6 +3,9 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterAll, afterEach, beforeEach } from "vitest";
 
+// macOS exposes /var via /private/var; CLI paths are canonicalized too.
+if (process.platform !== "win32") process.env.TMPDIR = fs.realpathSync(os.tmpdir());
+
 const root = fs.mkdtempSync(path.join(os.tmpdir(), "prodex-test-state-"));
 const isolated = {
   PRODEX_BRIDGES_REGISTRY: path.join(root, "bridges.json"),

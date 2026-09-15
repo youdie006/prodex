@@ -1,3 +1,5 @@
+import { realpathSync } from "node:fs";
+import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const status = vi.hoisted(() => vi.fn());
@@ -25,7 +27,8 @@ vi.mock("../src/browser-handoff.js", () => ({
 import { runCli } from "../src/cli.js";
 
 const ready = { reachable: true, loggedInLikely: true, hasComposer: true, modelHints: [] };
-const saved = { port: 9333, profile_dir: "/saved/profile", headless: false, minimized: false };
+const saved = { port: 9333, profile_dir: path.resolve("/saved/profile"), headless: false, minimized: false };
+const sourceCli = realpathSync(process.execPath);
 const thread = "https://chatgpt.com/c/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
 let out: string[];
 let errors: string[];
@@ -59,10 +62,10 @@ describe("explicit visible authentication recovery", () => {
   );
 
   it("previews the exact source-aware profile and port without touching the browser", async () => {
-    expect(await run(["--headed", "--recover-visible", "--dry-run", "--source-cli", "/bin/true"])).toBe(0);
+    expect(await run(["--headed", "--recover-visible", "--dry-run", "--source-cli", sourceCli])).toBe(0);
     const text = out.join("\n");
-    expect(text).toContain("node /usr/bin/true pro browser login --source-cli /usr/bin/true");
-    expect(text).toContain("--profile-dir /saved/profile --port 9333 --headed --recover-visible");
+    expect(text).toContain(`node ${shellQuotedForTest(sourceCli)} pro browser login --source-cli ${shellQuotedForTest(sourceCli)}`);
+    expect(text).toContain(`--profile-dir ${shellQuotedForTest(saved.profile_dir)} --port 9333 --headed --recover-visible`);
     expect(closeBlockedHeadless).not.toHaveBeenCalled();
     expect(open).not.toHaveBeenCalled();
   });
@@ -86,6 +89,10 @@ describe("explicit visible authentication recovery", () => {
     expect(status).toHaveBeenCalledTimes(2);
   });
 });
+
+function shellQuotedForTest(value: string): string {
+  return /^[A-Za-z0-9_./:@=-]+$/.test(value) ? value : `'${value.replaceAll("'", "'\\''")}'`;
+}
 afterEach(() => { vi.unstubAllEnvs(); });
 
 describe("one-time background login", () => {

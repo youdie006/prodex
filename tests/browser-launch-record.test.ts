@@ -38,6 +38,8 @@ describe("saved browser launch identity", () => {
     await recordBrowserLoginLaunch(next);
     expect(previous).toEqual([old]);
     expect(await readLastBrowserLoginLaunch()).toEqual(next);
-    expect((await stat(file)).mode & 0o777).toBe(0o600);
+    if (process.platform !== "win32") {
+      expect((await stat(file)).mode & 0o777).toBe(0o600);
+    }
   });
 });

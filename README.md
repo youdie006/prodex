@@ -51,6 +51,8 @@ That is a real run, timings included. Every consult lands as a task, a result an
 
 Node 20 or newer, `git`, and `ripgrep` (`rg`) on PATH. A Chromium-family browser for the browser adapter: Chrome, Chromium, Edge or Brave on PATH or in the standard native macOS and Windows locations. Set `PRODEX_CHROME` for another executable. WSL uses a Linux browser; Windows-host Chrome is not automatically discovered or interchangeable with a Linux profile.
 
+On native Windows, generated command examples target PowerShell (PowerShell 7 for commands joined with `&&`), not `cmd.exe`. CLI/MCP subprocesses pass arguments directly without a shell.
+
 ```sh
 npm install -g @youdie006/prodex
 ```

@@ -4,10 +4,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
+import { execNpm } from "../scripts/npm-command.mjs";
 
 const execFileAsync = promisify(execFile);
 const repoRoot = path.resolve(import.meta.dirname, "..");
-const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
+const fakeNpmCliFilename = "npm-cli.mjs";
 
 describe("release-pack", () => {
   it("prints usage without inspecting package metadata", async () => {
@@ -81,14 +82,13 @@ describe("release-pack", () => {
     const destination = await mkdtemp(path.join(tmpdir(), "prodex-release-pack-dest-"));
     const fakeBin = await mkdtemp(path.join(tmpdir(), "prodex-release-pack-fake-bin-"));
     await writeFile(
-      path.join(fakeBin, npmCommand),
-      "#!/bin/sh\nprintf 'not json\\n'\n",
+      path.join(fakeBin, fakeNpmCliFilename),
+      `process.stdout.write(${JSON.stringify("not json\n")});\n`,
       "utf8"
     );
-    await chmod(path.join(fakeBin, npmCommand), 0o755);
 
     const result = await runReleasePack(["--root", root, "--pack-destination", destination], {
-      env: { PATH: `${fakeBin}${path.delimiter}${process.env.PATH ?? ""}` }
+      env: { npm_execpath: path.join(fakeBin, fakeNpmCliFilename) }
     });
 
     const output = `${result.stdout}\n${result.stderr}`;
@@ -106,14 +106,13 @@ describe("release-pack", () => {
     const destination = await mkdtemp(path.join(tmpdir(), "prodex-release-pack-dest-"));
     const fakeBin = await mkdtemp(path.join(tmpdir(), "prodex-release-pack-fake-bin-"));
     await writeFile(
-      path.join(fakeBin, npmCommand),
-      "#!/bin/sh\nprintf 'npm dry-run exploded\\n' >&2\nexit 23\n",
+      path.join(fakeBin, fakeNpmCliFilename),
+      `process.stderr.write(${JSON.stringify("npm dry-run exploded\n")});\nprocess.exit(23);\n`,
       "utf8"
     );
-    await chmod(path.join(fakeBin, npmCommand), 0o755);
 
     const result = await runReleasePack(["--root", root, "--pack-destination", destination], {
-      env: { PATH: `${fakeBin}${path.delimiter}${process.env.PATH ?? ""}` }
+      env: { npm_execpath: path.join(fakeBin, fakeNpmCliFilename) }
     });
 
     const output = `${result.stdout}\n${result.stderr}`;
@@ -130,14 +129,13 @@ describe("release-pack", () => {
     const destination = await mkdtemp(path.join(tmpdir(), "prodex-release-pack-dest-"));
     const fakeBin = await mkdtemp(path.join(tmpdir(), "prodex-release-pack-fake-bin-"));
     await writeFile(
-      path.join(fakeBin, npmCommand),
-      "#!/bin/sh\nexit 23\n",
+      path.join(fakeBin, fakeNpmCliFilename),
+      "process.exit(23);\n",
       "utf8"
     );
-    await chmod(path.join(fakeBin, npmCommand), 0o755);
 
     const result = await runReleasePack(["--root", root, "--pack-destination", destination], {
-      env: { PATH: `${fakeBin}${path.delimiter}${process.env.PATH ?? ""}` }
+      env: { npm_execpath: path.join(fakeBin, fakeNpmCliFilename) }
     });
 
     const output = `${result.stdout}\n${result.stderr}`;
@@ -154,25 +152,16 @@ describe("release-pack", () => {
     const destination = await mkdtemp(path.join(tmpdir(), "prodex-release-pack-dest-"));
     const fakeBin = await mkdtemp(path.join(tmpdir(), "prodex-release-pack-fake-bin-"));
     await writeFile(
-      path.join(fakeBin, npmCommand),
-      `#!/bin/sh
-case " $* " in
-  *" --dry-run "*)
-    if [ "$(pwd)" = "${root}" ]; then
-      printf '[{"files":[{"path":"package.json","mode":420},{"path":"README.md","mode":420},{"path":"LICENSE","mode":420},{"path":"dist/cli.js","mode":493},{"path":"scripts/release-check.mjs","mode":420},{"mode":420}]}]\\n'
-    else
-      printf '[{"files":[{"path":"package.json","mode":420},{"path":"README.md","mode":420},{"path":"LICENSE","mode":420},{"path":"dist/cli.js","mode":493},{"path":"scripts/release-check.mjs","mode":420}]}]\\n'
-    fi
-    ;;
-  *) printf 'final pack should not run\\n' >&2; exit 24 ;;
-esac
-`,
+      path.join(fakeBin, fakeNpmCliFilename),
+      [
+        'if (!process.argv.slice(2).includes("--dry-run")) { process.stderr.write("final pack should not run\\n"); process.exit(24); }',
+        `process.stdout.write(process.cwd() === ${JSON.stringify(root)} ? ${JSON.stringify('[{"files":[{"path":"package.json","mode":420},{"path":"README.md","mode":420},{"path":"LICENSE","mode":420},{"path":"dist/cli.js","mode":493},{"path":"scripts/npm-command.mjs","mode":420},{"path":"scripts/release-check.mjs","mode":420},{"mode":420}]}]\n')} : ${JSON.stringify('[{"files":[{"path":"package.json","mode":420},{"path":"README.md","mode":420},{"path":"LICENSE","mode":420},{"path":"dist/cli.js","mode":493},{"path":"scripts/npm-command.mjs","mode":420},{"path":"scripts/release-check.mjs","mode":420}]}]\n')});`
+      ].join("\n"),
       "utf8"
     );
-    await chmod(path.join(fakeBin, npmCommand), 0o755);
 
     const result = await runReleasePack(["--root", root, "--pack-destination", destination], {
-      env: { PATH: `${fakeBin}${path.delimiter}${process.env.PATH ?? ""}` }
+      env: { npm_execpath: path.join(fakeBin, fakeNpmCliFilename) }
     });
 
     const output = `${result.stdout}\n${result.stderr}`;
@@ -189,16 +178,13 @@ esac
     const destination = await mkdtemp(path.join(tmpdir(), "prodex-release-pack-dest-"));
     const fakeBin = await mkdtemp(path.join(tmpdir(), "prodex-release-pack-fake-bin-"));
     await writeFile(
-      path.join(fakeBin, npmCommand),
-      `#!/bin/sh
-printf '[{"files":[{"path":"package.json"},{"path":"README.md"},{"path":"LICENSE"},{"path":"dist/cli.js"},{"path":"scripts/release-check.mjs"},{"path":"missing.md"}]}]\\n'
-`,
+      path.join(fakeBin, fakeNpmCliFilename),
+      `process.stdout.write(${JSON.stringify('[{"files":[{"path":"package.json"},{"path":"README.md"},{"path":"LICENSE"},{"path":"dist/cli.js"},{"path":"scripts/npm-command.mjs"},{"path":"scripts/release-check.mjs"},{"path":"missing.md"}]}]\n')});\n`,
       "utf8"
     );
-    await chmod(path.join(fakeBin, npmCommand), 0o755);
 
     const result = await runReleasePack(["--root", root, "--pack-destination", destination], {
-      env: { PATH: `${fakeBin}${path.delimiter}${process.env.PATH ?? ""}` }
+      env: { npm_execpath: path.join(fakeBin, fakeNpmCliFilename) }
     });
 
     const output = `${result.stdout}\n${result.stderr}`;
@@ -215,19 +201,13 @@ printf '[{"files":[{"path":"package.json"},{"path":"README.md"},{"path":"LICENSE
     const destination = await mkdtemp(path.join(tmpdir(), "prodex-release-pack-dest-"));
     const fakeBin = await mkdtemp(path.join(tmpdir(), "prodex-release-pack-fake-bin-"));
     await writeFile(
-      path.join(fakeBin, npmCommand),
-      `#!/bin/sh
-case " $* " in
-  *" --dry-run "*) printf '[{"files":[{"path":"package.json","mode":420},{"path":"README.md","mode":420},{"path":"LICENSE","mode":420},{"path":"dist/cli.js","mode":493},{"path":"scripts/release-check.mjs","mode":420}]}]\\n' ;;
-  *) printf 'not json\\n' ;;
-esac
-`,
+      path.join(fakeBin, fakeNpmCliFilename),
+      `process.stdout.write(process.argv.slice(2).includes("--dry-run") ? ${JSON.stringify('[{"files":[{"path":"package.json","mode":420},{"path":"README.md","mode":420},{"path":"LICENSE","mode":420},{"path":"dist/cli.js","mode":493},{"path":"scripts/npm-command.mjs","mode":420},{"path":"scripts/release-check.mjs","mode":420}]}]\n')} : ${JSON.stringify("not json\n")});\n`,
       "utf8"
     );
-    await chmod(path.join(fakeBin, npmCommand), 0o755);
 
     const result = await runReleasePack(["--root", root, "--pack-destination", destination], {
-      env: { PATH: `${fakeBin}${path.delimiter}${process.env.PATH ?? ""}` }
+      env: { npm_execpath: path.join(fakeBin, fakeNpmCliFilename) }
     });
 
     const output = `${result.stdout}\n${result.stderr}`;
@@ -245,19 +225,16 @@ esac
     const destination = await mkdtemp(path.join(tmpdir(), "prodex-release-pack-dest-"));
     const fakeBin = await mkdtemp(path.join(tmpdir(), "prodex-release-pack-fake-bin-"));
     await writeFile(
-      path.join(fakeBin, npmCommand),
-      `#!/bin/sh
-case " $* " in
-  *" --dry-run "*) printf '[{"files":[{"path":"package.json","mode":420},{"path":"README.md","mode":420},{"path":"LICENSE","mode":420},{"path":"dist/cli.js","mode":493},{"path":"scripts/release-check.mjs","mode":420}]}]\\n' ;;
-  *) printf 'npm final pack exploded\\n' >&2; exit 24 ;;
-esac
-`,
+      path.join(fakeBin, fakeNpmCliFilename),
+      [
+        `if (process.argv.slice(2).includes("--dry-run")) process.stdout.write(${JSON.stringify('[{"files":[{"path":"package.json","mode":420},{"path":"README.md","mode":420},{"path":"LICENSE","mode":420},{"path":"dist/cli.js","mode":493},{"path":"scripts/npm-command.mjs","mode":420},{"path":"scripts/release-check.mjs","mode":420}]}]\n')});`,
+        'else { process.stderr.write("npm final pack exploded\\n"); process.exit(24); }'
+      ].join("\n"),
       "utf8"
     );
-    await chmod(path.join(fakeBin, npmCommand), 0o755);
 
     const result = await runReleasePack(["--root", root, "--pack-destination", destination], {
-      env: { PATH: `${fakeBin}${path.delimiter}${process.env.PATH ?? ""}` }
+      env: { npm_execpath: path.join(fakeBin, fakeNpmCliFilename) }
     });
 
     const output = `${result.stdout}\n${result.stderr}`;
@@ -274,19 +251,13 @@ esac
     const destination = await mkdtemp(path.join(tmpdir(), "prodex-release-pack-dest-"));
     const fakeBin = await mkdtemp(path.join(tmpdir(), "prodex-release-pack-fake-bin-"));
     await writeFile(
-      path.join(fakeBin, npmCommand),
-      `#!/bin/sh
-case " $* " in
-  *" --dry-run "*) printf '[{"files":[{"path":"package.json","mode":420},{"path":"README.md","mode":420},{"path":"LICENSE","mode":420},{"path":"dist/cli.js","mode":493},{"path":"scripts/release-check.mjs","mode":420}]}]\\n' ;;
-  *) printf '[{"filename":"demo-release-pack-1.0.0.tgz"}]\\n' ;;
-esac
-`,
+      path.join(fakeBin, fakeNpmCliFilename),
+      `process.stdout.write(process.argv.slice(2).includes("--dry-run") ? ${JSON.stringify('[{"files":[{"path":"package.json","mode":420},{"path":"README.md","mode":420},{"path":"LICENSE","mode":420},{"path":"dist/cli.js","mode":493},{"path":"scripts/npm-command.mjs","mode":420},{"path":"scripts/release-check.mjs","mode":420}]}]\n')} : ${JSON.stringify('[{"filename":"demo-release-pack-1.0.0.tgz"}]\n')});\n`,
       "utf8"
     );
-    await chmod(path.join(fakeBin, npmCommand), 0o755);
 
     const result = await runReleasePack(["--root", root, "--pack-destination", destination], {
-      env: { PATH: `${fakeBin}${path.delimiter}${process.env.PATH ?? ""}` }
+      env: { npm_execpath: path.join(fakeBin, fakeNpmCliFilename) }
     });
 
     const output = `${result.stdout}\n${result.stderr}`;
@@ -307,19 +278,13 @@ esac
     await writeFile(outsideTarball, "not a real package\n", "utf8");
     const fakeBin = await mkdtemp(path.join(tmpdir(), "prodex-release-pack-fake-bin-"));
     await writeFile(
-      path.join(fakeBin, npmCommand),
-      `#!/bin/sh
-case " $* " in
-  *" --dry-run "*) printf '[{"files":[{"path":"package.json","mode":420},{"path":"README.md","mode":420},{"path":"LICENSE","mode":420},{"path":"dist/cli.js","mode":493},{"path":"scripts/release-check.mjs","mode":420}]}]\\n' ;;
-  *) printf '[{"filename":"${outsideTarball}"}]\\n' ;;
-esac
-`,
+      path.join(fakeBin, fakeNpmCliFilename),
+      `process.stdout.write(process.argv.slice(2).includes("--dry-run") ? ${JSON.stringify('[{"files":[{"path":"package.json","mode":420},{"path":"README.md","mode":420},{"path":"LICENSE","mode":420},{"path":"dist/cli.js","mode":493},{"path":"scripts/npm-command.mjs","mode":420},{"path":"scripts/release-check.mjs","mode":420}]}]\n')} : ${JSON.stringify(`[{"filename":${JSON.stringify(outsideTarball)}}]\n`)});\n`,
       "utf8"
     );
-    await chmod(path.join(fakeBin, npmCommand), 0o755);
 
     const result = await runReleasePack(["--root", root, "--pack-destination", destination], {
-      env: { PATH: `${fakeBin}${path.delimiter}${process.env.PATH ?? ""}` }
+      env: { npm_execpath: path.join(fakeBin, fakeNpmCliFilename) }
     });
 
     const output = `${result.stdout}\n${result.stderr}`;
@@ -387,7 +352,7 @@ esac
 
     const consumer = await mkdtemp(path.join(tmpdir(), "prodex-release-pack-consumer-"));
     await writeFile(path.join(consumer, "package.json"), `${JSON.stringify({ private: true }, null, 2)}\n`, "utf8");
-    await execFileAsync(npmCommand, ["install", "--ignore-scripts", "--no-audit", "--no-fund", "--package-lock=false", tarballPath], {
+    await execNpm(["install", "--ignore-scripts", "--no-audit", "--no-fund", "--package-lock=false", tarballPath], {
       cwd: consumer,
       timeout: 120_000
     });
@@ -408,7 +373,7 @@ esac
     await execFileAsync("git", ["init"], { cwd: root });
     await execFileAsync("git", ["config", "user.email", "release@example.com"], { cwd: root });
     await execFileAsync("git", ["config", "user.name", "Release Test"], { cwd: root });
-    await execFileAsync("git", ["add", "package.json", "README.md", "LICENSE", "dist/cli.js", "scripts/release-check.mjs"], {
+    await execFileAsync("git", ["add", "package.json", "README.md", "LICENSE", "dist/cli.js", "scripts/npm-command.mjs", "scripts/release-check.mjs"], {
       cwd: root
     });
     await execFileAsync("git", ["commit", "-m", "initial"], { cwd: root });
@@ -434,7 +399,7 @@ esac
     await execFileAsync("git", ["init"], { cwd: root });
     await execFileAsync("git", ["config", "user.email", "release@example.com"], { cwd: root });
     await execFileAsync("git", ["config", "user.name", "Release Test"], { cwd: root });
-    await execFileAsync("git", ["add", "package.json", "README.md", "LICENSE", "dist/cli.js", "scripts/release-check.mjs"], {
+    await execFileAsync("git", ["add", "package.json", "README.md", "LICENSE", "dist/cli.js", "scripts/npm-command.mjs", "scripts/release-check.mjs"], {
       cwd: root
     });
     await execFileAsync("git", ["commit", "-m", "initial"], { cwd: root });
@@ -464,7 +429,7 @@ esac
     await execFileAsync("git", ["init"], { cwd: root });
     await execFileAsync("git", ["config", "user.email", "release@example.com"], { cwd: root });
     await execFileAsync("git", ["config", "user.name", "Release Test"], { cwd: root });
-    await execFileAsync("git", ["add", "package.json", "README.md", "LICENSE", "dist/cli.js", "scripts/release-check.mjs"], {
+    await execFileAsync("git", ["add", "package.json", "README.md", "LICENSE", "dist/cli.js", "scripts/npm-command.mjs", "scripts/release-check.mjs"], {
       cwd: root
     });
     await execFileAsync("git", ["commit", "-m", "initial"], { cwd: root });
@@ -525,7 +490,7 @@ async function createReleasePackFixture(): Promise<string> {
         license: "MIT",
         type: "module",
         bin: { demo: "dist/cli.js" },
-        files: ["README.md", "LICENSE", "dist/cli.js", "scripts/release-check.mjs"]
+        files: ["README.md", "LICENSE", "dist/cli.js", "scripts/npm-command.mjs", "scripts/release-check.mjs"]
       },
       null,
       2
@@ -536,6 +501,7 @@ async function createReleasePackFixture(): Promise<string> {
   await writeFile(path.join(root, "LICENSE"), "MIT License\n", "utf8");
   await writeFile(path.join(root, "dist", "cli.js"), "#!/usr/bin/env node\nconsole.log('demo')\n", "utf8");
   await chmod(path.join(root, "dist", "cli.js"), 0o755);
+  await copyFile(path.join(repoRoot, "scripts", "npm-command.mjs"), path.join(root, "scripts", "npm-command.mjs"));
   await copyFile(path.join(repoRoot, "scripts", "release-check.mjs"), path.join(root, "scripts", "release-check.mjs"));
   return root;
 }

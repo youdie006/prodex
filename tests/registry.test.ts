@@ -84,7 +84,7 @@ describe("registerBridgeRoot", () => {
       await fs.chmod(path.dirname(file), 0o777);
       await registerBridgeRoot(await makeRoot());
 
-      expect((await fs.stat(path.dirname(file))).mode & 0o777).toBe(0o700);
+      if (process.platform !== "win32") expect((await fs.stat(path.dirname(file))).mode & 0o777).toBe(0o700);
     });
   });
 
@@ -98,7 +98,7 @@ describe("registerBridgeRoot", () => {
     await withTempRegistry(async (file, makeRoot) => {
       const real = await makeRoot();
       const link = `${real}-link`;
-      await fs.symlink(real, link);
+      await fs.symlink(real, link, process.platform === "win32" ? "junction" : "dir");
       await registerBridgeRoot(link);
       await registerBridgeRoot(real);
       expect(await readRoots(file)).toEqual([real]);

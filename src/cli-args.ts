@@ -114,8 +114,13 @@ export function editDistance(left: string, right: string): number {
   }
   return previous[right.length];
 }
-export function shellQuote(value: string): string {
-  return /^[A-Za-z0-9_./:@=-]+$/.test(value) ? value : `'${value.replaceAll("'", "'\\''")}'`;
+export function shellQuote(value: string, platform: NodeJS.Platform = process.platform): string {
+  const shellSafe = /^[A-Za-z0-9_./:@=-]+$/.test(value);
+  if (shellSafe && (platform !== "win32" || !value.startsWith("@"))) return value;
+  const escaped = platform === "win32"
+    ? value.replaceAll("'", "''")
+    : value.replaceAll("'", "'\\''");
+  return `'${escaped}'`;
 }
 export function formatCliCommand(sourceCli?: string): string {
   return sourceCli ? `node ${shellQuote(sourceCli)}` : "prodex";

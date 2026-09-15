@@ -31,8 +31,10 @@ vi.mock("../src/chatgpt-browser.js", async () => {
 });
 
 import { runCli } from "../src/cli.js";
+import { shellQuote } from "../src/cli-args.js";
 import { loadLocalConfig, writeLocalConfig } from "../src/config.js";
 import { setSafeFileTestHooks } from "../src/safe-file.js";
+import { setBridgeStoreTestHooks } from "../src/store.js";
 
 const originalLastLoginFile = process.env.PRODEX_LAST_LOGIN_FILE;
 const originalProdexSessionKey = process.env.PRODEX_SESSION_KEY;
@@ -47,6 +49,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  setBridgeStoreTestHooks({});
   delete process.env.PRODEX_MIN_SEND_INTERVAL_MS;
   if (originalProdexSessionKey === undefined) delete process.env.PRODEX_SESSION_KEY;
   else process.env.PRODEX_SESSION_KEY = originalProdexSessionKey;
@@ -461,9 +464,11 @@ describe("pro browser ask persistence", () => {
     });
 
     const text = out.join("\n");
-    expect(text).toContain(`Next: Solve it manually in the visible browser, then run \`node ${sourceCli} pro browser smoke --source-cli ${sourceCli}\`.`);
     expect(text).toContain(
-      `- next_step: Solve it manually in the visible browser, then run \`node ${sourceCli} pro browser smoke --source-cli ${sourceCli}\`.`
+      `Next: Solve it manually in the visible browser, then run \`node ${shellQuote(sourceCli)} pro browser smoke --source-cli ${shellQuote(sourceCli)}\`.`
+    );
+    expect(text).toContain(
+      `- next_step: Solve it manually in the visible browser, then run \`node ${shellQuote(sourceCli)} pro browser smoke --source-cli ${shellQuote(sourceCli)}\`.`
     );
     expect(text).not.toContain("then retry.");
   });
@@ -501,7 +506,7 @@ describe("pro browser ask persistence", () => {
     const taskId = latestText.match(/task_id: (task_[^\n]+)/)?.[1];
     expect(taskId).toBeDefined();
     expect(latestText).toContain(
-      `- next_step: Solve it manually in the visible browser, then run \`cd ${cwd} && node ${sourceCli} pro browser smoke --source-cli ${sourceCli}\`.`
+      `- next_step: Solve it manually in the visible browser, then run \`cd ${shellQuote(cwd)} && node ${shellQuote(sourceCli)} pro browser smoke --source-cli ${shellQuote(sourceCli)}\`.`
     );
 
     const showOut: string[] = [];
@@ -512,7 +517,7 @@ describe("pro browser ask persistence", () => {
     });
 
     expect(showOut.join("\n")).toContain(
-      `- next_step: Solve it manually in the visible browser, then run \`cd ${cwd} && node ${sourceCli} pro browser smoke --source-cli ${sourceCli}\`.`
+      `- next_step: Solve it manually in the visible browser, then run \`cd ${shellQuote(cwd)} && node ${shellQuote(sourceCli)} pro browser smoke --source-cli ${shellQuote(sourceCli)}\`.`
     );
   });
 
@@ -545,7 +550,7 @@ describe("pro browser ask persistence", () => {
     });
 
     const text = out.join("\n");
-    expect(text).toContain(`then run \`node ${sourceCli} pro browser smoke --source-cli ${sourceCli}\`.`);
+    expect(text).toContain(`then run \`node ${shellQuote(sourceCli)} pro browser smoke --source-cli ${shellQuote(sourceCli)}\`.`);
     expect(text).not.toContain("then retry.");
   });
 
@@ -579,7 +584,9 @@ describe("pro browser ask persistence", () => {
 
     const text = out.join("\n");
     expect(text).toContain("status: blocked");
-    expect(text).toContain(`- next_step: Run \`node ${sourceCli} pro browser login --source-cli ${sourceCli}\`, log in, then retry.`);
+    expect(text).toContain(
+      `- next_step: Run \`node ${shellQuote(sourceCli)} pro browser login --source-cli ${shellQuote(sourceCli)}\`, log in, then retry.`
+    );
     expect(text).not.toContain("prodex pro browser login");
   });
 
@@ -604,7 +611,13 @@ describe("pro browser ask persistence", () => {
         stdout: () => {},
         stderr: () => {}
       })
-    ).rejects.toThrow(new RegExp(escapeRegExp(`cd ${cwd} && node ${sourceCli} pro browser login --source-cli ${sourceCli} --port 65534`)));
+    ).rejects.toThrow(
+      new RegExp(
+        escapeRegExp(
+          `cd ${shellQuote(cwd)} && node ${shellQuote(sourceCli)} pro browser login --source-cli ${shellQuote(sourceCli)} --port 65534`
+        )
+      )
+    );
 
     expect(sendChatGptPromptMock).toHaveBeenCalledWith({
       port: 65534,
@@ -623,7 +636,9 @@ describe("pro browser ask persistence", () => {
 
     const text = out.join("\n");
     expect(text).toContain("status: blocked");
-    expect(text).toContain(`- next_step: Run \`cd ${cwd} && node ${sourceCli} pro browser login --source-cli ${sourceCli} --port 65534\`, log in, then retry.`);
+    expect(text).toContain(
+      `- next_step: Run \`cd ${shellQuote(cwd)} && node ${shellQuote(sourceCli)} pro browser login --source-cli ${shellQuote(sourceCli)} --port 65534\`, log in, then retry.`
+    );
   });
 
   it("throws cwd-aware smoke blocker guidance without --source-cli", async () => {
@@ -643,7 +658,7 @@ describe("pro browser ask persistence", () => {
         stdout: () => {},
         stderr: () => {}
       })
-    ).rejects.toThrow(`cd ${cwd} && prodex pro browser login --port 65534`);
+    ).rejects.toThrow(`cd ${shellQuote(cwd)} && prodex pro browser login --port 65534`);
 
     await expect(readdir(path.join(launcherCwd, ".bridge"))).rejects.toThrow();
 
@@ -654,7 +669,9 @@ describe("pro browser ask persistence", () => {
       stderr: () => {}
     });
 
-    expect(out.join("\n")).toContain(`- next_step: Run \`cd ${cwd} && prodex pro browser login --port 65534\`, log in, then retry.`);
+    expect(out.join("\n")).toContain(
+      `- next_step: Run \`cd ${shellQuote(cwd)} && prodex pro browser login --port 65534\`, log in, then retry.`
+    );
   });
 
   it("upgrades stored cwd smoke retry commands when later inspected with --source-cli", async () => {
@@ -688,7 +705,9 @@ describe("pro browser ask persistence", () => {
     });
 
     const text = out.join("\n");
-    expect(text).toContain(`- next_step: Run \`cd ${cwd} && node ${sourceCli} pro browser login --source-cli ${sourceCli} --port 65534\`, log in, then retry.`);
+    expect(text).toContain(
+      `- next_step: Run \`cd ${shellQuote(cwd)} && node ${shellQuote(sourceCli)} pro browser login --source-cli ${shellQuote(sourceCli)} --port 65534\`, log in, then retry.`
+    );
     expect(text).not.toContain("prodex pro browser login");
   });
 
@@ -728,7 +747,9 @@ describe("pro browser ask persistence", () => {
     const latestNextLine = out.find((line) => line.startsWith("latest_pro_next:"));
     expect(out.some((line) => line.startsWith("latest_pro: blocked"))).toBe(true);
     expect(latestNextLine).toBeDefined();
-    expect(latestNextLine).toContain(`node ${sourceCli} pro browser login --source-cli ${sourceCli} --port 65534`);
+    expect(latestNextLine).toContain(
+      `node ${shellQuote(sourceCli)} pro browser login --source-cli ${shellQuote(sourceCli)} --port 65534`
+    );
     expect(latestNextLine).not.toContain("prodex pro browser login");
   });
 
@@ -1264,11 +1285,15 @@ describe("pro browser ask persistence", () => {
     } catch (error) {
       thrown = error as Error;
     }
-    expect(thrown?.message).toContain(`cd ${cwd} && node ${sourceCli} pro browser login --source-cli ${sourceCli}`);
+    expect(thrown?.message).toContain(
+      `cd ${shellQuote(cwd)} && node ${shellQuote(sourceCli)} pro browser login --source-cli ${shellQuote(sourceCli)}`
+    );
     expect(thrown?.message).toContain(`blocked consult recorded:`);
-    expect(thrown?.message).toContain(`node ${sourceCli} pro show`);
-    expect(thrown?.message).toContain(`--source-cli ${sourceCli} --cwd ${cwd}`);
-    expect(thrown?.message).toContain(`node ${sourceCli} pro latest --source-cli ${sourceCli} --cwd ${cwd}`);
+    expect(thrown?.message).toContain(`node ${shellQuote(sourceCli)} pro show`);
+    expect(thrown?.message).toContain(`--source-cli ${shellQuote(sourceCli)} --cwd ${shellQuote(cwd)}`);
+    expect(thrown?.message).toContain(
+      `node ${shellQuote(sourceCli)} pro latest --source-cli ${shellQuote(sourceCli)} --cwd ${shellQuote(cwd)}`
+    );
 
     const out: string[] = [];
     await runCli(["pro", "latest"], {
@@ -1279,7 +1304,9 @@ describe("pro browser ask persistence", () => {
 
     const text = out.join("\n");
     expect(text).toContain("status: blocked");
-    expect(text).toContain(`- next_step: Run \`cd ${cwd} && node ${sourceCli} pro browser login --source-cli ${sourceCli}\`, log in, then retry.`);
+    expect(text).toContain(
+      `- next_step: Run \`cd ${shellQuote(cwd)} && node ${shellQuote(sourceCli)} pro browser login --source-cli ${shellQuote(sourceCli)}\`, log in, then retry.`
+    );
     expect(text).not.toContain("prodex pro browser login");
   });
 
@@ -1310,9 +1337,11 @@ describe("pro browser ask persistence", () => {
       thrown = error as Error;
     }
 
-    expect(thrown?.message).toContain(`cd ${cwd} && node ${sourceCli} pro browser login --source-cli ${sourceCli} --port 65534`);
-    expect(thrown?.message).toContain(`node ${sourceCli} pro show`);
-    expect(thrown?.message).toContain(`--source-cli ${sourceCli} --cwd ${cwd}`);
+    expect(thrown?.message).toContain(
+      `cd ${shellQuote(cwd)} && node ${shellQuote(sourceCli)} pro browser login --source-cli ${shellQuote(sourceCli)} --port 65534`
+    );
+    expect(thrown?.message).toContain(`node ${shellQuote(sourceCli)} pro show`);
+    expect(thrown?.message).toContain(`--source-cli ${shellQuote(sourceCli)} --cwd ${shellQuote(cwd)}`);
     await expect(readdir(path.join(launcherCwd, ".bridge"))).rejects.toThrow();
 
     const out: string[] = [];
@@ -1324,7 +1353,9 @@ describe("pro browser ask persistence", () => {
 
     const text = out.join("\n");
     expect(text).toContain("status: blocked");
-    expect(text).toContain(`- next_step: Run \`cd ${cwd} && node ${sourceCli} pro browser login --source-cli ${sourceCli} --port 65534\`, log in, then retry.`);
+    expect(text).toContain(
+      `- next_step: Run \`cd ${shellQuote(cwd)} && node ${shellQuote(sourceCli)} pro browser login --source-cli ${shellQuote(sourceCli)} --port 65534\`, log in, then retry.`
+    );
     const taskId = text.match(/task_id: (task_[^\n]+)/)?.[1];
     expect(taskId).toBeDefined();
     const task = JSON.parse(await readFile(path.join(cwd, ".bridge", "tasks", `${taskId}.json`), "utf8")) as { prompt: string };
@@ -1361,7 +1392,7 @@ describe("pro browser ask persistence", () => {
 
     const text = out.join("\n");
     expect(text).toContain(
-      `- next_step: Close extra ChatGPT windows, leave only the intended tab visible, or run \`cd ${cwd} && node ${sourceCli} pro browser ask --source-cli ${sourceCli} --target-url <chatgpt-url> --confirm-target "prompt"\`.`
+      `- next_step: Close extra ChatGPT windows, leave only the intended tab visible, or run \`cd ${shellQuote(cwd)} && node ${shellQuote(sourceCli)} pro browser ask --source-cli ${shellQuote(sourceCli)} --target-url <chatgpt-url> --confirm-target "prompt"\`.`
     );
     expect(text).not.toContain("pass --target-url with --confirm-target");
     expect(text).not.toContain("prodex pro browser ask");
@@ -1409,7 +1440,7 @@ describe("pro browser ask persistence", () => {
       } catch (error) {
         thrown = error as Error;
       }
-      const command = `cd ${cwd} && node ${sourceCli} pro browser ask --source-cli ${sourceCli} --target-url ${scenario.targetUrl} --confirm-target "prompt"`;
+      const command = `cd ${shellQuote(cwd)} && node ${shellQuote(sourceCli)} pro browser ask --source-cli ${shellQuote(sourceCli)} --target-url ${shellQuote(scenario.targetUrl)} --confirm-target "prompt"`;
       const expected = scenario.expected.replace("SOURCE_COMMAND", command);
       expect(thrown?.message).toContain(expected);
 
@@ -1521,18 +1552,19 @@ describe("pro browser ask persistence", () => {
       warnings: []
     });
     let answerArtifactSeen = false;
-    let taskRecordWritesAfterAnswer = 0;
     let threwFinalTaskUpdate = false;
     setSafeFileTestHooks({
       beforeOpen: (filePath, operation) => {
         if (operation !== "write") return;
         if (filePath.includes(`${path.sep}artifacts${path.sep}pro-consults${path.sep}`)) {
           answerArtifactSeen = true;
-          return;
         }
-        if (!answerArtifactSeen || !filePath.includes(`${path.sep}.task_`)) return;
-        taskRecordWritesAfterAnswer += 1;
-        if (!threwFinalTaskUpdate && taskRecordWritesAfterAnswer === 2) {
+      }
+    });
+    setBridgeStoreTestHooks({
+      beforeRecordRename: (kind) => {
+        if (!answerArtifactSeen || kind !== "tasks") return;
+        if (!threwFinalTaskUpdate) {
           threwFinalTaskUpdate = true;
           throw new Error("forced final result write failure");
         }
@@ -1635,12 +1667,15 @@ describe("pro browser ask persistence", () => {
         if (operation !== "write") return;
         if (filePath.includes(`${path.sep}artifacts${path.sep}pro-consults${path.sep}`)) {
           artifactSeen = true;
-          return;
         }
+      }
+    });
+    setBridgeStoreTestHooks({
+      beforeRecordRename: (kind) => {
         if (
           artifactSeen &&
           !receiptFailureThrown &&
-          (filePath.includes(`${path.sep}receipts${path.sep}`) || filePath.includes(`${path.sep}.receipt_`))
+          kind === "receipts"
         ) {
           receiptFailureThrown = true;
           throw new Error("forced receipt write failure");
@@ -1673,9 +1708,9 @@ describe("pro browser ask persistence", () => {
 
   it("rejects the browser consult before send when the running session record cannot be written", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-send-"));
-    setSafeFileTestHooks({
-      beforeOpen: (filePath, operation) => {
-        if (operation === "write" && filePath.includes(`${path.sep}.sess_`)) {
+    setBridgeStoreTestHooks({
+      beforeRecordRename: (kind) => {
+        if (kind === "sessions") {
           throw new Error("forced running session write failure");
         }
       }
@@ -1717,9 +1752,9 @@ describe("pro browser ask persistence", () => {
       warnings: []
     });
     let sessionWriteCount = 0;
-    setSafeFileTestHooks({
-      beforeOpen: (filePath, operation) => {
-        if (operation === "write" && filePath.includes(`${path.sep}.sess_`)) {
+    setBridgeStoreTestHooks({
+      beforeRecordRename: (kind) => {
+        if (kind === "sessions") {
           sessionWriteCount += 1;
           if (sessionWriteCount > 1) {
             throw new Error("forced final session write failure");

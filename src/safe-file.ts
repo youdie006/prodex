@@ -137,6 +137,7 @@ export async function readVerifiedUtf8File(
     const content = await readHandleUtf8(handle, filePath, options.maxBytes);
     if (options.mode !== undefined) {
       await testHooks.beforeChmod?.(filePath, "read");
+      await assertSafeOpenFile(handle, filePath, "read");
       await handle.chmod(options.mode);
     }
     await validate();
@@ -182,6 +183,7 @@ export async function writeVerifiedUtf8File(
     await testHooks.afterWrite?.(filePath, "write");
     if (options.mode !== undefined) {
       await testHooks.beforeChmod?.(filePath, "write");
+      await assertSafeOpenFile(handle, filePath, "write");
       await handle.chmod(options.mode);
     }
     await validate();
@@ -251,6 +253,7 @@ async function replaceByVerifiedTempFile(
       await writeHandleUtf8(tmpHandle, tmpPath, content);
       if (options.mode !== undefined) {
         await testHooks.beforeChmod?.(filePath, "write");
+        await assertSafeOpenFile(tmpHandle, tmpPath, "write");
         await tmpHandle.chmod(options.mode);
       }
     } finally {
@@ -273,6 +276,7 @@ async function replaceByVerifiedTempFile(
 }
 
 async function readHandleUtf8(handle: FileHandle, filePath: string, maxBytes?: number): Promise<string> {
+  await assertOpenFileMatchesPath(handle, filePath, "read");
   const stat = await handle.stat();
   if (!stat.isFile()) {
     throw new Error("Target path is not a regular file");
@@ -296,7 +300,7 @@ async function readHandleUtf8(handle: FileHandle, filePath: string, maxBytes?: n
 
 async function writeHandleUtf8(handle: FileHandle, filePath: string, content: string): Promise<void> {
   const replacement = Buffer.from(content, "utf8");
-  await assertSafeOpenFile(handle, filePath);
+  await assertSafeOpenFile(handle, filePath, "write");
   await handle.truncate(0);
   let offset = 0;
   while (offset < replacement.length) {
@@ -308,15 +312,40 @@ async function writeHandleUtf8(handle: FileHandle, filePath: string, content: st
   }
 }
 
-async function assertSafeOpenFile(handle: FileHandle, filePath: string): Promise<void> {
-  const stat = await handle.stat();
-  if (!stat.isFile()) {
+async function assertOpenFileMatchesPath(handle: FileHandle, filePath: string, operation: SafeFileOperation): Promise<void> {
+  const handleStat = await handle.stat({ bigint: true });
+  if (!handleStat.isFile()) {
     throw new Error("Target path is not a regular file");
   }
+  let pathStat;
+  try {
+    pathStat = await lstat(filePath, { bigint: true });
+  } catch (error) {
+    if (isMissingFileError(error)) {
+      throw new Error(`Target path changed during ${operation} file operation`);
+    }
+    throw error;
+  }
+  if (pathStat.isSymbolicLink()) {
+    throw new Error(`Target path is a symlink or changed during ${operation} file operation`);
+  }
+  if (!pathStat.isFile()) {
+    throw new Error("Target path is not a regular file");
+  }
+  const handleIdentity = { dev: BigInt(handleStat.dev), ino: BigInt(handleStat.ino) };
+  const pathIdentity = { dev: BigInt(pathStat.dev), ino: BigInt(pathStat.ino) };
+  if (!sameFileIdentity(handleIdentity, pathIdentity)) {
+    throw new Error(`Target path changed during ${operation} file operation`);
+  }
+}
+
+async function assertSafeOpenFile(handle: FileHandle, filePath: string, operation: SafeFileOperation): Promise<void> {
+  await assertOpenFileMatchesPath(handle, filePath, operation);
+  const stat = await handle.stat();
   assertNotHardLinked(filePath, stat.nlink);
 }
 
-function assertNotHardLinked(filePath: string, linkCount: number): void {
+function assertNotHardLinked(filePath: string, linkCount: number | bigint): void {
   if (linkCount > 1) {
     throw new Error("Target path is hard linked and cannot be used through safe file operations");
   }
@@ -370,7 +399,10 @@ async function openStableNoFollow(
   parentSnapshot?: ParentSnapshot,
   mode?: number
 ): Promise<FileHandle> {
-  if (!parentSnapshot) return openNoFollow(filePath, flags, operation, mode);
+  if (!parentSnapshot) {
+    const handle = await openNoFollow(filePath, flags, operation, mode);
+    return verifyOpenedHandle(handle, filePath, operation);
+  }
   if (process.platform !== "linux") {
     const actualParentBeforeOpen = await realpath(parentSnapshot.path);
     if (actualParentBeforeOpen !== parentSnapshot.realPath) {
@@ -382,6 +414,7 @@ async function openStableNoFollow(
       if (actualParentAfterOpen !== parentSnapshot.realPath) {
         throw new Error(`Parent directory changed during ${operation} file operation`);
       }
+      await assertOpenFileMatchesPath(handle, filePath, operation);
       return handle;
     } catch (error) {
       await handle.close().catch(() => undefined);
@@ -395,9 +428,20 @@ async function openStableNoFollow(
     if (actualParent !== parentSnapshot.realPath) {
       throw new Error(`Parent directory changed during ${operation} file operation`);
     }
-    return await openNoFollow(path.join(parentFdPath, path.basename(filePath)), flags, operation, mode);
+    const handle = await openNoFollow(path.join(parentFdPath, path.basename(filePath)), flags, operation, mode);
+    return await verifyOpenedHandle(handle, filePath, operation);
   } finally {
     await parentHandle.close();
+  }
+}
+
+async function verifyOpenedHandle(handle: FileHandle, filePath: string, operation: SafeFileOperation): Promise<FileHandle> {
+  try {
+    await assertOpenFileMatchesPath(handle, filePath, operation);
+    return handle;
+  } catch (error) {
+    await handle.close().catch(() => undefined);
+    throw error;
   }
 }
 

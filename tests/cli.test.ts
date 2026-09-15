@@ -9,14 +9,15 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { shellQuote } from "../src/cli-args.js";
 import { parsePackedFiles, runCli } from "../src/cli.js";
 import { setSafeFileTestHooks } from "../src/safe-file.js";
-import { BridgeStore } from "../src/store.js";
+import { BridgeStore, setBridgeStoreTestHooks } from "../src/store.js";
 import { useDefaultCdpPort } from "./helpers/default-cdp-port.js";
 
 const requireFromTest = createRequire(import.meta.url);
 const execFileAsync = promisify(execFile);
-const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
+const npmCommand = "npm-cli.mjs";
 
 function mockRefusedBrowserConnection(): void {
   // WSL can black-hole unused ports, so a fixed port is not proof of refusal.
@@ -31,6 +32,7 @@ function mockRefusedBrowserConnection(): void {
 describe("runCli", () => {
   afterEach(() => {
     setSafeFileTestHooks({});
+    setBridgeStoreTestHooks({});
     vi.restoreAllMocks();
   });
 
@@ -856,7 +858,7 @@ describe("runCli", () => {
         stdout: () => {},
         stderr: () => {}
       })
-    ).rejects.toThrow(`prodex results reseal ${task.id} --confirm-current-result --cwd ${targetCwd}`);
+    ).rejects.toThrow(`prodex results reseal ${task.id} --confirm-current-result --cwd ${shellQuote(targetCwd)}`);
   });
 
   it("lists untrusted Pro result metadata without showing raw answer text", async () => {
@@ -1053,7 +1055,7 @@ describe("runCli", () => {
       stderr: () => {}
     });
 
-    expect(out.join("\n")).toContain(`node ${sourceCli} results reseal ${task.id} --confirm-current-result`);
+    expect(out.join("\n")).toContain(`node ${shellQuote(sourceCli)} results reseal ${task.id} --confirm-current-result`);
     expect(out.join("\n")).not.toContain(`prodex results reseal ${task.id}`);
     await expect(
       runCli(["pro", "latest", "--source-cli", sourceCli], {
@@ -1061,7 +1063,7 @@ describe("runCli", () => {
         stdout: () => {},
         stderr: () => {}
       })
-    ).rejects.toThrow(`node ${sourceCli} results reseal ${task.id} --confirm-current-result`);
+    ).rejects.toThrow(`node ${shellQuote(sourceCli)} results reseal ${task.id} --confirm-current-result`);
   });
 
   it("reseals a locally signed legacy result only after explicit confirmation", async () => {
@@ -1693,9 +1695,9 @@ describe("runCli", () => {
 
   it("prints ask-pro dry-run bundles when optional session recording fails", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
-    setSafeFileTestHooks({
-      beforeOpen: (filePath, operation) => {
-        if (operation === "write" && filePath.includes(`${path.sep}.sess_`)) {
+    setBridgeStoreTestHooks({
+      beforeRecordRename: (kind) => {
+        if (kind === "sessions") {
           throw new Error("forced session write failure");
         }
       }
@@ -2714,7 +2716,7 @@ describe("runCli", () => {
       },
       {
         args: ["pro", "browser", "ask", "--source-cli", sourceCli, "--help"],
-        expected: `node ${sourceCli} pro browser ask --source-cli ${sourceCli}`
+        expected: `node ${shellQuote(sourceCli)} pro browser ask --source-cli ${shellQuote(sourceCli)}`
       },
       {
         args: ["pro", "show", "latest", "--source-cli", sourceCli, "--help"],
@@ -2889,14 +2891,14 @@ describe("runCli", () => {
     expect(text).toContain("bridge_fetch_result");
     expect(text).toContain("bridge_fetch_result_artifact");
     expect(text).toContain(
-      `prodex tasks complete <task-id> --cwd ${targetCwd} --summary "prodex MCP verification result" --artifact .bridge/artifacts/results/mcp-verification.md="prodex MCP verification artifact"`
+      `prodex tasks complete <task-id> --cwd ${shellQuote(targetCwd)} --summary "prodex MCP verification result" --artifact .bridge/artifacts/results/mcp-verification.md="prodex MCP verification artifact"`
     );
     expect(text).toContain("local completion done");
-    expect(text).toContain(`cd ${targetCwd}`);
-    expect(text).toContain(`prodex tasks list --status new --cwd ${targetCwd}`);
-    expect(text).toContain(`prodex tasks show <task-id> --cwd ${targetCwd}`);
-    expect(text).toContain(`prodex status --cwd ${targetCwd}`);
-    expect(text).toContain(`prodex doctor --cwd ${targetCwd}`);
+    expect(text).toContain(`cd ${shellQuote(targetCwd)}`);
+    expect(text).toContain(`prodex tasks list --status new --cwd ${shellQuote(targetCwd)}`);
+    expect(text).toContain(`prodex tasks show <task-id> --cwd ${shellQuote(targetCwd)}`);
+    expect(text).toContain(`prodex status --cwd ${shellQuote(targetCwd)}`);
+    expect(text).toContain(`prodex doctor --cwd ${shellQuote(targetCwd)}`);
     expect(text).toContain(targetCwd);
     expect(text).not.toContain("prodex_token=");
   });
@@ -2916,14 +2918,14 @@ describe("runCli", () => {
     });
 
     const text = out.join("\n");
-    expect(text).toContain(`node ${sourceCli} tasks list --status new --cwd ${targetCwd}`);
-    expect(text).toContain(`node ${sourceCli} tasks show <task-id> --cwd ${targetCwd}`);
+    expect(text).toContain(`node ${shellQuote(sourceCli)} tasks list --status new --cwd ${shellQuote(targetCwd)}`);
+    expect(text).toContain(`node ${shellQuote(sourceCli)} tasks show <task-id> --cwd ${shellQuote(targetCwd)}`);
     expect(text).toContain(
-      `node ${sourceCli} tasks complete <task-id> --cwd ${targetCwd} --summary "prodex MCP verification result" --artifact .bridge/artifacts/results/mcp-verification.md="prodex MCP verification artifact"`
+      `node ${shellQuote(sourceCli)} tasks complete <task-id> --cwd ${shellQuote(targetCwd)} --summary "prodex MCP verification result" --artifact .bridge/artifacts/results/mcp-verification.md="prodex MCP verification artifact"`
     );
     expect(text).toContain("bridge_fetch_result_artifact");
-    expect(text).toContain(`node ${sourceCli} status --cwd ${targetCwd}`);
-    expect(text).toContain(`node ${sourceCli} doctor --cwd ${targetCwd}`);
+    expect(text).toContain(`node ${shellQuote(sourceCli)} status --cwd ${shellQuote(targetCwd)}`);
+    expect(text).toContain(`node ${shellQuote(sourceCli)} doctor --cwd ${shellQuote(targetCwd)}`);
     expect(text).not.toContain("prodex tasks list --status new");
     expect(text).not.toContain("prodex_token=");
   });
@@ -2959,15 +2961,15 @@ describe("runCli", () => {
     expect(text).toContain("bridge_get_task");
     expect(text).toContain("bridge_fetch_result");
     expect(text).toContain("bridge_fetch_result_artifact");
-    expect(text).toContain(`cd ${targetCwd}`);
-    expect(text).toContain(`prodex tasks list --status new --cwd ${targetCwd}`);
-    expect(text).toContain(`prodex tasks show <task-id> --cwd ${targetCwd}`);
+    expect(text).toContain(`cd ${shellQuote(targetCwd)}`);
+    expect(text).toContain(`prodex tasks list --status new --cwd ${shellQuote(targetCwd)}`);
+    expect(text).toContain(`prodex tasks show <task-id> --cwd ${shellQuote(targetCwd)}`);
     expect(text).toContain(
-      `prodex tasks complete <task-id> --cwd ${targetCwd} --summary "prodex Claude MCP verification result" --artifact .bridge/artifacts/results/claude-verification.md="prodex Claude MCP verification artifact"`
+      `prodex tasks complete <task-id> --cwd ${shellQuote(targetCwd)} --summary "prodex Claude MCP verification result" --artifact .bridge/artifacts/results/claude-verification.md="prodex Claude MCP verification artifact"`
     );
     expect(text).toContain("local completion done");
-    expect(text).toContain(`prodex doctor --cwd ${targetCwd}`);
-    expect(text).toContain(`prodex claude config --cwd ${targetCwd}`);
+    expect(text).toContain(`prodex doctor --cwd ${shellQuote(targetCwd)}`);
+    expect(text).toContain(`prodex claude config --cwd ${shellQuote(targetCwd)}`);
     expect(text).toContain(targetCwd);
     expect(text).not.toContain("prodex_token=");
   });
@@ -2987,14 +2989,16 @@ describe("runCli", () => {
     });
 
     const text = out.join("\n");
-    expect(text).toContain(`node ${sourceCli} tasks list --status new --cwd ${targetCwd}`);
-    expect(text).toContain(`node ${sourceCli} tasks show <task-id> --cwd ${targetCwd}`);
+    expect(text).toContain(`node ${shellQuote(sourceCli)} tasks list --status new --cwd ${shellQuote(targetCwd)}`);
+    expect(text).toContain(`node ${shellQuote(sourceCli)} tasks show <task-id> --cwd ${shellQuote(targetCwd)}`);
     expect(text).toContain(
-      `node ${sourceCli} tasks complete <task-id> --cwd ${targetCwd} --summary "prodex Claude MCP verification result" --artifact .bridge/artifacts/results/claude-verification.md="prodex Claude MCP verification artifact"`
+      `node ${shellQuote(sourceCli)} tasks complete <task-id> --cwd ${shellQuote(targetCwd)} --summary "prodex Claude MCP verification result" --artifact .bridge/artifacts/results/claude-verification.md="prodex Claude MCP verification artifact"`
     );
     expect(text).toContain("bridge_fetch_result_artifact");
-    expect(text).toContain(`node ${sourceCli} doctor --cwd ${targetCwd}`);
-    expect(text).toContain(`node ${sourceCli} claude config --cwd ${targetCwd} --source-cli ${sourceCli}`);
+    expect(text).toContain(`node ${shellQuote(sourceCli)} doctor --cwd ${shellQuote(targetCwd)}`);
+    expect(text).toContain(
+      `node ${shellQuote(sourceCli)} claude config --cwd ${shellQuote(targetCwd)} --source-cli ${shellQuote(sourceCli)}`
+    );
     expect(text).not.toContain("prodex tasks list --status new");
     expect(text).not.toContain("prodex_token=");
   });
@@ -3028,8 +3032,8 @@ describe("runCli", () => {
       stderr: () => {}
     });
 
-    const quotedSource = `'${sourceCli}'`;
-    const quotedTarget = `'${targetCwd}'`;
+    const quotedSource = shellQuote(sourceCli);
+    const quotedTarget = shellQuote(targetCwd);
     const projectText = projectOut.join("\n");
     expect(projectText).toContain(`cd ${quotedTarget}`);
     expect(projectText).toContain(`node ${quotedSource} tasks list --status new --cwd ${quotedTarget}`);
@@ -3180,24 +3184,24 @@ describe("runCli", () => {
     const text = out.join("\n");
     expect(text).toContain("prodex onboarding");
     expect(text).toContain(`repo: ${targetCwd}`);
-    expect(text).toContain(`prodex init --cwd ${targetCwd}`);
-    expect(text).toContain(`prodex doctor --cwd ${targetCwd}`);
-    expect(text).toContain(`prodex claude config --cwd ${targetCwd}`);
-    expect(text).toContain(`prodex claude prompt --cwd ${targetCwd}`);
+    expect(text).toContain(`prodex init --cwd ${shellQuote(targetCwd)}`);
+    expect(text).toContain(`prodex doctor --cwd ${shellQuote(targetCwd)}`);
+    expect(text).toContain(`prodex claude config --cwd ${shellQuote(targetCwd)}`);
+    expect(text).toContain(`prodex claude prompt --cwd ${shellQuote(targetCwd)}`);
     expect(text).not.toContain("\t");
     expect(text).toContain("\n4. ChatGPT Project HTTP MCP:");
-    expect(text).toContain(`prodex setup --cwd ${targetCwd} --token-ttl-hours 24`);
-    expect(text).toContain(`prodex start --cwd ${targetCwd}`);
+    expect(text).toContain(`prodex setup --cwd ${shellQuote(targetCwd)} --token-ttl-hours 24`);
+    expect(text).toContain(`prodex start --cwd ${shellQuote(targetCwd)}`);
     expect(text).toContain("Keep this terminal open while ChatGPT uses the bridge; run the next commands in a second terminal.");
-    expect(text).toContain(`prodex status --cwd ${targetCwd} --show-token --url-only`);
-    expect(text).toContain(`prodex project prompt --cwd ${targetCwd}`);
+    expect(text).toContain(`prodex status --cwd ${shellQuote(targetCwd)} --show-token --url-only`);
+    expect(text).toContain(`prodex project prompt --cwd ${shellQuote(targetCwd)}`);
     expect(text.indexOf("HTTP MCP uses a short-lived token")).toBeLessThan(
-      text.indexOf(`prodex status --cwd ${targetCwd} --show-token --url-only`)
+      text.indexOf(`prodex status --cwd ${shellQuote(targetCwd)} --show-token --url-only`)
     );
     expect(text).toContain("authorizes all enabled bridge tools");
     expect(text).toContain("repo_write_file_apply");
-    expect(text).toContain(`cd ${targetCwd}`);
-    expect(text).toContain(`prodex pro ask --cwd ${targetCwd} "Review this repo"  # dry-run/manual preview`);
+    expect(text).toContain(`cd ${shellQuote(targetCwd)}`);
+    expect(text).toContain(`prodex pro ask --cwd ${shellQuote(targetCwd)} "Review this repo"  # dry-run/manual preview`);
     expect(text).not.toContain("--file README.md");
     // Onboarding is the first thing a user reads, so it must not teach
     // superseded behavior: sends queue behind a busy browser by default now
@@ -3210,15 +3214,15 @@ describe("runCli", () => {
     expect(text).toContain("prodex pro browser login --dry-run  # preview, no browser opens");
     expect(text).toContain("prodex pro browser login  # opens visible browser");
     expect(text).toContain("prodex pro browser help");
-    expect(text).toContain(`prodex pro browser check --cwd ${targetCwd}`);
-    expect(text).toContain(`prodex pro browser smoke --cwd ${targetCwd}`);
-    expect(text).toContain(`prodex pro browser ask --cwd ${targetCwd} "Review this repo"  # visible-browser send`);
-    expect(text).toContain(`prodex pro list --cwd ${targetCwd}`);
-    expect(text).toContain(`prodex pro latest --cwd ${targetCwd}`);
-    expect(text).toContain(`prodex results show latest --cwd ${targetCwd}`);
-    expect(text).toContain(`prodex results artifact latest --cwd ${targetCwd}`);
-    expect(text).toContain(`prodex results reseal <task-id> --confirm-current-result --cwd ${targetCwd}`);
-    expect(text.indexOf(`prodex results reseal <task-id> --confirm-current-result --cwd ${targetCwd}`)).toBeGreaterThan(
+    expect(text).toContain(`prodex pro browser check --cwd ${shellQuote(targetCwd)}`);
+    expect(text).toContain(`prodex pro browser smoke --cwd ${shellQuote(targetCwd)}`);
+    expect(text).toContain(`prodex pro browser ask --cwd ${shellQuote(targetCwd)} "Review this repo"  # visible-browser send`);
+    expect(text).toContain(`prodex pro list --cwd ${shellQuote(targetCwd)}`);
+    expect(text).toContain(`prodex pro latest --cwd ${shellQuote(targetCwd)}`);
+    expect(text).toContain(`prodex results show latest --cwd ${shellQuote(targetCwd)}`);
+    expect(text).toContain(`prodex results artifact latest --cwd ${shellQuote(targetCwd)}`);
+    expect(text).toContain(`prodex results reseal <task-id> --confirm-current-result --cwd ${shellQuote(targetCwd)}`);
+    expect(text.indexOf(`prodex results reseal <task-id> --confirm-current-result --cwd ${shellQuote(targetCwd)}`)).toBeGreaterThan(
       text.indexOf("prodex pro browser ask")
     );
     expect(text).toContain("manual, visible browser");
@@ -3243,28 +3247,44 @@ describe("runCli", () => {
     });
 
     const text = out.join("\n");
-    const sourcePrefix = `node ${sourceCli}`;
-    expect(text).toContain(`${sourcePrefix} init --cwd ${targetCwd}`);
-    expect(text).toContain(`${sourcePrefix} doctor --cwd ${targetCwd}`);
-    expect(text).toContain(`${sourcePrefix} claude config --cwd ${targetCwd} --source-cli ${sourceCli}`);
-    expect(text).toContain(`${sourcePrefix} claude prompt --cwd ${targetCwd} --source-cli ${sourceCli}`);
+    const sourcePrefix = `node ${shellQuote(sourceCli)}`;
+    expect(text).toContain(`${sourcePrefix} init --cwd ${shellQuote(targetCwd)}`);
+    expect(text).toContain(`${sourcePrefix} doctor --cwd ${shellQuote(targetCwd)}`);
+    expect(text).toContain(
+      `${sourcePrefix} claude config --cwd ${shellQuote(targetCwd)} --source-cli ${shellQuote(sourceCli)}`
+    );
+    expect(text).toContain(
+      `${sourcePrefix} claude prompt --cwd ${shellQuote(targetCwd)} --source-cli ${shellQuote(sourceCli)}`
+    );
     expect(text).not.toContain("\t");
     expect(text).toContain("\n4. ChatGPT Project HTTP MCP:");
-    expect(text).toContain(`${sourcePrefix} setup --cwd ${targetCwd} --token-ttl-hours 24`);
-    expect(text).toContain(`${sourcePrefix} start --cwd ${targetCwd}`);
-    expect(text).toContain(`${sourcePrefix} status --cwd ${targetCwd} --show-token --url-only`);
-    expect(text).toContain(`${sourcePrefix} project prompt --cwd ${targetCwd} --source-cli ${sourceCli}`);
-    expect(text).toContain(`${sourcePrefix} pro browser login --dry-run --source-cli ${sourceCli}  # preview, no browser opens`);
-    expect(text).toContain(`${sourcePrefix} pro browser login --source-cli ${sourceCli}  # opens visible browser`);
-    expect(text).toContain(`${sourcePrefix} pro browser help --source-cli ${sourceCli}`);
-    expect(text).toContain(`${sourcePrefix} pro browser check --source-cli ${sourceCli} --cwd ${targetCwd}`);
-    expect(text).toContain(`${sourcePrefix} pro browser smoke --source-cli ${sourceCli} --cwd ${targetCwd}`);
-    expect(text).toContain(`${sourcePrefix} pro list --source-cli ${sourceCli} --cwd ${targetCwd}`);
-    expect(text).toContain(`${sourcePrefix} pro latest --source-cli ${sourceCli} --cwd ${targetCwd}`);
-    expect(text).toContain(`${sourcePrefix} results show latest --cwd ${targetCwd}`);
-    expect(text).toContain(`${sourcePrefix} results artifact latest --cwd ${targetCwd}`);
-    expect(text).toContain(`${sourcePrefix} results reseal <task-id> --confirm-current-result --cwd ${targetCwd}`);
-    expect(text).toContain(`${sourcePrefix} pro browser ask --source-cli ${sourceCli} --cwd ${targetCwd} "Review this repo"  # visible-browser send`);
+    expect(text).toContain(`${sourcePrefix} setup --cwd ${shellQuote(targetCwd)} --token-ttl-hours 24`);
+    expect(text).toContain(`${sourcePrefix} start --cwd ${shellQuote(targetCwd)}`);
+    expect(text).toContain(`${sourcePrefix} status --cwd ${shellQuote(targetCwd)} --show-token --url-only`);
+    expect(text).toContain(
+      `${sourcePrefix} project prompt --cwd ${shellQuote(targetCwd)} --source-cli ${shellQuote(sourceCli)}`
+    );
+    expect(text).toContain(
+      `${sourcePrefix} pro browser login --dry-run --source-cli ${shellQuote(sourceCli)}  # preview, no browser opens`
+    );
+    expect(text).toContain(`${sourcePrefix} pro browser login --source-cli ${shellQuote(sourceCli)}  # opens visible browser`);
+    expect(text).toContain(`${sourcePrefix} pro browser help --source-cli ${shellQuote(sourceCli)}`);
+    expect(text).toContain(
+      `${sourcePrefix} pro browser check --source-cli ${shellQuote(sourceCli)} --cwd ${shellQuote(targetCwd)}`
+    );
+    expect(text).toContain(
+      `${sourcePrefix} pro browser smoke --source-cli ${shellQuote(sourceCli)} --cwd ${shellQuote(targetCwd)}`
+    );
+    expect(text).toContain(`${sourcePrefix} pro list --source-cli ${shellQuote(sourceCli)} --cwd ${shellQuote(targetCwd)}`);
+    expect(text).toContain(`${sourcePrefix} pro latest --source-cli ${shellQuote(sourceCli)} --cwd ${shellQuote(targetCwd)}`);
+    expect(text).toContain(`${sourcePrefix} results show latest --cwd ${shellQuote(targetCwd)}`);
+    expect(text).toContain(`${sourcePrefix} results artifact latest --cwd ${shellQuote(targetCwd)}`);
+    expect(text).toContain(
+      `${sourcePrefix} results reseal <task-id> --confirm-current-result --cwd ${shellQuote(targetCwd)}`
+    );
+    expect(text).toContain(
+      `${sourcePrefix} pro browser ask --source-cli ${shellQuote(sourceCli)} --cwd ${shellQuote(targetCwd)} "Review this repo"  # visible-browser send`
+    );
     expect(text).not.toContain("prodex init --cwd");
     expect(text).not.toContain("prodex_token=");
   });
@@ -3281,8 +3301,12 @@ describe("runCli", () => {
     });
 
     const text = out.join("\n");
-    expect(text).toContain(`prodex pro ask --cwd ${targetCwd} --file README.md "Review this repo"  # dry-run/manual preview`);
-    expect(text).toContain(`prodex pro browser ask --cwd ${targetCwd} --file README.md "Review this repo"  # visible-browser send`);
+    expect(text).toContain(
+      `prodex pro ask --cwd ${shellQuote(targetCwd)} --file README.md "Review this repo"  # dry-run/manual preview`
+    );
+    expect(text).toContain(
+      `prodex pro browser ask --cwd ${shellQuote(targetCwd)} --file README.md "Review this repo"  # visible-browser send`
+    );
   });
 
   it("describes token TTL as an explicit help placeholder", async () => {
@@ -3431,9 +3455,11 @@ describe("runCli", () => {
     // Same reason as the sibling test: a real npm subprocess failure must not
     // arrive as a bare string mismatch.
     const why = `stderr:\n${errors.join("\n") || "(none)"}\nstdout:\n${text || "(none)"}`;
-    expect(text, why).toContain(`release_pack_next: run \`npm run release:verify\` and \`node ${sourceCli} release status --source-cli ${sourceCli} --cwd ${cwd}\``);
+    expect(text, why).toContain(
+      `release_pack_next: run \`npm run release:verify\` and \`node ${shellQuote(sourceCli)} release status --source-cli ${shellQuote(sourceCli)} --cwd ${shellQuote(cwd)}\``
+    );
     expect(text).toContain(
-      `release_pack_publish_blocked: fix git readiness before npm publish; run \`node ${sourceCli} release status --source-cli ${sourceCli} --cwd ${cwd}\``
+      `release_pack_publish_blocked: fix git readiness before npm publish; run \`node ${shellQuote(sourceCli)} release status --source-cli ${shellQuote(sourceCli)} --cwd ${shellQuote(cwd)}\``
     );
     expect(text).not.toContain("`prodex release status`");
   });
@@ -3505,7 +3531,7 @@ describe("runCli", () => {
     expect(text).toContain("pack: blocked packed files have unexpected executable modes");
     expect(text).toContain("README.md");
     expect(text).toContain("pack_next: fix file modes or publish from a filesystem that preserves executable bits");
-    expect(text).toContain(`prodex release pack --cwd ${cwd} --pack-destination <dir>`);
+    expect(text).toContain(`prodex release pack --cwd ${shellQuote(cwd)} --pack-destination <dir>`);
     expect(text).toContain("next: choose a license, add LICENSE, then run `npm run release:check`");
     expect(text).not.toContain("metadata: ok");
   });
@@ -3565,25 +3591,23 @@ describe("runCli", () => {
     const fakeBin = await mkdtemp(path.join(tmpdir(), "prodex-cli-release-fake-bin-"));
     await writeFile(
       path.join(fakeBin, npmCommand),
-      `#!/bin/sh
-printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":420},{"mode":420}]}]\\n'
-`,
+      `process.stdout.write(${JSON.stringify('[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":420},{"mode":420}]}]\n')});\n`,
       "utf8"
     );
     await chmod(path.join(fakeBin, npmCommand), 0o755);
-    const previousPath = process.env.PATH;
+    const previousNpmExecPath = process.env.npm_execpath;
     const out: string[] = [];
 
     try {
-      process.env.PATH = `${fakeBin}${path.delimiter}${previousPath ?? ""}`;
+      process.env.npm_execpath = path.join(fakeBin, npmCommand);
       await runCli(["release", "status", "--cwd", cwd], {
         cwd: "/tmp",
         stdout: (line) => out.push(line),
         stderr: () => {}
       });
     } finally {
-      if (previousPath === undefined) delete process.env.PATH;
-      else process.env.PATH = previousPath;
+      if (previousNpmExecPath === undefined) delete process.env.npm_execpath;
+      else process.env.npm_execpath = previousNpmExecPath;
     }
 
     const text = out.join("\n");
@@ -3602,21 +3626,21 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     );
     await writeFile(path.join(cwd, "LICENSE"), "MIT License\n", "utf8");
     const fakeBin = await mkdtemp(path.join(tmpdir(), "prodex-cli-release-fake-bin-"));
-    await writeFile(path.join(fakeBin, npmCommand), "#!/bin/sh\nexit 42\n", "utf8");
+    await writeFile(path.join(fakeBin, npmCommand), "process.exit(42);\n", "utf8");
     await chmod(path.join(fakeBin, npmCommand), 0o755);
-    const previousPath = process.env.PATH;
+    const previousNpmExecPath = process.env.npm_execpath;
     const out: string[] = [];
 
     try {
-      process.env.PATH = `${fakeBin}${path.delimiter}${previousPath ?? ""}`;
+      process.env.npm_execpath = path.join(fakeBin, npmCommand);
       await runCli(["release", "status", "--cwd", cwd], {
         cwd: "/tmp",
         stdout: (line) => out.push(line),
         stderr: () => {}
       });
     } finally {
-      if (previousPath === undefined) delete process.env.PATH;
-      else process.env.PATH = previousPath;
+      if (previousNpmExecPath === undefined) delete process.env.npm_execpath;
+      else process.env.npm_execpath = previousNpmExecPath;
     }
 
     const text = out.join("\n");
@@ -3842,7 +3866,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     expect(text).toContain("metadata: ok license=MIT license_file=present");
     expect(text).toContain("pack: blocked packed files have unexpected executable modes");
     expect(text).toContain("README.md");
-    expect(text).toContain(`prodex release pack --cwd ${cwd} --pack-destination <dir>`);
+    expect(text).toContain(`prodex release pack --cwd ${shellQuote(cwd)} --pack-destination <dir>`);
     expect(text).toContain("release pack prints `npm publish --dry-run <tarball>`");
     expect(text).toContain("warns that tarball publish bypasses prepublishOnly before printing `npm publish <tarball>`");
     expect(text).not.toContain("pack: ok");
@@ -3870,7 +3894,9 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     });
 
     const text = out.join("\n");
-    expect(text).toContain(`node ${sourceCli} release pack --source-cli ${sourceCli} --cwd ${cwd} --pack-destination <dir>`);
+    expect(text).toContain(
+      `node ${shellQuote(sourceCli)} release pack --source-cli ${shellQuote(sourceCli)} --cwd ${shellQuote(cwd)} --pack-destination <dir>`
+    );
     expect(text).not.toContain("prodex release pack --pack-destination <dir>");
   });
 
@@ -3897,8 +3923,12 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     });
 
     const text = out.join("\n");
-    expect(text).toContain(`node ${sourceCli} release status --source-cli ${sourceCli} --cwd ${cwd}`);
-    expect(text).toContain(`node ${sourceCli} release pack --source-cli ${sourceCli} --cwd ${cwd} --pack-destination <dir>`);
+    expect(text).toContain(
+      `node ${shellQuote(sourceCli)} release status --source-cli ${shellQuote(sourceCli)} --cwd ${shellQuote(cwd)}`
+    );
+    expect(text).toContain(
+      `node ${shellQuote(sourceCli)} release pack --source-cli ${shellQuote(sourceCli)} --cwd ${shellQuote(cwd)} --pack-destination <dir>`
+    );
   });
 
   it("release status reports non-regular license paths as release blockers", async () => {
@@ -4009,25 +4039,23 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     const fakeBin = await mkdtemp(path.join(tmpdir(), "prodex-cli-release-fake-bin-"));
     await writeFile(
       path.join(fakeBin, npmCommand),
-      `#!/bin/sh
-printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":420},{"path":"README.md","mode":420}]}]\\n'
-`,
+      `process.stdout.write(${JSON.stringify('[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":420},{"path":"README.md","mode":420}]}]\n')});\n`,
       "utf8"
     );
     await chmod(path.join(fakeBin, npmCommand), 0o755);
-    const previousPath = process.env.PATH;
+    const previousNpmExecPath = process.env.npm_execpath;
     const out: string[] = [];
 
     try {
-      process.env.PATH = `${fakeBin}${path.delimiter}${previousPath ?? ""}`;
+      process.env.npm_execpath = path.join(fakeBin, npmCommand);
       await runCli(["release", "status", "--cwd", cwd], {
         cwd: "/tmp",
         stdout: (line) => out.push(line),
         stderr: () => {}
       });
     } finally {
-      if (previousPath === undefined) delete process.env.PATH;
-      else process.env.PATH = previousPath;
+      if (previousNpmExecPath === undefined) delete process.env.npm_execpath;
+      else process.env.npm_execpath = previousNpmExecPath;
     }
 
     const text = out.join("\n");
@@ -4177,7 +4205,9 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     const text = out.join("\n");
     expect(text).toContain(`git: ok branch=${branch} commit=${commit} remote=origin upstream=origin/${branch}`);
     expect(text).toContain("pack: ok");
-    expect(text).toContain(`next: run \`prodex release pack --cwd ${cwd} --pack-destination <dir>\`, then run the printed release_pack_verify dry-run before npm publish`);
+    expect(text).toContain(
+      `next: run \`prodex release pack --cwd ${shellQuote(cwd)} --pack-destination <dir>\`, then run the printed release_pack_verify dry-run before npm publish`
+    );
   });
 
   it("release status blocks branches without upstream tracking", async () => {
@@ -4437,7 +4467,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
       });
       const text = out.join("\n");
       expect(code).toBe(0);
-      expect(text).toContain(`prodex pro browser login --profile-dir ${shellQuotedForTest(profileDir)} --port 12345 ${mode}`);
+      expect(text).toContain(`prodex pro browser login --profile-dir ${shellQuote(profileDir)} --port 12345 ${mode}`);
       expect(text).toContain("Dry run: no browser was opened.");
       expect(text).toContain("Readiness was not checked");
       expect(text).not.toContain("--recover-visible");
@@ -4466,13 +4496,17 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     });
 
     const text = out.join("\n");
-    const sourcePrefix = `node ${sourceCli}`;
+    const sourcePrefix = `node ${shellQuote(sourceCli)}`;
     expect(text).toContain(
-      `1. Run \`${sourcePrefix} pro browser login --source-cli ${sourceCli}\` without \`--dry-run\` to open the dedicated Chrome window.`
+      `1. Run \`${sourcePrefix} pro browser login --source-cli ${shellQuote(sourceCli)}\` without \`--dry-run\` to open the dedicated Chrome window.`
     );
     expect(text).toContain("Open a normal ChatGPT chat or the intended Project/thread so the prompt composer is visible.");
-    expect(text).toContain(`Run \`${sourcePrefix} pro browser check --source-cli ${sourceCli}\` to confirm the session is reachable.`);
-    expect(text).toContain(`Run \`${sourcePrefix} pro browser smoke --source-cli ${sourceCli}\` to verify a real Pro response path.`);
+    expect(text).toContain(
+      `Run \`${sourcePrefix} pro browser check --source-cli ${shellQuote(sourceCli)}\` to confirm the session is reachable.`
+    );
+    expect(text).toContain(
+      `Run \`${sourcePrefix} pro browser smoke --source-cli ${shellQuote(sourceCli)}\` to verify a real Pro response path.`
+    );
     expect(text).not.toContain("Run `prodex pro browser login`");
     expect(text).not.toContain("prodex pro browser check");
   });
@@ -4493,10 +4527,14 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     });
 
     const text = out.join("\n");
-    expect(text).toContain(`Run \`cd ${targetCwd} && node ${sourceCli} pro browser check --source-cli ${sourceCli}\` to confirm the session is reachable.`);
-    expect(text).toContain(`Run \`cd ${targetCwd} && node ${sourceCli} pro browser smoke --source-cli ${sourceCli}\` to verify a real Pro response path.`);
     expect(text).toContain(
-      `1. Run \`cd ${targetCwd} && node ${sourceCli} pro browser login --source-cli ${sourceCli}\` without \`--dry-run\` to open the dedicated Chrome window.`
+      `Run \`cd ${shellQuote(targetCwd)} && node ${shellQuote(sourceCli)} pro browser check --source-cli ${shellQuote(sourceCli)}\` to confirm the session is reachable.`
+    );
+    expect(text).toContain(
+      `Run \`cd ${shellQuote(targetCwd)} && node ${shellQuote(sourceCli)} pro browser smoke --source-cli ${shellQuote(sourceCli)}\` to verify a real Pro response path.`
+    );
+    expect(text).toContain(
+      `1. Run \`cd ${shellQuote(targetCwd)} && node ${shellQuote(sourceCli)} pro browser login --source-cli ${shellQuote(sourceCli)}\` without \`--dry-run\` to open the dedicated Chrome window.`
     );
     expect(await readdir(launcherCwd)).not.toContain(".bridge");
     expect(await readdir(targetCwd)).not.toContain(".bridge");
@@ -4535,14 +4573,18 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     );
 
     const text = out.join("\n");
-    const sourcePrefix = `node ${sourceCli}`;
+    const sourcePrefix = `node ${shellQuote(sourceCli)}`;
     expect(text).toContain(
-      `1. Run \`${sourcePrefix} pro browser login --source-cli ${sourceCli} --profile-dir ${shellQuotedForTest(profileDir)} --port 12345 --url https://chatgpt.com/g/g-demo/project --launch-timeout-ms 12000\` without \`--dry-run\` to open the dedicated Chrome window.`
+      `1. Run \`${sourcePrefix} pro browser login --source-cli ${shellQuote(sourceCli)} --profile-dir ${shellQuote(profileDir)} --port 12345 --url https://chatgpt.com/g/g-demo/project --launch-timeout-ms 12000\` without \`--dry-run\` to open the dedicated Chrome window.`
     );
     expect(text).toContain("2. Log in manually at https://chatgpt.com/g/g-demo/project in that Chrome window.");
     expect(text).not.toContain("2. Log in manually at https://chatgpt.com/ in that Chrome window.");
-    expect(text).toContain(`Run \`${sourcePrefix} pro browser check --source-cli ${sourceCli} --port 12345\` to confirm the session is reachable.`);
-    expect(text).toContain(`Run \`${sourcePrefix} pro browser smoke --source-cli ${sourceCli} --port 12345\` to verify a real Pro response path.`);
+    expect(text).toContain(
+      `Run \`${sourcePrefix} pro browser check --source-cli ${shellQuote(sourceCli)} --port 12345\` to confirm the session is reachable.`
+    );
+    expect(text).toContain(
+      `Run \`${sourcePrefix} pro browser smoke --source-cli ${shellQuote(sourceCli)} --port 12345\` to verify a real Pro response path.`
+    );
     expect(text).toContain(`Profile: ${profileDir}`);
     expect(text).toContain("Debug: http://127.0.0.1:12345");
   });
@@ -4585,15 +4627,21 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     });
 
     const text = out.join("\n");
-    const sourcePrefix = `node ${sourceCli}`;
-    expect(text).toContain(`${sourcePrefix} pro browser login --source-cli ${sourceCli} [--cwd /absolute/path/to/repo] [--dry-run]`);
-    expect(text).toContain(`${sourcePrefix} pro browser check --source-cli ${sourceCli}`);
-    expect(text).toContain(`${sourcePrefix} pro browser smoke --source-cli ${sourceCli} [--cwd /absolute/path/to/repo]`);
+    const sourcePrefix = `node ${shellQuote(sourceCli)}`;
     expect(text).toContain(
-      `${sourcePrefix} pro browser ask --source-cli ${sourceCli} [--cwd /absolute/path/to/repo] [--session-key id] [--port 9333] [--timeout-ms 300000] [--busy-wait-ms 600000] [--target-url url --confirm-target] [--new-chat] [--continue | --continue-task task_id] [--temporary] [--allow-model-fallback] [--stdin] [--json] [--auto-login|--no-auto-login] [--file path] [--attach path] [--tool deep-research|web-search|create-image] [--model Pro] [--pro-mode 기본|확장] [--effort 즉시|중간|높음|"매우 높음"|Max|Ultra|Pro] [--project "name" | --project-new "name"] "prompt"`
+      `${sourcePrefix} pro browser login --source-cli ${shellQuote(sourceCli)} [--cwd /absolute/path/to/repo] [--dry-run]`
+    );
+    expect(text).toContain(`${sourcePrefix} pro browser check --source-cli ${shellQuote(sourceCli)}`);
+    expect(text).toContain(
+      `${sourcePrefix} pro browser smoke --source-cli ${shellQuote(sourceCli)} [--cwd /absolute/path/to/repo]`
+    );
+    expect(text).toContain(
+      `${sourcePrefix} pro browser ask --source-cli ${shellQuote(sourceCli)} [--cwd /absolute/path/to/repo] [--session-key id] [--port 9333] [--timeout-ms 300000] [--busy-wait-ms 600000] [--target-url url --confirm-target] [--new-chat] [--continue | --continue-task task_id] [--temporary] [--allow-model-fallback] [--stdin] [--json] [--auto-login|--no-auto-login] [--file path] [--attach path] [--tool deep-research|web-search|create-image] [--model Pro] [--pro-mode 기본|확장] [--effort 즉시|중간|높음|"매우 높음"|Max|Ultra|Pro] [--project "name" | --project-new "name"] "prompt"`
     );
     expect(text).toContain(`Use \`${sourcePrefix} pro ask\` for dry-run/manual previews.`);
-    expect(text).toContain(`\`${sourcePrefix} pro browser ask --source-cli ${sourceCli}\` always attempts an explicit visible-browser send.`);
+    expect(text).toContain(
+      `\`${sourcePrefix} pro browser ask --source-cli ${shellQuote(sourceCli)}\` always attempts an explicit visible-browser send.`
+    );
     expect(text).not.toContain("Use `prodex pro ask`");
   });
 
@@ -4602,7 +4650,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     const sourceCli = path.join(cwd, "dist", "cli.js");
     await mkdir(path.dirname(sourceCli), { recursive: true });
     await writeFile(sourceCli, "#!/usr/bin/env node\n", "utf8");
-    const sourcePrefix = `node ${sourceCli}`;
+    const sourcePrefix = `node ${shellQuote(sourceCli)}`;
     const cases = [
       ["login", "--source-cli", sourceCli, "--help"],
       ["check", "--source-cli", sourceCli, "--help"],
@@ -4620,10 +4668,14 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
       });
 
       const text = out.join("\n");
-      expect(text).toContain(`${sourcePrefix} pro browser login --source-cli ${sourceCli} [--cwd /absolute/path/to/repo] [--dry-run]`);
-      expect(text).toContain(`${sourcePrefix} pro browser check --source-cli ${sourceCli}`);
-      expect(text).toContain(`${sourcePrefix} pro browser smoke --source-cli ${sourceCli} [--cwd /absolute/path/to/repo]`);
-      expect(text).toContain(`${sourcePrefix} pro browser ask --source-cli ${sourceCli}`);
+      expect(text).toContain(
+        `${sourcePrefix} pro browser login --source-cli ${shellQuote(sourceCli)} [--cwd /absolute/path/to/repo] [--dry-run]`
+      );
+      expect(text).toContain(`${sourcePrefix} pro browser check --source-cli ${shellQuote(sourceCli)}`);
+      expect(text).toContain(
+        `${sourcePrefix} pro browser smoke --source-cli ${shellQuote(sourceCli)} [--cwd /absolute/path/to/repo]`
+      );
+      expect(text).toContain(`${sourcePrefix} pro browser ask --source-cli ${shellQuote(sourceCli)}`);
       expect(text).toContain(`Use \`${sourcePrefix} pro ask\` for dry-run/manual previews.`);
       expect(text).not.toContain("Use `prodex pro ask`");
     }
@@ -5053,9 +5105,11 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     });
 
     const text = out.join("\n");
-    expect(text).toContain(`bridge: missing (.bridge) - run \`node ${sourceCli} init\``);
-    expect(text).toContain(`config: missing - run \`node ${sourceCli} setup\``);
-    expect(text).toContain(`next: Run \`node ${sourceCli} pro browser login --source-cli ${sourceCli} --port 65534\` to reopen`);
+    expect(text).toContain(`bridge: missing (.bridge) - run \`node ${shellQuote(sourceCli)} init\``);
+    expect(text).toContain(`config: missing - run \`node ${shellQuote(sourceCli)} setup\``);
+    expect(text).toContain(
+      `next: Run \`node ${shellQuote(sourceCli)} pro browser login --source-cli ${shellQuote(sourceCli)} --port 65534\` to reopen`
+    );
     expect(text).not.toContain("prodex pro browser login");
     expect(await readdir(cwd)).not.toContain(".bridge");
   });
@@ -5127,7 +5181,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
       stderr: () => {}
     });
 
-    expect(out.join("\n")).toContain(`bridge: missing (.bridge) - run \`prodex init --cwd ${targetCwd}\``);
+    expect(out.join("\n")).toContain(`bridge: missing (.bridge) - run \`prodex init --cwd ${shellQuote(targetCwd)}\``);
   });
 
   it("reports corrupt local MCP config in product checks", async () => {
@@ -5164,7 +5218,9 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     });
 
     const text = out.join("\n");
-    expect(text).toContain(`config: failed local MCP config is corrupt. Run \`node ${sourceCli} setup\` to replace .bridge/config.local.json.`);
+    expect(text).toContain(
+      `config: failed local MCP config is corrupt. Run \`node ${shellQuote(sourceCli)} setup\` to replace .bridge/config.local.json.`
+    );
     expect(text).not.toContain("Run `prodex setup`");
     expect(text).not.toContain("Expected property name or '}' in JSON");
   });
@@ -5251,7 +5307,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     expect(text).toContain("task_completed receipt");
     expect(text).not.toContain("write dry-run");
     expect(text).toContain("Retry the completion path or move the result record aside");
-    expect(text).toContain(`node ${sourceCli} results reseal ${task.id} --confirm-current-result`);
+    expect(text).toContain(`node ${shellQuote(sourceCli)} results reseal ${task.id} --confirm-current-result`);
     expect(text).not.toContain(`prodex results reseal ${task.id}`);
     expect(text).not.toContain("bridge.. Retry");
     expect(text).toContain("chatgpt:");
@@ -5294,7 +5350,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     });
 
     const text = out.join("\n");
-    expect(text).toContain(`rerun \`prodex setup --cwd ${targetCwd} --token-ttl-hours <hours>\``);
+    expect(text).toContain(`rerun \`prodex setup --cwd ${shellQuote(targetCwd)} --token-ttl-hours <hours>\``);
     expect(text).not.toContain("super-secret-token");
   });
 
@@ -5309,7 +5365,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
       stderr: () => {}
     });
 
-    expect(out.join("\n")).toContain(`config: missing - run \`prodex setup --cwd ${targetCwd}\``);
+    expect(out.join("\n")).toContain(`config: missing - run \`prodex setup --cwd ${shellQuote(targetCwd)}\``);
   });
 
   it("redacts local MCP tokens from setup, start, and status output by default", async () => {
@@ -5767,7 +5823,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     const sourceCli = path.join(launcherCwd, "dist", "cli.js");
     await mkdir(path.dirname(sourceCli), { recursive: true });
     await writeFile(sourceCli, "#!/usr/bin/env node\n", "utf8");
-    const setupCommand = `node ${sourceCli} setup`;
+    const setupCommand = `node ${shellQuote(sourceCli)} setup`;
 
     await expect(
       runCli(["status", "--source-cli", sourceCli], {
@@ -5795,7 +5851,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
   it("keeps explicit --cwd setup hints before local MCP commands", async () => {
     const launcherCwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-launcher-"));
     const targetCwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-target-"));
-    const setupCommand = `prodex setup --cwd ${targetCwd}`;
+    const setupCommand = `prodex setup --cwd ${shellQuote(targetCwd)}`;
 
     await expect(
       runCli(["status", "--cwd", targetCwd], {
@@ -5826,7 +5882,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     const sourceCli = path.join(launcherCwd, "dist", "cli.js");
     await mkdir(path.dirname(sourceCli), { recursive: true });
     await writeFile(sourceCli, "#!/usr/bin/env node\n", "utf8");
-    const setupCommand = `node ${sourceCli} setup --cwd ${targetCwd}`;
+    const setupCommand = `node ${shellQuote(sourceCli)} setup --cwd ${shellQuote(targetCwd)}`;
 
     await expect(
       runCli(["status", "--cwd", targetCwd, "--source-cli", sourceCli], {
@@ -5876,14 +5932,14 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
         stdout: () => {},
         stderr: () => {}
       })
-    ).rejects.toThrow(`Run \`node ${sourceCli} setup --token-ttl-hours <hours>\` first`);
+    ).rejects.toThrow(`Run \`node ${shellQuote(sourceCli)} setup --token-ttl-hours <hours>\` first`);
     await expect(
       runCli(["tunnel", "url", "--public-url", "https://example.com", "--source-cli", sourceCli], {
         cwd,
         stdout: () => {},
         stderr: () => {}
       })
-    ).rejects.toThrow(`Run \`node ${sourceCli} setup --token-ttl-hours <hours>\` first.`);
+    ).rejects.toThrow(`Run \`node ${shellQuote(sourceCli)} setup --token-ttl-hours <hours>\` first.`);
   });
 
   it("refuses to start with an expired configured token", async () => {
@@ -6046,8 +6102,8 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     });
 
     const text = out.join("\n");
-    expect(text).toContain(`bridge: missing/incomplete (.bridge) - run \`node ${sourceCli} init\``);
-    expect(text).toContain(`config: missing - run \`node ${sourceCli} setup\``);
+    expect(text).toContain(`bridge: missing/incomplete (.bridge) - run \`node ${shellQuote(sourceCli)} init\``);
+    expect(text).toContain(`config: missing - run \`node ${shellQuote(sourceCli)} setup\``);
     expect(text).not.toContain("run `prodex init`");
     expect(text).not.toContain("run `prodex setup`");
   });
@@ -6067,8 +6123,12 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     });
 
     const text = out.join("\n");
-    expect(text).toContain(`bridge: missing/incomplete (.bridge) - run \`node ${sourceCli} init --cwd ${targetCwd}\``);
-    expect(text).toContain(`config: missing - run \`node ${sourceCli} setup --cwd ${targetCwd}\``);
+    expect(text).toContain(
+      `bridge: missing/incomplete (.bridge) - run \`node ${shellQuote(sourceCli)} init --cwd ${shellQuote(targetCwd)}\``
+    );
+    expect(text).toContain(
+      `config: missing - run \`node ${shellQuote(sourceCli)} setup --cwd ${shellQuote(targetCwd)}\``
+    );
   });
 
   it("does not bootstrap bridge storage when doctor runs in a fresh directory", async () => {
@@ -6142,7 +6202,9 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
 
     const text = out.join("\n");
     expect(code).toBe(1);
-    expect(text).toContain(`config: failed local MCP config is corrupt. Run \`node ${sourceCli} setup\` to replace .bridge/config.local.json.`);
+    expect(text).toContain(
+      `config: failed local MCP config is corrupt. Run \`node ${shellQuote(sourceCli)} setup\` to replace .bridge/config.local.json.`
+    );
     expect(text).not.toContain("Run `prodex setup`");
   });
 
@@ -6369,7 +6431,7 @@ async function createReleasePackCliFixture(): Promise<string> {
         name: "cli-release-pack-demo",
         version: "1.0.0",
         license: "MIT",
-        files: ["README.md", "LICENSE", "scripts/release-check.mjs"]
+        files: ["README.md", "LICENSE", "scripts/npm-command.mjs", "scripts/release-check.mjs"]
       },
       null,
       2
@@ -6378,6 +6440,7 @@ async function createReleasePackCliFixture(): Promise<string> {
   );
   await writeFile(path.join(cwd, "README.md"), "# CLI release pack demo\n", "utf8");
   await writeFile(path.join(cwd, "LICENSE"), "MIT License\n", "utf8");
+  await copyFile(path.join(repoRoot, "scripts", "npm-command.mjs"), path.join(cwd, "scripts", "npm-command.mjs"));
   await copyFile(path.join(repoRoot, "scripts", "release-check.mjs"), path.join(cwd, "scripts", "release-check.mjs"));
   return cwd;
 }
@@ -6495,8 +6558,4 @@ async function waitForStdioProcessExit(processRef: CapturedStdioProcess, timeout
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-function shellQuotedForTest(value: string): string {
-  return /^[A-Za-z0-9_./:@=-]+$/.test(value) ? value : `'${value.replaceAll("'", "'\\''")}'`;
 }

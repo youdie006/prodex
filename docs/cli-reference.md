@@ -35,6 +35,8 @@ This section connects coding agents (Claude, Codex, ChatGPT Projects) to the bri
 
 Requires Node.js 20 or newer, `git`, and `ripgrep` (`rg`) on PATH. The optional browser adapter probes PATH binaries (`google-chrome`, `chromium`, `chromium-browser`, `microsoft-edge`, `brave-browser`), native macOS app bundles, and native Windows Program Files/LOCALAPPDATA installs. Set `PRODEX_CHROME` for another executable. WSL uses Linux browser paths, not automatic Windows-host browser discovery. Do not share one profile between native Windows Chrome and Linux Chrome. See [platform verification](platform-verification.md) and [local storage permissions](../SECURITY.md#local-storage-permissions).
 
+Native Windows command examples use PowerShell quoting, including doubled apostrophes inside single-quoted arguments. Use PowerShell 7 for compound examples containing `&&`; these examples are not `cmd.exe` commands. Internal CLI/MCP child processes receive literal argument arrays without a shell.
+
 Install from npm — **note the scope**. The unscoped `prodex` on npm is an unrelated third-party package; do **not** install it. Use the scoped name:
 
 ```bash

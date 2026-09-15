@@ -6,6 +6,13 @@ const repoRoot = path.resolve(import.meta.dirname, "..");
 const ciPath = path.join(repoRoot, ".github", "workflows", "ci.yml");
 
 describe("platform CI", () => {
+  it("requires the same native matrix before publishing a release", async () => {
+    const workflow = await readFile(ciPath, "utf8");
+    const publish = await readFile(path.join(repoRoot, ".github", "workflows", "publish.yml"), "utf8");
+    expect(workflow).toContain("workflow_call:");
+    expect(publish).toContain("uses: ./.github/workflows/ci.yml");
+    expect(publish).toContain("needs: verify-platforms");
+  });
   it("runs release verification on the supported OS and Node.js matrix", async () => {
     const workflow = (await readFile(ciPath, "utf8")).replaceAll("\r\n", "\n");
     const matrixRows = [...workflow.matchAll(/^\s+- name: (.+)\n\s+os: (\S+)\n\s+node: (\d+)$/gm)].map(
@@ -41,6 +48,8 @@ describe("platform CI", () => {
     expect(workflow).toContain("choco install ripgrep -y --no-progress");
     expect(workflow).toContain("run: npm run build");
     expect(workflow).toContain("run: npm run release:check -- --metadata-only");
+    expect(workflow).toContain("run: npm run smoke:browser");
+    expect(workflow).toContain("path: test-results/vitest.json");
     expect(workflow).toContain("run: npm run release:verify");
     expect(workflow).not.toContain("continue-on-error");
   });

@@ -5,6 +5,7 @@ import { isIP } from "node:net";
 import path from "node:path";
 import { z } from "zod";
 import { SCHEMA_VERSION } from "./schema.js";
+import { ensureBridgeGitignore } from "./bridge-gitignore.js";
 import { readVerifiedUtf8File, writeVerifiedUtf8File } from "./safe-file.js";
 
 const BRIDGE_DIRECTORY_MODE = 0o700;
@@ -365,29 +366,7 @@ async function ensureBridgeLocalFiles(cwd: string): Promise<void> {
   const bridgeDir = path.join(cwd, ".bridge");
   await ensurePrivateBridgeDirectory(cwd);
   const ignorePath = path.join(bridgeDir, ".gitignore");
-  let current = "";
-  try {
-    current = await readVerifiedUtf8File(ignorePath, () => assertBridgeGitignoreTargetSafe(cwd));
-  } catch (error) {
-    if (!isMissingFileError(error)) throw error;
-  }
-  const required = [
-    "tasks/*.json",
-    "results/*.json",
-    "sessions/*.json",
-    "receipts/*.json",
-    "artifacts/*",
-    "config.local.json",
-    "receipt-key.local",
-    "!.gitignore"
-  ];
-  const lines = new Set(current.split(/\r?\n/).filter(Boolean));
-  for (const line of required) lines.add(line);
-  const updated = `${Array.from(lines).join("\n")}\n`;
-  if (updated === current) return;
-  await writeVerifiedUtf8File(ignorePath, updated, () => assertBridgeGitignoreTargetSafe(cwd), {
-    create: true
-  });
+  await ensureBridgeGitignore(ignorePath, () => assertBridgeGitignoreTargetSafe(cwd));
 }
 
 async function ensurePrivateBridgeDirectory(cwd: string): Promise<void> {

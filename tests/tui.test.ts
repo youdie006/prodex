@@ -310,11 +310,19 @@ describe("conversation list", () => {
 });
 
 describe("equivalent command", () => {
-  it("preserves shell substitutions, variables, quotes, backticks, and newlines as literal prompt text", () => {
+  it("preserves shell substitutions, variables, quotes, backticks, and newlines in the native shell syntax", () => {
     const prompt = "Explain $(printf REVIEW_EXPANDED) $HOME `printf BACKTICK` and 'quotes'\nnext line";
     const rendered = formatCommand([prompt]);
 
-    expect(execFileSync("bash", ["-c", `printf %s ${rendered}`], { encoding: "utf8" })).toBe(prompt);
+    if (process.platform === "win32") {
+      expect(execFileSync(
+        "powershell.exe",
+        ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", `[Console]::Out.Write(${rendered})`],
+        { encoding: "utf8" }
+      )).toBe(prompt);
+    } else {
+      expect(execFileSync("bash", ["-c", `printf %s ${rendered}`], { encoding: "utf8" })).toBe(prompt);
+    }
   });
 });
 
