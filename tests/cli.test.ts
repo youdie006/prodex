@@ -3,12 +3,12 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { execFile } from "node:child_process";
 import { chmod, copyFile, link, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
-import type { AddressInfo } from "node:net";
+import net, { type AddressInfo } from "node:net";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { parsePackedFiles, runCli } from "../src/cli.js";
 import { setSafeFileTestHooks } from "../src/safe-file.js";
 import { BridgeStore } from "../src/store.js";
@@ -18,9 +18,20 @@ const requireFromTest = createRequire(import.meta.url);
 const execFileAsync = promisify(execFile);
 const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
 
+function mockRefusedBrowserConnection(): void {
+  // WSL can black-hole unused ports, so a fixed port is not proof of refusal.
+  vi.spyOn(globalThis, "fetch").mockRejectedValue(new TypeError("fetch failed"));
+  vi.spyOn(net, "createConnection").mockImplementation(() => {
+    const socket = new net.Socket();
+    queueMicrotask(() => socket.destroy(Object.assign(new Error("Connection refused"), { code: "ECONNREFUSED" })));
+    return socket;
+  });
+}
+
 describe("runCli", () => {
   afterEach(() => {
     setSafeFileTestHooks({});
+    vi.restoreAllMocks();
   });
 
   it("prints the package version from version commands and help", async () => {
@@ -4372,6 +4383,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
   });
 
   it("requires explicit browser namespace for browser product checks", async () => {
+    mockRefusedBrowserConnection();
     const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     const out: string[] = [];
 
@@ -4411,6 +4423,32 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
     expect(text).not.toContain("usage limit handling, complete it in the browser");
     expect(text.indexOf("Run `prodex pro browser login` without `--dry-run`")).toBeLessThan(text.indexOf("Log in manually"));
     expect(text).not.toContain("You can close this Chrome window after login");
+  });
+
+  it.each(["--headless", "--virtual-display"])("keeps %s in no-window login dry-run guidance", async (mode) => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-preview-"));
+    const profileDir = path.join(cwd, "profile with spaces");
+    const out: string[] = [];
+    try {
+      const code = await runCli(["pro", "browser", "login", mode, "--dry-run", "--profile-dir", profileDir, "--port", "12345"], {
+        cwd,
+        stdout: (line) => out.push(line),
+        stderr: () => {}
+      });
+      const text = out.join("\n");
+      expect(code).toBe(0);
+      expect(text).toContain(`prodex pro browser login --profile-dir ${shellQuotedForTest(profileDir)} --port 12345 ${mode}`);
+      expect(text).toContain("Dry run: no browser was opened.");
+      expect(text).toContain("Readiness was not checked");
+      expect(text).not.toContain("--recover-visible");
+      expect(text).not.toContain("--headed");
+      expect(text).not.toMatch(/Close .*browser|Log in manually|Opened the dedicated Chrome window/);
+      expect(text).toContain(`Profile: ${profileDir}`);
+      expect(text).toContain("Debug: http://127.0.0.1:12345");
+      expect(await readdir(cwd)).toEqual([]);
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
   });
 
   it("prints source-checkout browser login commands when source-cli is supplied", async () => {
@@ -4956,6 +4994,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
   });
 
   it("points unreachable browser checks at the login flow", async () => {
+    mockRefusedBrowserConnection();
     const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     const out: string[] = [];
 
@@ -4970,6 +5009,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
   });
 
   it("uses an explicit --cwd target for browser product checks", async () => {
+    mockRefusedBrowserConnection();
     const launcherCwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-launcher-"));
     const targetCwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-target-"));
     const out: string[] = [];
@@ -4999,6 +5039,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
   });
 
   it("keeps source-checkout commands in browser check remediation", async () => {
+    mockRefusedBrowserConnection();
     const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     const sourceCli = path.join(cwd, "dist", "cli.js");
     await mkdir(path.dirname(sourceCli), { recursive: true });
@@ -5058,6 +5099,7 @@ printf '[{"files":[{"path":"package.json","mode":420},{"path":"LICENSE","mode":4
   });
 
   it("prints a product check instead of failing when setup pieces are missing", async () => {
+    mockRefusedBrowserConnection();
     const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     const out: string[] = [];
 

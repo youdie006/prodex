@@ -4,6 +4,16 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.40.17
+
+### Fixed
+- Headless and virtual-display login dry runs preserve the requested no-window mode, selected profile and control port in their next command. They no longer tell users to close a browser or start visible authentication recovery before any readiness check has run. Actual launch, authentication and protection handling are unchanged.
+
+### Verification And Limits
+- PASS: 475 tests across the CLI, login readiness, browser adapter, background login, handoff and product-check suites; typecheck; build; Node 20 headless dry-run; and built CLI no-window previews. A separate read-only review found no blocking issue. The complete release verification runs in CI before publication.
+- CLI connection-refusal checks now inject an actual refusal instead of assuming an unused fixed port will refuse connections on every host. The first broader WSL run had five failures because that port timed out; the production distinction between an uncertain control connection and a stopped browser is unchanged.
+- The two no-window preview regressions failed before the correction. Live WSL launch reused the saved profile and verified an actual headless process, but ChatGPT displayed a Cloudflare verification page. M3 had the same headless readiness blocker in the previous check. No visible fallback, repeated login, prompt send or protection bypass was performed; this release does not claim authenticated headless Pro access. Final checks, publication and machine installation evidence are recorded in the version-specific GitHub Release.
+
 ## 0.40.16
 
 ### Fixed

@@ -3432,6 +3432,21 @@ export function printBrowserLoginGuide(
           ? "Opened the dedicated Chrome window for ChatGPT."
           : "Dry run: no browser was opened."
   );
+  if (noInteractiveWindow && !input.opened && !input.reused) {
+    const previewCommand = formatBrowserLoginCommand(input.sourceCli, {
+      ...input.commandOptions,
+      profileDir: input.profileDir,
+      port: input.port
+    });
+    const modeFlag = input.headless ? "--headless" : "--virtual-display";
+    stdout("");
+    stdout(`Next: run \`${previewCommand} ${modeFlag}\` without \`--dry-run\` to start or reuse Chrome with no visible window.`);
+    stdout("Readiness was not checked. A real launch reuses this profile and reports any login or protection blocker; it does not switch to a visible window automatically.");
+    stdout("");
+    stdout(`Profile: ${input.profileDir}`);
+    stdout(`Debug: http://127.0.0.1:${input.port}`);
+    return;
+  }
   if (noInteractiveWindow && (input.opened || input.reused)) {
     stdout("");
     stdout(
