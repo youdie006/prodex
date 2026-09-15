@@ -292,6 +292,13 @@ npm test                   # 1000+ tests; none of them touch a real browser
 npm run release:verify     # tests, typecheck, build, package smoke, doctor
 ```
 
+On WSL, prefer a checkout and dependencies on the Linux filesystem. If sources
+must remain under `/mnt/c` or `/mnt/d`, keep `node_modules` on Linux and link it
+into the checkout. Windows-mounted dependency loading can time out even for
+`--version`; reinstalling ChatGPT authentication does not fix that startup
+problem. See [WSL source setup](docs/platform-verification.md#wsl-source-dependencies)
+for the tested arrangement and maintenance precautions.
+
 The npm package is CLI-only: the `prodex` command, the stdio MCP server and the HTTP MCP server are the supported surfaces, and deep imports are blocked on purpose. [docs/cli-reference.md](docs/cli-reference.md) carries the full operational detail: every command in installed and source-checkout form, the first login step by step, the HTTP bridge setup, and the local smoke tests. [docs/releasing.md](docs/releasing.md) describes the tag-driven publish (npm trusted publishing, no long-lived token) and the release checks.
 
 ## License

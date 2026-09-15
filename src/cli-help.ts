@@ -23,7 +23,7 @@ Ask / consult commands:
   prodex pro debate-prompt [--topic "..."] [--rounds 2] [--source-cli /absolute/path/to/dist/cli.js]  # print an agent prompt for a structured GPT Pro debate
   prodex pro browser login [--cwd /absolute/path/to/repo] [--dry-run] [--source-cli /absolute/path/to/dist/cli.js] [--profile-dir path] [--port 9333] [--url https://chatgpt.com/...] [--launch-timeout-ms 5000] [--wait|--no-wait] [--headed|--headless|--minimized|--virtual-display] [--wait-timeout-ms 300000] [--background] [--recover-visible]  # preview/open browser login
   prodex pro browser help [--source-cli /absolute/path/to/dist/cli.js]
-  prodex pro browser check [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 1500]
+  prodex pro browser check [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 1500] [--runtime]
   prodex pro browser smoke [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 90000]
   prodex pro browser models [--source-cli /absolute/path/to/dist/cli.js] [--port 9333] [--timeout-ms 15000]  # read-only list of model menu options
   prodex pro browser projects [--source-cli /absolute/path/to/dist/cli.js] [--port 9333] [--timeout-ms 15000]  # read-only list of sidebar project names (for --project)
@@ -256,8 +256,8 @@ export function printProBrowserHelp(stdout: (line: string) => void, sourceCli?: 
     ? `${cli} pro browser login${sourceCliOption} [--cwd /absolute/path/to/repo] [--dry-run] [--profile-dir path] [--port 9333] [--url https://chatgpt.com/...] [--launch-timeout-ms 5000] [--wait|--no-wait] [--headed|--headless|--minimized|--virtual-display] [--wait-timeout-ms 300000] [--background] [--recover-visible]`
     : "prodex pro browser login [--cwd /absolute/path/to/repo] [--dry-run] [--source-cli /absolute/path/to/dist/cli.js] [--profile-dir path] [--port 9333] [--url https://chatgpt.com/...] [--launch-timeout-ms 5000] [--wait|--no-wait] [--headed|--headless|--minimized|--virtual-display] [--wait-timeout-ms 300000] [--background] [--recover-visible]";
   const checkUsage = sourceCli
-    ? `${cli} pro browser check${sourceCliOption} [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 1500]`
-    : "prodex pro browser check [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 1500]";
+    ? `${cli} pro browser check${sourceCliOption} [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 1500] [--runtime]`
+    : "prodex pro browser check [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 1500] [--runtime]";
   const smokeUsage = sourceCli
     ? `${cli} pro browser smoke${sourceCliOption} [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 90000]`
     : "prodex pro browser smoke [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 90000]";
@@ -301,6 +301,7 @@ Commands:
   ${askUsage}
   ${recoverUsage}
 
+check --runtime adds read-only browser/CDP version and actual process mode evidence. Saved virtual-display settings are not proof of the current display, and runtime metadata does not prove authenticated Pro access.
 Visible-browser sends require a manual browser session and stop on login, captcha, Cloudflare, permission, rate-limit, or usage-limit blockers, plus response_choice_pending when ChatGPT is waiting for you to pick which of two answers you prefer.
 Only rendered page content is read. Automatic deep-research report retrieval and deletion are unsupported; --tool deep-research stops before sending. Lists cover visible entries, not the full account history.
 Window mode (login and auto-recovery):

@@ -5503,19 +5503,38 @@ describe("runCli", () => {
       stderr: () => {}
     });
     const out: string[] = [];
+    let markServerReady!: () => void;
+    const serverReady = new Promise<void>((resolve) => {
+      markServerReady = resolve;
+    });
 
     const start = runCli(["start", "--cwd", targetCwd], {
       cwd: launcherCwd,
-      stdout: (line) => out.push(line),
+      stdout: (line) => {
+        out.push(line);
+        if (line.startsWith("prodex HTTP MCP listening on ")) markServerReady();
+      },
       stderr: () => {}
     });
-    const stop = setTimeout(() => process.emit("SIGTERM"), 50);
 
-    await expect(start).resolves.toBe(0);
-    clearTimeout(stop);
-    expect(out.join("\n")).toContain(`http://127.0.0.1:${port}/mcp?prodex_token=***`);
-    expect(out.join("\n")).toContain("prodex_token=***");
-    expect(out.join("\n")).not.toContain("super-secret-token");
+    try {
+      // Wait for startup instead of racing mounted-workspace I/O with a fixed timer.
+      await Promise.race([
+        serverReady,
+        start.then(() => {
+          throw new Error("HTTP MCP start completed before reporting readiness");
+        })
+      ]);
+      process.emit("SIGTERM");
+
+      await expect(start).resolves.toBe(0);
+      expect(out.join("\n")).toContain(`http://127.0.0.1:${port}/mcp?prodex_token=***`);
+      expect(out.join("\n")).toContain("prodex_token=***");
+      expect(out.join("\n")).not.toContain("super-secret-token");
+    } finally {
+      process.emit("SIGTERM");
+      await start.catch(() => undefined);
+    }
   });
 
   it("uses an explicit --cwd target for doctor checks", async () => {

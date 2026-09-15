@@ -25,6 +25,11 @@ const browserStatusFixture = vi.hoisted(() => ({
   }
 }));
 const findWedgedBrowserMock = vi.hoisted(() => vi.fn(() => [] as number[]));
+const runtimeMock = vi.hoisted(() => vi.fn(async () => ({
+  metadata: "available", browser_product: "Chrome/152.0.7977.84", protocol_version: "1.3",
+  actual_mode: "headed", saved_mode: "headless", mode_matches_saved: false
+})));
+vi.mock("../src/browser-runtime.js", () => ({ getBrowserRuntimeInfo: runtimeMock }));
 
 vi.mock("../src/chatgpt-browser.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/chatgpt-browser.js")>();
@@ -70,6 +75,31 @@ async function runBrowserCheck(): Promise<string> {
 }
 
 describe("browser product check", () => {
+  it("reports opt-in runtime evidence without replacing the ChatGPT blocker", async () => {
+    runtimeMock.mockClear();
+    const result = await runBrowserCheckResultWithArgs(["--runtime", "--port", "19333", "--timeout-ms", "700"]);
+    expect(result.text).toContain('browser_runtime: {"metadata":"available"');
+    expect(result.text).toContain('"actual_mode":"headed","saved_mode":"headless","mode_matches_saved":false');
+    expect(result.text).toContain("chatgpt: blocked captcha_required");
+    expect(result.text).toContain("latest_pro: missing");
+    expect(runtimeMock).toHaveBeenCalledWith(expect.objectContaining({ port: 19333, timeoutMs: 700 }));
+    expect(result.code).toBe(1);
+  });
+
+  it("does not add a runtime probe to ordinary checks", async () => {
+    runtimeMock.mockClear();
+    await runBrowserCheck();
+    expect(runtimeMock).not.toHaveBeenCalled();
+  });
+
+  it("accepts runtime diagnostics in browser-check help without probing", async () => {
+    runtimeMock.mockClear();
+    const result = await runBrowserCheckResultWithArgs(["--runtime", "--help"]);
+    expect(result.code).toBe(0);
+    expect(result.text).toContain("[--runtime]");
+    expect(runtimeMock).not.toHaveBeenCalled();
+  });
+
   it("reports unverified process identity without aborting the remaining checks or suggesting login", async () => {
     const prior = browserStatusFixture.status;
     browserStatusFixture.status = { ...prior, reachable: false, blocker: {
