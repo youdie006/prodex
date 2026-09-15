@@ -10,16 +10,18 @@ Branch: `fix/cross-platform-verification`.
 Tracking PR: <https://github.com/youdie006/prodex/pull/6>.
 Initial matrix commit: `37b1684795271f69afdca492562d99aa9c203e6d`.
 CI run: <https://github.com/youdie006/prodex/actions/runs/34964947086>.
+Integrated compatibility commit: `8569391d525e15e16e67665dbc19e04da53ee042`.
+Integrated CI run: <https://github.com/youdie006/prodex/actions/runs/34970055803>.
 
-| Environment | Initial result | Scope |
+| Environment | Latest completed result | Scope |
 | --- | --- | --- |
 | Ubuntu 24.04 x64, Node 20/22/24 | PASS | Full release verification on all three CI jobs |
-| macOS 15 ARM, Node 22 | FAIL, corrections pending rerun | Initial full suite exposed POSIX temp aliases and Linux-specific fixtures |
-| macOS 15 Intel, Node 22 | FAIL, corrections pending rerun | Initial full suite exposed the same fixture assumptions |
-| Windows Server 2025 x64, Node 22 | FAIL | Build passed; npm subprocess launch blocked metadata check |
-| Windows 11 x64, Node 22.22.0 | Partial | Intermediate suite: 1,463 passed, 107 failed, 4 skipped; later storage/credential regressions: 48 passed, 1 POSIX-only exclusion; real headless browser smoke passed |
-| WSL Linux x64, Node 22.22.0 | Partial | Focused regressions, installed package smoke, and real headless browser smoke passed; final full suite pending |
-| Physical M3 macOS ARM, Node 22.22.3 | Partial | Intermediate suite: 1,567 passed, 5 failed, 2 skipped; all five remaining fault-injection regressions passed after correction; real headless browser smoke passed |
+| macOS 15 ARM, Node 22 | PASS at integrated commit | Full CI release verification; initial path-alias and fixture failures corrected |
+| macOS 15 Intel, Node 22 | FAIL at integrated commit | 1,596 passed, 1 timing-dependent contention test failed, 4 platform exclusions; deterministic barrier correction pending rerun |
+| Windows Server 2025 x64, Node 22 | FAIL | npm subprocess launch corrected; metadata now reports a non-executable packed bin |
+| Windows 11 x64, Node 22.22.0 | Partial | Later full suite: 1,567 passed, 30 failed, 6 exclusions; remaining file-link privilege failures and OS-specific fixtures are separate from the passing 48-test storage/credential run and headless browser smoke |
+| WSL Linux x64, Node 22.22.0 | PASS at integrated commit | Full suite: 1,598 passed, 0 failed, 3 platform exclusions; typecheck/build, installed package smoke, and real headless browser smoke passed |
+| Physical M3 macOS ARM, Node 22.22.3 | PASS at integrated source snapshot | Full release verification passed: tests, typecheck, build, installed package MCP smoke and doctor; real headless browser smoke also passed |
 
 The Windows initialization and junction regressions failed before correction and
 passed afterward. Additional native checks reproduced file replacement and
@@ -28,10 +30,33 @@ The additional concurrent gitignore replacement regression passed on native
 Windows after both initializers adopted the same verified, idempotent write path.
 The later 48-test Windows run also passed the original concurrent follow-up
 reservation test, npm credential-isolated dry runs, and anchored writer checks.
+M3's first integrated command incorrectly exported `PRODEX_NO_AUTO_LOGIN=1`,
+which disabled five mocked recovery tests. The complete release-verification
+command passed after removing that conflicting harness override. No account
+browser or login profile was used by those mocked tests.
 The initial Windows suite also lacks file-symlink creation privileges on this
 machine. This is recorded separately from product failures; no security test is
 declared passed by ignoring an `EPERM` error. Directory-junction checks can run
 without granting administrator privileges or changing Windows Developer Mode.
+
+Candidate 0.40.18 uses the unique root bin `prodex.mjs`: native npm produced
+archive modes 0755 for that bin and 0644 for `dist/cli.js` and `LICENSE`.
+The native metadata check and independent tar-header inspection passed. An
+initial root name `cli.js` was rejected because npm also marked the same-named
+nested compiled file executable. Strict release checks were not relaxed.
+WSL's installed-package smoke passed for the corrected 0.40.18 candidate.
+The final candidate CI and installation checks remain pending.
+Native Windows focused reruns passed the 11 CLI regressions, two browser-send
+and profile cases, and all 21 release-pack tests. The candidate package smoke
+passed its formerly failing archive-mode check, then stopped at a real file
+symlink creation `EPERM`; that run is partial, not a package-smoke pass.
+The three link-swap regressions now assert their fixture was actually installed,
+so an unsupported symlink operation cannot masquerade as a rejected attack.
+
+One local staging attempt began before its source archive finished writing and
+failed with a truncated TypeScript file. That invalid snapshot was discarded;
+the complete archive was extracted and source hashes checked before rerunning.
+This was a verification setup failure, not accepted product evidence.
 
 ## What each check proves
 

@@ -52,12 +52,16 @@ const unavailableBrowser = createServer((_request, response) => {
   response.writeHead(503, { "Connection": "close" });
   response.end();
 });
+let unavailablePort;
 
 try {
   await new Promise((resolve, reject) => {
     unavailableBrowser.once("error", reject);
-    unavailableBrowser.listen(65534, "127.0.0.1", resolve);
+    unavailableBrowser.listen(0, "127.0.0.1", resolve);
   });
+  const unavailableAddress = unavailableBrowser.address();
+  if (!unavailableAddress || typeof unavailableAddress === "string") throw new Error("Missing isolated browser fixture address");
+  unavailablePort = String(unavailableAddress.port);
   const packed = await packPackage(tmp);
   await assertPackageFileScope(packed.files);
   const consumerDir = path.join(tmp, "consumer");
@@ -79,7 +83,7 @@ try {
   }
   const installedSourceCli = path.join(installedPackageDir, "dist", "cli.js");
   const installedSourceCliArg = shellQuotedForSmoke(installedSourceCli);
-  if (process.platform === "win32") nodeEntrypointsByCommand.set(binPath, installedSourceCli);
+  if (process.platform === "win32") nodeEntrypointsByCommand.set(binPath, path.join(installedPackageDir, installedPackageJson.bin.prodex));
   const sourcePrefix = `node ${installedSourceCliArg}`;
   const version = await run(binPath, ["--version"], { cwd: consumerDir });
   if (version.stdout.trim() !== installedPackageJson.version) {
@@ -636,8 +640,22 @@ try {
   );
   await writeFile(path.join(privatePackageDir, "LICENSE"), "MIT License\n");
   await writeFile(path.join(privatePackageDir, "README.md"), "# Private demo\n");
-  await chmod(path.join(privatePackageDir, "README.md"), 0o755);
-  const privateReleaseStatus = await run(binPath, ["release", "status", "--cwd", privatePackageDir], { cwd: consumerDir });
+  let privateModeEnv;
+  if (process.platform === "win32") {
+    // Windows chmod cannot express this negative archive-mode fixture.
+    const npmCli = await writeFakeNpmDryRun(privatePackageDir, JSON.stringify([{ files: [
+      { path: "package.json", mode: 0o644 },
+      { path: "LICENSE", mode: 0o644 },
+      { path: "README.md", mode: 0o755 }
+    ] }]));
+    privateModeEnv = { npm_execpath: npmCli };
+  } else {
+    await chmod(path.join(privatePackageDir, "README.md"), 0o755);
+  }
+  const privateReleaseStatus = await run(binPath, ["release", "status", "--cwd", privatePackageDir], {
+    cwd: consumerDir,
+    env: privateModeEnv
+  });
   assertIncludes(privateReleaseStatus.stdout, "metadata: blocked", "installed private release status output");
   assertIncludes(privateReleaseStatus.stdout, "private: true", "installed private release status output");
   assertIncludes(privateReleaseStatus.stdout, "pack: blocked packed files have unexpected executable modes", "installed private release status output");
@@ -829,7 +847,7 @@ try {
   );
   const missingBridgeSourceCwdCheck = await runExpectFailure(
     binPath,
-    ["pro", "browser", "check", "--cwd", consumerDir, "--source-cli", installedSourceCli, "--port", "65534", "--timeout-ms", "500"],
+    ["pro", "browser", "check", "--cwd", consumerDir, "--source-cli", installedSourceCli, "--port", unavailablePort, "--timeout-ms", "500"],
     { cwd: path.dirname(consumerDir) }
   );
   assertIncludes(
@@ -1135,7 +1153,7 @@ try {
     cwd: consumerDir
   });
   assertIncludes(invalidBrowserPort.stderr, "--port must be an integer from 1 to 65535", "installed invalid browser port output");
-  const invalidBrowserTimeout = await runExpectFailure(binPath, ["pro", "browser", "check", "--port", "65534", "--timeout-ms", "0"], {
+  const invalidBrowserTimeout = await runExpectFailure(binPath, ["pro", "browser", "check", "--port", unavailablePort, "--timeout-ms", "0"], {
     cwd: consumerDir
   });
   assertIncludes(invalidBrowserTimeout.stderr, "--timeout-ms must be a positive integer", "installed invalid browser timeout output");
@@ -1153,7 +1171,7 @@ try {
   });
   assertIncludes(invalidProAskPort.stderr, "--port must be an integer from 1 to 65535", "installed invalid pro browser ask port output");
   await assertMissingFile(path.join(consumerDir, ".bridge"), "installed consumer bridge after invalid pro browser ask port");
-  const invalidProAskTimeout = await runExpectFailure(binPath, ["pro", "browser", "ask", "--port", "65534", "--timeout-ms", "0", "Review this"], {
+  const invalidProAskTimeout = await runExpectFailure(binPath, ["pro", "browser", "ask", "--port", unavailablePort, "--timeout-ms", "0", "Review this"], {
     cwd: consumerDir
   });
   assertIncludes(invalidProAskTimeout.stderr, "--timeout-ms must be a positive integer", "installed invalid pro browser ask timeout output");
@@ -1190,7 +1208,7 @@ try {
       "--cwd",
       browserAskCwdTarget,
       "--port",
-      "65534",
+      unavailablePort,
       "--timeout-ms",
       "500",
       "--source-cli",
@@ -1250,7 +1268,7 @@ try {
   );
   assertIncludes(confirmWithoutTarget.stderr, "--confirm-target requires --target-url", "installed pro browser ask target confirmation guard");
   await assertMissingFile(path.join(confirmWithoutTargetDir, ".bridge"), "installed confirm-without-target bridge");
-  const browserSmoke = await runExpectFailure(binPath, ["pro", "browser", "smoke", "--port", "65534", "--timeout-ms", "500"], {
+  const browserSmoke = await runExpectFailure(binPath, ["pro", "browser", "smoke", "--port", unavailablePort, "--timeout-ms", "500"], {
     cwd: consumerDir,
     timeout: 60_000
   });
@@ -1266,7 +1284,7 @@ try {
   await mkdir(browserSmokeLauncher, { recursive: true });
   const browserSmokeCwd = await runExpectFailure(
     binPath,
-    ["pro", "browser", "smoke", "--cwd", browserSmokeCwdTarget, "--port", "65534", "--timeout-ms", "500", "--source-cli", installedSourceCli],
+    ["pro", "browser", "smoke", "--cwd", browserSmokeCwdTarget, "--port", unavailablePort, "--timeout-ms", "500", "--source-cli", installedSourceCli],
     {
       cwd: browserSmokeLauncher,
       timeout: 60_000
@@ -1292,7 +1310,7 @@ try {
   await mkdir(browserSmokeNoSourceLauncher, { recursive: true });
   const browserSmokeCwdNoSource = await runExpectFailure(
     binPath,
-    ["pro", "browser", "smoke", "--cwd", browserSmokeCwdNoSourceTarget, "--port", "65534", "--timeout-ms", "500"],
+    ["pro", "browser", "smoke", "--cwd", browserSmokeCwdNoSourceTarget, "--port", unavailablePort, "--timeout-ms", "500"],
     {
       cwd: browserSmokeNoSourceLauncher,
       timeout: 60_000
@@ -1311,7 +1329,7 @@ try {
     "- next_step: Leave the existing browser open",
     "installed pro browser smoke cwd no-source blocker output"
   );
-  const browserCheck = await runExpectFailure(binPath, ["pro", "browser", "check", "--port", "65534", "--timeout-ms", "500"], {
+  const browserCheck = await runExpectFailure(binPath, ["pro", "browser", "check", "--port", unavailablePort, "--timeout-ms", "500"], {
     cwd: consumerDir,
     timeout: 60_000
   });
@@ -1320,7 +1338,7 @@ try {
   assertNotIncludes(browserCheck.stdout, "pro browser login", "installed pro browser check output");
   const sourceBrowserCheck = await runExpectFailure(
     binPath,
-    ["pro", "browser", "check", "--port", "65534", "--timeout-ms", "500", "--source-cli", installedSourceCli],
+    ["pro", "browser", "check", "--port", unavailablePort, "--timeout-ms", "500", "--source-cli", installedSourceCli],
     {
       cwd: consumerDir,
       timeout: 60_000
@@ -1337,7 +1355,7 @@ try {
   await writeFile(path.join(corruptSourceCheckDir, ".bridge", "config.local.json"), "{not json", "utf8");
   const corruptSourceBrowserCheck = await runExpectFailure(
     binPath,
-    ["pro", "browser", "check", "--port", "65534", "--timeout-ms", "500", "--source-cli", installedSourceCli],
+    ["pro", "browser", "check", "--port", unavailablePort, "--timeout-ms", "500", "--source-cli", installedSourceCli],
     {
       cwd: corruptSourceCheckDir,
       timeout: 60_000
@@ -1361,7 +1379,7 @@ try {
   );
   const cwdBrowserCheck = await runExpectFailure(
     binPath,
-    ["pro", "browser", "check", "--cwd", productCheckTargetDir, "--port", "65534", "--timeout-ms", "500"],
+    ["pro", "browser", "check", "--cwd", productCheckTargetDir, "--port", unavailablePort, "--timeout-ms", "500"],
     {
       cwd: productCheckLauncherDir,
       timeout: 60_000
@@ -1382,7 +1400,7 @@ try {
     ["status", "check"],
     ["doctor", "check"]
   ]) {
-    const staleAlias = await runExpectFailure(binPath, ["pro", "browser", alias, "--port", "65534", "--timeout-ms", "1"], {
+    const staleAlias = await runExpectFailure(binPath, ["pro", "browser", alias, "--port", unavailablePort, "--timeout-ms", "1"], {
       cwd: consumerDir
     });
     assertIncludes(staleAlias.stderr, `Use \`prodex pro browser ${replacement}\``, `installed pro browser ${alias} alias guard`);
@@ -1520,6 +1538,7 @@ async function packPackage(destination) {
 function assertPackageFileScope(files) {
   const paths = files.map((file) => file.path);
   const allowedExact = new Set([
+    "prodex.mjs",
     "LICENSE",
     "README.md",
     "SECURITY.md",
@@ -1543,6 +1562,10 @@ function assertPackageFileScope(files) {
   if (unexpected.length > 0) {
     throw new Error(`packed files unexpectedly included non-public paths: ${unexpected.slice(0, 10).join(", ")}`);
   }
+  const bin = files.find((file) => file.path === "prodex.mjs");
+  if (typeof bin?.mode !== "number" || (bin.mode & 0o111) === 0) {
+    throw new Error("packed prodex.mjs bin must be executable");
+  }
 }
 
 async function assertInstalledReleasePackTarballModes(tarballPath, packedFiles, label) {
@@ -1555,6 +1578,11 @@ async function assertInstalledReleasePackTarballModes(tarballPath, packedFiles, 
   });
   const installedRoot = path.join(consumer, "node_modules", "@youdie006", "prodex");
   const installedPackageJson = JSON.parse(await readFile(path.join(installedRoot, "package.json"), "utf8"));
+  if (process.platform === "win32") {
+    const launched = await execNpm(["exec", "--offline", "--no", "--", "prodex", "--version"], { cwd: consumer, timeout: 30_000 });
+    if (launched.stdout.trim() !== installedPackageJson.version) throw new Error(`${label} Windows installed bin did not execute`);
+    return;
+  }
   const binPaths = packageBinPaths(installedPackageJson);
   for (const file of packedFiles) {
     const packagePath = normalizePackagePath(file.path);
@@ -1954,7 +1982,7 @@ async function smokeInstalledProBlockedConsult(binPath, cwd) {
   assertIncludes(latest.stdout, "- code: browser_control_unavailable", "installed pro latest blocked output");
   assertIncludes(latest.stdout, "- retryable: false", "installed pro latest blocked output");
   assertNotIncludes(latest.stdout, "pro browser login", "installed pro latest blocked output");
-  const check = await runExpectFailure(binPath, ["pro", "browser", "check", "--port", "65534", "--timeout-ms", "500"], { cwd, timeout: 60_000 });
+  const check = await runExpectFailure(binPath, ["pro", "browser", "check", "--port", unavailablePort, "--timeout-ms", "500"], { cwd, timeout: 60_000 });
   assertIncludes(check.stdout, `latest_pro: blocked ${taskId}`, "installed pro browser check blocked output");
   assertNotIncludes(check.stdout, `latest_pro: ok ${taskId} blocked`, "installed pro browser check blocked output");
   return taskId;
@@ -2759,7 +2787,7 @@ async function smokeInstalledHttpOnboarding(binPath, cwd) {
   assertNotIncludes(nonExpiringStatus.stdout, '"token_status": "none"', "installed non-expiring status output");
   const nonExpiringProductCheck = await runExpectFailure(
     binPath,
-    ["pro", "browser", "check", "--cwd", nonExpiringCwd, "--port", "65534", "--timeout-ms", "500"],
+    ["pro", "browser", "check", "--cwd", nonExpiringCwd, "--port", unavailablePort, "--timeout-ms", "500"],
     { cwd: launcherCwd }
   );
   const nonExpiringProductCheckOutput = `${nonExpiringProductCheck.stdout}\n${nonExpiringProductCheck.stderr}`;

@@ -89,15 +89,18 @@ jobs:
         run: npm ci
 
       - name: Build
+        id: build
         run: npm run build
 
       - name: Run release metadata check
         run: npm run release:check -- --metadata-only
 
       - name: Verify a fresh headless browser without an account
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: npm run smoke:browser
 
       - name: Run release verification
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: npm run release:verify
 
       - name: Preserve native test results

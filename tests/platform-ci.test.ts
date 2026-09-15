@@ -47,6 +47,8 @@ describe("platform CI", () => {
     expect(workflow).toContain("if: runner.os == 'Windows'");
     expect(workflow).toContain("choco install ripgrep -y --no-progress");
     expect(workflow).toContain("run: npm run build");
+    expect(workflow).toContain("id: build");
+    expect(workflow.match(/if: \$\{\{ !cancelled\(\) && steps\.build\.outcome == 'success' \}\}/g)).toHaveLength(2);
     expect(workflow).toContain("run: npm run release:check -- --metadata-only");
     expect(workflow).toContain("run: npm run smoke:browser");
     expect(workflow).toContain("path: test-results/vitest.json");

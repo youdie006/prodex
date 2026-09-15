@@ -7,6 +7,7 @@ import net, { type AddressInfo } from "node:net";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { shellQuote } from "../src/cli-args.js";
@@ -1132,7 +1133,7 @@ describe("runCli", () => {
     const client = new Client({ name: "prodex-cli-test", version: "0.2.0" });
     const transport = new StdioClientTransport({
       command: process.execPath,
-      args: ["--import", tsxLoader, cliPath, "mcp", "--cwd", targetCwd],
+      args: ["--import", pathToFileURL(tsxLoader).href, cliPath, "mcp", "--cwd", targetCwd],
       cwd: launcherCwd,
       stderr: "pipe",
       // The SDK hands a child only a short allowlist of variables (PATH, HOME,
@@ -3418,7 +3419,7 @@ describe("runCli", () => {
     // so the next occurrence has to explain itself.
     const errors: string[] = [];
     const code = await runCli(["release", "pack", "--cwd", cwd, "--pack-destination", destination], {
-      cwd: "/tmp",
+      cwd: tmpdir(),
       stdout: (line) => out.push(line),
       stderr: (line) => errors.push(line)
     });
@@ -3446,7 +3447,7 @@ describe("runCli", () => {
 
     const errors: string[] = [];
     await runCli(["release", "pack", "--cwd", cwd, "--pack-destination", destination, "--source-cli", sourceCli], {
-      cwd: "/tmp",
+      cwd: tmpdir(),
       stdout: (line) => out.push(line),
       stderr: (line) => errors.push(line)
     });
@@ -3470,14 +3471,14 @@ describe("runCli", () => {
 
     await expect(
       runCli(["release", "pack", "--cwd", cwd, "--pack-destination", destination], {
-        cwd: "/tmp",
+        cwd: tmpdir(),
         stdout: () => {},
         stderr: () => {}
       })
     ).rejects.toThrow("release pack failed: release metadata failed: package.json not found");
     await expect(
       runCli(["release", "pack", "--cwd", cwd, "--pack-destination", destination], {
-        cwd: "/tmp",
+        cwd: tmpdir(),
         stdout: () => {},
         stderr: () => {}
       })
@@ -3517,14 +3518,20 @@ describe("runCli", () => {
       "utf8"
     );
     await writeFile(path.join(cwd, "README.md"), "# Demo\n", "utf8");
-    await chmod(path.join(cwd, "README.md"), 0o755);
     const out: string[] = [];
 
-    await runCli(["release", "status", "--cwd", cwd], {
-      cwd: "/tmp",
-      stdout: (line) => out.push(line),
-      stderr: () => {}
-    });
+    await withMockedNpmPackFiles(
+      [
+        { path: "package.json", mode: 0o644 },
+        { path: "README.md", mode: 0o755 }
+      ],
+      () =>
+        runCli(["release", "status", "--cwd", cwd], {
+          cwd: tmpdir(),
+          stdout: (line) => out.push(line),
+          stderr: () => {}
+        })
+    );
 
     const text = out.join("\n");
     expect(text).toContain("metadata: blocked package.json must include an explicit license");
@@ -3563,14 +3570,21 @@ describe("runCli", () => {
     );
     await writeFile(path.join(cwd, "LICENSE"), "MIT License\n", "utf8");
     await writeFile(path.join(cwd, "README.md"), "# Demo\n", "utf8");
-    await chmod(path.join(cwd, "README.md"), 0o755);
     const out: string[] = [];
 
-    await runCli(["release", "status", "--cwd", cwd], {
-      cwd: "/tmp",
-      stdout: (line) => out.push(line),
-      stderr: () => {}
-    });
+    await withMockedNpmPackFiles(
+      [
+        { path: "package.json", mode: 0o644 },
+        { path: "LICENSE", mode: 0o644 },
+        { path: "README.md", mode: 0o755 }
+      ],
+      () =>
+        runCli(["release", "status", "--cwd", cwd], {
+          cwd: tmpdir(),
+          stdout: (line) => out.push(line),
+          stderr: () => {}
+        })
+    );
 
     const text = out.join("\n");
     expect(text).toContain("metadata: blocked package.json private: true prevents npm publish");
@@ -3852,14 +3866,21 @@ describe("runCli", () => {
     );
     await writeFile(path.join(cwd, "LICENSE"), "MIT License\n", "utf8");
     await writeFile(path.join(cwd, "README.md"), "# Demo\n", "utf8");
-    await chmod(path.join(cwd, "README.md"), 0o755);
     const out: string[] = [];
 
-    const code = await runCli(["release", "status", "--cwd", cwd], {
-      cwd: "/tmp",
-      stdout: (line) => out.push(line),
-      stderr: () => {}
-    });
+    const code = await withMockedNpmPackFiles(
+      [
+        { path: "package.json", mode: 0o644 },
+        { path: "LICENSE", mode: 0o644 },
+        { path: "README.md", mode: 0o755 }
+      ],
+      () =>
+        runCli(["release", "status", "--cwd", cwd], {
+          cwd: tmpdir(),
+          stdout: (line) => out.push(line),
+          stderr: () => {}
+        })
+    );
 
     const text = out.join("\n");
     expect(code).toBe(0);
@@ -3884,14 +3905,21 @@ describe("runCli", () => {
     await writeFile(path.join(cwd, "README.md"), "# Demo\n", "utf8");
     await mkdir(path.dirname(sourceCli), { recursive: true });
     await writeFile(sourceCli, "#!/usr/bin/env node\n", "utf8");
-    await chmod(path.join(cwd, "README.md"), 0o755);
     const out: string[] = [];
 
-    await runCli(["release", "status", "--cwd", cwd, "--source-cli", sourceCli], {
-      cwd: "/tmp",
-      stdout: (line) => out.push(line),
-      stderr: () => {}
-    });
+    await withMockedNpmPackFiles(
+      [
+        { path: "package.json", mode: 0o644 },
+        { path: "LICENSE", mode: 0o644 },
+        { path: "README.md", mode: 0o755 }
+      ],
+      () =>
+        runCli(["release", "status", "--cwd", cwd, "--source-cli", sourceCli], {
+          cwd: tmpdir(),
+          stdout: (line) => out.push(line),
+          stderr: () => {}
+        })
+    );
 
     const text = out.join("\n");
     expect(text).toContain(
@@ -3913,14 +3941,21 @@ describe("runCli", () => {
     await writeFile(path.join(cwd, "README.md"), "# Demo\n", "utf8");
     await mkdir(path.dirname(sourceCli), { recursive: true });
     await writeFile(sourceCli, "#!/usr/bin/env node\n", "utf8");
-    await chmod(path.join(cwd, "README.md"), 0o755);
     const out: string[] = [];
 
-    await runCli(["release", "status", "--cwd", cwd, "--source-cli", sourceCli], {
-      cwd: launcherCwd,
-      stdout: (line) => out.push(line),
-      stderr: () => {}
-    });
+    await withMockedNpmPackFiles(
+      [
+        { path: "package.json", mode: 0o644 },
+        { path: "LICENSE", mode: 0o644 },
+        { path: "README.md", mode: 0o755 }
+      ],
+      () =>
+        runCli(["release", "status", "--cwd", cwd, "--source-cli", sourceCli], {
+          cwd: launcherCwd,
+          stdout: (line) => out.push(line),
+          stderr: () => {}
+        })
+    );
 
     const text = out.join("\n");
     expect(text).toContain(
@@ -4729,9 +4764,10 @@ describe("runCli", () => {
     const out: string[] = [];
     const previousChrome = process.env.PRODEX_CHROME;
     process.env.PRODEX_CHROME = tmpdir();
+    mockRefusedBrowserConnection();
     try {
       await expect(
-        runCli(["pro", "browser", "login", "--port", "9"], {
+        runCli(["pro", "browser", "login", "--profile-dir", path.join(cwd, "profile"), "--port", "9"], {
           cwd,
           stdout: (line) => out.push(line),
           stderr: () => {}
@@ -4907,9 +4943,8 @@ describe("runCli", () => {
 
   it("allows browser login handoff when DevTools becomes reachable shortly after Chrome exits", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
-    const fakeChrome = path.join(cwd, "fake-chrome");
+    const profileDir = path.join(cwd, "profile");
     const out: string[] = [];
-    const previousChrome = process.env.PRODEX_CHROME;
     let devtoolsRequests = 0;
     const server = createServer((request, response) => {
       response.setHeader("content-type", "application/json");
@@ -4920,26 +4955,24 @@ describe("runCli", () => {
       }
       response.end(request.url === "/json/list" ? "[]" : "{}");
     });
-    await writeFile(
-      fakeChrome,
-      [
-        "#!/bin/sh",
-        'if [ "$1" = "--version" ]; then',
-        '  echo "Google Chrome 123.0.0.0"',
-        "  exit 0",
-        "fi",
-        "exit 0",
-        ""
-      ].join("\n"),
-      "utf8"
-    );
-    await chmod(fakeChrome, 0o755);
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     const port = (server.address() as AddressInfo).port;
-    process.env.PRODEX_CHROME = fakeChrome;
+    const openChatGptBrowserMock = vi.fn(() => ({
+      command: "stub-chrome",
+      args: [],
+      port,
+      profileDir,
+      waitForEarlyExit: async () => ({ code: 0, signal: null })
+    }));
+    vi.resetModules();
+    vi.doMock("../src/chatgpt-browser.js", async () => {
+      const actual = await vi.importActual<typeof import("../src/chatgpt-browser.js")>("../src/chatgpt-browser.js");
+      return { ...actual, openChatGptBrowser: openChatGptBrowserMock };
+    });
     try {
+      const { runCli: runCliWithStubbedBrowser } = await import("../src/cli.js");
       await expect(
-        runCli(["pro", "browser", "login", "--profile-dir", path.join(cwd, "profile"), "--port", String(port)], {
+        runCliWithStubbedBrowser(["pro", "browser", "login", "--profile-dir", profileDir, "--port", String(port)], {
           cwd,
           stdout: (line) => out.push(line),
           stderr: () => {}
@@ -4947,10 +4980,11 @@ describe("runCli", () => {
       ).resolves.toBe(0);
     } finally {
       await new Promise<void>((resolve) => server.close(() => resolve()));
-      if (previousChrome === undefined) delete process.env.PRODEX_CHROME;
-      else process.env.PRODEX_CHROME = previousChrome;
+      vi.doUnmock("../src/chatgpt-browser.js");
+      vi.resetModules();
     }
 
+    expect(openChatGptBrowserMock).toHaveBeenCalledOnce();
     expect(out.join("\n")).toContain("ChatGPT Pro browser login");
     expect(out.join("\n")).toContain("Opened the dedicated Chrome window");
     expect(out.join("\n")).toContain("Closing this Chrome window does not switch it to headless mode.");
@@ -6443,6 +6477,22 @@ async function createReleasePackCliFixture(): Promise<string> {
   await copyFile(path.join(repoRoot, "scripts", "npm-command.mjs"), path.join(cwd, "scripts", "npm-command.mjs"));
   await copyFile(path.join(repoRoot, "scripts", "release-check.mjs"), path.join(cwd, "scripts", "release-check.mjs"));
   return cwd;
+}
+
+async function withMockedNpmPackFiles<T>(files: Array<{ path: string; mode: number }>, action: () => Promise<T>): Promise<T> {
+  const fakeBin = await mkdtemp(path.join(tmpdir(), "prodex-cli-release-fake-bin-"));
+  const npmCli = path.join(fakeBin, npmCommand);
+  const output = `${JSON.stringify([{ files }])}\n`;
+  await writeFile(npmCli, `process.stdout.write(${JSON.stringify(output)});\n`, "utf8");
+  const previousNpmExecPath = process.env.npm_execpath;
+  process.env.npm_execpath = npmCli;
+  try {
+    return await action();
+  } finally {
+    if (previousNpmExecPath === undefined) delete process.env.npm_execpath;
+    else process.env.npm_execpath = previousNpmExecPath;
+    await rm(fakeBin, { recursive: true, force: true });
+  }
 }
 
 async function writeExpiredLocalConfig(cwd: string): Promise<void> {

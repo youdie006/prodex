@@ -269,8 +269,19 @@ describe("release-check", () => {
       },
       executableReadme: true
     });
+    const fakeCommands = process.platform === "win32"
+      ? await createFakeReleaseCommands(root, {
+          packStdout: JSON.stringify([{ files: [
+            { path: "package.json", mode: 420 },
+            { path: "LICENSE", mode: 420 },
+            { path: "README.md", mode: 493 }
+          ] }])
+        })
+      : undefined;
 
-    const result = await runReleaseCheck(root);
+    const result = await runReleaseCheck(root, fakeCommands
+      ? { pathPrefix: fakeCommands.binDir, logPath: fakeCommands.logPath }
+      : {});
 
     const output = `${result.stdout}\n${result.stderr}`;
     expect(result.code).toBe(1);
@@ -337,6 +348,38 @@ describe("release-check", () => {
 
     expect(result.code).toBe(0);
     expect(result.stdout).toContain("release_metadata=ok");
+  });
+
+  it("rejects nested package bins when packed metadata marks them non-executable", async () => {
+    const root = await createPackModeFixture({
+      packageJson: {
+        name: "demo-pack-nested-bin-mode",
+        version: "1.0.0",
+        license: "MIT",
+        bin: { demo: "dist/cli.js" },
+        files: ["dist/cli.js", "README.md"]
+      },
+      executableBin: true
+    });
+    const fakeCommands = await createFakeReleaseCommands(root, {
+      packStdout: JSON.stringify([{ files: [
+        { path: "package.json", mode: 420 },
+        { path: "LICENSE", mode: 420 },
+        { path: "README.md", mode: 420 },
+        { path: "dist/cli.js", mode: 420 }
+      ] }])
+    });
+
+    const result = await runReleaseCheck(root, {
+      pathPrefix: fakeCommands.binDir,
+      logPath: fakeCommands.logPath
+    });
+
+    const output = `${result.stdout}\n${result.stderr}`;
+    expect(result.code).toBe(1);
+    expect(output).toContain("package bin entries must be executable");
+    expect(output).toContain("dist/cli.js");
+    expect(result.stdout).not.toContain("release_metadata=ok");
   });
 
   it("fails release metadata when LICENSE is not a regular file", async () => {
@@ -589,8 +632,12 @@ async function createPackModeFixture(options: {
   await writeFile(path.join(root, "README.md"), "# Demo\n", "utf8");
   await chmod(path.join(root, "README.md"), options.executableReadme ? 0o755 : 0o644);
   if (options.packageJson.bin) {
-    await writeFile(path.join(root, "cli.js"), "#!/usr/bin/env node\nconsole.log('demo')\n", "utf8");
-    await chmod(path.join(root, "cli.js"), options.executableBin ? 0o755 : 0o644);
+    for (const packagePath of packageBinPaths(options.packageJson as { bin?: string | Record<string, string> })) {
+      const filePath = path.join(root, packagePath);
+      await mkdir(path.dirname(filePath), { recursive: true });
+      await writeFile(filePath, "#!/usr/bin/env node\nconsole.log('demo')\n", "utf8");
+      await chmod(filePath, options.executableBin ? 0o755 : 0o644);
+    }
   }
   return root;
 }
@@ -606,6 +653,12 @@ async function createFakeReleaseCommands(
   const binDir = path.join(root, "fake-bin");
   const logPath = path.join(root, "release-check-commands.log");
   const npmCliPath = path.join(binDir, "npm-cli.mjs");
+  const packageJson = JSON.parse(await readFile(path.join(root, "package.json"), "utf8")) as { bin?: string | Record<string, string> };
+  const defaultPackStdout = JSON.stringify([{ files: [
+    { path: "package.json", mode: 420 },
+    { path: "LICENSE", mode: 420 },
+    ...packageBinPaths(packageJson).map((packagePath) => ({ path: packagePath, mode: 493 }))
+  ] }]);
   await mkdir(binDir, { recursive: true });
   await mkdir(path.join(root, "dist"), { recursive: true });
   await writeFile(
@@ -619,7 +672,7 @@ async function createFakeReleaseCommands(
     "utf8"
   );
   await chmod(path.join(root, "dist", "cli.js"), 0o755);
-  await writeFakeCommand(npmCliPath, "npm", logPath, options.failCommand, options.packStdout, options.silentFail);
+  await writeFakeCommand(npmCliPath, "npm", logPath, options.failCommand, options.packStdout ?? defaultPackStdout, options.silentFail);
   return { binDir, logPath };
 }
 

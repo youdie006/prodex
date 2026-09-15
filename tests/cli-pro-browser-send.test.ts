@@ -818,30 +818,55 @@ describe("pro browser ask persistence", () => {
     const lockFile = path.join(cwd, "send.lock");
     const priorLock = process.env.PRODEX_SEND_LOCK_FILE;
     process.env.PRODEX_SEND_LOCK_FILE = lockFile;
+    let signalFirstStarted!: () => void;
+    const firstStarted = new Promise<void>((resolve) => {
+      signalFirstStarted = resolve;
+    });
+    let releaseFirst!: () => void;
+    const firstCanFinish = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    let first: Promise<number> | undefined;
+    let queued: Promise<number> | undefined;
     try {
       const order: string[] = [];
       sendChatGptPromptMock.mockImplementation(async ({ prompt }: { prompt: string }) => {
-        order.push(`start:${prompt.includes("first") ? "first" : "second"}`);
-        await new Promise((resolve) => setTimeout(resolve, 800));
-        order.push(`end:${prompt.includes("first") ? "first" : "second"}`);
+        const which = prompt.includes("first") ? "first" : "second";
+        order.push(`start:${which}`);
+        if (which === "first") {
+          signalFirstStarted();
+          await firstCanFinish;
+        }
+        order.push(`end:${which}`);
         return { url: "https://chatgpt.com/c/x", title: "ChatGPT", answer: "ok", modelHints: [], warnings: [] };
       });
       const second: string[] = [];
-      await Promise.all([
-        runCli(["pro", "browser", "ask", "--model", "Pro", "first prompt"], { cwd, stdout: () => {}, stderr: () => {} }),
-        (async () => {
-          await new Promise((resolve) => setTimeout(resolve, 150));
-          await runCli(["pro", "browser", "ask", "--model", "Pro", "--busy-wait-ms", "10000", "second prompt"], {
-            cwd,
-            stdout: () => {},
-            stderr: (line) => second.push(line)
-          });
-        })()
-      ]);
+      first = runCli(["pro", "browser", "ask", "--model", "Pro", "first prompt"], {
+        cwd,
+        stdout: () => {},
+        stderr: () => {}
+      });
+      void first.catch(() => undefined);
+      await withTimeout(firstStarted, 20_000, "Timed out waiting for the first browser send to start");
+
+      queued = runCli(["pro", "browser", "ask", "--model", "Pro", "--busy-wait-ms", "30000", "second prompt"], {
+        cwd,
+        stdout: () => {},
+        stderr: (line) => second.push(line)
+      });
+      void queued.catch(() => undefined);
+      const queuedBy = Date.now() + 10_000;
+      while (!second.some((line) => /another prodex send holds the browser/.test(line)) && Date.now() < queuedBy) {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      expect(second.join("\n")).toMatch(/another prodex send holds the browser/);
+      releaseFirst();
+      await Promise.all([first, queued]);
       // The second send must not start until the first finished.
       expect(order).toEqual(["start:first", "end:first", "start:second", "end:second"]);
-      expect(second.join("\n")).toMatch(/another prodex send holds the browser/);
     } finally {
+      releaseFirst();
+      await Promise.allSettled([first, queued].filter((send): send is Promise<number> => send !== undefined));
       // Restore the per-worker isolated lock path (setup-registry-isolation),
       // never delete it - a bare delete leaks later tests onto the real
       // ~/.local/share/prodex machine lock.
@@ -2762,16 +2787,17 @@ describe("pro browser ask model/project selection", () => {
   it("records the login launch so recovery can reuse the profile", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-send-"));
     const lastLoginFile = path.join(cwd, "last-login.json");
+    const profileDir = path.resolve("/custom/other-profile");
     process.env.PRODEX_LAST_LOGIN_FILE = lastLoginFile;
     try {
       openChatGptBrowserMock.mockReturnValueOnce({
         port: 9444,
-        profileDir: "/custom/other-profile",
+        profileDir,
         waitForEarlyExit: async () => undefined
       });
       getChatGptBrowserStatusMock.mockResolvedValue({ reachable: true, loggedInLikely: true, hasComposer: true, modelHints: [] });
 
-      await runCli(["pro", "browser", "login", "--no-wait", "--profile-dir", "/custom/other-profile", "--port", "9444"], {
+      await runCli(["pro", "browser", "login", "--no-wait", "--profile-dir", profileDir, "--port", "9444"], {
         cwd,
         stdout: () => {},
         stderr: () => {}
@@ -2779,7 +2805,7 @@ describe("pro browser ask model/project selection", () => {
 
       const { readFile } = await import("node:fs/promises");
       const recorded = JSON.parse(await readFile(lastLoginFile, "utf8")) as { profile_dir: string; port: number };
-      expect(recorded.profile_dir).toBe("/custom/other-profile");
+      expect(recorded.profile_dir).toBe(profileDir);
       expect(recorded.port).toBe(9444);
     } finally {
       delete process.env.PRODEX_LAST_LOGIN_FILE;
@@ -3363,6 +3389,20 @@ describe("pro browser ask model/project selection", () => {
     );
   });
 });
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(message)), timeoutMs);
+      })
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

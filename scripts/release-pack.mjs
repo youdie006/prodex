@@ -344,7 +344,12 @@ function errorMessage(error) {
 }
 
 function shellQuote(value) {
-  return /^[A-Za-z0-9_./:@=-]+$/.test(value) ? value : `'${value.replaceAll("'", "'\\''")}'`;
+  const shellSafe = /^[A-Za-z0-9_./:@=-]+$/.test(value);
+  if (shellSafe && (process.platform !== "win32" || !value.startsWith("@"))) return value;
+  const escaped = process.platform === "win32"
+    ? value.replaceAll("'", "''")
+    : value.replaceAll("'", "'\\''");
+  return `'${escaped}'`;
 }
 
 async function readReleaseGitStatus(root) {
