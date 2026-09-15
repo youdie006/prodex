@@ -21,7 +21,7 @@ vi.mock("../src/chatgpt-browser.js", async (importOriginal) => {
 });
 
 const { runCli } = await import("../src/cli.js");
-const { waitForChatGptLoginReady } = await import("../src/cli-pro.js");
+const { browserReadinessNextStep, waitForChatGptLoginReady } = await import("../src/cli-pro.js");
 
 function status(overrides: Partial<{ reachable: boolean; loggedInLikely: boolean; hasComposer: boolean }> = {}) {
   return {
@@ -52,7 +52,7 @@ describe("waitForChatGptLoginReady", () => {
 
     expect(ready).toBe(true);
     expect(lines.filter((line) => line.includes("browser starting"))).toHaveLength(1);
-    expect(lines.filter((line) => line.includes("waiting for ChatGPT login"))).toHaveLength(1);
+    expect(lines.filter((line) => line.includes("readiness is not yet confirmed"))).toHaveLength(1);
     expect(lines.filter((line) => line.includes("open a chat so the prompt composer"))).toHaveLength(1);
     expect(lines[lines.length - 1]).toMatch(/^login: READY - logged-in ChatGPT tab with composer detected \(\d+s\)\.$/);
   });
@@ -77,6 +77,99 @@ describe("waitForChatGptLoginReady", () => {
 
     expect(ready).toBe(true);
     expect(lines).toContain("login: blocked - ChatGPT is behind a Cloudflare check.");
+  });
+
+  it.each([
+    ["login_required", "ChatGPT requires login.", "Log in in the visible browser."],
+    ["cloudflare_check", "ChatGPT is behind a Cloudflare check.", "Complete the Cloudflare check manually."],
+    ["captcha_required", "ChatGPT requires a captcha.", "Complete the captcha manually."],
+    ["permission_required", "Chrome requires account confirmation.", "Confirm the account permission manually."]
+  ])("stops a hidden wait promptly for %s", async (code, message, nextStep) => {
+    const lines: string[] = [];
+    const statusFn = vi.fn(async () => ({
+      ...status({ reachable: true }),
+      blocker: { code, message, retryable: true, next_step: nextStep }
+    }));
+    const sleepFn = vi.fn(async () => {});
+    const openTabFn = vi.fn(async () => true);
+    let fakeNow = 0;
+
+    const ready = await waitForChatGptLoginReady((line) => lines.push(line), {
+      port: 9333,
+      timeoutMs: 60_000,
+      pollMs: 1,
+      windowMode: code === "permission_required"
+        ? { headless: false, virtualDisplay: true, minimized: false }
+        : { headless: true, virtualDisplay: false, minimized: false },
+      headedLoginCommand: "node /tmp/prodex/dist/cli.js pro browser login --headed"
+    }, { statusFn, sleepFn, openTabFn, now: () => (fakeNow += 20_000) });
+
+    expect(ready).toBe(false);
+    expect(statusFn).toHaveBeenCalledTimes(1);
+    expect(sleepFn).not.toHaveBeenCalled();
+    expect(openTabFn).not.toHaveBeenCalled();
+    expect(lines).toContain(`login: blocked - ${message} Next: ${nextStep}`);
+    expect(lines[lines.length - 1]).toContain("No interactive window is available");
+    expect(lines[lines.length - 1]).toContain("node /tmp/prodex/dist/cli.js pro browser login --headed");
+    expect(lines[lines.length - 1]).toContain("visibly");
+  });
+
+  it("keeps a headed wait open for manual login", async () => {
+    const lines: string[] = [];
+    const blocked = {
+      ...status({ reachable: true }),
+      blocker: {
+        code: "login_required",
+        message: "ChatGPT requires login.",
+        retryable: true,
+        next_step: "Log in in the visible browser."
+      }
+    };
+    const statuses = [blocked, status({ reachable: true, loggedInLikely: true, hasComposer: true })];
+    let call = 0;
+
+    const ready = await waitForChatGptLoginReady((line) => lines.push(line), {
+      port: 9333,
+      timeoutMs: 60_000,
+      pollMs: 1,
+      windowMode: { headless: false, virtualDisplay: false, minimized: false }
+    }, {
+      statusFn: async () => statuses[Math.min(call++, statuses.length - 1)],
+      sleepFn: async () => {}
+    });
+
+    expect(ready).toBe(true);
+    expect(call).toBe(2);
+    expect(lines).toContain("login: blocked - ChatGPT requires login. Next: Log in in the visible browser.");
+  });
+
+  it.each([
+    ["response_in_progress", "ChatGPT is still responding.", "Wait for the current response to finish."],
+    ["usage_limit", "The current model reached its usage limit.", "Wait for the reset or choose an available model."]
+  ])("uses the actual %s next step in a hidden wait", async (code, message, nextStep) => {
+    const lines: string[] = [];
+    let fakeNow = 0;
+
+    const ready = await waitForChatGptLoginReady((line) => lines.push(line), {
+      port: 9333,
+      timeoutMs: 10,
+      pollMs: 1,
+      windowMode: { headless: true, virtualDisplay: false, minimized: false }
+    }, {
+      statusFn: async () => ({
+        ...status({ reachable: true, loggedInLikely: true }),
+        blocker: { code, message, retryable: true, next_step: nextStep }
+      }),
+      sleepFn: async () => {},
+      now: () => (fakeNow += 5)
+    });
+
+    expect(ready).toBe(false);
+    expect(lines).toContain(`login: blocked - ${message} Next: ${nextStep}`);
+    expect(lines[lines.length - 1]).toContain(`${code}: ${message}`);
+    expect(lines[lines.length - 1]).toContain(`Next: ${nextStep}`);
+    expect(lines.filter((line) => line.startsWith("login: blocked") || line.includes("not ready after")).join("\n"))
+      .not.toMatch(/complete login|captcha|human verification/i);
   });
 
   it("opens the ChatGPT tab itself when the running Chrome has none", async () => {
@@ -175,7 +268,35 @@ describe("waitForChatGptLoginReady", () => {
 
     expect(ready).toBe(false);
     expect(lines[lines.length - 1]).toContain("not ready after 10s");
+    expect(lines[lines.length - 1]).toContain("readiness was not yet confirmed");
+    expect(lines[lines.length - 1]).not.toMatch(/finish login|log in manually|logged out/i);
     expect(lines[lines.length - 1]).toContain("prodex pro browser check");
+  });
+
+  it.each([
+    [status(), "browser startup was not confirmed"],
+    [status({ reachable: true, loggedInLikely: true }), "prompt composer was not detected"]
+  ])("distinguishes the last timeout state", async (browserStatus, expected) => {
+    const lines: string[] = [];
+    let fakeNow = 0;
+
+    const ready = await waitForChatGptLoginReady((line) => lines.push(line), { port: 9333, timeoutMs: 10, pollMs: 1 }, {
+      statusFn: async () => browserStatus,
+      sleepFn: async () => {},
+      now: () => (fakeNow += 5)
+    });
+
+    expect(ready).toBe(false);
+    expect(lines[lines.length - 1]).toContain(expected);
+  });
+});
+
+describe("browserReadinessNextStep", () => {
+  it("does not turn an unknown readiness result into a login claim", () => {
+    const nextStep = browserReadinessNextStep({ loggedInLikely: false, hasComposer: false });
+
+    expect(nextStep).toContain("not yet confirmed");
+    expect(nextStep).not.toMatch(/log in manually|logged out|re-login/i);
   });
 });
 

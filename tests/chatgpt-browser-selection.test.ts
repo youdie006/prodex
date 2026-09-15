@@ -22,6 +22,11 @@ describe("formatDurationMs", () => {
 });
 
 describe("acceptanceTimeoutError", () => {
+  it("never recommends resending a request whose acceptance is unknown", () => {
+    const e = acceptanceTimeoutError({ timeoutMs: 90_000, composerStillHasText: false, submitButtonFound: true });
+    expect(e.message).toMatch(/do not.*resend/i);
+    expect(e.message).not.toContain("Raise --timeout-ms and retry");
+  });
   it("keeps the raw ms alongside the human-readable span so it stays parseable", () => {
     const e = acceptanceTimeoutError({ timeoutMs: 1_200_000, composerStillHasText: false, submitButtonFound: true });
     expect(e.message).toContain("20 min");
@@ -41,9 +46,9 @@ describe("acceptanceTimeoutError", () => {
     expect(e.message).toMatch(/send button/i);
   });
 
-  it("falls back to a slowness/timeout message when the prompt was submitted cleanly", () => {
+  it("reports unconfirmed acceptance when the composer cleared without a matching user turn", () => {
     const e = acceptanceTimeoutError({ timeoutMs: 90_000, composerStillHasText: false, submitButtonFound: true });
-    expect(e.message).toMatch(/Raise --timeout-ms/);
+    expect(e.message).toMatch(/submission.*unconfirmed/i);
     expect(e.message).not.toMatch(/UI may have changed/);
   });
 });

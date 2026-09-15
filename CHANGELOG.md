@@ -4,6 +4,17 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.40.14
+
+### Fixed
+- Missing logged-in UI signals no longer claim a lost session or instruct another login. Readiness waits distinguish browser startup, an unconfirmed session, a missing composer, and the actual reported blocker. Headless and virtual-display waits stop promptly when a visible manual authentication or protection step is required.
+- Detect a title-only `Just a moment...` verification page when the composer is confirmed absent. A normal conversation title or an unchecked composer does not trigger this fallback.
+- A guarded background handoff identifies Chrome's account-connection chooser separately from ChatGPT login only after a read-only check confirms its visible rendered surface. Hidden, unreadable, and extra targets still block closing the browser without guessing which choice the user must make.
+- An unconfirmed prompt submission is non-retryable and retains the request marker instead of suggesting a larger timeout and another send, including a lost acknowledgement immediately after pressing Enter. Login or protection blockers after submission also stop resends; when acceptance already identified the conversation, the error preserves its thread and exact recovery command.
+
+### Verification Limits
+- These corrections do not bypass authentication or protective checks. Live WSL headless Chrome reached a Cloudflare page; the deployment host's visible Chrome account chooser required the user's choice. A successful unattended Pro response remains unverified on those blocked targets.
+
 ## 0.40.13
 
 ### Added

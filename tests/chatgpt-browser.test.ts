@@ -1486,6 +1486,20 @@ Show more`;
     expect(inferLoggedInLikely("Welcome back\nLog in\nSign up for free", ["Log in"])).toBe(false);
   });
 
+  it("detects a title-only Cloudflare interstitial without a composer", () => {
+    expect(detectChatGptPageBlocker({ title: "Just a moment...", hasComposer: false,
+      textSample: "", blockerScanTextSample: "", visibleButtonLabels: [] })?.code).toBe("cloudflare_check");
+  });
+
+  it("does not turn a chat title into a challenge when a composer exists or its state is unknown", () => {
+    for (const hasComposer of [true, undefined]) {
+      expect(detectChatGptPageBlocker({ title: "Just a moment...", hasComposer,
+        textSample: "", visibleButtonLabels: [] })).toBeUndefined();
+    }
+    expect(detectChatGptPageBlocker({ title: "Discuss Just a moment errors", hasComposer: false,
+      textSample: "", visibleButtonLabels: [] })).toBeUndefined();
+  });
+
   it("does not treat old chat message text as a pre-send blocker", () => {
     expect(
       detectChatGptPageBlocker({

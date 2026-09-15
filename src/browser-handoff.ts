@@ -16,7 +16,7 @@ type Identity = { main: number; pids: number[]; headless: boolean };
 function blocked(message: string): never {
   throw new ChatGptBrowserBlockerError({
     code: "browser_handoff_blocked", message, retryable: false,
-    next_step: "Keep only the intended idle ChatGPT tab open, finish any Chrome account or permission confirmation yourself, and retry `prodex pro browser login --background`. Do not close active work or log in again solely because the handoff stopped."
+    next_step: "Inspect the dedicated browser and keep only the intended idle ChatGPT tab open, then retry `prodex pro browser login --background`. Complete a login or permission step only if it is actually shown. Do not close active work or log in again solely because the handoff stopped."
   });
 }
 
@@ -66,7 +66,30 @@ async function singlePage(port: number): Promise<DevtoolsPage> {
   const response = await readJson(port, "list");
   if (!Array.isArray(response)) blocked("The browser page list is invalid.");
   const pages = response.filter((page) => page?.type === "page");
-  if (pages.length !== 1) blocked("The dedicated browser has other tabs or a Chrome confirmation surface; nothing was closed.");
+  if (pages.length !== 1) {
+    const chooser = pages.find((page) => page.url === "chrome://signin-dice-web-intercept.top-chrome/chrome-signin");
+    if (chooser) {
+      let state: { visibilityState?: unknown; width?: unknown; height?: unknown; isChooser?: unknown } | undefined;
+      try {
+        const socket = localSocket(chooser.webSocketDebuggerUrl, port, "page");
+        const reply = await request(socket, "Runtime.evaluate", {
+          expression: `(() => { const r = document.body?.getBoundingClientRect(); return { visibilityState: document.visibilityState, width: r?.width, height: r?.height, isChooser: !!document.querySelector('chrome-signin-app') }; })()`,
+          returnByValue: true
+        }) as { result?: { value?: typeof state }; exceptionDetails?: unknown };
+        if (!reply.exceptionDetails) state = reply.result?.value;
+      } catch { /* An unreadable internal target is not proof of a visible prompt. */ }
+      if (state?.visibilityState === "visible" && state.isChooser === true &&
+          typeof state.width === "number" && state.width > 0 && typeof state.height === "number" && state.height > 0) {
+        throw new ChatGptBrowserBlockerError({
+          code: "browser_account_confirmation", retryable: false,
+          message: "Chrome is showing its browser-account connection chooser. This is separate from ChatGPT login; no browser was closed.",
+          next_step: "Choose in the dedicated Chrome window yourself. 'Use Chrome without an account' declines Chrome account connection if you do not want it. Keep the ChatGPT tab open, then retry `prodex pro browser login --background`."
+        });
+      }
+      blocked("Chrome has an internal account target, but its chooser visibility was not confirmed. This does not establish a ChatGPT login problem; nothing was closed.");
+    }
+    blocked("The dedicated browser has additional page targets; nothing was closed.");
+  }
   const page = pages[0] as DevtoolsPage;
   const url = new URL(page.url);
   if (url.protocol !== "https:" || url.hostname !== "chatgpt.com" || url.username || url.password || url.port ||

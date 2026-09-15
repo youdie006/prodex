@@ -2497,17 +2497,18 @@ export async function waitForChatGptLoginReady(
   const pollMs = options.pollMs ?? 2_000;
   const hasInteractiveWindow = options.windowMode?.headless !== true && options.windowMode?.virtualDisplay !== true;
   const headedLoginCommand = options.headedLoginCommand ?? "prodex pro browser login --headed";
-  const headedLoginHint = ` No interactive window is available; run \`${headedLoginCommand}\` to complete login, captcha, or human verification visibly.`;
   const startedAt = now();
   stderr(
     hasInteractiveWindow
-      ? "login: waiting for a logged-in ChatGPT tab (finish login in the dedicated Chrome browser; Ctrl+C stops waiting)..."
-      : `login: waiting for a logged-in ChatGPT tab (no interactive window; use \`${headedLoginCommand}\` if login or verification is required; Ctrl+C stops waiting)...`
+      ? "login: waiting for ChatGPT readiness in the dedicated Chrome browser (complete any visible step it requests; Ctrl+C stops waiting)..."
+      : `login: waiting for ChatGPT readiness (no interactive window; use \`${headedLoginCommand}\` to inspect any requested browser step visibly; Ctrl+C stops waiting)...`
   );
   let lastState = "";
+  let lastStatus: Awaited<ReturnType<typeof getChatGptBrowserStatus>> | undefined;
   let openMissingTabAttempts = 0;
   while (now() - startedAt < timeoutMs) {
     const status = await statusFn({ port: options.port, timeoutMs: 1_500 });
+    lastStatus = status;
     // A running Chrome with no chatgpt.com tab leaves the user nothing to log
     // into, so prodex opens one. Keep trying while the tab is still missing:
     // one silent attempt that fails looks exactly like no attempt, which is how
@@ -2532,18 +2533,30 @@ export async function waitForChatGptLoginReady(
       await sleepFn(pollMs);
       continue;
     }
+    const blocker = status.blocker;
+    const blockerNextStep = blocker?.next_step ? ` Next: ${blocker.next_step}` : "";
+    const needsVisibleAuth =
+      blocker !== undefined &&
+      ["login_required", "cloudflare_check", "captcha_required", "permission_required"].includes(blocker.code);
+    if (!hasInteractiveWindow && needsVisibleAuth) {
+      stderr(`login: blocked - ${blocker.message}${blockerNextStep}`);
+      stderr(
+        `login: NOT READY - ${blocker.code} requires visible manual handling. No interactive window is available; run \`${headedLoginCommand}\` to handle it visibly.`
+      );
+      return false;
+    }
     const state = !status.reachable
       ? "login: browser starting..."
       : status.blocker
-        ? `login: blocked - ${status.blocker.message}${hasInteractiveWindow ? "" : headedLoginHint}`
+        ? `login: blocked - ${status.blocker.message}${blockerNextStep}`
         : !status.loggedInLikely
           ? hasInteractiveWindow
-            ? "login: waiting for ChatGPT login in the dedicated Chrome browser..."
-            : `login: waiting for a saved ChatGPT login.${headedLoginHint}`
+            ? "login: ChatGPT is reachable, but login readiness is not yet confirmed; review any visible browser prompt..."
+            : `login: ChatGPT is reachable, but login readiness is not yet confirmed; inspect it visibly with \`${headedLoginCommand}\` if needed.`
           : !status.hasComposer
             ? hasInteractiveWindow
-              ? "login: logged in; open a chat so the prompt composer is visible..."
-              : `login: logged in, but no prompt composer is ready.${headedLoginHint}`
+              ? "login: login looks active; open a chat so the prompt composer is visible..."
+              : `login: login looks active, but no prompt composer is ready; inspect it visibly with \`${headedLoginCommand}\`.`
             : "";
     if (state === "") {
       stderr(`login: READY - logged-in ChatGPT tab with composer detected (${Math.round((now() - startedAt) / 1000)}s).`);
@@ -2557,11 +2570,29 @@ export async function waitForChatGptLoginReady(
     if (remainingMs <= 0) break;
     await sleepFn(Math.min(pollMs, Math.max(1, remainingMs)));
   }
-  stderr(
-    hasInteractiveWindow
-      ? `login: not ready after ${Math.round(timeoutMs / 1000)}s. Finish login in the browser, then verify with \`prodex pro browser check\`.`
-      : `login: not ready after ${Math.round(timeoutMs / 1000)}s. Run \`${headedLoginCommand}\` to complete login, captcha, or human verification visibly, then retry.`
-  );
+  const timeoutPrefix = `login: not ready after ${Math.round(timeoutMs / 1000)}s`;
+  if (lastStatus?.blocker) {
+    const nextStep = lastStatus.blocker.next_step ? ` Next: ${lastStatus.blocker.next_step}` : "";
+    stderr(`${timeoutPrefix}; last blocker ${lastStatus.blocker.code}: ${lastStatus.blocker.message}${nextStep}`);
+  } else if (!lastStatus?.reachable) {
+    stderr(
+      hasInteractiveWindow
+        ? `${timeoutPrefix}; browser startup was not confirmed. Check the dedicated Chrome browser, then verify with \`prodex pro browser check\`.`
+        : `${timeoutPrefix}; browser startup was not confirmed. Inspect it visibly with \`${headedLoginCommand}\`, then retry.`
+    );
+  } else if (lastStatus.loggedInLikely && !lastStatus.hasComposer) {
+    stderr(
+      hasInteractiveWindow
+        ? `${timeoutPrefix}; login looked active, but the prompt composer was not detected. Open a normal ChatGPT chat or Project thread, then verify with \`prodex pro browser check\`.`
+        : `${timeoutPrefix}; login looked active, but the prompt composer was not detected. Inspect it visibly with \`${headedLoginCommand}\`, then retry.`
+    );
+  } else {
+    stderr(
+      hasInteractiveWindow
+        ? `${timeoutPrefix}; ChatGPT was reachable, but login readiness was not yet confirmed. Review the dedicated Chrome browser, then verify with \`prodex pro browser check\`.`
+        : `${timeoutPrefix}; ChatGPT was reachable, but login readiness was not yet confirmed. Inspect it visibly with \`${headedLoginCommand}\`; complete a manual step only if requested.`
+    );
+  }
   return false;
 }
 
@@ -3510,7 +3541,7 @@ export function assertNoOrphanConsultResults(
 
 export function browserReadinessNextStep(input: { loggedInLikely: boolean; hasComposer: boolean }): string {
   if (!input.loggedInLikely) {
-    return "Log in manually in the visible ChatGPT browser, then retry.";
+    return "ChatGPT login readiness is not yet confirmed. Review the visible ChatGPT browser state, then retry.";
   }
   if (!input.hasComposer) {
     return "Open a normal ChatGPT chat or Project thread, select the Pro/Thinking model, and retry.";

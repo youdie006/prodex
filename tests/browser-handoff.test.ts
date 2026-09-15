@@ -15,7 +15,7 @@ beforeEach(async () => { profile = await mkdtemp(path.join(tmpdir(), "prodex-han
 afterEach(async () => { vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks(); await rm(profile, { recursive: true, force: true }); });
 
 const url = "https://chatgpt.com/c/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
-type Options = { extraPage?: string; profileMismatch?: boolean; ephemeralFlag?: string; draft?: boolean; generating?: boolean; dialog?: boolean; attachments?: boolean; temporary?: boolean; targetChanged?: boolean; closeError?: boolean; lingering?: boolean; foreignSocket?: boolean };
+type Options = { extraPage?: string; nativeVisibility?: "visible" | "hidden" | "unknown"; profileMismatch?: boolean; ephemeralFlag?: string; draft?: boolean; generating?: boolean; dialog?: boolean; attachments?: boolean; temporary?: boolean; targetChanged?: boolean; closeError?: boolean; lingering?: boolean; foreignSocket?: boolean };
 
 function fixture(options: Options = {}) {
   vi.useFakeTimers();
@@ -37,7 +37,7 @@ function fixture(options: Options = {}) {
       ...(options.extraPage ? [{ id: "two", type: "page", title: "Other", url: options.extraPage, webSocketDebuggerUrl: "ws://127.0.0.1:19333/devtools/page/two" }] : [])
     ] };
   }));
-  sockets.create = () => {
+  sockets.create = (socketUrl) => {
     data.socketCount++;
     class Socket extends EventEmitter {
       done = false;
@@ -45,6 +45,12 @@ function fixture(options: Options = {}) {
         const request = JSON.parse(raw);
         if (request.method === "Runtime.evaluate") data.expressions.push(request.params.expression);
         queueMicrotask(() => {
+          if (request.method === "Runtime.evaluate" && socketUrl.endsWith("/two")) {
+            this.emit("message", JSON.stringify({ id: request.id, result: { result: { value: options.nativeVisibility === "unknown" ? {} : {
+              visibilityState: options.nativeVisibility, width: 320, height: 413, isChooser: true
+            } } } }));
+            return;
+          }
           if (request.method === "Browser.close") {
             data.closeCalls++;
             if (options.closeError) { this.emit("message", JSON.stringify({ id: request.id, error: { message: "refused" } })); return; }
@@ -101,6 +107,22 @@ describe("graceful dedicated-browser handoff", () => {
     const result = await run({ closeError: true });
     expect(result.error).toBeDefined();
     expect(result.closeCalls).toBe(1);
+  });
+
+  it("distinguishes a visibly verified Chrome account chooser from ChatGPT login", async () => {
+    const result = await run({ extraPage: "chrome://signin-dice-web-intercept.top-chrome/chrome-signin", nativeVisibility: "visible" });
+    expect(result.error?.blocker?.code).toBe("browser_account_confirmation");
+    expect(result.error?.message).toContain("separate from ChatGPT login");
+    expect(result.error?.message).toContain("Use Chrome without an account");
+    expect(result.closeCalls).toBe(0);
+  });
+
+  it.each(["hidden", "unknown"] as const)("does not claim an account chooser is on screen when its state is %s", async (nativeVisibility) => {
+    const result = await run({ extraPage: "chrome://signin-dice-web-intercept.top-chrome/chrome-signin", nativeVisibility });
+    expect(result.error?.blocker?.code).toBe("browser_handoff_blocked");
+    expect(result.error?.message).toContain("visibility was not confirmed");
+    expect(result.error?.message).not.toContain("Use Chrome without an account");
+    expect(result.closeCalls).toBe(0);
   });
   it("does not force kill a browser that stays alive", async () => {
     const result = await run({ lingering: true });

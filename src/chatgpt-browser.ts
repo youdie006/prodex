@@ -1016,8 +1016,9 @@ export function hasFreshChatGptAnswer(
 // streaming. Used to salvage the partial answer on a timeout instead of
 // discarding minutes of Pro reasoning.
 export interface AcceptanceTimeoutContext {
+  requestId?: string;
   timeoutMs: number;
-  // The composer still held the prompt after submit — the send did not consume it.
+  // The composer still held text after submission; acceptance remains unknown.
   composerStillHasText: boolean;
   // submitExpression located an enabled send button to click.
   submitButtonFound: boolean;
@@ -1044,6 +1045,7 @@ export function formatDurationMs(ms: number): string {
 export function acceptanceTimeoutError(ctx: AcceptanceTimeoutContext): Error {
   const uiLikelyChanged = ctx.composerStillHasText || !ctx.submitButtonFound;
   const took = `${formatDurationMs(ctx.timeoutMs)} (${ctx.timeoutMs}ms)`;
+  const inspect = `Do not resend automatically: submission was attempted but acceptance is unconfirmed. Inspect the original conversation${ctx.requestId ? ` for [prodex-request:${ctx.requestId}]` : ""} before another request.`;
   if (uiLikelyChanged) {
     const detail = [
       ctx.composerStillHasText ? "the composer still holds the prompt" : undefined,
@@ -1051,17 +1053,16 @@ export function acceptanceTimeoutError(ctx: AcceptanceTimeoutContext): Error {
     ]
       .filter(Boolean)
       .join(" and ");
-    return new Error(
-      `Timed out after ${took} and ChatGPT never registered the prompt (${detail}). ` +
-        "The ChatGPT web UI may have changed, so prodex could not submit. Update prodex " +
-        "(npm i -g @youdie006/prodex@latest); if it persists, report it at " +
-        "https://github.com/youdie006/prodex/issues. You can also paste the prompt manually in the visible browser."
-    );
+    return new ChatGptBrowserBlockerError({
+      code: "send_ui_changed", retryable: false,
+      message: `Timed out after ${took} without confirming prompt acceptance (${detail}). The ChatGPT web UI may have changed.`,
+      next_step: `${inspect} Update prodex (npm i -g @youdie006/prodex@latest); if it persists, report it at https://github.com/youdie006/prodex/issues.`
+    });
   }
-  return new Error(
-    `Timed out after ${took} waiting for ChatGPT to accept the prompt. ` +
-      "Pro reasoning can run many minutes. Raise --timeout-ms and retry."
-  );
+  return new ChatGptBrowserBlockerError({
+    code: "prompt_acceptance_unconfirmed", retryable: false,
+    message: `Timed out after ${took} waiting for ChatGPT to accept the prompt.`, next_step: inspect
+  });
 }
 
 export function hasPartialChatGptAnswer(
@@ -1344,7 +1345,7 @@ export function detectChatGptBlocker(
       code: "cloudflare_check",
       message: "ChatGPT is showing a Cloudflare or human-verification interstitial.",
       retryable: true,
-      next_step: "Complete the visible browser check manually, then retry."
+      next_step: "Complete the visible browser check manually."
     };
   }
   if (hasLikelyChatGptLoginPrompt(haystack)) {
@@ -1352,7 +1353,7 @@ export function detectChatGptBlocker(
       code: "login_required",
       message: "ChatGPT is asking you to log in.",
       retryable: true,
-      next_step: "Log in manually in the visible browser, then retry."
+      next_step: "Log in manually in the visible browser."
     };
   }
   // Match real captcha / human-verification phrasing only. Bare words like "robot"/"로봇"/"자동화"
@@ -1363,7 +1364,7 @@ export function detectChatGptBlocker(
       code: "captcha_required",
       message: "ChatGPT is asking for captcha or human verification.",
       retryable: true,
-      next_step: "Solve it manually in the visible browser, then retry."
+      next_step: "Solve it manually in the visible browser."
     };
   }
   if (/message limit|usage limit|model limit|rate limit|you.?ve reached|try again later|limit resets|사용 한도|메시지 한도|모델 한도|요금 제한|나중에 다시/i.test(haystack)) {
@@ -1379,20 +1380,27 @@ export function detectChatGptBlocker(
       code: "permission_required",
       message: "ChatGPT requires account verification or permission handling.",
       retryable: true,
-      next_step: "Complete the visible account or permission prompt manually, then retry."
+      next_step: "Complete the visible account or permission prompt manually."
     };
   }
   return undefined;
 }
 
-export function detectChatGptPageBlocker(state: ChatGptPageTextState): ChatGptBrowserStatus["blocker"] | undefined {
+export function detectChatGptPageBlocker(state: ChatGptPageTextState & { title?: string; hasComposer?: boolean }): ChatGptBrowserStatus["blocker"] | undefined {
   // Blocker scan uses the nav-excluded sample so a sidebar chat title cannot
   // fake a blocker; fall back to the nav-included sample / full text when the
   // scan sample is absent (older callers).
-  return detectChatGptBlocker(
+  const rendered = detectChatGptBlocker(
     state.blockerScanTextSample ?? state.blockerTextSample ?? state.textSample,
     state.visibleButtonLabels
   );
+  if (rendered) return rendered;
+  // The interstitial can have an empty body. Never use a conversation title
+  // alone when the composer exists or its state was not actually checked.
+  if (state.hasComposer === false && /^just a moment\.{0,3}$/i.test(state.title?.trim() ?? "")) {
+    return detectChatGptBlocker("Just a moment", []);
+  }
+  return undefined;
 }
 
 export function inferChatGptPageLoggedInLikely(state: ChatGptPageTextState): boolean {
@@ -1439,6 +1447,22 @@ export function chatGptBlockerFromAnswerState(state: {
   visibleButtonLabels: string[];
 }):ChatGptBrowserStatus["blocker"] | undefined {
   return detectChatGptPageBlocker(state);
+}
+
+function submittedRequestBlocker(
+  blocker: NonNullable<ChatGptBrowserStatus["blocker"]>,
+  requestId: string,
+  thread?: string
+): NonNullable<ChatGptBrowserStatus["blocker"]> {
+  return {
+    ...blocker,
+    retryable: false,
+    ...(thread ? { thread } : {}),
+    next_step: `${blocker.next_step ?? "Inspect the visible browser."} Do not automatically resend. ` +
+      (thread
+        ? `Collect the original answer with \`prodex pro browser recover --target-url ${thread} --request-id ${requestId}\` after resolving the blocker.`
+        : `Submission is unconfirmed; inspect the original conversation for [prodex-request:${requestId}] before another request.`)
+  };
 }
 
 export function computePromptAcceptanceDeadline(timeoutMs: number, startedAt: number): number {
@@ -4080,6 +4104,7 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
   let beforeSubmit!: ChatGptAnswerState;
   let boundProjectId: string | undefined;
   let submitButtonFound = false;
+  let submissionAttempted = false;
   const sendWarnings: string[] = [...preflightWarnings];
   // Anything the page put in front of prodex was answered on the caller's
   // behalf. The note is read at return time - there are several return paths -
@@ -4223,6 +4248,8 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
       const last = [...document.querySelectorAll('[data-message-author-role="user"]')].at(-1);
       return Boolean(last && (last.innerText || "").includes(${JSON.stringify(`[prodex-request:${requestId}]`)}));
     })()`;
+    // A dispatch can reach Chrome even if its acknowledgement is lost.
+    submissionAttempted = true;
     await cdp.send("Input.dispatchKeyEvent", enterKeyEvent("keyDown"));
     await cdp.send("Input.dispatchKeyEvent", enterKeyEvent("keyUp"));
     let promptPosted = await waitForExpressionTrue(cdp, promptPostedExpression, 1_500);
@@ -4243,6 +4270,13 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
     // project keeps hitting are invisible in the error text alone.
     await captureOnFailure(`send-${new Date().toISOString().replace(/[:.]/g, "-")}`);
     if (isCrashedTabError(error)) throw attachSendWarnings(new ChatGptBrowserBlockerError(crashedTabBlocker(undefined, requestId)), sendWarnings);
+    if (submissionAttempted) {
+      const blocker = error instanceof ChatGptBrowserBlockerError ? error.blocker : {
+        code: "prompt_acceptance_unconfirmed", retryable: false,
+        message: `Browser control failed after submission was attempted: ${error instanceof Error ? error.message : String(error)}`
+      };
+      throw attachSendWarnings(new ChatGptBrowserBlockerError(submittedRequestBlocker(blocker, requestId)), sendWarnings);
+    }
     throw attachSendWarnings(error, sendWarnings);
   } finally {
     cdp.close();
@@ -4264,7 +4298,7 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
       continue;
     }
     const runtimeBlocker = chatGptBlockerFromAnswerState(finalState);
-    if (runtimeBlocker) throw new ChatGptBrowserBlockerError(runtimeBlocker);
+    if (runtimeBlocker) throw new ChatGptBrowserBlockerError(submittedRequestBlocker(runtimeBlocker, requestId));
     dbgSend(`accept-poll url=${finalState.url} user=${finalState.userMessageCount} assistant=${finalState.assistantMessageCount} generating=${finalState.generating}`);
     if (requestMatches(finalState)) {
       if (normalizedTargetUrl) assertChatGptTargetUrlMatches(finalState.url, normalizedTargetUrl);
@@ -4275,26 +4309,19 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
     emitProgress("waiting", "prompt posting");
   }
   if (!accepted) {
-    // The session can expire mid-send (logged out during a long Pro wait), which
-    // otherwise surfaces as a cryptic "raise --timeout-ms" failure. Re-check the
-    // login state first and, if the session is gone, say so clearly so the user
-    // re-logs in instead of chasing a timeout.
+    // Missing logged-in signals do not prove session expiry. Only rendered
+    // blockers justify an authentication diagnosis after uncertain submission.
     try {
       const status = await evaluateOnPage<ChatGptPageStatus>(page, statusExpression());
-      if (!inferChatGptPageLoggedInLikely(status)) {
-        throw new ChatGptBrowserBlockerError({
-          code: "session_expired",
-          message: "The ChatGPT session is no longer logged in - it likely expired during the send.",
-          retryable: true,
-          next_step: "Run `prodex pro browser login`, log in, then retry."
-        });
+      const blocker = detectChatGptPageBlocker(status);
+      if (blocker) {
+        throw new ChatGptBrowserBlockerError(submittedRequestBlocker(blocker, requestId));
       }
     } catch (error) {
       if (error instanceof ChatGptBrowserBlockerError) throw error;
       // best effort: a CDP eval failure here falls through to the generic timeout
     }
-    // A successful submit clears the composer, so text still sitting there means
-    // the send control did not register the prompt — the UI-changed signature.
+    // Composer text is only a UI hint, not proof that submission failed.
     let composerStillHasText = false;
     try {
       const composerState = await evaluateOnPage<{ ok: boolean }>(page, composerTextStateExpression());
@@ -4302,7 +4329,7 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
     } catch {
       // best effort: fall back to submit-button signal only
     }
-    throw acceptanceTimeoutError({ timeoutMs, composerStillHasText, submitButtonFound });
+    throw acceptanceTimeoutError({ timeoutMs, composerStillHasText, submitButtonFound, requestId });
   }
 
   // Pin the conversation the prompt actually landed in. The browser is shared
@@ -4360,7 +4387,7 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
       continue;
     }
     const runtimeBlocker = chatGptBlockerFromAnswerState(finalState);
-    if (runtimeBlocker) throw new ChatGptBrowserBlockerError(runtimeBlocker);
+    if (runtimeBlocker) throw new ChatGptBrowserBlockerError(submittedRequestBlocker(runtimeBlocker, requestId, pinnedThreadUrl));
     emitProgress("waiting", finalState.generating ? "generating" : "stabilizing");
     if (!hasFreshChatGptAnswer(beforeSubmit.assistantMessageCount, finalState)) continue;
     // A "fresh" answer must also be stable: ChatGPT can momentarily look done

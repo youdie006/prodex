@@ -298,9 +298,10 @@ describe("unattended recovery window lifecycle", () => {
       }
     );
 
-    expect(recovered).toBe(true);
+    expect(recovered).toBe(false);
+    expect(probe).toBe(1);
     expect(lines.join("\n")).toContain("prodex pro browser login --headed");
-    expect(lines.join("\n")).toMatch(/login, captcha, or human verification visibly/i);
+    expect(lines.join("\n")).toMatch(/cloudflare_check requires visible manual handling/i);
   });
 
   it("uses the same environment-selected mode for CLI login and MCP auto-recovery", async () => {

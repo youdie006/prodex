@@ -11,6 +11,61 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+describe("unconfirmed submission authentication", () => {
+  it("does not make a dispatch failure retryable when Enter may already have submitted", async () => {
+    const fixture = install([{ id: "a", url: original, visible: true, crashed: false }], { dispatchFailure: true });
+    const result = await settle(sendChatGptPrompt({ port: 19333, prompt: "uncertain question", targetUrl: original, timeoutMs: 4_000 }));
+    expect(result).toMatchObject({ error: { blocker: { code: "prompt_acceptance_unconfirmed", retryable: false } } });
+    expect(result.error?.blocker.next_step).toMatch(/do not.*resend/i);
+    expect(result.error?.blocker.next_step).toMatch(/\[prodex-request:[a-f0-9]{32}\]/);
+    expect(fixture.submissions).toBe(1);
+    expect(fixture.reloads).toEqual([]);
+  });
+
+  it("does not infer session expiry from missing logged-in signals", async () => {
+    const fixture = install([{ id: "a", url: original, visible: true, crashed: false }], { postSubmitStatus: "unknown" });
+    const result = await settle(sendChatGptPrompt({ port: 19333, prompt: "uncertain question", targetUrl: original, timeoutMs: 4_000 }));
+    expect(result.error).toBeDefined();
+    expect(result.error?.blocker?.code).not.toBe("session_expired");
+    expect(result.error?.message).not.toMatch(/log in|session.*expired/i);
+    expect(result.error?.blocker?.retryable).toBe(false);
+    expect(result.error?.message).toMatch(/do not.*resend/i);
+    expect(fixture.submissions).toBe(1);
+    expect(fixture.reloads).toEqual([]);
+  });
+
+  it.each(["login", "cloudflare"] as const)("preserves explicit %s evidence without making an uncertain submit retryable", async (postSubmitStatus) => {
+    const fixture = install([{ id: "a", url: original, visible: true, crashed: false }], { postSubmitStatus });
+    const result = await settle(sendChatGptPrompt({ port: 19333, prompt: "uncertain question", targetUrl: original, timeoutMs: 4_000 }));
+    expect(result.error?.blocker).toMatchObject({ code: postSubmitStatus === "login" ? "login_required" : "cloudflare_check", retryable: false });
+    expect(result.error?.blocker.next_step).toMatch(/do not.*resend/i);
+    expect(result.error?.blocker.next_step).not.toMatch(/then retry/i);
+    expect(fixture.submissions).toBe(1);
+    expect(fixture.reloads).toEqual([]);
+  });
+
+  it("does not recommend resending when the first acceptance poll reports login", async () => {
+    const fixture = install([{ id: "a", url: original, visible: true, crashed: false }], { postSubmitStatus: "login", runtimeLoginBlocker: true });
+    const result = await settle(sendChatGptPrompt({ port: 19333, prompt: "uncertain question", targetUrl: original, timeoutMs: 4_000 }));
+    expect(result.error?.blocker).toMatchObject({ code: "login_required", retryable: false });
+    expect(result.error?.blocker.next_step).toMatch(/do not.*resend/i);
+    expect(result.error?.blocker.next_step).toMatch(/\[prodex-request:[a-f0-9]{32}\]/);
+    expect(fixture.submissions).toBe(1);
+    expect(fixture.reloads).toEqual([]);
+  });
+
+  it("preserves the accepted thread when login appears while waiting for the answer", async () => {
+    const fixture = install([{ id: "a", url: original, visible: true, crashed: false }], { loginAfterAcceptance: true });
+    const result = await settle(sendChatGptPrompt({ port: 19333, prompt: "accepted question", targetUrl: original, timeoutMs: 4_000 }));
+    expect(result.error?.blocker).toMatchObject({ code: "login_required", retryable: false, thread: original });
+    expect(result.error?.blocker.next_step).toContain(`--target-url ${original}`);
+    expect(result.error?.blocker.next_step).toMatch(/--request-id [a-f0-9]{32}/);
+    expect(result.error?.blocker.next_step).toMatch(/do not.*resend/i);
+    expect(fixture.submissions).toBe(1);
+    expect(fixture.reloads).toEqual([]);
+  });
+});
+
 describe("confirmed renderer crashes", () => {
   it("preserves the request marker when a lost connection has no captured thread", () => {
     const requestId = "0123456789abcdef0123456789abcdef";
@@ -108,7 +163,7 @@ async function settle<T>(promise: Promise<T>): Promise<{ value?: T; error?: any 
   return settled;
 }
 
-function install(pages: Page[], options: { crashesAgain?: boolean; changesBeforeReload?: boolean; crashAfterAcceptance?: boolean; recoversBeforeReload?: boolean } = {}) {
+function install(pages: Page[], options: { crashesAgain?: boolean; changesBeforeReload?: boolean; crashAfterAcceptance?: boolean; recoversBeforeReload?: boolean; postSubmitStatus?: "unknown" | "login" | "cloudflare"; runtimeLoginBlocker?: boolean; loginAfterAcceptance?: boolean; dispatchFailure?: boolean } = {}) {
   vi.useFakeTimers();
   const fixture = { reloads: [] as { id: string; url: string; submissions: number }[], submissions: 0, prompt: "", acceptedReads: 0 };
   const sockets: Socket[] = [];
@@ -147,6 +202,10 @@ function install(pages: Page[], options: { crashesAgain?: boolean; changesBefore
         }
         if (request.method.startsWith("Runtime.") && (page.crashed || page.stalled)) return;
         if (request.method === "Input.dispatchKeyEvent" && request.params?.key === "Enter" && request.params?.type === "keyDown") fixture.submissions += 1;
+        if (options.dispatchFailure && fixture.submissions && request.method === "Input.dispatchKeyEvent") {
+          this.close();
+          return;
+        }
         let value: unknown;
         if (request.method === "Runtime.evaluate") {
           const expression = request.params.expression as string;
@@ -154,7 +213,10 @@ function install(pages: Page[], options: { crashesAgain?: boolean; changesBefore
           else if (expression.includes("visibilityState: document.visibilityState")) value = {
             title: "ChatGPT", url: page.url, visibilityState: page.visible ? "visible" : "hidden",
             textSample: "New chat\nProjects\nPro", blockerTextSample: "", blockerScanTextSample: "",
-            visibleButtonLabels: [], hasComposer: true, generating: false, modelHints: ["Pro"]
+            visibleButtonLabels: [], hasComposer: true, generating: false, modelHints: ["Pro"],
+            ...(fixture.submissions && options.postSubmitStatus ? { hasComposer: false, textSample: "", blockerTextSample: "", blockerScanTextSample: "",
+              title: options.postSubmitStatus === "cloudflare" ? "Just a moment..." : "ChatGPT",
+              visibleButtonLabels: options.postSubmitStatus === "login" ? ["Log in", "Sign up"] : [] } : {})
           };
           else if (expression.includes("const surfaces = buttons.map")) value = { surfaces: [{ label: "Chat", checked: true }] };
           else if (expression.includes("assistantMessageCount")) {
@@ -167,10 +229,12 @@ function install(pages: Page[], options: { crashesAgain?: boolean; changesBefore
                 return;
               }
             }
-            value = { title: "ChatGPT", url: page.url, answer: fixture.submissions ? "test answer" : "",
-              assistantMessageCount: fixture.submissions ? 1 : 0, userMessageCount: fixture.submissions,
-              lastUserText: fixture.submissions ? fixture.prompt : "", generating: options.crashAfterAcceptance === true,
-              modelHints: ["Pro"], modelSlug: "gpt-6-pro", textSample: "", blockerTextSample: "", visibleButtonLabels: [] };
+            const reported = options.postSubmitStatus ? 0 : fixture.submissions;
+            value = { title: "ChatGPT", url: page.url, answer: reported ? "test answer" : "",
+              assistantMessageCount: reported ? 1 : 0, userMessageCount: reported,
+              lastUserText: reported ? fixture.prompt : "", generating: options.crashAfterAcceptance === true,
+              modelHints: ["Pro"], modelSlug: "gpt-6-pro", textSample: "", blockerTextSample: "",
+              visibleButtonLabels: (fixture.submissions && options.runtimeLoginBlocker) || (options.loginAfterAcceptance && fixture.acceptedReads > 1) ? ["Log in", "Sign up"] : [] };
           }
           else if (expression.includes("actualText: raw.slice")) {
             const expected = /const expected = (.+);/.exec(expression)?.[1];

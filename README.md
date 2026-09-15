@@ -73,9 +73,15 @@ For a one-time visible login followed by a verified headless handoff, use `prode
 
 Finish any native browser or OS confirmation before requesting the handoff: Chrome does not expose every native dialog through its page-control interface. The guard detects page targets and rendered dialogs, not every OS prompt. Incognito, guest, and explicitly selected Chrome sub-profiles are refused.
 
+A Chrome account-connection chooser is separate from ChatGPT sign-in. If prodex confirms that chooser is displayed, choose for yourself whether to connect Chrome to the account; "Use Chrome without an account" declines that separate connection. A hidden or unreadable internal target still blocks the handoff but is not proof that a prompt is visible or that ChatGPT is logged out.
+
+"Login readiness is not yet confirmed" does not mean the saved login was lost. Inspect the dedicated browser before signing in again. An explicit `login_required`, `cloudflare_check`, `captcha_required`, or `permission_required` during a headless/virtual-display wait stops promptly: use `prodex pro browser login --headed` to handle the reported step visibly. A usage limit or missing composer has its own next step instead of a blanket login instruction.
+
 While Pro thinks, progress goes to stderr: connecting, prompt sent, elapsed time while generating. A Pro selection raises the send budget to twenty minutes on its own; `--timeout-ms` overrides it. Answers are read from the rendered page, so formatting can differ from the original message. If the dedicated browser is not running, an interactive `ask` starts it, waits for your saved session, and retries once (`--no-auto-login` turns that off; scripts opt in with `--auto-login`).
 
 If the browser stops responding after your question was sent, prodex stops without sending it again. Use the `thread` and `request_id` from the error with `prodex pro browser recover --target-url <thread-url> --request-id <32hex>` (MCP: `pro_recover`). The request ID verifies that the recovered assistant answer follows that exact marked user turn. Legacy recovery without it remains available but returns `request_verified: false` and a warning.
+
+If submission itself is unconfirmed, do not resend or simply increase the timeout: first inspect the original conversation for the `[prodex-request:...]` marker in the error. Missing login signals or text still in the composer do not prove that the question was never submitted.
 
 Useful flags on every send:
 
