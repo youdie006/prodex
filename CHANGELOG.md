@@ -6,6 +6,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Fixed
+- A blocked `pro browser login --background` handoff now preserves the temporary authentication window's headless relaunch preference. Chrome account confirmation or other handoff failures no longer silently change the next launch to a visible browser. A verified headless replacement records its actual mode; an explicit ordinary `--headed` selection still clears the temporary preference.
+
 ## 0.40.18
 
 ### Fixed

@@ -25,6 +25,7 @@ vi.mock("../src/browser-handoff.js", () => ({
 }));
 
 import { runCli } from "../src/cli.js";
+import { resolveBrowserWindowMode } from "../src/chatgpt-browser.js";
 
 const ready = { reachable: true, loggedInLikely: true, hasComposer: true, modelHints: [] };
 const saved = { port: 9333, profile_dir: path.resolve("/saved/profile"), headless: false, minimized: false };
@@ -172,6 +173,43 @@ describe("one-time background login", () => {
     expect(open).not.toHaveBeenCalled();
     expect(record).not.toHaveBeenCalledWith(expect.objectContaining({ headless: true }));
     expect(out.join("\n")).not.toContain("background: READY");
+  });
+
+  it.each([
+    ["PRODEX_HEADLESS", ""],
+    ["PRODEX_HEADLESS", "0"],
+    ["PRODEX_VIRTUAL_DISPLAY", "1"]
+  ])("keeps temporary headless resume after blocked background handoff with %s=%s", async (key, value) => {
+    vi.stubEnv(key, value);
+    readLaunch.mockResolvedValue({ ...saved, resume_headless: true });
+    close.mockRejectedValue(new Error("browser_handoff_blocked: finish Chrome account confirmation"));
+
+    await expect(run(["--background", "--wait-timeout-ms", "100"])).rejects.toThrow(/browser_handoff_blocked/);
+
+    expect(record).toHaveBeenLastCalledWith({ ...saved, resume_headless: true });
+    expect(resolveBrowserWindowMode({ lastLogin: record.mock.lastCall?.[0], forRelaunch: true, env: {} }))
+      .toEqual({ headless: true, virtualDisplay: false, minimized: false });
+    expect(open).not.toHaveBeenCalled();
+    expect(out.join("\n")).not.toContain("background: READY");
+  });
+
+  it("keeps temporary headless resume until the background replacement is verified", async () => {
+    readLaunch.mockResolvedValue({ ...saved, resume_headless: true });
+
+    expect(await run(["--background", "--wait-timeout-ms", "100"])).toBe(0);
+
+    expect(record).toHaveBeenNthCalledWith(1, { ...saved, resume_headless: true });
+    expect(record).toHaveBeenLastCalledWith({ ...saved, headless: true });
+  });
+
+  it("lets an explicit ordinary headed launch end temporary headless resume", async () => {
+    readLaunch.mockResolvedValue({ ...saved, resume_headless: true });
+
+    expect(await run(["--headed", "--no-wait"])).toBe(0);
+
+    expect(record).toHaveBeenLastCalledWith(saved);
+    expect(close).not.toHaveBeenCalled();
+    expect(open).not.toHaveBeenCalled();
   });
 
   it("names a post-handoff challenge without claiming the stored login is erased", async () => {

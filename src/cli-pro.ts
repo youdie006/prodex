@@ -508,9 +508,10 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
             port: opened.port,
             headless,
             minimized,
+            // A blocked background handoff must not make a temporary auth window permanent.
             ...(alreadyRunning && savedLaunchForPort?.resume_headless === true &&
-              !Object.values(windowModeOptions.flags).some((value) => typeof value === "boolean") &&
-              !["PRODEX_HEADLESS", "PRODEX_VIRTUAL_DISPLAY", "PRODEX_MINIMIZE_WINDOW"].some((key) => (process.env[key] ?? "").trim() !== "")
+              (background || (!Object.values(windowModeOptions.flags).some((value) => typeof value === "boolean") &&
+                !["PRODEX_HEADLESS", "PRODEX_VIRTUAL_DISPLAY", "PRODEX_MINIMIZE_WINDOW"].some((key) => (process.env[key] ?? "").trim() !== "")))
               ? { resume_headless: true } : {}),
             ...(virtualDisplay
               ? { virtual_display: virtualDisplay.displayNumber }
