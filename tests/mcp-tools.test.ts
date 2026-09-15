@@ -1027,9 +1027,9 @@ describe("MCP tool handlers", () => {
     setSafeFileTestHooks({
       beforeOpen: async (filePath) => {
         if (!swapped && filePath === repoFile) {
-          swapped = true;
           await rm(repoFile);
           await symlink(outsideFile, repoFile);
+          swapped = true;
         }
       }
     });
@@ -1041,6 +1041,7 @@ describe("MCP tool handlers", () => {
         preimage_sha256: dryRun.preimage_sha256
       })
     ).rejects.toThrow(/symlink|changed|escapes/i);
+    expect(swapped, "the host must actually create the security-test symlink").toBe(true);
     expect(await readFile(outsideFile, "utf8")).toBe("outside\n");
   });
 

@@ -3,8 +3,17 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterAll, afterEach, beforeEach } from "vitest";
 
-// macOS exposes /var via /private/var; CLI paths are canonicalized too.
-if (process.platform !== "win32") process.env.TMPDIR = fs.realpathSync(os.tmpdir());
+// macOS /var aliases and Windows 8.3 TEMP names differ from child process.cwd().
+const canonicalTmp = fs.realpathSync(os.tmpdir());
+if (process.platform === "win32") {
+  for (const key of Object.keys(process.env)) {
+    if (["TEMP", "TMP"].includes(key.toUpperCase())) delete process.env[key];
+  }
+  process.env.TEMP = canonicalTmp;
+  process.env.TMP = canonicalTmp;
+} else {
+  process.env.TMPDIR = canonicalTmp;
+}
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), "prodex-test-state-"));
 const isolated = {

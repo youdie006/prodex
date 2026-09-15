@@ -1168,13 +1168,14 @@ describe("BridgeStore", () => {
     setSafeFileTestHooks({
       beforeOpen: async (filePath) => {
         if (!swapped && filePath === artifactPath) {
-          swapped = true;
           await symlink(outsideFile, artifactPath);
+          swapped = true;
         }
       }
     });
 
     await expect(store.writeArtifactText(relativePath, "payload\n")).rejects.toThrow(/symlink|changed|artifacts/i);
+    expect(swapped, "the host must actually create the security-test symlink").toBe(true);
     expect(await readFile(outsideFile, "utf8")).toBe("outside\n");
   });
 
@@ -1294,14 +1295,15 @@ describe("BridgeStore", () => {
     setSafeFileTestHooks({
       beforeOpen: async (filePath) => {
         if (!swapped && filePath === artifactPath) {
-          swapped = true;
           await rm(artifactPath);
           await symlink(outsideFile, artifactPath);
+          swapped = true;
         }
       }
     });
 
     await expect(store.readArtifactText(relativePath)).rejects.toThrow(/symlink|changed|artifacts/i);
+    expect(swapped, "the host must actually create the security-test symlink").toBe(true);
     expect(await readFile(outsideFile, "utf8")).toBe("outside\n");
   });
 
@@ -1344,14 +1346,15 @@ describe("BridgeStore", () => {
     setSafeFileTestHooks({
       beforeOpen: async (filePath) => {
         if (!swapped && filePath === receiptPath) {
-          swapped = true;
           await rm(receiptPath);
           await symlink(outsideFile, receiptPath);
+          swapped = true;
         }
       }
     });
 
     await expect(store.getReceipt(receipt.id)).rejects.toThrow(/symlink|changed|record/i);
+    expect(swapped, "the host must actually create the security-test symlink").toBe(true);
     expect(await readFile(outsideFile, "utf8")).toBe("{}\n");
   });
 

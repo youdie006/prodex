@@ -488,7 +488,7 @@ describe("MCP follow-up approval checkpoints", () => {
     const stopped = await performBrowserConsultForMcp(cwd, { ...next.continuation, prompt: "No more without approval" });
     expect(stopped.status).toBe("awaiting_user");
     expect(sendChatGptPromptMock).toHaveBeenCalledTimes(4);
-  });
+  }, 60_000);
 
   it("also gates implicit same-session continuation", async () => {
     vi.stubEnv("PRODEX_MAX_AUTO_FOLLOWUPS", "0");

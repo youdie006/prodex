@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
-import { execNpm } from "../scripts/npm-command.mjs";
+import { execNpm, normalizeNpmEnvironment } from "../scripts/npm-command.mjs";
 
 const execFileAsync = promisify(execFile);
 const repoRoot = path.resolve(import.meta.dirname, "..");
@@ -524,7 +524,7 @@ async function runReleasePack(
   try {
     const result = await execFileAsync(process.execPath, [path.join(repoRoot, "scripts", "release-pack.mjs"), ...args], {
       cwd: repoRoot,
-      env: { ...process.env, ...options.env },
+      env: normalizeNpmEnvironment({ ...process.env, ...options.env }),
       timeout: 120_000,
       maxBuffer: 20 * 1024 * 1024
     });

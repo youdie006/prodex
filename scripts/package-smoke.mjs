@@ -11,7 +11,7 @@ import { promisify } from "node:util";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { execNpm } from "./npm-command.mjs";
+import { execNpm, normalizeNpmEnvironment } from "./npm-command.mjs";
 import { publishTarballDryRun } from "./npm-dry-run.mjs";
 
 const execFileAsync = promisify(execFile);
@@ -3206,7 +3206,7 @@ async function run(command, args, options = {}) {
     timeout: options.timeout ?? 30_000,
     maxBuffer: options.maxBuffer ?? 5 * 1024 * 1024,
     cwd: options.cwd,
-    env: options.env ? { ...process.env, ...options.env } : undefined
+    env: options.env ? normalizeNpmEnvironment({ ...process.env, ...options.env }) : undefined
   });
 }
 

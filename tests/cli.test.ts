@@ -1,7 +1,7 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { execFile } from "node:child_process";
-import { chmod, copyFile, link, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, copyFile, link, mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import net, { type AddressInfo } from "node:net";
 import { createRequire } from "node:module";
@@ -1158,7 +1158,7 @@ describe("runCli", () => {
     // not, the child wrote somewhere else - which, with no override in its
     // environment, means the real one.
     const isolated = JSON.parse(await readFile(process.env.PRODEX_BRIDGES_REGISTRY!, "utf8")) as { roots?: string[] };
-    expect(isolated.roots).toContain(targetCwd);
+    expect(isolated.roots).toContain(await realpath(targetCwd));
 
     await expect(readdir(path.join(targetCwd, ".bridge", "tasks"))).resolves.toHaveLength(1);
     await expect(readdir(path.join(launcherCwd, ".bridge", "tasks"))).rejects.toThrow();

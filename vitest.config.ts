@@ -4,6 +4,9 @@ export default defineConfig({
   test: {
     reporters: process.env.CI ? ["default", "json"] : ["default"],
     outputFile: process.env.CI ? { json: "test-results/vitest.json" } : undefined,
+    // Native Windows record writers spawn Node children. Excessive file-level
+    // parallelism makes their I/O contend and can exhaust per-test deadlines.
+    maxWorkers: process.platform === "win32" ? 4 : undefined,
     // Keep every test hermetic: BridgeStore.ensure() registers its root in
     // the machine-wide bridges registry, which must never be polluted with
     // throwaway test directories.

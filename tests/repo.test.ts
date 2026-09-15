@@ -76,14 +76,15 @@ describe("repo path policy", () => {
     setSafeFileTestHooks({
       beforeOpen: async (filePath) => {
         if (!swapped && filePath === repoFile) {
-          swapped = true;
           await rm(repoFile);
           await symlink(outsideFile, repoFile, "file");
+          swapped = true;
         }
       }
     });
 
     await expect(readRepoFile(root, "README.md")).rejects.toThrow(/symlink|changed|escapes/i);
+    expect(swapped, "the host must actually create the security-test symlink").toBe(true);
     expect(await readFile(outsideFile, "utf8")).toBe("outside\n");
   });
 

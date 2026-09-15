@@ -6,7 +6,7 @@ import { promisify } from "node:util";
 const execFileAsync = promisify(execFile);
 
 export function resolveNpmCliPath(options = {}) {
-  const env = options.env ?? process.env;
+  const env = normalizeNpmEnvironment(options.env ?? process.env);
   const execPath = options.execPath ?? process.execPath;
   const cwd = options.cwd ?? process.cwd();
   const candidates = [];
@@ -37,11 +37,22 @@ export function resolveNpmCliPath(options = {}) {
 }
 
 export function execNpm(args, options = {}) {
-  const npmCliPath = resolveNpmCliPath({ cwd: options.cwd, env: options.env, execPath: process.execPath });
-  return execFileAsync(process.execPath, [npmCliPath, ...args], { ...options, encoding: "utf8" });
+  const env = normalizeNpmEnvironment(options.env ?? process.env);
+  const npmCliPath = resolveNpmCliPath({ cwd: options.cwd, env, execPath: process.execPath });
+  return execFileAsync(process.execPath, [npmCliPath, ...args], { ...options, env, encoding: "utf8" });
+}
+
+export function normalizeNpmEnvironment(env, platform = process.platform) {
+  if (platform !== "win32") return env;
+  // Node otherwise sorts duplicate Windows names and can keep the inherited
+  // spelling instead of an explicit override appended by the caller.
+  const entries = new Map();
+  for (const [name, value] of Object.entries(env)) entries.set(name.toLowerCase(), [name, value]);
+  return Object.fromEntries(entries.values());
 }
 
 function envValue(env, name) {
+  if (typeof env[name] === "string") return env[name];
   const entry = Object.entries(env).find(([key, value]) => key.toLowerCase() === name.toLowerCase() && typeof value === "string");
   return entry?.[1];
 }

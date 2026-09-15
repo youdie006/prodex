@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## 0.40.18
 
 ### Fixed
+- Windows npm environment overrides are deduplicated case-insensitively before resolving or spawning npm, so inherited `NPM_EXECPATH`/`Path` spellings cannot silently replace explicit overrides. Native test fixtures canonicalize Windows 8.3 temporary paths, keep Unix-mode assertions POSIX-only, and require real file-link creation before claiming swap protection passed.
 - The npm command uses a uniquely named root entrypoint, `prodex.mjs`, so native Windows packing preserves executable archive permissions without accidentally marking `dist/cli.js` executable. Existing `node dist/cli.js` configurations still work, and strict packed-file mode validation remains enabled.
 - Package smoke checks reserve an OS-assigned local port so simultaneous Windows and WSL verification runs cannot collide on a fixed endpoint. Browser-send contention tests use an explicit release barrier instead of assuming two operations overlap within a short timer on slower machines.
 - Safe file operations compare the opened file identity with the current non-symlink path before reading, changing contents or applying file modes. Intentional hard-linked lock records keep their separate identity-only validation so lock ownership can still be read and released.
@@ -21,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Continuing an already-ready conversation reuses its composer instead of forcing a full page reload. A slow continuation navigation now reports `thread_not_ready` without claiming the conversation was deleted or recommending a new conversation. Known authentication and protection blockers keep their own classification; no prompt is sent before the target is ready.
 
 ### Changed
+- Native Windows test-file concurrency is bounded to four workers to avoid oversubscribing child-process-backed storage. The multi-consult approval-renewal test has a separate 60-second budget; production send and approval limits are unchanged.
 - CI continues the isolated browser/runtime checks after a metadata failure when the build succeeded, while still failing the job and blocking publication. This prevents a packaging error from hiding native runtime test results.
 - Publishing now depends on the same six-job native OS matrix as PR verification. CI preserves machine-readable test results and runs an account-free headless browser smoke. macOS temporary-path aliases and platform-specific test fixtures now exercise native behavior instead of assuming Linux paths, permissions or fault-injection backends.
 - Platform documentation distinguishes native Windows from WSL browser discovery, states the inherited-ACL prerequisite, and separates local/package/browser-launch verification from a real authenticated Pro request. A durable platform verification record tracks failures and installation/runtime status.

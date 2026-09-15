@@ -2,9 +2,19 @@ import { access, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { execNpm } from "../scripts/npm-command.mjs";
+import { execNpm, normalizeNpmEnvironment } from "../scripts/npm-command.mjs";
 
 describe("execNpm", () => {
+  it("keeps the last case-insensitive Windows environment override", () => {
+    const env = normalizeNpmEnvironment({ NPM_EXECPATH: "inherited", npm_execpath: "override", Path: "old", PATH: "new" }, "win32");
+    expect(env).toEqual({ npm_execpath: "override", PATH: "new" });
+  });
+
+  it("preserves distinct POSIX environment keys", () => {
+    const env = { PATH: "upper", Path: "mixed", npm_execpath: "npm" };
+    expect(normalizeNpmEnvironment(env, "linux")).toEqual(env);
+  });
+
   it("runs npm's JavaScript CLI with literal paths and arguments", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "prodex npm argv & "));
     const npmCli = path.join(root, "npm cli & literal.mjs");

@@ -12,16 +12,18 @@ Initial matrix commit: `37b1684795271f69afdca492562d99aa9c203e6d`.
 CI run: <https://github.com/youdie006/prodex/actions/runs/34964947086>.
 Integrated compatibility commit: `8569391d525e15e16e67665dbc19e04da53ee042`.
 Integrated CI run: <https://github.com/youdie006/prodex/actions/runs/34970055803>.
+Candidate commit: `33646bd4cdffca376f332f103f3c5a00932cf767`.
+Candidate CI run: <https://github.com/youdie006/prodex/actions/runs/34974010179>.
 
 | Environment | Latest completed result | Scope |
 | --- | --- | --- |
 | Ubuntu 24.04 x64, Node 20/22/24 | PASS | Full release verification on all three CI jobs |
 | macOS 15 ARM, Node 22 | PASS at integrated commit | Full CI release verification; initial path-alias and fixture failures corrected |
-| macOS 15 Intel, Node 22 | FAIL at integrated commit | 1,596 passed, 1 timing-dependent contention test failed, 4 platform exclusions; deterministic barrier correction pending rerun |
-| Windows Server 2025 x64, Node 22 | FAIL | npm subprocess launch corrected; metadata now reports a non-executable packed bin |
-| Windows 11 x64, Node 22.22.0 | Partial | Later full suite: 1,567 passed, 30 failed, 6 exclusions; remaining file-link privilege failures and OS-specific fixtures are separate from the passing 48-test storage/credential run and headless browser smoke |
+| macOS 15 Intel, Node 22 | PASS at candidate commit | 1,601 passed, 0 failed, 4 platform exclusions; full release verification and headless smoke passed |
+| Windows Server 2025 x64, Node 22 | FAIL at candidate commit | Metadata and headless smoke passed; 1,580 tests passed, 23 failed, 4 exclusions; inherited environment casing, path aliases, one Unix-mode assertion and a multi-consult timeout exposed |
+| Windows 11 x64, Node 22.22.0 | Partial at candidate commit | 1,582 passed, 19 failed, 6 exclusions; 14 file-link fixture privilege failures and 5 loaded-run timeouts. The affected 18 product/TUI cases passed in a one-worker rerun without changing their assertions or deadlines |
 | WSL Linux x64, Node 22.22.0 | PASS at integrated commit | Full suite: 1,598 passed, 0 failed, 3 platform exclusions; typecheck/build, installed package smoke, and real headless browser smoke passed |
-| Physical M3 macOS ARM, Node 22.22.3 | PASS at integrated source snapshot | Full release verification passed: tests, typecheck, build, installed package MCP smoke and doctor; real headless browser smoke also passed |
+| Physical M3 macOS ARM, Node 22.22.3 | PASS at candidate commit | 1,601 passed, 0 failed, 4 platform exclusions; full release verification and real headless browser smoke passed |
 
 The Windows initialization and junction regressions failed before correction and
 passed afterward. Additional native checks reproduced file replacement and
@@ -57,6 +59,17 @@ One local staging attempt began before its source archive finished writing and
 failed with a truncated TypeScript file. That invalid snapshot was discarded;
 the complete archive was extracted and source hashes checked before rerunning.
 This was a verification setup failure, not accepted product evidence.
+
+The candidate Windows CI failure was reproduced locally by inheriting uppercase
+`NPM_EXECPATH`. It silently displaced explicit lowercase overrides, causing real
+npm to run instead of the intended fixture. After normalizing environment names
+before subprocess creation, the native npm/release suites passed 54 tests with
+one POSIX-only exclusion; their two file-symlink cases still failed with `EPERM`.
+The matching WSL checks passed 91 tests with one Windows-only exclusion.
+Follow-up changes also canonicalize Windows temporary paths, retain private-mode
+assertions only where POSIX modes apply, bound Windows file concurrency to four,
+and give the four-consult approval-renewal test a separate 60-second deadline.
+These corrections require a new complete matrix before publication.
 
 ## What each check proves
 
