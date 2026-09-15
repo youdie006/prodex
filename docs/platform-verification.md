@@ -108,6 +108,91 @@ from these local checks. Existing MCP clients and account browsers were not
 restarted. The Chromium engine was retained; no Firefox/Camoufox adapter was
 installed or advertised as supported.
 
+### WSL Source Dependencies
+
+Follow-up on 2026-09-16, unchanged runtime source `970a74f`: the mounted-source
+startup failure was reproduced with
+`timeout --kill-after=3s 15s node prodex.mjs --version` (exit 124 after 15.07s).
+`findmnt` identified the dependency directory as a Windows `9p` mount, while
+the Linux home directory was `ext4`. Identical compiled files in the earlier
+Linux-filesystem snapshot started in about one second. Direct MCP SDK imports
+on the mount also exceeded their bound; this was dependency-loading overhead,
+not a broken stdio protocol or incorrect `--cwd` handling.
+
+The local repair keeps the checkout under `/mnt/d` and installs the unchanged
+lockfile into a fresh directory under `$HOME/.cache/prodex/source-deps/`.
+The checkout's `node_modules` is now a symlink to that Linux installation.
+The original dependency tree and manifests were retained in a sibling backup
+directory outside the checkout. Lockfile SHA-256 before/after:
+`54b5a93764e6f4e40a2ea66f3f4126afb32d2a1c7b72f7a2c997cdde931ab703`.
+Installed source package version remains `0.40.18`, using Node `22.22.0`.
+No global CLI, account profile, browser process or client-managed MCP was
+replaced or restarted.
+
+The same version command then passed in 5.02s; `node dist/cli.js --version`
+passed in 3.52s. All four focused package-bin/explicit-cwd stdio checks passed
+on the original mounted checkout, including the three previously failing
+cases. The stdio case completed in 4.79s. Existing subprocess/test deadlines
+were unchanged. Full follow-up verification is recorded on PR #7.
+
+The first full run after relocation passed 1,666 tests with one failure and
+three platform exclusions. All original startup failures passed; the remaining
+failure was an HTTP test fixture that emitted synthetic `SIGTERM` after 50ms,
+before slow startup had registered its shutdown listener. The fixture now waits
+for the listening/readiness output before signaling and awaits teardown in
+`finally`. No production shutdown logic or deadline was changed. This first
+failed run is retained separately from the subsequent verification results.
+
+Final verification from the original mounted checkout:
+
+- PASS: `npm test -- --reporter=json --outputFile=/tmp/prodex-mounted-ext4-deps-final.json`
+  completed all 117 files: 1,667 passed, zero failed, three platform exclusions,
+  about 185s. Default worker settings and all existing deadlines were retained.
+- PASS: `npm run typecheck`, `npm run build`, and `npm run smoke:package`.
+  The package check covered installed CLI, HTTP/stdio MCP, task/result storage,
+  write and artifact integrity, doctor and credential-isolated publication
+  dry runs. It did not publish or replace a global installation.
+- PASS: `git check-ignore -v --no-index node_modules` after correcting the
+  ignore rule; before correction the symlink was untracked and not ignored.
+- WARN: fresh `npm ci` reported an unapproved esbuild postinstall script.
+  No script-approval policy was changed; the installed optional platform binary
+  was sufficient for the subsequent passing tests, typecheck and build.
+
+Runtime sources, build scripts and dependency manifests remain unchanged from
+`970a74f`; this follow-up changes the development setup records, dependency
+ignore rule and one test fixture. The PR records its own pushed commit and
+subsequent CI separately from the previously completed six-platform matrix.
+
+For a similar WSL setup:
+
+1. Prefer placing the whole development checkout under the Linux home directory.
+   Use the split arrangement only when Windows-mounted source files are needed.
+2. Create a persistent, project-specific directory on Linux, copy only
+   `package.json` and `package-lock.json` there, and run
+   `npm ci --prefix <linux-dependency-directory>`. Do not copy credentials,
+   `.bridge`, or browser profiles into a dependency cache.
+3. After stopping source-development commands that use that dependency tree,
+   retain the existing `node_modules` as a backup outside the checkout and
+   symlink the new directory's `node_modules` into the checkout. Inspect any
+   existing link before replacing it. Do not commit a machine-specific link.
+4. Run `npm run build` and the tests from the original checkout. After lockfile
+   changes, update the two cached manifests and rerun `npm ci` at the cache
+   prefix. A plain `npm ci` in the mounted checkout can replace the link and
+   reintroduce mounted dependencies.
+
+This is a WSL development arrangement, not a portable dependency bundle. Native
+Windows needs its own dependency installation, as do other operating systems
+and architectures. Keep the cache until the source checkout no longer uses it;
+the link target is inspectable with `readlink node_modules`.
+
+The M3 follow-up separately confirmed one actual headless, non-incognito Chrome
+process using the same saved profile, and exactly one ChatGPT root tab with a
+human-verification title. The product check still returned `cloudflare_check`.
+Neither incorrect target selection nor a replacement profile explains that
+observed blocker. No navigation, visible login, authentication reset, protective
+check bypass, or Pro prompt was performed. Dependency placement on WSL does not
+remove that external account-access requirement.
+
 ## 0.40.18 verification
 
 Branch: `fix/cross-platform-verification`.
