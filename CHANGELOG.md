@@ -6,6 +6,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.40.11
+
+### Added
+- MCP consult results include exact continuation arguments and structured parent, model, and request evidence so caller agents can answer clarifying questions and ask useful follow-ups in the same conversation.
+- Automatic MCP follow-ups have a configurable approval checkpoint through `PRODEX_MAX_AUTO_FOLLOWUPS` (default 5; zero asks before each follow-up). Exhaustion returns `awaiting_user` without sending a prompt. Explicit user-approved continuation renews the budget; approval is never carried into the next call.
+- Follow-up reservations persist across MCP restarts, session keys, and older task references, with cross-process locking and trusted receipts. Conversation identifiers are hashed before recording; uncertain or failed attempts still consume their reservation.
+
+### Changed
+- Caller guidance now prioritizes unresolved questions over a fixed round count, stops on sufficient or repetitive answers and blockers, and asks the user for unknown facts or additional approval. New topics remain separate; manual CLI continuation is unchanged.
+- Update all MCP clients sharing a bridge and reconnect them after upgrading. Approval checkpoints are response-only (`task_id: null`), and the budget is a cooperative per-bridge conversation guard, not an account-wide quota or independent human-authentication mechanism.
+
 ## 0.40.10
 
 ### Fixed
