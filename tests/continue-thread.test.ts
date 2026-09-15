@@ -32,6 +32,101 @@ describe("which conversation a follow-up belongs to", () => {
     expect("target" in resolved && resolved.target.taskId).toBe("task_c");
   });
 
+  it("treats the live project id as authoritative when duplicate slugs were recorded", () => {
+    const resolved = resolveContinuationThread({
+      consults: [
+        {
+          taskId: "task_notes",
+          thread: "https://chatgpt.com/g/g-p-aaaaaaaa-notes/c/111",
+          status: "done",
+          sessionKey: "client-a",
+          createdAt: "2026-09-10T00:00:00Z"
+        },
+        {
+          taskId: "task_other_notes",
+          thread: "https://chatgpt.com/g/g-p-bbbbbbbb-notes/c/222",
+          status: "done",
+          sessionKey: "client-a",
+          createdAt: "2026-09-11T00:00:00Z"
+        }
+      ],
+      project: "Notes",
+      projectId: "aaaaaaaa",
+      sessionKey: "client-a"
+    });
+
+    expect("target" in resolved && resolved.target.taskId).toBe("task_notes");
+  });
+
+  it("accepts a thread recorded before the same project id was renamed", () => {
+    const resolved = resolveContinuationThread({
+      consults: [
+        {
+          taskId: "task_before_rename",
+          thread: "https://chatgpt.com/g/g-p-aaaaaaaa-old-notes/c/111",
+          status: "done",
+          sessionKey: "client-a",
+          createdAt: "2026-09-10T00:00:00Z"
+        }
+      ],
+      project: "Notes",
+      projectId: "aaaaaaaa",
+      sessionKey: "client-a"
+    });
+
+    expect("target" in resolved && resolved.target.taskId).toBe("task_before_rename");
+  });
+
+  it("refuses an ambiguous recorded project name without a live project id", () => {
+    const resolved = resolveContinuationThread({
+      consults: [
+        {
+          taskId: "task_old_project",
+          thread: "https://chatgpt.com/g/g-p-aaaaaaaa-notes/c/111",
+          status: "done",
+          sessionKey: "client-a",
+          createdAt: "2026-09-10T00:00:00Z"
+        },
+        {
+          taskId: "task_new_project",
+          thread: "https://chatgpt.com/g/g-p-bbbbbbbb-notes/c/222",
+          status: "done",
+          sessionKey: "client-a",
+          createdAt: "2026-09-11T00:00:00Z"
+        }
+      ],
+      project: "Notes",
+      sessionKey: "client-a"
+    });
+
+    expect("error" in resolved && resolved.error).toMatch(/ambiguous.*--continue-task/is);
+  });
+
+  it("uses a unique recorded project id for legacy name and id-only URLs", () => {
+    const resolved = resolveContinuationThread({
+      consults: [
+        {
+          taskId: "task_named",
+          thread: "https://chatgpt.com/g/g-p-aaaaaaaa-notes/c/111",
+          status: "done",
+          sessionKey: "client-a",
+          createdAt: "2026-09-10T00:00:00Z"
+        },
+        {
+          taskId: "task_id_only",
+          thread: "https://chatgpt.com/g/g-p-aaaaaaaa/c/222",
+          status: "done",
+          sessionKey: "client-a",
+          createdAt: "2026-09-11T00:00:00Z"
+        }
+      ],
+      project: "Notes",
+      sessionKey: "client-a"
+    });
+
+    expect("target" in resolved && resolved.target.taskId).toBe("task_id_only");
+  });
+
   // A follow-up for the general chat must not walk into a project, and a
   // project's follow-up must not answer in another project's conversation.
   it("keeps a projectless follow-up out of every project", () => {
@@ -67,6 +162,23 @@ describe("which conversation a follow-up belongs to", () => {
     expect("target" in resolved && resolved.target.taskId).toBe("task_a");
   });
 
+  it("lets an explicit task id deliberately override an unreliable implicit record", () => {
+    const resolved = resolveContinuationThread({
+      consults: [
+        {
+          taskId: "task_named",
+          thread: thread("aaa", "notes"),
+          status: "done",
+          warnings: ["answer_incomplete: response was still generating"]
+        }
+      ],
+      project: "notes",
+      taskId: "task_named"
+    });
+
+    expect("target" in resolved && resolved.target.taskId).toBe("task_named");
+  });
+
   it("refuses a named consult it has no thread for", () => {
     const resolved = resolveContinuationThread({ consults, taskId: "task_missing" });
     expect("error" in resolved && resolved.error).toMatch(/no recorded consult thread/i);
@@ -77,6 +189,58 @@ describe("which conversation a follow-up belongs to", () => {
     const blockedOnly = [{ taskId: "task_x", thread: thread("xxx", "notes"), status: "blocked", sessionKey: "client-a", createdAt: "2026-09-11T00:00:00Z" }];
     expect("error" in resolveContinuationThread({ consults: blockedOnly, project: "notes", sessionKey: "client-a" })).toBe(true);
   });
+
+  it.each(["answer_incomplete:", "request_unverified:"])(
+    "refuses the newest implicit consult with %s instead of falling back to an older answer",
+    (warningPrefix) => {
+      const resolved = resolveContinuationThread({
+        consults: [
+          {
+            taskId: "task_older",
+            thread: thread("aaa", "notes"),
+            status: "done",
+            sessionKey: "client-a",
+            createdAt: "2026-09-10T00:00:00Z"
+          },
+          {
+            taskId: "task_newest",
+            thread: thread("bbb", "notes"),
+            status: "done",
+            sessionKey: "client-a",
+            createdAt: "2026-09-11T00:00:00Z",
+            warnings: [`${warningPrefix} recorded answer is not reliable`]
+          }
+        ],
+        project: "Notes",
+        sessionKey: "client-a"
+      });
+
+      expect("error" in resolved && resolved.error).toMatch(new RegExp(warningPrefix));
+      expect("error" in resolved && resolved.error).toMatch(/--continue-task/i);
+    }
+  );
+
+  it.each(["receipt_record_warning:", "session_record_warning:"])(
+    "refuses an implicit consult carrying %s",
+    (warningPrefix) => {
+      const resolved = resolveContinuationThread({
+        consults: [
+          {
+            taskId: "task_warned",
+            thread: thread("aaa", "notes"),
+            status: "done",
+            sessionKey: "client-a",
+            createdAt: "2026-09-11T00:00:00Z",
+            warnings: [`${warningPrefix} persistence failed`]
+          }
+        ],
+        project: "Notes",
+        sessionKey: "client-a"
+      });
+
+      expect("error" in resolved && resolved.error).toMatch(new RegExp(warningPrefix));
+    }
+  );
 });
 
 describe("matching a recorded thread to a project", () => {

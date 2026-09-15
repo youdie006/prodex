@@ -59,12 +59,14 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.13.3",
+    "ws": "^8.21.3",
     "zod": "^3.25.67"
   },
   "devDependencies": {
     "@types/node": "^22.15.32",
+    "@types/ws": "^8.18.1",
     "tsx": "^4.20.3",
     "typescript": "^5.8.3",
-    "vitest": "^4.1.9"
+    "vitest": "^4.1.11"
   }
 }

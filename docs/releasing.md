@@ -15,7 +15,7 @@ git tag v0.8.2
 git push origin v0.8.2
 ```
 
-`.github/workflows/publish.yml` fires on a `v*.*.*` tag: it checks out, installs, verifies the tag equals `package.json`'s version, runs `release:verify`, and publishes with `npm publish --provenance --access public`. The tag/version guard prevents publishing a mismatched version.
+`.github/workflows/publish.yml` fires on a `v*.*.*` tag: it checks out, installs, verifies the tag equals `package.json`'s version, builds, runs `release:check -- --metadata-only` and `release:verify`, then publishes with `npm publish --provenance --access public --ignore-scripts`. The explicit metadata check also runs for manual workflow dispatches. It is required because `--ignore-scripts` skips `prepublishOnly`; a separate main-branch CI run is not a substitute for checking the commit being published.
 
 One-time setup (owner, on npmjs.com): open the package → Settings → Trusted Publishing → add a GitHub Actions publisher for repo `youdie006/prodex` and workflow `publish.yml`. After that, no npm tokens are needed anywhere; revoke any previously issued automation tokens.
 

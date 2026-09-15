@@ -71,9 +71,7 @@ export function buildIssueReport(consult: BlockedConsultLike, environment: Repor
     `| platform | ${environment.platform} |`,
     `| node | ${environment.nodeVersion} |`,
     "",
-    "Private error details and recovery instructions are omitted. Review the local receipt before sharing more context.",
-    "",
-    "Receipt (local, not attached): " + consult.task_id
+    "Private error details and recovery instructions are omitted. Review the local receipt before sharing more context."
   ].join("\n");
   return {
     title: `${code}: ${message || "blocked consult"}`.slice(0, 120),

@@ -21,6 +21,7 @@ export interface ConsultThreadRecord {
   thread?: string;
   status: string;
   createdAt?: string;
+  warnings?: readonly string[];
 }
 
 export interface ContinuationTarget {
@@ -86,6 +87,10 @@ export function projectIdsByName(threadUrls: readonly string[]): Map<string, Set
     byName.set(name, ids);
   }
   return byName;
+}
+
+function projectIdFromThreadUrl(threadUrl: string): string | undefined {
+  return /\/g\/g-p-([0-9a-f]+)(?:-|\/)/i.exec(threadUrl)?.[1]?.toLowerCase();
 }
 
 /**
@@ -184,14 +189,27 @@ export function resolveContinuationThread(input: {
         "Pass --session-key <id> (or PRODEX_SESSION_KEY/CODEX_THREAD_ID), or name the intended consult with --continue-task <task_id>."
     };
   }
-  const knownProjectIds = new Set<string>(
+  const recordedProjectIds = new Set<string>(
     input.project ? projectIdsByName(withThread.map((consult) => consult.thread!)).get(chatGptProjectSlug(input.project)) ?? [] : []
   );
-  if (input.projectId) knownProjectIds.add(input.projectId.toLowerCase());
+  if (input.project && !input.projectId && recordedProjectIds.size > 1) {
+    return {
+      error:
+        `Recorded project name "${input.project}" is ambiguous because its consult threads use multiple project ids. ` +
+        "Name the intended conversation with --continue-task <task_id>."
+    };
+  }
+  const selectedProjectId = input.project
+    ? input.projectId?.replace(/^g-p-/i, "").toLowerCase() ?? recordedProjectIds.values().next().value
+    : undefined;
   const candidates = withThread
     .filter((consult) => consult.sessionKey === input.sessionKey)
     .filter((consult) => consult.status === "done")
-    .filter((consult) => threadMatchesProject(consult.thread!, input.project, knownProjectIds))
+    .filter((consult) =>
+      selectedProjectId
+        ? projectIdFromThreadUrl(consult.thread!) === selectedProjectId
+        : threadMatchesProject(consult.thread!, input.project)
+    )
     .sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""));
   const latest = candidates[0];
   if (!latest) {
@@ -200,6 +218,22 @@ export function resolveContinuationThread(input: {
       error:
         `No finished consult of this repo has a thread in ${where} to continue. ` +
         `Send once without --continue, or name a consult with --continue-task <task_id>.`
+    };
+  }
+  const unreliableWarningPrefixes = [
+    "answer_incomplete:",
+    "request_unverified:",
+    "receipt_record_warning:",
+    "session_record_warning:"
+  ];
+  const unreliableWarning = latest.warnings?.find((warning) =>
+    unreliableWarningPrefixes.some((prefix) => warning.startsWith(prefix))
+  );
+  if (unreliableWarning) {
+    return {
+      error:
+        `Cannot implicitly continue consult "${latest.taskId}" because its record is unreliable: ${unreliableWarning} ` +
+        `Recover and verify the original answer first. After explicit user review, name it with --continue-task ${latest.taskId}. Do not resend automatically.`
     };
   }
   return { target: { taskId: latest.taskId, thread: latest.thread! } };

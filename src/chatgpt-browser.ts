@@ -4,6 +4,7 @@ import { accessSync, constants, readFileSync, statSync } from "node:fs";
 import net from "node:net";
 import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import WsWebSocket from "ws";
 
 import { captureBrowserDiagnostics, diagnosticsEnabled, diagnosticsNote } from "./browser-diagnostics.js";
 import { withCrossProcessFileLock } from "./safe-file.js";
@@ -5118,7 +5119,8 @@ async function connectCdp(webSocketUrl: string, timeoutMs?: number): Promise<{
   close: () => void;
 }> {
   const effectiveTimeoutMs = resolveCdpTimeoutMs(timeoutMs);
-  const ws = new WebSocket(webSocketUrl);
+  const WebSocketConstructor = globalThis.WebSocket ?? WsWebSocket;
+  const ws = new WebSocketConstructor(webSocketUrl);
   let id = 0;
   const pending = new Map<
     number,
@@ -5216,7 +5218,7 @@ async function connectCdp(webSocketUrl: string, timeoutMs?: number): Promise<{
     // The rejection carries the timeout that did the closing: a caller that
     // swallowed that first error and moved on would otherwise report "socket
     // not open", which names neither the stalled tab nor the dialog cure.
-    if (ws.readyState !== WebSocket.OPEN) {
+    if (ws.readyState !== WebSocketConstructor.OPEN) {
       return Promise.reject(
         new Error(
           closedByTimeout

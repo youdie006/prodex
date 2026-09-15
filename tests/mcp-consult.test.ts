@@ -547,4 +547,25 @@ describe("MCP follow-up approval checkpoints", () => {
     expect(outcome.continuation).toBeUndefined();
     expect(outcome.warnings).toContain("answer_incomplete: still generating");
   });
+
+  it.each(["incomplete", "unverified"])("refuses implicit continuation after an %s answer without selecting an older topic", async (quality) => {
+    const { cwd } = await start();
+    sendChatGptPromptMock.mockResolvedValueOnce({
+      ...answer,
+      url: "https://chatgpt.com/c/uncertain-latest-topic",
+      ...(quality === "incomplete" ? { warnings: ["answer_incomplete: still generating"] } : { requestVerified: false })
+    });
+    await performBrowserConsultForMcp(cwd, { prompt: "A second topic", session_key: "caller-a" });
+    const { BridgeStore } = await import("../src/store.js");
+    const store = new BridgeStore(cwd);
+    const before = (await store.listTasks()).length;
+
+    await expect(performBrowserConsultForMcp(cwd, {
+      prompt: "Continue the last answer", session_key: "caller-a", continue_thread: true
+    })).rejects.toThrow(/incomplete|unverified|uncertain|recover/i);
+
+    expect(sendChatGptPromptMock).toHaveBeenCalledTimes(2);
+    expect((await store.listTasks()).length).toBe(before);
+    expect((await store.listReceipts()).some((receipt) => receipt.kind === "consult_followup_reserved")).toBe(false);
+  });
 });

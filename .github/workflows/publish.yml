@@ -71,6 +71,9 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Run release metadata check
+        run: npm run release:check -- --metadata-only
+
       - name: Release verification
         run: npm run release:verify
 

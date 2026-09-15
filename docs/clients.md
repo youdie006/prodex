@@ -74,9 +74,17 @@ already-resolved target). An answer that failed to save or is incomplete does no
 invite another automatic turn; report it and resolve the blocker first.
 
 After updating the installed package, reconnect the MCP server or restart the agent
-client. A running stdio process keeps the old code until it exits. The dedicated
-browser profile is unchanged, so restarting Codex/Claude does not require signing in
-to ChatGPT again.
+client. A running stdio process keeps the old code until it exits. This preserves the
+dedicated browser profile and does not itself require signing in again. A saved
+ChatGPT session can still expire independently; stop on `login_required` and finish
+the login manually.
+
+Stdio MCP does not require tmux or a terminal. The client launches prodex and keeps
+its stdin/stdout pipes open. Keep that client or its remote SSH session running
+while a consult is pending; restarting it can interrupt answer collection even if
+ChatGPT is still generating. Recover that marked request instead of resending it.
+The separate `prodex start` HTTP server runs in the foreground and also needs its
+own process kept alive; neither command installs a background service.
 
 ## Claude Code
 

@@ -1362,15 +1362,20 @@ export async function runAskProCommand(
       // the name matching to do what it can; the send would fail on the same
       // browser anyway.
       let continuationProjectId: string | undefined;
+      let ambiguousProjectName = false;
       if (continuationProject) {
         try {
-          continuationProjectId = projectIdFromSidebar(
-            await listChatGptProjectsWithIds({ port: resolveCdpPort(readPortFlag(parsedAskPro.optionArgs, "--port")) }),
-            continuationProject
+          const projects = await listChatGptProjectsWithIds({ port: resolveCdpPort(readPortFlag(parsedAskPro.optionArgs, "--port")) });
+          continuationProjectId = projectIdFromSidebar(projects, continuationProject);
+          ambiguousProjectName = !continuationProjectId && projects.some(
+            (project) => project.name.trim().toLowerCase() === continuationProject.trim().toLowerCase()
           );
         } catch {
           continuationProjectId = undefined;
         }
+      }
+      if (ambiguousProjectName && continueTaskId === undefined) {
+        throw new Error(`Project name "${continuationProject}" is ambiguous in the sidebar. Name the intended conversation with --continue-task <task_id>.`);
       }
       const resolved = resolveContinuationThread({
         consults: (await targetStore.listSessionsReadOnly()).map((session) => ({
@@ -1378,6 +1383,7 @@ export async function runAskProCommand(
           ...(session.session_key ? { sessionKey: session.session_key } : {}),
           ...(session.thread ? { thread: session.thread } : {}),
           status: session.status,
+          warnings: session.warnings,
           ...(session.created_at ? { createdAt: session.created_at } : {})
         })),
         ...(continuationProject ? { project: continuationProject } : {}),
@@ -1725,6 +1731,9 @@ export async function runAskProCommand(
         ...(consult.url ? { answeredUrl: consult.url } : {})
       });
       if (destination.warning) persistenceWarnings.push(destination.warning);
+      if (consult.requestVerified === false && !persistenceWarnings.some((warning) => warning.startsWith("request_unverified:"))) {
+        persistenceWarnings.push("request_unverified: the saved answer was not verified against its requested user turn. Review the original conversation before continuing.");
+      }
       // Truncation and other send warnings must be visible at runtime, not
       // only inside the persisted receipt: a caller who never opens .bridge
       // would otherwise treat a cut-off answer as complete.

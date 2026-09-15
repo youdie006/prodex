@@ -115,7 +115,7 @@ a configurable approval checkpoint (default 5, not a target round count); an
 See [same-task dialogue](docs/clients.md#same-task-dialogue) for the budget and
 `user_approved` contract. New topics still start fresh chats.
 
-Updating the installed npm package does not reload an MCP process that is already running. Reconnect the MCP server or restart the Codex/Claude client to load the new build. The dedicated browser profile is separate and remains signed in, so this does not require ChatGPT authentication again.
+Updating the installed npm package does not reload an MCP process that is already running. Reconnect the MCP server or restart the Codex/Claude client to load the new build. This preserves the separate dedicated browser profile and does not itself require another login. ChatGPT can still expire the saved session; a `login_required` blocker means you need to sign in manually again.
 
 An MCP server usually starts without `--cwd`, so a per-repo default can be missed. For defaults that apply from any directory, set `PRODEX_DEFAULT_PROJECT`, `PRODEX_DEFAULT_MODEL`, `PRODEX_DEFAULT_EFFORT` or `PRODEX_DEFAULT_PRO_MODE` in the agent's MCP `env` block; a per-repo config still wins field by field.
 
@@ -244,6 +244,10 @@ node scripts/ui-watchdog.mjs         # a real round trip that says ok or broken;
 Reports are deduplicated by blocker code, so something that stays broken adds to one issue. Captures stay on your machine.
 
 ## FAQ
+
+**Do I need tmux?** No. Explicit CLI commands work in a normal terminal, and stdio MCP works through pipes without a terminal. Only the interactive picker and `setup --interactive` need keyboard input from a terminal. Keep the calling CLI or agent running while waiting for an answer: closing its terminal or disconnecting SSH can interrupt collection. tmux is an optional way to keep that foreground session alive, not a requirement. `prodex start` is also a foreground process, not an installed service.
+
+**Can I close the terminal after login?** Yes, once login is READY: the dedicated Chrome is launched separately. Keep that browser running for consults. If a CLI or agent exits during a request, ChatGPT may still finish it; recover the original thread and request ID rather than automatically sending the question again.
 
 **A send failed with `send_ui_changed`.** ChatGPT redesigned the composer or send control. Update (`npm i -g @youdie006/prodex@latest`); if it persists, `prodex pro report-issue`, and paste the prompt by hand meanwhile.
 

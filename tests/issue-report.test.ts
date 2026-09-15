@@ -48,6 +48,13 @@ describe("a bug report built from a blocked consult", () => {
     expect(report.body).not.toMatch(/unreleased|confidential|pricing/i);
   });
 
+  it("does not publish task identifiers derived from private titles", () => {
+    const taskId = "task_20260915_010000_acme-acquisition-plan";
+    const report = buildIssueReport({ ...blocked, task_id: taskId }, environment);
+    expect(JSON.stringify(report)).not.toContain(taskId);
+    expect(JSON.stringify(report)).not.toContain("acme-acquisition-plan");
+  });
+
   it("refuses a consult that did not fail, so nothing files a report about a success", () => {
     expect(() => buildIssueReport({ ...blocked, status: "done", blocker: undefined } as never, environment)).toThrow(/not a failure/i);
   });

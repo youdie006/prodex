@@ -1148,7 +1148,9 @@ describe("runCli", () => {
 
     await expect(readdir(path.join(targetCwd, ".bridge", "tasks"))).resolves.toHaveLength(1);
     await expect(readdir(path.join(launcherCwd, ".bridge", "tasks"))).rejects.toThrow();
-  }, 20_000);
+    // Allow the bounded connect (20s), tool call (20s), and cleanup (10s)
+    // to report their own failure before Vitest aborts the whole test.
+  }, 60_000);
 
   it("rejects flags that are missing required values", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));

@@ -2836,6 +2836,25 @@ describe("pro browser ask model/project selection", () => {
     expect(sendChatGptPromptMock).toHaveBeenCalledWith(expect.not.objectContaining({ newChat: true }));
   });
 
+  it("refuses duplicate sidebar project names even when only one was previously recorded", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-send-"));
+    const { BridgeStore } = await import("../src/store.js");
+    await new BridgeStore(cwd).writeSession({
+      direction: "codex_to_chatgpt", backend: "chatgpt-control", task_id: "task_notes",
+      thread: "https://chatgpt.com/g/g-p-abc-notes/c/old", session_key: "client-a", status: "done"
+    });
+    listChatGptProjectsWithIdsMock.mockResolvedValueOnce([
+      { id: "g-p-abc", name: "Notes" }, { id: "g-p-def", name: "Notes" }
+    ]);
+    sendChatGptPromptMock.mockResolvedValueOnce({
+      url: "https://chatgpt.com/g/g-p-abc-notes/c/old", title: "ChatGPT", answer: "wrong guess", modelHints: [], warnings: []
+    });
+    await expect(runCli(["ask", "--continue", "--session-key", "client-a", "--project", "Notes", "Follow up"], {
+      cwd, stdout: () => {}, stderr: () => {}
+    })).rejects.toThrow(/ambiguous.*--continue-task/is);
+    expect(sendChatGptPromptMock).not.toHaveBeenCalled();
+  });
+
   it("uses CODEX_THREAD_ID as the CLI session key fallback", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-send-"));
     process.env.CODEX_THREAD_ID = "codex-thread-env";
