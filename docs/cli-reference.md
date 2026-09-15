@@ -33,7 +33,7 @@ Not implemented:
 
 This section connects coding agents (Claude, Codex, ChatGPT Projects) to the bridge over MCP. It is not required for the standalone terminal flow above — if you only want Pro answers in your terminal, the [Quickstart](#quickstart-a-pro-second-opinion-from-your-terminal) is complete on its own.
 
-Requires Node.js 20 or newer, `git`, and `ripgrep` (`rg`) on PATH. The optional visible-browser adapter needs a Chromium-family browser: PATH binaries (`google-chrome`, `chromium`, `chromium-browser`, `microsoft-edge`, `brave-browser`), standard macOS app bundles, Windows Program Files/LOCALAPPDATA installs, and Windows-host browsers under WSL are all probed automatically; anything else via `PRODEX_CHROME=/path/to/browser`.
+Requires Node.js 20 or newer, `git`, and `ripgrep` (`rg`) on PATH. The optional browser adapter probes PATH binaries (`google-chrome`, `chromium`, `chromium-browser`, `microsoft-edge`, `brave-browser`), native macOS app bundles, and native Windows Program Files/LOCALAPPDATA installs. Set `PRODEX_CHROME` for another executable. WSL uses Linux browser paths, not automatic Windows-host browser discovery. Do not share one profile between native Windows Chrome and Linux Chrome. See [platform verification](platform-verification.md) and [local storage permissions](../SECURITY.md#local-storage-permissions).
 
 Install from npm — **note the scope**. The unscoped `prodex` on npm is an unrelated third-party package; do **not** install it. Use the scoped name:
 

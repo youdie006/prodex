@@ -1123,7 +1123,7 @@ describe("BridgeStore", () => {
         if (kind !== "results" || swapped) return;
         swapped = true;
         await rename(path.join(root, ".bridge", "results"), path.join(root, ".bridge", "results-real"));
-        await symlink(outside, path.join(root, ".bridge", "results"));
+        await symlink(outside, path.join(root, ".bridge", "results"), process.platform === "win32" ? "junction" : "dir");
       }
     });
 
@@ -1147,7 +1147,7 @@ describe("BridgeStore", () => {
     const root = await mkdtemp(path.join(tmpdir(), "prodex-store-"));
     const outside = await mkdtemp(path.join(tmpdir(), "prodex-outside-"));
     await mkdir(path.join(root, ".bridge", "artifacts", "repo-writes"), { recursive: true });
-    await symlink(outside, path.join(root, ".bridge", "artifacts", "repo-writes", "outside"));
+    await symlink(outside, path.join(root, ".bridge", "artifacts", "repo-writes", "outside"), process.platform === "win32" ? "junction" : "dir");
     const store = new BridgeStore(root);
 
     await expect(
@@ -1208,7 +1208,7 @@ describe("BridgeStore", () => {
         if (!swapped && operation === "write" && filePath === artifactPath) {
           swapped = true;
           await rm(swapDir, { recursive: true, force: true });
-          await symlink(outside, swapDir);
+          await symlink(outside, swapDir, process.platform === "win32" ? "junction" : "dir");
         }
       }
     });
@@ -1223,7 +1223,7 @@ describe("BridgeStore", () => {
     const root = await mkdtemp(path.join(tmpdir(), "prodex-store-"));
     const outside = await mkdtemp(path.join(tmpdir(), "prodex-outside-"));
     await mkdir(path.join(root, ".bridge", "artifacts"), { recursive: true });
-    await symlink(outside, path.join(root, ".bridge", "artifacts", "repo-writes"));
+    await symlink(outside, path.join(root, ".bridge", "artifacts", "repo-writes"), process.platform === "win32" ? "junction" : "dir");
     const store = new BridgeStore(root);
 
     await expect(
@@ -1236,7 +1236,7 @@ describe("BridgeStore", () => {
     const root = await mkdtemp(path.join(tmpdir(), "prodex-store-"));
     const outside = await mkdtemp(path.join(tmpdir(), "prodex-outside-"));
     await mkdir(path.join(root, ".bridge"), { recursive: true });
-    await symlink(outside, path.join(root, ".bridge", "artifacts"));
+    await symlink(outside, path.join(root, ".bridge", "artifacts"), process.platform === "win32" ? "junction" : "dir");
     const store = new BridgeStore(root);
 
     await expect(
@@ -1247,7 +1247,7 @@ describe("BridgeStore", () => {
   it("rejects bridge storage when the bridge directory itself is a symlink", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "prodex-store-"));
     const outside = await mkdtemp(path.join(tmpdir(), "prodex-outside-"));
-    await symlink(outside, path.join(root, ".bridge"));
+    await symlink(outside, path.join(root, ".bridge"), process.platform === "win32" ? "junction" : "dir");
     const store = new BridgeStore(root);
 
     await expect(
@@ -1259,7 +1259,7 @@ describe("BridgeStore", () => {
     const root = await mkdtemp(path.join(tmpdir(), "prodex-store-"));
     const outside = await mkdtemp(path.join(tmpdir(), "prodex-outside-"));
     await mkdir(path.join(outside, "artifacts", "repo-writes"), { recursive: true });
-    await symlink(outside, path.join(root, ".bridge"));
+    await symlink(outside, path.join(root, ".bridge"), process.platform === "win32" ? "junction" : "dir");
     const store = new BridgeStore(root);
 
     await expect(
@@ -1273,7 +1273,8 @@ describe("BridgeStore", () => {
     await store.writeArtifactText(".bridge/artifacts/real-dir/payload.txt", "payload\n");
     await symlink(
       path.join(root, ".bridge", "artifacts", "real-dir"),
-      path.join(root, ".bridge", "artifacts", "linked-dir")
+      path.join(root, ".bridge", "artifacts", "linked-dir"),
+      process.platform === "win32" ? "junction" : "dir"
     );
 
     await expect(
@@ -1322,7 +1323,7 @@ describe("BridgeStore", () => {
     const root = await mkdtemp(path.join(tmpdir(), "prodex-store-"));
     const outside = await mkdtemp(path.join(tmpdir(), "prodex-outside-"));
     await mkdir(path.join(root, ".bridge"), { recursive: true });
-    await symlink(outside, path.join(root, ".bridge", "receipts"));
+    await symlink(outside, path.join(root, ".bridge", "receipts"), process.platform === "win32" ? "junction" : "dir");
     const store = new BridgeStore(root);
 
     await expect(
@@ -1444,7 +1445,7 @@ describe("BridgeStore", () => {
         if (!swapped && operation === "write") {
           swapped = true;
           await rename(path.join(root, ".bridge", "receipts"), movedReceiptsDir);
-          await symlink(outside, path.join(root, ".bridge", "receipts"));
+          await symlink(outside, path.join(root, ".bridge", "receipts"), process.platform === "win32" ? "junction" : "dir");
         }
       }
     });
@@ -1469,14 +1470,14 @@ describe("BridgeStore", () => {
       provenance: { adapter: "cli" }
     });
     const originalPlatform = process.platform;
-    Object.defineProperty(process, "platform", { value: "darwin" });
+    Object.defineProperty(process, "platform", { value: originalPlatform === "win32" ? "win32" : "darwin" });
     let swapped = false;
     setSafeFileTestHooks({
       beforeOpen: async (filePath, operation) => {
         if (!swapped && operation === "write" && filePath === path.join(root, ".bridge", "results", `${task.id}.json`)) {
           swapped = true;
           await rename(path.join(root, ".bridge", "results"), movedResultsDir);
-          await symlink(outside, path.join(root, ".bridge", "results"));
+          await symlink(outside, path.join(root, ".bridge", "results"), process.platform === "win32" ? "junction" : "dir");
         }
       }
     });
@@ -1500,14 +1501,14 @@ describe("BridgeStore", () => {
     const store = new BridgeStore(root);
     await store.ensure();
     const originalPlatform = process.platform;
-    Object.defineProperty(process, "platform", { value: "darwin" });
+    Object.defineProperty(process, "platform", { value: originalPlatform === "win32" ? "win32" : "darwin" });
     let swapped = false;
     setBridgeStoreTestHooks({
       beforeRecordRename: async (kind) => {
         if (swapped || kind !== "receipts") return;
         swapped = true;
         await rename(path.join(root, ".bridge", "receipts"), movedReceiptsDir);
-        await symlink(outside, path.join(root, ".bridge", "receipts"));
+        await symlink(outside, path.join(root, ".bridge", "receipts"), process.platform === "win32" ? "junction" : "dir");
       }
     });
 

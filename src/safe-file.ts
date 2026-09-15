@@ -211,15 +211,16 @@ export async function replaceVerifiedUtf8File(
     const latestContent = await readHandleUtf8(handle, filePath, options.maxBytes);
     await verifyCurrentContent(latestContent);
     await testHooks.beforeWrite?.(filePath, "write");
-    await replaceByVerifiedTempFile(filePath, content, validate, options, {
-      beforeOpenAlreadyRan: true,
-      beforeWriteAlreadyRan: true,
-      parentSnapshot,
-      skipExistingTargetCheck: true
-    });
   } finally {
     await handle.close();
   }
+  // Windows cannot replace some files while their verification handle is open.
+  await replaceByVerifiedTempFile(filePath, content, validate, options, {
+    beforeOpenAlreadyRan: true,
+    beforeWriteAlreadyRan: true,
+    parentSnapshot,
+    skipExistingTargetCheck: true
+  });
 }
 
 async function replaceByVerifiedTempFile(

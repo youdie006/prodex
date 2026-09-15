@@ -62,7 +62,7 @@ describe("anchoring the writer's working directory", () => {
     const store = new BridgeStore(root);
     await store.ensure();
     await rename(path.join(root, ".bridge", "receipts"), path.join(root, ".bridge", "receipts-real"));
-    await symlink(outside, path.join(root, ".bridge", "receipts"));
+    await symlink(outside, path.join(root, ".bridge", "receipts"), process.platform === "win32" ? "junction" : "dir");
     setBridgeStoreTestHooks({ disableDirectoryFdPaths: true });
 
     await expect(store.writeReceipt({ kind: "consult_preview", summary: "Should not land outside" })).rejects.toThrow(

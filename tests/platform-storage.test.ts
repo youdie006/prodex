@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { loadLocalConfig, writeLocalConfig } from "../src/config.js";
 import { BridgeStore } from "../src/store.js";
+import { setSafeFileTestHooks } from "../src/safe-file.js";
 
 const roots: string[] = [];
 async function temporaryRoot(): Promise<string> {
@@ -13,10 +14,23 @@ async function temporaryRoot(): Promise<string> {
 }
 
 afterEach(async () => {
+  setSafeFileTestHooks({});
   for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true });
 });
 
 describe("native platform storage", () => {
+  it("does not replace an already complete bridge gitignore on repeated initialization", async () => {
+    const root = await temporaryRoot();
+    const store = new BridgeStore(root);
+    await store.ensure();
+    setSafeFileTestHooks({
+      beforeWrite: (filePath) => {
+        if (path.basename(filePath) === ".gitignore") throw new Error("unnecessary replacement");
+      }
+    });
+    await expect(store.ensure()).resolves.toBeUndefined();
+    await expect(writeLocalConfig(root, { port: 9797, token: "test" })).resolves.toBeDefined();
+  });
   it("persists local settings and a verified receipt without POSIX directory handles", async () => {
     const root = await temporaryRoot();
     await writeLocalConfig(root, { port: 9797, token: "platform-test-token" });

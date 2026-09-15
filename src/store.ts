@@ -1009,7 +1009,9 @@ export class BridgeStore {
     ];
     const lines = new Set(current.split(/\r?\n/).filter(Boolean));
     for (const line of required) lines.add(line);
-    await writeVerifiedUtf8File(ignorePath, `${Array.from(lines).join("\n")}\n`, () => this.assertBridgeGitignoreTargetSafe(), {
+    const updated = `${Array.from(lines).join("\n")}\n`;
+    if (updated === current) return;
+    await writeVerifiedUtf8File(ignorePath, updated, () => this.assertBridgeGitignoreTargetSafe(), {
       create: true
     });
   }
@@ -1189,6 +1191,11 @@ export class BridgeStore {
       throw new Error(`Bridge record path must stay under .bridge/${kind}`);
     }
     await this.assertStorageDirIsRealDirectory(kind);
+    if (job.op === "cleanupTempHardLinks") {
+      await storeTestHooks.beforeRecordTempCleanup?.(kind, filePath);
+    } else if (job.op === "writeByRename" || job.op === "linkIfAbsent") {
+      await storeTestHooks.beforeRecordRename?.(kind, filePath);
+    }
     const outcome = await runAnchoredWrite(this.bridgeDir, [kind], {
       ...job,
       fileName: path.basename(filePath),

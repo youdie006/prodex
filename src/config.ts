@@ -383,7 +383,9 @@ async function ensureBridgeLocalFiles(cwd: string): Promise<void> {
   ];
   const lines = new Set(current.split(/\r?\n/).filter(Boolean));
   for (const line of required) lines.add(line);
-  await writeVerifiedUtf8File(ignorePath, `${Array.from(lines).join("\n")}\n`, () => assertBridgeGitignoreTargetSafe(cwd), {
+  const updated = `${Array.from(lines).join("\n")}\n`;
+  if (updated === current) return;
+  await writeVerifiedUtf8File(ignorePath, updated, () => assertBridgeGitignoreTargetSafe(cwd), {
     create: true
   });
 }

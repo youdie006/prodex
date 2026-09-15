@@ -49,7 +49,7 @@ That is a real run, timings included. Every consult lands as a task, a result an
 
 ## Install
 
-Node 20 or newer, `git`, and `ripgrep` (`rg`) on PATH. A Chromium-family browser for the visible adapter: Chrome, Chromium, Edge or Brave on PATH, in the standard macOS and Windows locations, or on the Windows host under WSL are all found automatically; anything else via `PRODEX_CHROME=/path/to/browser`.
+Node 20 or newer, `git`, and `ripgrep` (`rg`) on PATH. A Chromium-family browser for the browser adapter: Chrome, Chromium, Edge or Brave on PATH or in the standard native macOS and Windows locations. Set `PRODEX_CHROME` for another executable. WSL uses a Linux browser; Windows-host Chrome is not automatically discovered or interchangeable with a Linux profile.
 
 ```sh
 npm install -g @youdie006/prodex
@@ -277,7 +277,7 @@ Reports are deduplicated by blocker code, so something that stays broken adds to
 
 **Does it read my cookies or tokens?** No. It talks to the browser only over the loopback DevTools port, and only while that browser is open.
 
-**Windows and macOS?** All three platforms are targeted; the visible-browser adapter is exercised most on Linux and WSL. Open an issue with details if a browser step misbehaves elsewhere.
+**Windows and macOS?** The CI matrix targets Linux, native Windows, and macOS ARM/Intel. See [platform verification](docs/platform-verification.md) for actual results and limits. Virtual display is Linux/WSL-only; a passing OS test does not prove authenticated headless ChatGPT access. On Windows, keep the repository and browser profile in a private user directory with suitable ACLs; Unix permission bits do not make Windows storage private.
 
 ## Development
 
