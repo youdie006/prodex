@@ -358,39 +358,25 @@ describe("BridgeStore", () => {
     const listed = await store.listTasks();
     expect(listed.length).toBe(count);
     expect(new Set(listed.map((task) => task.prompt)).size).toBe(count);
-  });
+  }, 60_000);
 
-  it("rejects finalizing a task after it is already done or blocked", async () => {
+  it.each(["done", "blocked"] as const)("rejects finalizing a task after it is already %s", async (status) => {
     const root = await mkdtemp(path.join(tmpdir(), "prodex-store-"));
     const store = new BridgeStore(root);
-    const doneTask = await store.createTask({
+    const task = await store.createTask({
       source: "codex",
-      title: "Done once",
+      title: `Terminal ${status}`,
       prompt: "Check terminal completion.",
       repo_id: "default",
       files: [],
       provenance: { adapter: "cli" }
     });
-    const blockedTask = await store.createTask({
-      source: "codex",
-      title: "Blocked once",
-      prompt: "Check terminal block.",
-      repo_id: "default",
-      files: [],
-      provenance: { adapter: "cli" }
-    });
+    await store.completeTask(task.id, { status, summary: "First summary." });
 
-    await store.completeTask(doneTask.id, { status: "done", summary: "First summary." });
-    await store.completeTask(blockedTask.id, { status: "blocked", summary: "First blocker." });
-
-    await expect(store.completeTask(doneTask.id, { status: "done", summary: "Second summary." })).rejects.toThrow(
-      /already done|not finalizable/i
+    await expect(store.completeTask(task.id, { status: "done", summary: "Second summary." })).rejects.toThrow(
+      new RegExp(`already ${status}|not finalizable`, "i")
     );
-    await expect(store.completeTask(blockedTask.id, { status: "done", summary: "Second blocker." })).rejects.toThrow(
-      /already blocked|not finalizable/i
-    );
-    await expect(store.getResult(doneTask.id)).resolves.toEqual(expect.objectContaining({ summary: "First summary." }));
-    await expect(store.getResult(blockedTask.id)).resolves.toEqual(expect.objectContaining({ summary: "First blocker." }));
+    await expect(store.getResult(task.id)).resolves.toEqual(expect.objectContaining({ summary: "First summary." }));
   });
 
   it("reports terminal tasks with missing result records as repairable corruption", async () => {

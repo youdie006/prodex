@@ -977,37 +977,25 @@ describe("pro browser ask persistence", () => {
     }
   });
 
-  it("warns when a requested project send lands on a root /c/ thread, and not when in-project", async () => {
+  it.each([
+    { url: "https://chatgpt.com/c/root-thread", warns: true },
+    { url: "https://chatgpt.com/g/g-p-abc123-sandbox-demo/c/in-project-thread", warns: false }
+  ])("reports project landing warnings=$warns for $url", async ({ url, warns }) => {
     const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-send-"));
     sendChatGptPromptMock.mockResolvedValueOnce({
-      url: "https://chatgpt.com/c/root-thread",
+      url,
       title: "ChatGPT",
       answer: "answer",
       modelHints: [],
       warnings: []
     });
-    const rootErr: string[] = [];
+    const errors: string[] = [];
     await runCli(["pro", "browser", "ask", "--model", "Pro", "--project", "sandbox-demo", "Review this"], {
       cwd,
       stdout: () => {},
-      stderr: (line) => rootErr.push(line)
+      stderr: (line) => errors.push(line)
     });
-    expect(rootErr.join("\n")).toMatch(/project_landing_warning/);
-
-    sendChatGptPromptMock.mockResolvedValueOnce({
-      url: "https://chatgpt.com/g/g-p-abc123-sandbox-demo/c/in-project-thread",
-      title: "ChatGPT",
-      answer: "answer",
-      modelHints: [],
-      warnings: []
-    });
-    const okErr: string[] = [];
-    await runCli(["pro", "browser", "ask", "--model", "Pro", "--project", "sandbox-demo", "Review this"], {
-      cwd,
-      stdout: () => {},
-      stderr: (line) => okErr.push(line)
-    });
-    expect(okErr.join("\n")).not.toMatch(/project_landing_warning/);
+    expect(/project_landing_warning/.test(errors.join("\n"))).toBe(warns);
   });
 
   it("redacts the project name in the persisted blocked consult but keeps it in the local error", async () => {

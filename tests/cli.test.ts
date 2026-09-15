@@ -10,6 +10,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import * as chatGptBrowser from "../src/chatgpt-browser.js";
 import { shellQuote } from "../src/cli-args.js";
 import { parsePackedFiles, runCli } from "../src/cli.js";
 import { setSafeFileTestHooks } from "../src/safe-file.js";
@@ -22,6 +23,7 @@ const npmCommand = "npm-cli.mjs";
 
 function mockRefusedBrowserConnection(): void {
   // WSL can black-hole unused ports, so a fixed port is not proof of refusal.
+  vi.spyOn(chatGptBrowser, "findWedgedBrowser").mockReturnValue([]);
   vi.spyOn(globalThis, "fetch").mockRejectedValue(new TypeError("fetch failed"));
   vi.spyOn(net, "createConnection").mockImplementation(() => {
     const socket = new net.Socket();

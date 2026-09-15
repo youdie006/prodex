@@ -1395,6 +1395,24 @@ export function detectChatGptBlocker(
   return undefined;
 }
 
+function looksLikeObservedCloudflare502(text: string): boolean {
+  const normalized = text.replace(/\s+/g, " ").trim();
+  return (
+    /\bbad gateway\b/i.test(normalized) &&
+    /\berror code 502\b/i.test(normalized) &&
+    /\bvisit cloudflare\.com for more information\b/i.test(normalized)
+  );
+}
+
+function chatGptServiceErrorBlocker(): NonNullable<ChatGptBrowserStatus["blocker"]> {
+  return {
+    code: "chatgpt_service_error",
+    message: "ChatGPT rendered a Cloudflare 502 Bad Gateway service error. This is not evidence that the ChatGPT session expired.",
+    retryable: true,
+    next_step: "Wait for the ChatGPT service to recover, then check the original conversation before retrying."
+  };
+}
+
 export function detectChatGptPageBlocker(state: ChatGptPageTextState & { title?: string; hasComposer?: boolean }): ChatGptBrowserStatus["blocker"] | undefined {
   // Blocker scan uses the nav-excluded sample so a sidebar chat title cannot
   // fake a blocker; fall back to the nav-included sample / full text when the
@@ -1404,6 +1422,15 @@ export function detectChatGptPageBlocker(state: ChatGptPageTextState & { title?:
     state.visibleButtonLabels
   );
   if (rendered) return rendered;
+  // Cloudflare's 502 page is an upstream service failure, not a challenge or
+  // evidence that the ChatGPT session expired. Match only the measured
+  // template in message-excluded page text. A status read proves the composer
+  // is absent; answer polling has no composer field, so its equally narrow
+  // evidence is the dedicated nav-and-message-excluded blocker scan.
+  const messageExcluded = state.blockerScanTextSample ?? state.blockerTextSample;
+  if (state.hasComposer !== true && messageExcluded !== undefined && looksLikeObservedCloudflare502(messageExcluded)) {
+    return chatGptServiceErrorBlocker();
+  }
   // The interstitial can have an empty body. Never use a conversation title
   // alone when the composer exists or its state was not actually checked.
   if (state.hasComposer === false && /^(?:just a moment|잠시만 기다리십시오)(?:\.{0,3}|…)$/i.test(state.title?.trim() ?? "")) {

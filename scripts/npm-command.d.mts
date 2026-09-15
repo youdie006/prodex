@@ -8,6 +8,11 @@ export interface NpmCliResolutionOptions {
 
 export function resolveNpmCliPath(options?: NpmCliResolutionOptions): string;
 
+export function normalizeNpmEnvironment(
+  env: NodeJS.ProcessEnv,
+  platform?: NodeJS.Platform
+): NodeJS.ProcessEnv;
+
 export function execNpm(
   args: readonly string[],
   options?: ExecFileOptions
