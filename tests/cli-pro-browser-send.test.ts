@@ -8,6 +8,7 @@ const listChatGptProjectsWithIdsMock = vi.hoisted(() => vi.fn());
 const deleteChatGptProjectMock = vi.hoisted(() => vi.fn());
 const listChatGptModelOptionsMock = vi.hoisted(() => vi.fn());
 const openChatGptBrowserMock = vi.hoisted(() => vi.fn());
+const openChatGptTabMock = vi.hoisted(() => vi.fn());
 const getChatGptBrowserStatusMock = vi.hoisted(() => vi.fn());
 const recoverChatGptAnswerFromThreadMock = vi.hoisted(() => vi.fn());
 
@@ -23,6 +24,7 @@ vi.mock("../src/chatgpt-browser.js", async () => {
     deleteChatGptProject: deleteChatGptProjectMock,
     listChatGptModelOptions: listChatGptModelOptionsMock,
     openChatGptBrowser: openChatGptBrowserMock,
+    openChatGptTab: openChatGptTabMock,
     getChatGptBrowserStatus: getChatGptBrowserStatusMock,
     recoverChatGptAnswerFromThread: recoverChatGptAnswerFromThreadMock
   };
@@ -38,6 +40,7 @@ const originalCodexThreadId = process.env.CODEX_THREAD_ID;
 let isolatedLoginDir: string;
 
 beforeEach(async () => {
+  openChatGptTabMock.mockReset();
   process.env.PRODEX_MIN_SEND_INTERVAL_MS = "0";
   isolatedLoginDir = await mkdtemp(path.join(tmpdir(), "prodex-send-login-state-"));
   process.env.PRODEX_LAST_LOGIN_FILE = path.join(isolatedLoginDir, "last-login.json");
@@ -59,6 +62,7 @@ describe("pro browser ask persistence", () => {
     sendChatGptPromptMock.mockReset();
     recoverChatGptAnswerFromThreadMock.mockReset();
     openChatGptBrowserMock.mockReset();
+    openChatGptTabMock.mockReset();
     // Default to a realistic unreachable status so pro browser check keeps
     // working; auto-recovery tests override per-case.
     getChatGptBrowserStatusMock.mockReset();
@@ -2428,6 +2432,48 @@ describe("pro browser ask model/project selection", () => {
     expect(errs).toContain("progress: connecting to browser (port 9333)");
     expect(errs).toContain("progress: waiting 12s (generating)");
     expect(errs).toContain("progress: answer received after 13s");
+  });
+
+  it("reopens a closed tab before an MCP send without restarting or asking for login", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-send-"));
+    const blocker = { code: "chatgpt_page_missing", message: "No ChatGPT tab is open", retryable: true };
+    sendChatGptPromptMock.mockRejectedValueOnce(Object.assign(new Error(blocker.message), { blocker }))
+      .mockResolvedValueOnce({ url: "https://chatgpt.com/c/reopened", title: "ChatGPT", answer: "saved login reused", modelHints: [], warnings: [] });
+    getChatGptBrowserStatusMock.mockResolvedValueOnce({ reachable: true, loggedInLikely: false, hasComposer: false, modelHints: [], blocker })
+      .mockResolvedValue({ reachable: true, loggedInLikely: true, hasComposer: true, modelHints: [] });
+    openChatGptTabMock.mockResolvedValue(true);
+    const { performBrowserConsultForMcp } = await import("../src/cli-pro.js");
+    const result = await performBrowserConsultForMcp(cwd, { prompt: "test reopened tab" });
+    expect(result.status).toBe("done");
+    expect(result.answer).toBe("saved login reused");
+    expect(openChatGptTabMock).toHaveBeenCalledTimes(1);
+    expect(openChatGptBrowserMock).not.toHaveBeenCalled();
+    expect(sendChatGptPromptMock).toHaveBeenCalledTimes(2);
+    expect(result.notes.join("\n")).toContain("browser_tab_reopened:");
+  });
+
+  it.each([
+    { retryable: false },
+    { retryable: true, thread: "https://chatgpt.com/c/already-submitted" }
+  ])("does not recover a missing tab after a possibly submitted request %j", async (details) => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-send-"));
+    const blocker = { code: "chatgpt_page_missing", message: "No ChatGPT tab", ...details };
+    sendChatGptPromptMock.mockRejectedValue(Object.assign(new Error(blocker.message), { blocker }));
+    await expect(runCli(["ask", "--auto-login", "Do not duplicate"], { cwd, stdout: () => {}, stderr: () => {} })).rejects.toThrow();
+    expect(sendChatGptPromptMock).toHaveBeenCalledTimes(1);
+    expect(openChatGptTabMock).not.toHaveBeenCalled();
+  });
+
+  it("attempts a missing-tab open only once when the control endpoint refuses it", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-send-"));
+    const blocker = { code: "chatgpt_page_missing", message: "No ChatGPT tab", retryable: true };
+    sendChatGptPromptMock.mockRejectedValue(Object.assign(new Error(blocker.message), { blocker }));
+    getChatGptBrowserStatusMock.mockResolvedValue({ reachable: true, loggedInLikely: false, hasComposer: false, modelHints: [], blocker });
+    openChatGptTabMock.mockResolvedValue(false);
+    await expect(runCli(["ask", "--auto-login", "One recovery"], { cwd, stdout: () => {}, stderr: () => {} })).rejects.toThrow();
+    expect(sendChatGptPromptMock).toHaveBeenCalledTimes(1);
+    expect(openChatGptTabMock).toHaveBeenCalledTimes(1);
+    expect(openChatGptBrowserMock).not.toHaveBeenCalled();
   });
 
   it("auto-recovers a closed browser and retries the send once with --auto-login", async () => {

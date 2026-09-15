@@ -69,6 +69,10 @@ prodex pro latest                 # re-print the last answer
 
 `prodex ask` is the short form of `prodex pro browser ask`; every flag works on both. The login opens its own Chrome profile (`~/.local/share/prodex/chrome-chatgpt-pro`), never your daily browser, and in a terminal it keeps watching the window and names the manual step still missing (sign in, clear a check, open a chat) until it reports READY.
 
+For a one-time visible login followed by a verified headless handoff, use `prodex pro browser login --background`. Keep the window open until `background: READY`: prodex verifies login, gracefully closes only an idle dedicated browser, then reopens the same profile and conversation headless. Future CLI/MCP relaunches reuse that mode. Other tabs, Chrome account/permission confirmation windows, unfinished input, and active answers block the handoff. A verification challenge remains a blocker; this option does not guarantee that ChatGPT accepts headless Chrome.
+
+Finish any native browser or OS confirmation before requesting the handoff: Chrome does not expose every native dialog through its page-control interface. The guard detects page targets and rendered dialogs, not every OS prompt. Incognito, guest, and explicitly selected Chrome sub-profiles are refused.
+
 While Pro thinks, progress goes to stderr: connecting, prompt sent, elapsed time while generating. A Pro selection raises the send budget to twenty minutes on its own; `--timeout-ms` overrides it. Answers are read from the rendered page, so formatting can differ from the original message. If the dedicated browser is not running, an interactive `ask` starts it, waits for your saved session, and retries once (`--no-auto-login` turns that off; scripts opt in with `--auto-login`).
 
 If the browser stops responding after your question was sent, prodex stops without sending it again. Use the `thread` and `request_id` from the error with `prodex pro browser recover --target-url <thread-url> --request-id <32hex>` (MCP: `pro_recover`). The request ID verifies that the recovered assistant answer follows that exact marked user turn. Legacy recovery without it remains available but returns `request_verified: false` and a warning.
@@ -179,9 +183,9 @@ The last recorded window mode is reused by later `login` commands and by CLI/MCP
 
 `--minimized` keeps a window but minimizes it. Under WSLg a minimized Chrome still reports itself visible and consults keep working; a normal Linux desktop marks it hidden, and prodex refuses to send into a tab it cannot read, restores the window, and tells you.
 
-`--headless` exists and is not usable against ChatGPT today: measured on a signed-in profile, headless Chrome stays on Cloudflare's interstitial past sixty seconds. Only the window is optional; the login is not.
+`--headless` may be blocked even with a saved login: a previous test on a signed-in profile stayed on Cloudflare's interstitial past sixty seconds. `--background` verifies the actual handoff and only reports READY when the signed-in composer works headless. A challenge does not prove that the saved login was lost. Only the window is optional; authentication and protection checks still apply.
 
-If a hidden or virtual browser needs login, captcha, Cloudflare, or account verification, close that browser yourself and run `prodex pro browser login --headed` to complete the interactive step. Merely omitting `--headless` does not switch modes because the saved mode persists. prodex does not bypass the protection or kill a running browser to change its mode.
+If a hidden or virtual browser needs login, captcha, Cloudflare, or account verification, close that browser yourself and run `prodex pro browser login --headed` to complete the interactive step. Merely omitting `--headless` does not switch modes because the saved mode persists. prodex does not bypass protection or force-kill a browser for a mode change; `--background` permits only the guarded graceful handoff described above.
 
 Before a prompt is submitted, a browser confirmed to have stopped answering its control port can be ended and started fresh, and the receipt says so (`PRODEX_NO_AUTO_CLEAR=1` turns that off). A browser that is merely slow is left alone. After submission, prodex never auto-resends a lost prompt.
 
@@ -248,6 +252,8 @@ Reports are deduplicated by blocker code, so something that stays broken adds to
 **Do I need tmux?** No. Explicit CLI commands work in a normal terminal, and stdio MCP works through pipes without a terminal. Only the interactive picker and `setup --interactive` need keyboard input from a terminal. Keep the calling CLI or agent running while waiting for an answer: closing its terminal or disconnecting SSH can interrupt collection. tmux is an optional way to keep that foreground session alive, not a requirement. `prodex start` is also a foreground process, not an installed service.
 
 **Can I close the terminal after login?** Yes, once login is READY: the dedicated Chrome is launched separately. Keep that browser running for consults. If a CLI or agent exits during a request, ChatGPT may still finish it; recover the original thread and request ID rather than automatically sending the question again.
+
+**Does closing the Chrome window switch to headless?** No. Use `login --background` and wait for `background: READY`; ordinary headed login never silently changes mode. A closed window alone is not evidence of logout. Before an unsent request, MCP or an auto-login-enabled CLI can reopen one missing ChatGPT tab in the existing browser and recheck the saved login without restarting Chrome.
 
 **It stopped with `browser_tab_crashed` or `Runtime.enable`.** Chrome can leave an "Aw, Snap!" tab listed on its control port even though that tab's renderer has crashed. Before typing a new prompt, prodex can reload a confirmed crashed tab once at the same conversation address and records `browser_tab_recovered`. A timeout alone never authorizes a reload. A crash after a prompt was submitted stops without resending; inspect the original conversation, then recover with both `--target-url` and `--request-id` from the blocker. Other tabs, the browser profile, and saved login are left alone.
 

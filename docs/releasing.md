@@ -2,6 +2,20 @@
 
 How a version of `@youdie006/prodex` gets from `main` to npm, and the checks that guard it. Moved here from the README so the README can stay about using the tool.
 
+## 0.40.13 Verification Record
+
+Release target: `v0.40.13` on `main`. The GitHub Release records the resolved commit, publication workflow and final installation checks; an installed candidate is not proof of public publication or a restarted MCP process.
+
+- PASS: `npm run release:verify` after updating the obsolete window-closing assertions. This ran the full tests, typecheck, build, installed-package CLI/HTTP-MCP/stdio-MCP smoke and doctor.
+- PASS: `npx vitest run tests/browser-handoff.test.ts tests/background-login.test.ts --maxWorkers=2`, 30 tests. Targeted regressions first failed for stale mode, incognito/guest, explicit Chrome sub-profile and incorrect launch-mode recording, then passed with the fixes.
+- PASS: Node 20 imports the built handoff module; background dry-run works without opening a browser. This is not a Node 20 live Pro test.
+- PASS: M3 candidate CLI without tmux refused the existing Chrome account confirmation, returned exit 1, did not report READY, and preserved the same browser PIDs and page targets. Runtime modules matched the tested local build by SHA-256.
+- BLOCKED: M3's native account confirmation requires manual action before the actual close/relaunch can be tested. Not every OS dialog is exposed through CDP; native confirmations must be finished before requesting a handoff.
+- BLOCKED: local WSL headless startup with the saved profile reached `cloudflare_check`, not READY. No Pro request was sent and no protective check was bypassed.
+- Earlier full checks failed on two outdated CLI guidance assertions and then one installed-document assertion. Those expectations were corrected; the subsequent complete verification passed. WSL packaging used normalized staging because mount file modes are not publishable directly; the user's unrelated untracked file was left untouched.
+
+The release adds a guarded, opt-in transition and more accurate blocker reporting. It does not claim that headless Pro consultation is verified on either deployment target or that authentication can be retained indefinitely.
+
 ## Publishing
 
 Publishing to npm runs entirely in CI with **no long-lived token** — auth is npm [trusted publishing](https://docs.npmjs.com/trusted-publishers) (OIDC), so nothing needs to store or paste an `NPM_TOKEN`, and every release carries a verifiable `--provenance` attestation.

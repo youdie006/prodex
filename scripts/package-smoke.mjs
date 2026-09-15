@@ -941,6 +941,9 @@ try {
     throw new Error(`Installed Claude config args mismatch: ${claudeConfig.stdout}`);
   }
   assertNotIncludes(claudeConfig.stdout, "prodex_token=", "installed Claude config output");
+  const backgroundPreview = await run(binPath, ["pro", "browser", "login", "--background", "--dry-run"], { cwd: consumerDir });
+  assertIncludes(backgroundPreview.stdout, "same profile to headless Chrome", "installed background login preview");
+  assertNotIncludes(backgroundPreview.stdout, "background: READY", "installed background login preview");
   const browserLoginGuide = await run(binPath, ["pro", "browser", "login", "--dry-run"], { cwd: consumerDir });
   assertIncludes(browserLoginGuide.stdout, "Dry run: no browser was opened.", "installed browser login guide");
   assertIncludes(browserLoginGuide.stdout, "Cloudflare", "installed browser login guide");
@@ -1641,7 +1644,7 @@ async function assertInstalledDocsArePortable(consumerDir) {
   assertIncludes(readme, "Open a normal ChatGPT chat or the intended Project/thread so the prompt composer is visible.", "installed README");
   assertIncludes(readme, "If ChatGPT shows a usage limit, message limit, model limit, or rate limit, wait for the reset or choose an available model in the browser.", "installed README");
   assertNotIncludes(readme, "If ChatGPT asks for captcha, permission, or account verification, handle it in that browser.", "installed README");
-  assertIncludes(readme, "You can close that Chrome window after check/smoke or when you are done.", "installed README");
+  assertIncludes(readme, "Closing that Chrome window does not switch to headless mode or prove that the saved login was erased.", "installed README");
   assertNotIncludes(readme, "You can close that Chrome window after login", "installed README");
   assertIncludes(readme, "pro browser login --dry-run --source-cli", "installed README");
   assertIncludes(readme, "pro browser check --source-cli", "installed README");

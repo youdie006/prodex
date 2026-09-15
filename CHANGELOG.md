@@ -4,7 +4,18 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 0.40.13
+
+### Added
+- `pro browser login --background` verifies interactive login and hands an idle dedicated browser to headless Chrome using the same profile and conversation. The close/relaunch transition is serialized with consults and refuses other tabs, browser confirmation surfaces, unfinished input, active responses, and incognito/guest sessions. Actual process mode and profile are verified instead of trusting a stale saved mode.
+
+### Fixed
+- A missing ChatGPT tab before an unsent, auto-login-enabled CLI/MCP request is reopened once in the existing browser and its saved login rechecked. This no longer immediately asks for login just because the window was closed; accepted or uncertain requests are never resent.
+- Login guidance distinguishes closing a terminal, closing a headed window, and a verified headless handoff. A failed headless readiness check reports its blocker instead of claiming the saved profile is logged out.
+
+### Verification Limits
+- Headless operation is opt-in and requires an actual `background: READY` result. The deployment host's Chrome account confirmation currently blocks the live handoff; this release does not claim that an unattended Pro request has succeeded there. Authentication and protection prompts still require the user's visible action.
+- A separate WSL headless startup reached a Cloudflare check rather than a ready ChatGPT composer. The bridge stopped without sending a prompt or bypassing the check; this does not establish that the saved login was lost.
 
 ## 0.40.12
 
