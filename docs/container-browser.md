@@ -30,6 +30,10 @@ automatic protection handling are part of this experiment.
 - [ ] Verify one user-authorized Pro response and one continuation after manual
   authentication; never call account-free smoke a successful Pro consultation.
 
+The later [live host Pro acceptance](pro-acceptance-2026-09-16.md) passed using
+the separate existing WSL host browser. It does not satisfy this container gate:
+the container profile still requires its own manual authentication.
+
 ## Scope limits
 
 Initial transport is `docker compose exec -T browser node /app/dist/cli.js mcp`
