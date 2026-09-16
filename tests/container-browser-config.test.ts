@@ -40,7 +40,7 @@ describe("experimental container browser isolation", () => {
   it("uses an allowlisted build context and does not disable browser protections", () => {
     const dockerfile = readFileSync(new URL("Dockerfile", root), "utf8");
     const ignore = readFileSync(new URL("Dockerfile.dockerignore", root), "utf8");
-    expect(ignore.split("\n")[0]).toBe("**");
+    expect(ignore.split(/\r?\n/)[0]).toBe("**");
     expect(ignore).not.toMatch(/!\.git|!\.bridge|!\.env|!Makefile|!node_modules/);
     expect(dockerfile).toContain("USER node");
     expect(dockerfile).not.toMatch(/--no-sandbox|--disable-setuid-sandbox|AutomationControlled|password-store=basic/);
@@ -49,5 +49,8 @@ describe("experimental container browser isolation", () => {
     expect(dockerfile).toContain("COPY prodex.mjs ./");
     expect(dockerfile).toContain("ln -s /app/prodex.mjs /usr/local/bin/prodex");
     expect(ignore).toContain("!prodex.mjs");
+    const attributes = readFileSync(new URL("../../.gitattributes", root), "utf8");
+    expect(attributes).toContain("/prodex.mjs text eol=lf");
+    expect(attributes).toContain("/containers/browser/* text eol=lf");
   });
 });

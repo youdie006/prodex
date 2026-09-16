@@ -197,6 +197,9 @@ contact ChatGPT. The initial full local suite passed 1,704 tests with three
 platform-specific skips. The final full suite passed **1,717 tests**, with the same
 three skips, across 122 files. Typecheck, build, focused security/lifecycle tests,
 compose validation, and both images' `prodex --version` checks passed.
+The final portability follow-up pins LF for the Linux launcher/container files
+and makes the build-context assertion accept CRLF too. It does not modify either
+running image or restart the pending login browser.
 
 The viewer probe uses a background tab of the same browser to authenticate to the
 local noVNC service while the synthetic fixture is active. It samples actual VNC
