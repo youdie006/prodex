@@ -229,3 +229,99 @@ local viewer. No login submission, account credential extraction, Pro prompt, or
 continuation was automated. M3 remains an account-free browser. Actual signed-in
 operation and connection of the user's existing Codex MCP remain pending; the
 fresh MCP smoke is not evidence of either.
+
+## Isolated true-headless baseline: 2026-09-16
+
+After the [candidate audit](headless-candidates-audit.md), the user approved
+retaining the virtual-display experiment while checking true headless separately.
+The following checks used new disposable containers, never the existing service,
+its named volume, or a host browser profile. They do not change the container
+service's headed mode, authentication, installed version, or MCP attachment.
+
+Both targets ran ordinary Chromium `152.0.7977.82`, CDP `1.3`, using the existing
+development images, without rebuilding or installing anything:
+
+- WSL x64 image: `sha256:973e16dbbe4d0b988fa099fa76906809b53d4687029a3bbf11fa5fdcf9fa0cb2`.
+- M3 ARM64 Linux VM image: `sha256:b027f4ccfaf77c05abc784e9b5b60ed15be61dfb52145d96ef2a3166b941178e`.
+
+M3 means native ARM64 execution inside the dedicated Colima Linux VM, not native
+macOS Chrome. Native Windows, native macOS, and alternative browser engines were
+not tested in this follow-up.
+
+### Results
+
+| Check | WSL x64 | M3 ARM64 Linux VM |
+| --- | --- | --- |
+| Actual headless process, Runtime/DOM, keyboard/mouse, file selection | PASS | PASS |
+| Same disposable profile restarted; synthetic localStorage marker retained | PASS | PASS |
+| No display environment or X11 socket directory in the public-page probe | PASS | PASS |
+| Chromium internal PID/network namespace and seccomp diagnostics | PASS | PASS |
+| Actual synthetic PNG pixels, not just DOM/layout assertions | PASS | PASS |
+| One fresh-profile navigation to public `https://chatgpt.com/` | HTTP 403 | HTTP 403 |
+| First bounded ProDex status observation | `chatgpt_page_missing` | `cloudflare_check` |
+| Composer observed | No | No |
+| Login attempts / prompt submissions | 0 / 0 | 0 / 0 |
+| Graceful test-browser exit and disposable container removal | PASS | PASS |
+| Authenticated Pro response / continuation | NOT RUN | NOT RUN |
+
+The WSL document response was independently observed as HTTP 403 even though
+the immediate status read returned `chatgpt_page_missing`. That single early
+status is not evidence of expired authentication or a confirmed classifier bug.
+No second navigation, refresh, login, mode switch, or protection interaction was
+attempted. The M3 status explicitly identified a Cloudflare check. These results
+do not identify which browser/network signals caused rejection, nor prove that
+all headless environments fail.
+
+### Isolation and method
+
+The existing `browser-launch-smoke.mjs` ran first with external networking
+disabled. Its default is true headless; `--headed` was not passed. The container
+command replaced the service supervisor, so Xvfb/noVNC never started. Both home
+and temporary directories were disposable tmpfs; no host directories, profile
+volumes, control ports, or Docker socket were mounted/published.
+
+```sh
+# IMAGE is the platform-specific immutable image ID recorded above.
+docker run --rm --init --network none --read-only \
+  --tmpfs /tmp:rw,nosuid,nodev,mode=1777,size=256m \
+  --tmpfs /home/node:rw,nosuid,nodev,uid=1000,gid=1000,mode=700 \
+  --workdir /app --user 1000:1000 --cap-drop ALL \
+  --security-opt no-new-privileges:true \
+  --security-opt seccomp=containers/browser/seccomp.json \
+  --shm-size 1g --pids-limit 256 --memory 2g --cpus 2 \
+  --env PRODEX_HEADLESS=1 "$IMAGE" \
+  env -u DISPLAY -u XAUTHORITY node /app/scripts/browser-launch-smoke.mjs
+```
+
+The M3 invocation explicitly selected `colima-prodex-check` and its absolute
+seccomp-file path. It did not switch the default Docker context.
+
+A separate one-off probe used the same restrictions with Docker bridge
+networking, a new tmpfs profile, no display variables, and a 90-second watchdog.
+It verified the launched PID/profile/port and actual headless flag, checked
+`chrome://sandbox/`, and captured a synthetic 128 x 64 PNG before any public-site
+navigation. Decoded screenshot samples matched `[220,30,60,255]` and
+`[20,160,90,255]` exactly. Unlike DOM-only checks, this demonstrates nonblank
+rendered pixels; it does not prove ChatGPT rendering or post-restart pixels.
+
+The probe then navigated once to the public ChatGPT home page, observed only the
+main-frame document's response status and bounded DOM readiness, and stopped.
+No direct private-API calls, network response bodies, credentials, cookies,
+storage-state exports, account screenshots, or protective controls were read or
+handled. Both probes closed their own browsers through CDP and confirmed exit;
+`docker ps -a` subsequently found no test containers on either target.
+
+The pre-existing services remained healthy with unchanged container IDs, host
+PIDs, start times, image IDs, and restart counts (zero). No service restart or
+account-state inspection was performed. Local focused regressions passed
+**56 tests in six files**, including smoke-option rejection, process identity,
+compatibility, container configuration, lifecycle, and viewer guards.
+`git diff --check` and an in-memory audit of eight local links/heading anchors
+and ASCII content in both updated experiment documents passed.
+
+**Decision:** retain the existing virtual-display service and leave true
+headless experimental. Browser mechanics pass on both Linux architectures;
+ChatGPT access remains blocked in these fresh headless trials. Do not ask for
+another login or present the passing synthetic checks as a Pro-access fix.
+This verification record and its changelog entry are source-only updates, not
+an npm/image/GitHub Release or an installed-runtime update.

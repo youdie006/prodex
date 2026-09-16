@@ -14,6 +14,11 @@ changed. The existing [container experiment](container-browser.md) remains
 virtual-display Chromium, with account-free checks completed and live Pro
 response/continuation still unverified in that runtime.
 
+Subsequent authorized [isolated baseline checks](container-browser.md#isolated-true-headless-baseline-2026-09-16)
+passed actual headless browser mechanics, synthetic pixels, and sandbox checks
+on both Linux architectures, but fresh public ChatGPT navigation returned HTTP
+403 on both. Existing virtual-display services and authentication were untouched.
+
 ## Draivix/chatgpt-gateway
 
 Inspected commit: `e9b3f6a4e984409d5bd09f0d0eb1544c0c366e31`.
