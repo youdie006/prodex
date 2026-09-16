@@ -65,8 +65,13 @@ docker compose -f containers/browser/compose.json up -d --no-build browser
 docker compose -f containers/browser/compose.json ps
 ```
 
-Open <http://127.0.0.1:39333/vnc.html>. Retrieve the **local viewer password** on
-your own terminal; it is separate from your ChatGPT password:
+Open <http://127.0.0.1:39333/vnc.html> on the computer hosting this container
+(or its Windows host when running under WSL). `127.0.0.1` refers to the computer
+running the web browser, not the server selected in an SSH terminal. Separate
+WSL and Mac containers can serve that same URL with different viewer passwords.
+
+Retrieve the **local viewer password** from that same container and Docker
+context in your own terminal; it is separate from your ChatGPT password:
 
 ```sh
 docker compose -f containers/browser/compose.json exec -T browser cat /home/node/.vnc/viewer-password
@@ -77,6 +82,31 @@ published port on localhost; the viewer is not an internet service and has no
 public TLS/access gateway. Do not put this password in a URL, repository, issue,
 or shared log. For another computer, use an authenticated SSH tunnel to the host's
 loopback port rather than publishing the container on a network interface.
+
+### Viewer on another computer
+
+From the computer running your web browser, forward an unused local port to the
+container host, replacing `user@container-host` with your existing SSH target:
+
+```sh
+ssh -NT -o ExitOnForwardFailure=yes -L 127.0.0.1:39334:127.0.0.1:39333 user@container-host
+```
+
+Keep that connection open and use
+<http://127.0.0.1:39334/vnc.html?host=127.0.0.1&port=39334&path=websockify&encrypt=0&reconnect=0&autoconnect=1&resize=scale>.
+The explicit viewer settings override a previously saved endpoint. The password
+still comes from the **container host**, not a container on the viewer computer.
+Confirm the forwarding listener is loopback-only before using it. Do not reuse an
+occupied port or bind it to `0.0.0.0`; keep SSH authentication and VNC authentication
+enabled. Closing this SSH connection removes the forwarding, not the browser or
+its profile. No password belongs in this URL or the SSH command.
+
+For `password check failed`, identify the actual server before resetting anything:
+check the selected Docker context and which container records the failed
+authentication. A healthy HTTP page alone proves neither the target identity nor
+successful password authentication. Do not paste passwords into support messages.
+
+### Authenticate ChatGPT
 
 After the account-free checks, open ChatGPT **inside the existing container
 browser**, not in another browser profile:
@@ -329,3 +359,37 @@ ChatGPT access remains blocked in these fresh headless trials. Do not ask for
 another login or present the passing synthetic checks as a Pro-access fix.
 This verification record and its changelog entry are source-only updates, not
 an npm/image/GitHub Release or an installed-runtime update.
+
+## Viewer target correction: 2026-09-16
+
+A reported password failure was traced to a cross-host target mix-up: in the
+same 45-minute diagnostic window, WSL recorded no password rejection while the
+separate M3 container recorded six failed authentication attempts. The WSL
+password succeeded in direct RFB and WebSocket authentication. A disposable
+headless, incognito viewer also passed the actual noVNC password form, connected,
+and rendered a nonblank 1440 x 900 canvas in view-only mode. No account screenshot
+or credential value was printed or saved; the test browser/profile/container were
+removed, and the existing browser identity, service start time, and restart count
+were unchanged.
+
+The user-specific correction forwards M3 loopback port `39334` over the existing
+authenticated SSH connection to WSL loopback port `39333`. This reverse forwarding
+was started from WSL because that SSH direction was already available. The M3
+listener was verified as `127.0.0.1` only; HTTP 200 and an actual RFB greeting through
+the forwarded WebSocket passed. The original M3 viewer on `39333` remains separate.
+The same SSH connection also provides a WSL loopback `39334` alias through the
+M3 forwarding port, so the new URL reaches WSL from either computer. That local
+listener is also loopback-only; native Windows HTTP access returned 200. This
+temporary alias depends on the SSH connection, not on a changed container port.
+A separate authentication-only probe through the complete `39334` forwarding
+path accepted the unchanged WSL viewer password, without displaying credentials
+or sending framebuffer/input requests; that probe container was also removed.
+The controlled temporary SSH connection is left running for manual authentication;
+its private local operational note records how to check and close only that tunnel.
+
+All 27 container configuration, service, and viewer regression tests passed.
+An initial remote log-summary command used an unavailable Docker executable path;
+retrying the read-only summary with the resolved executable succeeded. Only
+failure counts were emitted, never raw logs or credentials. The routing correction
+does not demonstrate ChatGPT login or authenticated Pro operation in the container.
+No package release, browser restart, profile transfer, or password change occurred.
