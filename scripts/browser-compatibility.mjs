@@ -34,8 +34,13 @@ export function createBrowserCompatibilityEvidence(input) {
 
   const platform = evidenceToken(input.platform, "platform");
   const arch = evidenceToken(input.arch, "arch");
-  if (input.headlessProcess !== true) {
-    throw new Error("Inspected browser identity did not prove a headless process");
+  const headlessProcess = input.headlessProcess === true;
+  const headedProcess = input.headedProcess === true;
+  if (headlessProcess && headedProcess) {
+    throw new Error("Conflicting inspected browser process mode evidence");
+  }
+  if (!headlessProcess && !headedProcess) {
+    throw new Error("Inspected browser identity did not prove a headless process or a headed process");
   }
   for (const [capability, label] of REQUIRED_CAPABILITIES) {
     if (input.capabilities?.[capability] !== true) {
@@ -48,7 +53,7 @@ export function createBrowserCompatibilityEvidence(input) {
     protocol,
     platform,
     arch,
-    headless_process: true,
+    ...(headlessProcess ? { headless_process: true } : { headed_process: true }),
     runtime_enable: true,
     runtime_evaluate: true,
     dom: true,

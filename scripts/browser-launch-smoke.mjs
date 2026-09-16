@@ -36,13 +36,28 @@ const FIXTURE_HTML = `<!doctype html>
 </html>`;
 
 try {
-  await runSmoke();
+  const options = parseSmokeOptions(process.argv.slice(2));
+  await runSmoke(options);
 } catch (error) {
   console.error(`browser launch smoke failed: ${errorMessage(error)}`);
   process.exitCode = 1;
 }
 
-async function runSmoke() {
+function parseSmokeOptions(values) {
+  const options = { headed: false };
+  for (const value of values) {
+    if (value === "--headed") {
+      options.headed = true;
+      continue;
+    }
+    if (value.startsWith("-")) throw new Error(`unknown option ${value}`);
+    throw new Error(`unexpected argument ${value}`);
+  }
+  return options;
+}
+
+async function runSmoke(options) {
+  const headless = !options.headed;
   const tempRoot = await realpath(await mkdtemp(path.join(tmpdir(), "prodex browser compatibility smoke-")));
   const profileDir = path.join(tempRoot, "profile");
   const attachmentPath = path.join(tempRoot, ATTACHMENT_NAME);
@@ -57,7 +72,7 @@ async function runSmoke() {
     fixture = await startFixtureServer();
     port = await unusedLoopbackPort();
 
-    activeBrowser = beginOwnedBrowser(port, profileDir);
+    activeBrowser = beginOwnedBrowser(port, profileDir, headless);
     const firstReady = await waitForOwnedBrowserReady(activeBrowser, READY_TIMEOUT_MS);
     mainPid = firstReady.identity.main.processId;
     const capabilities = await verifyLocalCapabilities({
@@ -68,7 +83,7 @@ async function runSmoke() {
     await closeOwnedBrowser(activeBrowser);
     activeBrowser = undefined;
 
-    activeBrowser = beginOwnedBrowser(port, profileDir);
+    activeBrowser = beginOwnedBrowser(port, profileDir, headless);
     const restartReady = await waitForOwnedBrowserReady(activeBrowser, READY_TIMEOUT_MS);
     assertSameBrowserMetadata(firstReady.version, restartReady.version);
     capabilities.profileRestartMarker = await verifySyntheticProfileMarker(port, fixture.url);
@@ -80,6 +95,7 @@ async function runSmoke() {
       platform: process.platform,
       arch: process.arch,
       headlessProcess: firstReady.headlessProcess && restartReady.headlessProcess,
+      headedProcess: firstReady.headedProcess && restartReady.headedProcess,
       capabilities
     });
   } finally {
@@ -172,10 +188,11 @@ async function closeFixtureServer(server) {
   });
 }
 
-function beginOwnedBrowser(port, profileDir) {
-  const launch = openChatGptBrowser({ port, profileDir, url: "about:blank", headless: true });
+function beginOwnedBrowser(port, profileDir, headless) {
+  const launch = openChatGptBrowser({ port, profileDir, url: "about:blank", headless });
   return {
     launch,
+    headless,
     requestedPort: port,
     requestedProfileDir: profileDir,
     browserSocket: undefined,
@@ -194,9 +211,7 @@ async function waitForOwnedBrowserReady(activeBrowser, timeoutMs) {
   const identity = await waitForLaunchedBrowserIdentity(launch, launch.port, launch.profileDir, timeoutMs);
   for (const pid of identity.processIds) activeBrowser.ownedProcessIds.add(pid);
   activeBrowser.ownershipVerified = true;
-  if (!browserProcessHasFlag(identity.main, "headless")) {
-    throw new Error("inspected browser main process is not actually headless");
-  }
+  assertBrowserProcessMode(identity.main, activeBrowser.headless, "inspected");
 
   const version = await waitForCdp(launch, timeoutMs);
   const candidateBrowserSocket = localCdpSocket(version.webSocketDebuggerUrl, launch.port, "browser");
@@ -207,11 +222,25 @@ async function waitForOwnedBrowserReady(activeBrowser, timeoutMs) {
     REQUEST_TIMEOUT_MS
   );
   for (const pid of readyIdentity.processIds) activeBrowser.ownedProcessIds.add(pid);
-  if (!browserProcessHasFlag(readyIdentity.main, "headless")) {
-    throw new Error("ready browser main process is not actually headless");
-  }
+  const processMode = assertBrowserProcessMode(readyIdentity.main, activeBrowser.headless, "ready");
   activeBrowser.browserSocket = candidateBrowserSocket;
-  return { version, identity: readyIdentity, headlessProcess: true };
+  return {
+    version,
+    identity: readyIdentity,
+    ...processMode
+  };
+}
+
+function assertBrowserProcessMode(processInfo, expectedHeadless, stage) {
+  const inspectedHeadless = browserProcessHasFlag(processInfo, "headless");
+  if (inspectedHeadless !== expectedHeadless) {
+    if (expectedHeadless) throw new Error(`${stage} browser main process is not actually headless`);
+    throw new Error(`${stage} browser main process is still headless instead of headed`);
+  }
+  return {
+    headlessProcess: inspectedHeadless,
+    headedProcess: !inspectedHeadless
+  };
 }
 
 function validProcessId(processId) {

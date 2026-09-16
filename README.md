@@ -179,6 +179,12 @@ prodex status                     # shows the saved defaults
 
 ## Running without a window
 
+An opt-in [container browser experiment](docs/container-browser.md) keeps the same
+Linux virtual-display browser running on WSL and an M3 Linux VM, with a local
+password-protected viewer for manual login. It avoids switching browser modes
+after authentication. This source-only experiment is separate from the native
+commands below; it is not a guarantee of ChatGPT access or an installed default.
+
 ```sh
 prodex pro browser login                    # once, headed: sign in
 prodex pro browser login --virtual-display  # from then on: no window anywhere

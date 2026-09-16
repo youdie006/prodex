@@ -1,0 +1,40 @@
+{
+  "name": "prodex-browser",
+  "services": {
+    "browser": {
+      "build": { "context": "../..", "dockerfile": "containers/browser/Dockerfile" },
+      "image": "prodex-browser:experimental",
+      "user": "1000:1000",
+      "hostname": "prodex-browser",
+      "init": true,
+      "cap_drop": ["ALL"],
+      "security_opt": ["no-new-privileges:true", "seccomp=./seccomp.json"],
+      "read_only": true,
+      "tmpfs": ["/tmp:rw,nosuid,nodev,mode=1777,size=256m"],
+      "shm_size": "1gb",
+      "pids_limit": 256,
+      "mem_limit": "2g",
+      "cpus": 2,
+      "environment": {
+        "HOME": "/home/node",
+        "DISPLAY": ":99",
+        "XAUTHORITY": "/tmp/prodex-display/Xauthority",
+        "PRODEX_CHROME": "/usr/bin/chromium",
+        "PRODEX_HEADLESS": "0",
+        "PRODEX_NO_AUTO_LOGIN": "1"
+      },
+      "volumes": ["browser-home:/home/node"],
+      "ports": ["127.0.0.1:${PRODEX_VIEWER_PORT:-39333}:6080"],
+      "restart": "no",
+      "stop_grace_period": "30s",
+      "healthcheck": {
+        "test": ["CMD", "node", "/app/containers/browser/health.mjs"],
+        "interval": "30s",
+        "timeout": "5s",
+        "start_period": "30s",
+        "retries": 2
+      }
+    }
+  },
+  "volumes": { "browser-home": {} }
+}

@@ -48,6 +48,37 @@ describe("browser compatibility evidence", () => {
     expect(JSON.stringify(evidence)).not.toMatch(/User-Agent|webSocketDebuggerUrl|private raw metadata|devtools\/browser/i);
   });
 
+  it("emits headed process evidence without claiming the process was headless", () => {
+    const evidence = createBrowserCompatibilityEvidence({
+      ...completeInput(),
+      headlessProcess: false,
+      headedProcess: true
+    });
+
+    expect(evidence).toEqual({
+      browser: "Chrome/145.0.7632.76",
+      protocol: "1.3",
+      platform: "linux",
+      arch: "x64",
+      headed_process: true,
+      runtime_enable: true,
+      runtime_evaluate: true,
+      dom: true,
+      keyboard: true,
+      mouse: true,
+      file_attachment: true,
+      profile_restart: "synthetic_marker"
+    });
+    expect(evidence).not.toHaveProperty("headless_process");
+  });
+
+  it("rejects contradictory inspected process mode evidence", () => {
+    expect(() => createBrowserCompatibilityEvidence({
+      ...completeInput(),
+      headedProcess: true
+    })).toThrow(/conflicting.*process/i);
+  });
+
   it("reports a syntactically valid protocol without inferring broad version support", () => {
     const evidence = createBrowserCompatibilityEvidence({
       ...completeInput(),
