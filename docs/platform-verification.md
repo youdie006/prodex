@@ -193,6 +193,56 @@ observed blocker. No navigation, visible login, authentication reset, protective
 check bypass, or Pro prompt was performed. Dependency placement on WSL does not
 remove that external account-access requirement.
 
+## Login Redirect Window Regression (2026-09-16)
+
+Follow-up to `a16e723` on `feat/headless-browser-compatibility`; package version
+remains `0.40.18` and the fix is unreleased.
+
+During the user's manual visible recovery on M3, read-only CDP target metadata
+showed three Google authentication pages. One subsequently moved through
+OpenAI authentication and returned to ChatGPT. A separate Chrome account/profile
+connection popup was also present. The same dedicated browser process and saved
+profile remained in use; this was not a new profile or proof that saved
+authentication had been deleted. No provider page content, authentication URL
+parameters, cookies or tokens were inspected.
+
+The login wait treated every poll with no `chatgpt.com` target as permission to
+open another tab. Authentication redirects therefore looked like missing tabs.
+The fix recognizes the observed authentication hosts as a pending manual step,
+never selects them for ChatGPT page control, and bounds a login wait to at most
+one initial tab-opening attempt. Once a reachable non-missing page state has
+been observed, the wait does not replace that authentication flow. Opening
+failures remain visible but no longer cause repeated automatic openings.
+
+After the user completed sign-in, a read-only product check reported
+`logged_in=true` and `composer=true` on the ChatGPT root page. Actual browser
+mode was still headed, with `resume_headless=true` saved for a later launch.
+This is not proof of a completed headless handoff or a verified Pro answer.
+The SSH-home product check exited 1 for missing local bridge/config/receipt
+state, separately from its successful ChatGPT readiness result.
+
+No account browser or client-managed MCP was restarted by this investigation,
+and no visible window, authentication reset, or Pro prompt was initiated.
+Source fixes and their deployment status are recorded separately from the
+user's successful sign-in.
+
+Verification:
+
+- Expected regression failures before implementation: the login-wait suite
+  failed four repeat-opening assertions; the auth-redirect suite failed five
+  classifier/status/no-extra-tab assertions. A later wording refinement also
+  failed its two assertions before being applied.
+- PASS: focused browser/login/handoff checks (228 tests), followed by
+  `npm test -- --reporter=json --outputFile=/tmp/prodex-auth-redirect-final.json`:
+  118 files, 1,687 passed, zero failed, three platform exclusions, about 99s.
+  The 18 auth-redirect checks include exact-origin filtering, provider-content
+  isolation, explicit-target safety, and headed/headless login waits.
+- PASS: `npm run typecheck`, `npm run build`, `git diff --check`, and
+  `npm run smoke:package` (installed CLI, HTTP/stdio MCP, storage/write/artifact
+  checks and credential-isolated publication dry runs; no publication).
+- Native OS CI, package installation and any headless handoff are separate
+  verification steps; the unit results do not establish account access.
+
 ## 0.40.18 verification
 
 Branch: `fix/cross-platform-verification`.

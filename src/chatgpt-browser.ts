@@ -1561,6 +1561,18 @@ export function chatGptPageSelectionBlocker(
   visibilityByPage = new Map<string, string>()
 ): ChatGptBrowserStatus["blocker"] | undefined {
   if (targetUrl) return undefined;
+  const hasChatGptPage = pages.some((page) => page.type === "page" && isChatGptPageUrl(page.url));
+  const hasAuthRedirectPage = pages.some(
+    (page) => page.type === "page" && isKnownChatGptAuthRedirectUrl(page.url)
+  );
+  if (!hasChatGptPage && hasAuthRedirectPage) {
+    return {
+      code: "login_required",
+      message: "An authentication page is already open in the dedicated browser.",
+      retryable: true,
+      next_step: "Complete the existing sign-in manually in the visible browser and keep using the current dedicated profile; no additional ChatGPT tab is needed."
+    };
+  }
   const possiblyVisibleChatGptPages = pages.filter(
     (page) => page.type === "page" && isChatGptPageUrl(page.url) && isChatGptPagePossiblyVisible(page, visibilityByPage)
   );
@@ -1584,6 +1596,16 @@ function isChatGptPagePossiblyVisible(page: DevtoolsPage, visibilityByPage: Map<
 
 function isVisibilityUnknown(page: DevtoolsPage, visibilityByPage: Map<string, string>): boolean {
   return visibilityByPage.get(page.webSocketDebuggerUrl) === undefined;
+}
+
+function isKnownChatGptAuthRedirectUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && url.username === "" && url.password === "" && url.port === "" &&
+      (url.hostname === "auth.openai.com" || url.hostname === "accounts.google.com");
+  } catch {
+    return false;
+  }
 }
 
 export function assertVisibleChatGptTab(visibilityState: string | undefined, url: string, targetUrl?: string): void {

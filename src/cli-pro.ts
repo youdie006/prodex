@@ -2639,34 +2639,34 @@ export async function waitForChatGptLoginReady(
   );
   let lastState = "";
   let lastStatus: Awaited<ReturnType<typeof getChatGptBrowserStatus>> | undefined;
-  let openMissingTabAttempts = 0;
+  let mayOpenMissingTab = true;
   while (now() - startedAt < timeoutMs) {
     const status = await statusFn({ port: options.port, timeoutMs: 1_500 });
     lastStatus = status;
-    // A running Chrome with no chatgpt.com tab leaves the user nothing to log
-    // into, so prodex opens one. Keep trying while the tab is still missing:
-    // one silent attempt that fails looks exactly like no attempt, which is how
-    // a real machine sat for a minute reporting the missing tab and ended
-    // not-ready with nothing to go on.
+    // A login tab can leave chatgpt.com during authentication. Never replace an
+    // observed login flow, or repeat an opening whose tab may be redirecting.
     if (status.reachable && status.blocker?.code === "chatgpt_page_missing") {
-      const attempt = openMissingTabAttempts + 1;
-      openMissingTabAttempts = attempt;
-      stderr(
-        attempt === 1
-          ? "login: the running Chrome had no ChatGPT tab - opening a ChatGPT tab in it..."
-          : `login: still no ChatGPT tab - opening one again (attempt ${attempt})...`
-      );
-      const opened = await openTabFn(options.port);
-      if (opened === false) {
-        stderr(
-          hasInteractiveWindow
-            ? "login: could not open a ChatGPT tab through the debug port; open https://chatgpt.com/ in that browser."
-            : `login: could not open a ChatGPT tab through the debug port. ${manualInspection}`
-        );
+      if (mayOpenMissingTab) {
+        mayOpenMissingTab = false;
+        stderr("login: the running Chrome had no ChatGPT tab - opening a ChatGPT tab in it...");
+        const opened = await openTabFn(options.port);
+        if (opened === false) {
+          stderr(
+            hasInteractiveWindow
+              ? "login: could not open a ChatGPT tab through the debug port; open https://chatgpt.com/ in that browser."
+              : `login: could not open a ChatGPT tab through the debug port. ${manualInspection}`
+          );
+        }
+      }
+      const state = "login: waiting for an existing tab to return to ChatGPT. No additional tabs will be opened automatically.";
+      if (state !== lastState) {
+        stderr(state);
+        lastState = state;
       }
       await sleepFn(pollMs);
       continue;
     }
+    if (status.reachable) mayOpenMissingTab = false;
     const blocker = status.blocker;
     const blockerNextStep = blocker?.next_step ? ` Next: ${blocker.next_step}` : "";
     if (!hasInteractiveWindow && blocker && needsVisibleAuthRecovery(blocker.code)) {
