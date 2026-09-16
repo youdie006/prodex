@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Unreleased
 
 ### Added
+- A [headless-method research record](docs/headless-methods-research.md) distinguishes actual headless operation from persistent background/virtual-desktop browsers, checks pinned upstream code and issue resolutions, and records the unverified M3/WSL Pro-access limits. It proposes bounded follow-up tests without changing browser modes, authentication, or runtime defaults.
 - `pro browser check --runtime` reports bounded, read-only CDP browser/version metadata and the actual headless/headed process mode separately from saved launch preferences. Different ports/profiles, ambiguous processes, unsupported metadata, and unavailable identity remain unknown; a virtual-display preference is not reported as proof of the current display. Ordinary checks keep their existing probes and readiness semantics.
 - The account-free headless browser smoke now tests actual process mode, Runtime/DOM control, keyboard/mouse input, local file selection, and a same-profile restart using a synthetic local marker. It records exact browser/CDP/platform evidence and cleans up its own browser and loopback server. This replaces the earlier calculation-only check; it does not claim saved ChatGPT authentication or Pro access.
 
