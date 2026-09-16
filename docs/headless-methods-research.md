@@ -24,7 +24,11 @@ For consistent M3/WSL deployment, a single-user Linux virtual desktop in a
 multi-architecture container is a candidate. For a smaller local change, retaining
 the existing ordinary browser is simpler. An embedded Electron browser is another
 reference, but introduces a desktop application and a larger maintenance surface.
-These are proposals, not selected defaults or completed ProDex features.
+These were proposals at the initial research stage. The subsequent opt-in
+[container experiment](container-browser.md) has account-free WSL/M3 validation;
+it remains virtual-display Chromium, not verified live Pro access. The follow-up
+[candidate audit](headless-candidates-audit.md) checks actual headless modes,
+Pro-selection/continuation weaknesses, and the limits of the Windows report.
 
 ## Definitions and evidence levels
 
