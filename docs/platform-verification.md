@@ -243,6 +243,47 @@ Verification:
 - Native OS CI, package installation and any headless handoff are separate
   verification steps; the unit results do not establish account access.
 
+### Candidate Installation
+
+Runtime source commit: `5aa19f69387478aebf873dd3681ed14af4dcbc22`.
+`npm run release:pack -- --pack-destination <temporary-directory>` produced
+the normalized candidate `youdie006-prodex-0.40.18.tgz`, SHA-256
+`2b8088a130b751d45d692aba27b6f2f8d0b916cc89300ccc2e1d433968ec9455`.
+Publication guidance remained blocked by the user's unrelated untracked file;
+that file was retained. No release tag or npm publication was performed.
+
+Both WSL Node 22.22.0 x64 and physical M3 Node 22.22.3 ARM installed this same
+tarball using `npm install --global --ignore-scripts --no-audit --no-fund`.
+The installed package version remains `0.40.18`, a development build identified
+by the runtime commit above, not a new public release. Previous program files
+were backed up outside the repository before installation; no account profile
+was copied, replaced or inspected. M3's first npm-path probe failed because
+non-interactive SSH lacked Homebrew in PATH; the explicit Homebrew PATH probe
+and installation succeeded.
+
+Fresh processes on both targets passed the exact-auth-host guards and the
+compiled login-wait checks: one opening from an initially missing tab, zero
+openings after an observed authentication state. The installed runtime hashes
+matched the tested build:
+
+| Runtime file | SHA-256 |
+| --- | --- |
+| `dist/cli-pro.js` | `df33a7d05c73375fc7fa40b53c5fa86929949a187ccbcc9a3a0ec0fba5e69e41` |
+| `dist/chatgpt-browser.js` | `d47d4cce3e990bdac729081a910b3562e6fe786d60d3b27fae6fe0b987c12897` |
+
+Fresh non-tmux stdio MCP processes on WSL and M3 each initialized as version
+`0.40.18` and listed 20 tools including `pro_consult`. Both verification
+processes exited and their temporary workspaces were removed. Existing
+client-managed MCP processes were not restarted or claimed to have reloaded
+the installed update.
+
+After installation, M3 retained the same owned headed browser process/profile,
+the same ChatGPT root target, `logged_in=true`, `composer=true` and no ChatGPT
+page blocker. The separate Chrome account/profile popup and two leftover
+provider login targets remained. They were not closed or accepted automatically.
+No headless handoff or Pro request was attempted during this fix; the user must
+resolve the separate Chrome prompt before a guarded transition is considered.
+
 ## 0.40.18 verification
 
 Branch: `fix/cross-platform-verification`.
