@@ -760,6 +760,11 @@ installation record are tracked on the existing branch and PR #7.
 
 ## Container client installation: 2026-09-17
 
+The later [measured mode comparison](headless-mode-comparison-2026-09-17.md)
+tests the exact native headless argument builder, records 12 account-free
+WSL/M3 observations, and updates the WSL restoration timestamp. It does not
+replace the verified virtual-display operating mode.
+
 The user subsequently authorized finishing both machine installations and client
 setup. This checkpoint supersedes the previous M3-installation-pending statement;
 the earlier measurements above remain historical, not current service state.
