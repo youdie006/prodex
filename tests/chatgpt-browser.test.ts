@@ -87,6 +87,7 @@ import {
   selectChatGptPage,
   prepareComposerExpression,
   composerTextStateExpression,
+  statusExpression,
   answerExpression,
   modelButtonRectExpression,
   menuOpenExpression,
@@ -1594,6 +1595,118 @@ Show more`;
     };
     expect(inferChatGptPageLoggedInLikely(state)).toBe(true);
     expect(detectChatGptPageBlocker(state)).toBeUndefined();
+  });
+
+  it("ignores conversation navigation labels when blocker text excludes the sidebar", () => {
+    const state = {
+      hasComposer: true,
+      textSample: "New chat\nProjects\nJust a moment...\nPlease solve this captcha to continue",
+      blockerTextSample: "New chat\nProjects\nChatGPT Pro\nJust a moment...",
+      blockerScanTextSample: "",
+      visibleButtonLabels: ["Profile menu", "Just a moment..."]
+    };
+
+    expect(inferChatGptPageLoggedInLikely(state)).toBe(true);
+    for (const label of ["Just a moment...", "Please solve this captcha to continue", "You've reached the message limit"]) {
+      expect(detectChatGptPageBlocker({ ...state, visibleButtonLabels: ["Profile menu", label] })).toBeUndefined();
+    }
+  });
+
+  it.each([
+    { name: "status", expression: statusExpression },
+    { name: "answer", expression: answerExpression }
+  ])("keeps visible labels but separates blocker-safe controls in $name snapshot", ({ expression }) => {
+    const root = new FakeElement("form");
+    const nav = new FakeElement("nav");
+    const message = new FakeElement("div");
+    const sidebarTitle = new FakeButton("Just a moment...");
+    const messageControl = new FakeButton("Please solve this captcha to continue");
+    const challenge = new FakeButton("Verifying you are human");
+    sidebarTitle.closest = (selector) => selector.includes("nav") ? nav : undefined;
+    messageControl.closest = (selector) => selector.includes('[data-message-author-role]') ? message : undefined;
+    root.buttons = [sidebarTitle, messageControl, challenge];
+    const doc = new FakeDocument([], [root]);
+    doc.body.innerText = "New chat\nProjects\nJust a moment...\nPlease solve this captcha to continue";
+
+    const state = evaluateBrowserStatusExpression<{
+      textSample: string;
+      blockerScanTextSample: string;
+      visibleButtonLabels: string[];
+      blockerButtonLabels: string[];
+    }>(expression(), doc);
+
+    expect(state.visibleButtonLabels).toEqual(["Just a moment...", "Verifying you are human"]);
+    expect(state.blockerButtonLabels).toEqual(["Verifying you are human"]);
+    expect(detectChatGptPageBlocker(state)?.code).toBe("cloudflare_check");
+
+    root.buttons = [sidebarTitle, messageControl];
+    const normalState = evaluateBrowserStatusExpression<typeof state>(expression(), doc);
+    expect(normalState.visibleButtonLabels).toEqual(["Just a moment..."]);
+    expect(normalState.blockerButtonLabels).toEqual([]);
+    expect(detectChatGptPageBlocker(normalState)).toBeUndefined();
+  });
+
+  it.each([
+    { labels: ["Log in", "Sign up"], code: "login_required" },
+    { labels: ["You've reached the message limit"], code: "usage_limit" }
+  ])("reports $code from a real non-navigation control", ({ labels, code }) => {
+    expect(detectChatGptPageBlocker({
+      textSample: "New chat\nProjects",
+      blockerScanTextSample: "",
+      visibleButtonLabels: ["Just a moment...", ...labels],
+      blockerButtonLabels: labels
+    })?.code).toBe(code);
+  });
+
+  it("keeps explicit login evidence from a composer-absent legacy snapshot", () => {
+    expect(detectChatGptPageBlocker({
+      textSample: "",
+      blockerTextSample: "",
+      blockerScanTextSample: "",
+      visibleButtonLabels: ["Log in", "Sign up"],
+      hasComposer: false
+    })?.code).toBe("login_required");
+  });
+
+  it.each([false, true])("reports nav-only login controls with hasComposer=%s", (hasComposer) => {
+    const state = {
+      textSample: "New chat\nProjects",
+      blockerTextSample: "New chat\nProjects",
+      blockerScanTextSample: "",
+      visibleButtonLabels: ["Log in", "Sign up"],
+      blockerButtonLabels: [],
+      hasComposer
+    };
+
+    expect(inferChatGptPageLoggedInLikely(state)).toBe(false);
+    expect(detectChatGptPageBlocker(state)?.code).toBe("login_required");
+  });
+
+  it.each([
+    { name: "status", expression: statusExpression },
+    { name: "answer", expression: answerExpression }
+  ])("classifies nav-only auth controls from the $name snapshot", ({ expression }) => {
+    const root = new FakeElement("form");
+    const nav = new FakeElement("nav");
+    const login = new FakeButton("Log in");
+    const signup = new FakeButton("Sign up");
+    login.closest = signup.closest = (selector) => selector.includes("nav") ? nav : undefined;
+    root.buttons = [login, signup];
+    const doc = new FakeDocument([], [root]);
+    doc.body.innerText = "New chat\nProjects";
+
+    const state = evaluateBrowserStatusExpression<{
+      textSample: string;
+      blockerTextSample: string;
+      blockerScanTextSample: string;
+      visibleButtonLabels: string[];
+      blockerButtonLabels: string[];
+    }>(expression(), doc);
+
+    expect(state.visibleButtonLabels).toEqual(["Log in", "Sign up"]);
+    expect(state.blockerButtonLabels).toEqual([]);
+    expect(inferChatGptPageLoggedInLikely(state)).toBe(false);
+    expect(detectChatGptPageBlocker(state)?.code).toBe("login_required");
   });
 
   it("detects ChatGPT browser blocker states before sending", () => {

@@ -4,6 +4,7 @@ import { createServer as createHttpServer } from "node:http";
 import { createServer as createNetServer } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import WebSocket from "ws";
 
 import { createBrowserCompatibilityEvidence } from "./browser-compatibility.mjs";
@@ -35,12 +36,14 @@ const FIXTURE_HTML = `<!doctype html>
 </body>
 </html>`;
 
-try {
-  const options = parseSmokeOptions(process.argv.slice(2));
-  await runSmoke(options);
-} catch (error) {
-  console.error(`browser launch smoke failed: ${errorMessage(error)}`);
-  process.exitCode = 1;
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  try {
+    const options = parseSmokeOptions(process.argv.slice(2));
+    await runSmoke(options);
+  } catch (error) {
+    console.error(`browser launch smoke failed: ${errorMessage(error)}`);
+    process.exitCode = 1;
+  }
 }
 
 function parseSmokeOptions(values) {
@@ -311,17 +314,28 @@ function assertCurrentLaunchedBrowserIdentity(port, profileDir, launchedProcessI
   };
 }
 
-async function waitForFixturePage(port, fixtureUrl, timeoutMs) {
+export async function waitForFixturePage(port, fixtureUrl, timeoutMs, expectedTargetId) {
   const deadline = Date.now() + timeoutMs;
   let lastCount = 0;
+  let lastUrl;
   while (Date.now() < deadline) {
     const targets = await readCdpJson(port, "list");
     if (!Array.isArray(targets)) throw new Error("CDP target list was not an array");
-    const pages = targets.filter((target) => target?.type === "page" && target.url === fixtureUrl);
+    const pages = targets.filter((target) => target?.type === "page" &&
+      (expectedTargetId === undefined ? target.url === fixtureUrl : target.id === expectedTargetId));
     lastCount = pages.length;
-    if (pages.length === 1) return pages[0];
-    if (pages.length > 1) throw new Error(`expected one loopback fixture page, found ${pages.length}`);
+    if (pages.length === 1) {
+      lastUrl = pages[0].url;
+      if (lastUrl === fixtureUrl) return pages[0];
+    }
+    if (pages.length > 1) {
+      if (expectedTargetId !== undefined) throw new Error(`expected one loopback fixture target ${expectedTargetId}, found ${pages.length}`);
+      throw new Error(`expected one loopback fixture page, found ${pages.length}`);
+    }
     await sleep(200);
+  }
+  if (expectedTargetId !== undefined) {
+    throw new Error(`loopback fixture target ${expectedTargetId} was not ready at ${fixtureUrl} within ${timeoutMs}ms (found ${lastCount}${lastUrl === undefined ? "" : ` at ${lastUrl}`})`);
   }
   throw new Error(`loopback fixture page was not ready within ${timeoutMs}ms (found ${lastCount})`);
 }
@@ -453,12 +467,15 @@ async function verifySyntheticProfileMarker(port, fixtureUrl) {
 
 async function navigateBlankPageToFixture(port, fixtureUrl) {
   const blankPage = await waitForFixturePage(port, "about:blank", READY_TIMEOUT_MS);
+  if (typeof blankPage.id !== "string" || blankPage.id.length === 0) {
+    throw new Error("CDP blank page target ID is missing");
+  }
   await withCdpSession(localCdpSocket(blankPage.webSocketDebuggerUrl, port, "page"), async (send) => {
     await send("Page.enable");
     const navigation = await send("Page.navigate", { url: fixtureUrl });
     if (navigation?.errorText) throw new Error(`loopback fixture navigation failed: ${navigation.errorText}`);
   });
-  return waitForFixturePage(port, fixtureUrl, READY_TIMEOUT_MS);
+  return waitForFixturePage(port, fixtureUrl, READY_TIMEOUT_MS, blankPage.id);
 }
 
 async function waitForFixtureDom(send) {

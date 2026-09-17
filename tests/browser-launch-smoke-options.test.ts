@@ -1,7 +1,9 @@
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+import { waitForFixturePage } from "../scripts/browser-launch-smoke.mjs";
 
 const smokeScript = fileURLToPath(new URL("../scripts/browser-launch-smoke.mjs", import.meta.url));
 
@@ -21,5 +23,44 @@ describe("browser launch smoke options", () => {
     expect(result.status).toBe(1);
     expect(output).toContain("browser launch smoke failed: unknown option --unknown-smoke-option");
     expect(output).not.toContain("PRODEX_CHROME");
+  });
+});
+
+const fixtureUrl = "http://127.0.0.1:4242/";
+
+function page(id: string, url: string) {
+  return { id, type: "page", url, webSocketDebuggerUrl: `ws://127.0.0.1:9222/devtools/page/${id}` };
+}
+
+function listTargets(targets: ReturnType<typeof page>[]) {
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => targets }));
+}
+
+afterEach(() => vi.unstubAllGlobals());
+
+describe("browser launch smoke target selection", () => {
+  it("returns the navigated target when a restored page has the same fixture URL", async () => {
+    const navigated = page("new-blank", fixtureUrl);
+    listTargets([page("restored", fixtureUrl), navigated]);
+
+    await expect(waitForFixturePage(9222, fixtureUrl, 1_000, navigated.id)).resolves.toEqual(navigated);
+  });
+
+  it("does not accept an unrelated fixture page when the navigated target is missing", async () => {
+    listTargets([page("restored", fixtureUrl)]);
+
+    await expect(waitForFixturePage(9222, fixtureUrl, 1, "new-blank")).rejects.toThrow(/target.*not ready|target.*missing/i);
+  });
+
+  it("does not accept an unrelated fixture page when the navigated target has a different URL", async () => {
+    listTargets([page("restored", fixtureUrl), page("new-blank", "about:blank")]);
+
+    await expect(waitForFixturePage(9222, fixtureUrl, 1, "new-blank")).rejects.toThrow(/target.*not ready|target.*URL/i);
+  });
+
+  it("still rejects genuine URL ambiguity when no target is pinned", async () => {
+    listTargets([page("first", fixtureUrl), page("second", fixtureUrl)]);
+
+    await expect(waitForFixturePage(9222, fixtureUrl, 1_000)).rejects.toThrow("expected one loopback fixture page, found 2");
   });
 });
