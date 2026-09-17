@@ -23,7 +23,7 @@ describe("experimental container browser isolation", () => {
     expect(service.environment.PRODEX_NO_AUTO_LOGIN).toBe("1");
     expect(service.environment.PRODEX_HEADLESS).toBe("0");
     expect(service.environment.DISPLAY).toBe(":99");
-    expect(service.environment.PRODEX_CHROME).toBe("/usr/bin/chromium");
+    expect(service.environment.PRODEX_CHROME).toBe("/usr/lib/chromium/chromium");
   });
 
   it("retains syscall filtering and enables only an attributed upstream profile", () => {
@@ -35,6 +35,12 @@ describe("experimental container browser isolation", () => {
     const notice = readFileSync(new URL("NOTICE.md", root), "utf8");
     expect(notice).toContain("18205280b6112a4a08238195942c4fa30c199a62");
     expect(notice).toContain("Apache-2.0");
+  });
+
+  it("uses the packaged binary instead of Debian's shared-memory and GPU flag wrapper", () => {
+    const dockerfile = readFileSync(new URL("Dockerfile", root), "utf8");
+    expect(dockerfile).toContain("PRODEX_CHROME=/usr/lib/chromium/chromium");
+    expect(dockerfile).toContain("test -x /usr/lib/chromium/chromium");
   });
 
   it("uses an allowlisted build context and does not disable browser protections", () => {

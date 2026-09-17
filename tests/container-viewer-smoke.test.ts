@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { runInNewContext } from "node:vm";
+import * as viewerSmoke from "../scripts/container-viewer-smoke.mjs";
 
 import {
   assertSafePageTargets,
@@ -56,5 +58,18 @@ describe("container viewer smoke persistence expressions", () => {
 
     expect(expression).toMatch(/localStorage\.getItem/);
     expect(expression).not.toMatch(/localStorage\.(?:setItem|clear|removeItem)/);
+  });
+});
+
+describe("container viewer smoke document readiness", () => {
+  it.each([
+    ["about:blank", "complete", false],
+    ["http://127.0.0.1:39455/", "complete", false],
+    ["http://127.0.0.1:6080/vnc.html", "loading", false],
+    ["http://127.0.0.1:6080/vnc.html", "complete", true]
+  ])("checks the committed URL %s and ready state %s", (href, readyState, expected) => {
+    expect(viewerSmoke.buildDocumentReadyExpression).toBeTypeOf("function");
+    const expression = viewerSmoke.buildDocumentReadyExpression("http://127.0.0.1:6080/vnc.html");
+    expect(runInNewContext(expression, { location: { href }, document: { readyState } })).toBe(expected);
   });
 });

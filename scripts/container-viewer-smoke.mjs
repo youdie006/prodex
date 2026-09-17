@@ -9,6 +9,7 @@ import { defaultChatGptProfileDir } from "../dist/chatgpt-browser.js";
 import { browserProcessHasFlag, findMatchingBrowserProcesses, inspectBrowserProcesses, isMainBrowserProcess } from "../dist/browser-process.js";
 
 const FIXTURE = "http://127.0.0.1:39455/";
+const VIEWER = "http://127.0.0.1:6080/vnc.html";
 const MARKER = "prodex-container-synthetic-v1";
 
 export function parseContainerViewerSmokeOptions(args) {
@@ -31,6 +32,10 @@ export function buildMarkerExpression(mode) {
   return `(() => { if (location.href !== ${JSON.stringify(FIXTURE)}) throw new Error("Wrong fixture");
     ${mode === "seed" ? `localStorage.clear(); localStorage.setItem("prodex-smoke", ${JSON.stringify(MARKER)});` : ""}
     return localStorage.getItem("prodex-smoke"); })()`;
+}
+
+export function buildDocumentReadyExpression(url) {
+  return `location.href === ${JSON.stringify(url)} && document.readyState === "complete"`;
 }
 
 async function json(resource) {
@@ -133,7 +138,7 @@ async function run({ mode }) {
         /Network namespaces\s+Yes/.test(text) ? "namespace+seccomp" : false;
     });
     const page = await createPage(FIXTURE);
-    await waitFor(() => evaluate(page, 'document.readyState === "complete"'));
+    await waitFor(() => evaluate(page, buildDocumentReadyExpression(FIXTURE)));
     assert.equal(await evaluate(page, buildMarkerExpression(mode)), MARKER, "Persistent synthetic marker missing");
     await request(page.webSocketDebuggerUrl, "Page.bringToFront");
     const shot = await request(page.webSocketDebuggerUrl, "Page.captureScreenshot", { format: "png" });
@@ -142,8 +147,8 @@ async function run({ mode }) {
     await writeFile(screenshot, Buffer.from(shot.data, "base64"), { mode: 0o600, flag: "wx" });
 
     // A background local tab views the active fixture through the real VNC path.
-    const observer = await createPage("http://127.0.0.1:6080/vnc.html", true);
-    await waitFor(() => evaluate(observer, 'document.readyState === "complete"'));
+    const observer = await createPage(VIEWER, true);
+    await waitFor(() => evaluate(observer, buildDocumentReadyExpression(VIEWER)));
     await request(page.webSocketDebuggerUrl, "Page.bringToFront");
     const password = (await readFile("/home/node/.vnc/viewer-password", "utf8")).trim();
     assert.match(password, /^[A-Za-z0-9_-]{8}$/);

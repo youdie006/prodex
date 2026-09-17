@@ -19,7 +19,7 @@
         "HOME": "/home/node",
         "DISPLAY": ":99",
         "XAUTHORITY": "/tmp/prodex-display/Xauthority",
-        "PRODEX_CHROME": "/usr/bin/chromium",
+        "PRODEX_CHROME": "/usr/lib/chromium/chromium",
         "PRODEX_HEADLESS": "0",
         "PRODEX_NO_AUTO_LOGIN": "1"
       },

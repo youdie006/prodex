@@ -30,7 +30,7 @@ const config = {
   cdpPort: 9333,
   vncPort: 5900,
   viewerPort: 6080,
-  chromeCommand: "/usr/bin/chromium"
+  chromeCommand: "/usr/lib/chromium/chromium"
 };
 
 describe("container browser service launch plan", () => {
@@ -52,7 +52,7 @@ describe("container browser service launch plan", () => {
       command: "Xvfb",
       args: [":99", "-screen", "0", "1440x900x24", "-nolisten", "tcp", "-auth", config.xauthority]
     });
-    expect(plan.chromium.command).toBe("/usr/bin/chromium");
+    expect(plan.chromium.command).toBe("/usr/lib/chromium/chromium");
     expect(plan.chromium.args).toContain("--remote-debugging-address=127.0.0.1");
     expect(plan.chromium.args).toContain("--remote-debugging-port=9333");
     expect(plan.chromium.args).toContain(`--user-data-dir=${config.profileDir}`);
@@ -71,6 +71,16 @@ describe("container browser service launch plan", () => {
       command: "websockify",
       args: ["--web=/usr/share/novnc", "0.0.0.0:6080", "127.0.0.1:5900"]
     });
+  });
+
+  it("retains background-network and extension restrictions without wrapper memory or GPU overrides", () => {
+    const { args } = buildServiceLaunchPlan(config).chromium;
+
+    expect(args).toEqual(expect.arrayContaining([
+      "--disable-background-networking", "--disable-extensions", "--disable-pings", "--media-router=0"
+    ]));
+    expect(args).not.toContain("--disable-dev-shm-usage");
+    expect(args).not.toContain("--enable-gpu-rasterization");
   });
 
   it("reuses the private viewer password instead of replacing it at each restart", async () => {

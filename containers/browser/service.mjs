@@ -63,12 +63,19 @@ export function buildServiceLaunchPlan(config) {
     },
     chromium: {
       command: config.chromeCommand,
-      args: buildChromeLaunchArgs({
-        port: config.cdpPort,
-        profileDir: config.profileDir,
-        url: "about:blank",
-        headless: false
-      })
+      args: [
+        // Retain Debian's background-network restrictions without its memory/GPU overrides.
+        "--disable-background-networking",
+        "--disable-extensions",
+        "--disable-pings",
+        "--media-router=0",
+        ...buildChromeLaunchArgs({
+          port: config.cdpPort,
+          profileDir: config.profileDir,
+          url: "about:blank",
+          headless: false
+        })
+      ]
     },
     x11vnc: {
       command: "x11vnc",
@@ -108,7 +115,8 @@ function defaultConfig() {
     cdpPort: 9333,
     vncPort: 5900,
     viewerPort: 6080,
-    chromeCommand: process.env.PRODEX_CHROME || "/usr/bin/chromium"
+    // Debian's wrapper redirects shared memory to /tmp below its own 3.8 GB threshold.
+    chromeCommand: process.env.PRODEX_CHROME || "/usr/lib/chromium/chromium"
   };
 }
 

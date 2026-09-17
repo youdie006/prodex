@@ -465,3 +465,127 @@ as an onboarding problem. That workflow is still present; no automatic viewer
 handoff command was implemented or installed in this check. Improving it must
 retain local/SSH access controls and VNC authentication, without putting the
 credential in URLs, logs, command arguments, or support messages.
+
+## Launch correction and candidate verification: 2026-09-17
+
+Source baseline: `d00f17f46abb539d9081e04f9246db906cd4d344`. This follow-up
+corrects two reproduced defects; it does not close the authenticated Pro gate.
+
+### Observed failures and root-cause limits
+
+A later rendered-DOM check of the original synthetic request still found an empty
+assistant message, now with `data-message-model-slug="gpt-6-pro"`. Copy/rating
+controls were present and no generation indicator was active. Loading that exact
+test thread in a new tab showed the same empty answer. A model tag without answer
+text is not a passing response or a valid continuation parent.
+
+Reloading the test thread subsequently produced a renderer crash. An in-memory,
+view-only noVNC observation showed Chromium's `SIGILL` error page. The browser's
+main process and container health checks remained alive, demonstrating that
+service health alone cannot certify a responsive ChatGPT renderer. Cgroup memory
+and PID-limit event counters were zero, and neither the home volume nor temporary
+mounts were full. These checks do not establish the cause of `SIGILL`.
+
+After replacing only the crashed test tab, one separately authorized, bounded
+Pro check used the normal 20-minute budget. Task
+`task_20260917_014821_gpt-pro-consult` failed with `browser_tab_crashed` while
+applying model selection, before any prompt-sent progress. Submission was not
+confirmed. No continuation or automatic resend followed; the temporary MCP child
+was closed. A request marker in blocker metadata is not itself proof of a send.
+
+Inspection of the installed Debian launcher found a concrete mismatch:
+`/etc/chromium.d/dev-shm` appends `--disable-dev-shm-usage` whenever available
+shared memory is below 4,080,218,931 bytes. This container allocates 1 GB there,
+so Chromium instead used its much smaller 256 MB `/tmp` mount. The wrapper also
+added `--enable-gpu-rasterization`. Both injected arguments were observed on the
+live process. This mismatch is proven; its causal relationship to the crash or
+empty answer is not.
+
+The container now launches `/usr/lib/chromium/chromium` directly and checks that
+path during image build. Container-only arguments explicitly retain restrictions
+on background networking, extensions, hyperlink pings, and media routing. Shared
+host-browser launch defaults, browser version, seccomp, namespace sandbox,
+mount permissions, named home volume, and authentication behavior are unchanged.
+
+An isolated JIT/WebAssembly/worker/SharedArrayBuffer/reload probe passed with
+non-executable temporary mounts using both the wrapper and direct binary on WSL,
+and the direct binary on M3 ARM64. A noexec-related crash hypothesis was therefore
+not demonstrated; no mount permissions were relaxed. A disposable package probe
+found the installed Chromium version also remained the Debian candidate version.
+
+The account-free viewer smoke exposed a separate race: a newly created target
+could still evaluate its completed `about:blank` document after target metadata
+had changed. Importing noVNC's relative module then failed. Both fixture and
+viewer readiness now require the actual committed document URL as well as a
+completed load state. Four regression cases reproduce the wrong-document and
+loading states. The old candidate failed this smoke; rebuilt candidates passed.
+
+### Candidate evidence
+
+Both candidates use package `0.40.18` and Chromium `152.0.7977.82`:
+
+| Target | Candidate image ID |
+| --- | --- |
+| WSL Linux x64 | `sha256:1f5cf6a36323635c2f03bd3b011f89f9e5223cc955f10737bd187de7e89cfd18` |
+| M3 Linux ARM64, explicit `colima-prodex-check` context | `sha256:73de64cca2889500e7683dd10e269cbf05f8997e6830d09641e44047cee5d6ac` |
+
+| Check | WSL x64 | M3 ARM64 |
+| --- | --- | --- |
+| Final candidate image build | PASS | PASS |
+| Non-root full service, local CDP/noVNC health | PASS | PASS |
+| Actual main-process memory/GPU flags absent, privacy flags present | PASS | PASS |
+| Open Chromium file descriptors on `/dev/shm` | PASS | PASS |
+| Actual PID/network namespaces and Seccomp-BPF sandbox | PASS | PASS |
+| Viewer `--seed` and `--verify`: authentication, nonblank pixels, disconnect, same browser | PASS | PASS |
+| Two independent MCP clients, task identity, exclusive claim, survivor after disconnect | PASS | PASS |
+| Temporary test containers stopped and removed | PASS | PASS |
+| Authenticated candidate Pro answer and same-thread continuation | NOT RUN | NOT RUN |
+
+Each candidate service ran with `--network none`, no published ports or host
+mounts, disposable `/home/node` and `/tmp` tmpfs, user 1000, dropped capabilities,
+`no-new-privileges`, the existing seccomp profile, 1 GB shared memory, 2 GB memory,
+256 PID limit, and two CPUs. Synthetic screenshots stayed inside temporary
+containers and were removed with them; no account screenshot or secret was saved.
+These `--seed`/`--verify` checks exercise the same candidate runtime, not an
+authenticated restart. They must never be run against a real ChatGPT profile.
+
+Reproduction commands for each disposable service:
+
+```sh
+docker exec prodex-candidate-service-check-20260917 node /app/containers/browser/health.mjs
+docker exec --workdir /app prodex-candidate-service-check-20260917 node /app/scripts/container-viewer-smoke.mjs --seed
+docker exec --workdir /app prodex-candidate-service-check-20260917 node /app/scripts/container-viewer-smoke.mjs --verify
+docker exec --workdir /app prodex-candidate-service-check-20260917 node /app/scripts/container-mcp-smoke.mjs
+```
+
+M3 commands used `/usr/local/bin/docker --context colima-prodex-check` explicitly.
+Its first build failed because the noninteractive SSH PATH omitted the installed
+`docker-credential-desktop` executable. Adding Docker's existing application bin
+directory to that command's PATH allowed the build to pass; no credential or
+Docker configuration was changed. No default Docker context was switched.
+
+Local `npm test` passed **1,723 tests across 122 files**, with three existing
+Windows-only cases skipped on Linux. `npm run typecheck`, both image builds, and
+`git diff --check` passed. Focused container/crash suites passed 49 tests.
+Regression tests were observed failing before each corresponding fix. A read-only
+review identified the wrapper restrictions that are now explicit and covered.
+
+### Installation and remaining gate
+
+Both candidate images are local build artifacts only. Neither replaced the
+installed `experimental` image or restarted an authenticated service. WSL still
+runs image `973e16dbbe4d`, started `2026-09-16T02:21:14.870311519Z`; M3 still
+runs `b027f4ccfaf77`, started `2026-09-16T02:21:52.350093875Z`. Both report
+`running healthy`, restart count zero. The WSL ChatGPT renderer had crashed;
+its healthy supervisor is not a passing application check. Existing login data,
+viewer password, Codex process, host browsers, and user viewer tunnel were left
+untouched.
+
+Applying the candidate to the login-bearing WSL container requires the separately
+requested targeted restart approval. Preserve its existing named home volume and
+hostname, then verify saved-login readiness, one request-bound completed Pro
+answer, and one exact-thread continuation. Stop on a login/protection prompt or
+another crash; do not label synthetic or model-tag-only evidence as acceptance.
+No npm release, image publication, GitHub Release, native Windows test, or complete
+OS acceptance is claimed. Commit/push evidence belongs in PR #7 alongside this
+durable record.
