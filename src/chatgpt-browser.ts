@@ -906,7 +906,7 @@ export function inferLoggedInLikely(
 }
 
 function isChatGptAuthControlLabel(label: string): boolean {
-  return /^(?:log in|sign up|로그인|회원가입)$/i.test(label.trim());
+  return /^(?:log in|sign up(?: for free)?|로그인|회원가입|무료로 가입)$/i.test(label.trim());
 }
 
 export function isUsableChatGptAnswer(answer: string): boolean {

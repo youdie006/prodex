@@ -1682,6 +1682,21 @@ Show more`;
     expect(detectChatGptPageBlocker(state)?.code).toBe("login_required");
   });
 
+  it.each(["Sign up for free", "무료로 가입"])("preserves the nav-only %s authentication control", (label) => {
+    const state = {
+      textSample: "New chat\nProjects",
+      blockerTextSample: "New chat\nProjects",
+      blockerScanTextSample: "",
+      visibleButtonLabels: ["Just a moment...", label],
+      blockerButtonLabels: [],
+      hasComposer: true
+    };
+
+    expect(detectChatGptBlocker("", [label])?.code).toBe("login_required");
+    expect(detectChatGptPageBlocker(state)?.code).toBe("login_required");
+    expect(inferChatGptPageLoggedInLikely(state)).toBe(false);
+  });
+
   it.each([
     { name: "status", expression: statusExpression },
     { name: "answer", expression: answerExpression }

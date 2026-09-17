@@ -332,5 +332,432 @@
     "Candidates retain the installed baseline runtime classifier; the independent public DOM/status measurement is not evidence that newly edited product code was installed.",
     "Vendor/build and version changed together; not a causal headless-versus-headed or version-only comparison.",
     "Both headless public probes stopped at HTTP 403 without prompt/login attempts; no Pro model or continuation was tested."
-  ]
+  ],
+  "follow_up_dom": {
+    "source_file_sha256": "7cb1665d9de1559c76648e7b7cbefe701923f4bb68395dcb39de67b4a07efe37",
+    "base_revision": "692ded3d9bcf93bd69d9bc7ac8a2772cbc8af074",
+    "method": "built source status/answer expressions evaluated on real offline Chrome DOM; snapshots classified by the same built source; no candidate/runtime installation",
+    "trials": [
+      {
+        "target": "wsl",
+        "mode": "headless",
+        "image": "sha256:73bf6af5bd67e6a2a39baf16313414275d7ac20ef20c31dcdebf9f60c1eb19cf",
+        "began": "2026-09-17T09:08:55.311Z",
+        "ended": "2026-09-17T09:09:00.654Z",
+        "exit_code": 0,
+        "cleanup": true,
+        "assertions": [
+          {
+            "name": "sidebar_message_noise",
+            "snapshot": "status",
+            "expected": null,
+            "actual": null
+          },
+          {
+            "name": "sidebar_message_noise",
+            "snapshot": "answer",
+            "expected": null,
+            "actual": null
+          },
+          {
+            "name": "genuine_challenge",
+            "snapshot": "status",
+            "expected": "cloudflare_check",
+            "actual": "cloudflare_check"
+          },
+          {
+            "name": "genuine_challenge",
+            "snapshot": "answer",
+            "expected": "cloudflare_check",
+            "actual": "cloudflare_check"
+          },
+          {
+            "name": "genuine_captcha",
+            "snapshot": "status",
+            "expected": "captcha_required",
+            "actual": "captcha_required"
+          },
+          {
+            "name": "genuine_captcha",
+            "snapshot": "answer",
+            "expected": "captcha_required",
+            "actual": "captcha_required"
+          },
+          {
+            "name": "genuine_limit",
+            "snapshot": "status",
+            "expected": "usage_limit",
+            "actual": "usage_limit"
+          },
+          {
+            "name": "genuine_limit",
+            "snapshot": "answer",
+            "expected": "usage_limit",
+            "actual": "usage_limit"
+          },
+          {
+            "name": "navigation_login_with_composer",
+            "snapshot": "status",
+            "expected": "login_required",
+            "actual": "login_required"
+          },
+          {
+            "name": "navigation_login_with_composer",
+            "snapshot": "answer",
+            "expected": "login_required",
+            "actual": "login_required"
+          },
+          {
+            "name": "navigation_free_signup_en",
+            "snapshot": "status",
+            "expected": "login_required",
+            "actual": "login_required"
+          },
+          {
+            "name": "navigation_free_signup_en",
+            "snapshot": "answer",
+            "expected": "login_required",
+            "actual": "login_required"
+          },
+          {
+            "name": "navigation_free_signup_ko",
+            "snapshot": "status",
+            "expected": "login_required",
+            "actual": "login_required"
+          },
+          {
+            "name": "navigation_free_signup_ko",
+            "snapshot": "answer",
+            "expected": "login_required",
+            "actual": "login_required"
+          }
+        ],
+        "assertions_pass": true,
+        "observation": {
+          "mode": "headless",
+          "browser": "Chrome/153.0.8010.47",
+          "arch": "x64",
+          "sandbox": "namespace+seccomp",
+          "public_navigations": 0,
+          "prompts_sent": 0,
+          "browser_closed": true
+        }
+      },
+      {
+        "target": "wsl",
+        "mode": "virtual",
+        "image": "sha256:73bf6af5bd67e6a2a39baf16313414275d7ac20ef20c31dcdebf9f60c1eb19cf",
+        "began": "2026-09-17T09:09:22.636Z",
+        "ended": "2026-09-17T09:09:27.947Z",
+        "exit_code": 0,
+        "cleanup": true,
+        "assertions": [
+          {
+            "name": "sidebar_message_noise",
+            "snapshot": "status",
+            "expected": null,
+            "actual": null
+          },
+          {
+            "name": "sidebar_message_noise",
+            "snapshot": "answer",
+            "expected": null,
+            "actual": null
+          },
+          {
+            "name": "genuine_challenge",
+            "snapshot": "status",
+            "expected": "cloudflare_check",
+            "actual": "cloudflare_check"
+          },
+          {
+            "name": "genuine_challenge",
+            "snapshot": "answer",
+            "expected": "cloudflare_check",
+            "actual": "cloudflare_check"
+          },
+          {
+            "name": "genuine_captcha",
+            "snapshot": "status",
+            "expected": "captcha_required",
+            "actual": "captcha_required"
+          },
+          {
+            "name": "genuine_captcha",
+            "snapshot": "answer",
+            "expected": "captcha_required",
+            "actual": "captcha_required"
+          },
+          {
+            "name": "genuine_limit",
+            "snapshot": "status",
+            "expected": "usage_limit",
+            "actual": "usage_limit"
+          },
+          {
+            "name": "genuine_limit",
+            "snapshot": "answer",
+            "expected": "usage_limit",
+            "actual": "usage_limit"
+          },
+          {
+            "name": "navigation_login_with_composer",
+            "snapshot": "status",
+            "expected": "login_required",
+            "actual": "login_required"
+          },
+          {
+            "name": "navigation_login_with_composer",
+            "snapshot": "answer",
+            "expected": "login_required",
+            "actual": "login_required"
+          },
+          {
+            "name": "navigation_free_signup_en",
+            "snapshot": "status",
+            "expected": "login_required",
+            "actual": "login_required"
+          },
+          {
+            "name": "navigation_free_signup_en",
+            "snapshot": "answer",
+            "expected": "login_required",
+            "actual": "login_required"
+          },
+          {
+            "name": "navigation_free_signup_ko",
+            "snapshot": "status",
+            "expected": "login_required",
+            "actual": "login_required"
+          },
+          {
+            "name": "navigation_free_signup_ko",
+            "snapshot": "answer",
+            "expected": "login_required",
+            "actual": "login_required"
+          }
+        ],
+        "assertions_pass": true,
+        "observation": {
+          "mode": "virtual",
+          "browser": "Chrome/153.0.8010.47",
+          "arch": "x64",
+          "sandbox": "namespace+seccomp",
+          "public_navigations": 0,
+          "prompts_sent": 0,
+          "browser_closed": true
+        }
+      },
+      {
+        "target": "m3",
+        "mode": "headless",
+        "image": "sha256:9e7810909ea9b2309233076aacbab22fd773c7df5cf7a4a2067018e7b6d24cef",
+        "began": "2026-09-17T09:08:57.554Z",
+        "ended": "2026-09-17T09:09:02.092Z",
+        "exit_code": 0,
+        "cleanup": true,
+        "assertions": [
+          {
+            "name": "sidebar_message_noise",
+            "snapshot": "status",
+            "expected": null,
+            "actual": null
+          },
+          {
+            "name": "sidebar_message_noise",
+            "snapshot": "answer",
+            "expected": null,
+            "actual": null
+          },
+          {
+            "name": "genuine_challenge",
+            "snapshot": "status",
+            "expected": "cloudflare_check",
+            "actual": "cloudflare_check"
+          },
+          {
+            "name": "genuine_challenge",
+            "snapshot": "answer",
+            "expected": "cloudflare_check",
+            "actual": "cloudflare_check"
+          },
+          {
+            "name": "genuine_captcha",
+            "snapshot": "status",
+            "expected": "captcha_required",
+            "actual": "captcha_required"
+          },
+          {
+            "name": "genuine_captcha",
+            "snapshot": "answer",
+            "expected": "captcha_required",
+            "actual": "captcha_required"
+          },
+          {
+            "name": "genuine_limit",
+            "snapshot": "status",
+            "expected": "usage_limit",
+            "actual": "usage_limit"
+          },
+          {
+            "name": "genuine_limit",
+            "snapshot": "answer",
+            "expected": "usage_limit",
+            "actual": "usage_limit"
+          },
+          {
+            "name": "navigation_login_with_composer",
+            "snapshot": "status",
+            "expected": "login_required",
+            "actual": "login_required"
+          },
+          {
+            "name": "navigation_login_with_composer",
+            "snapshot": "answer",
+            "expected": "login_required",
+            "actual": "login_required"
+          },
+          {
+            "name": "navigation_free_signup_en",
+            "snapshot": "status",
+            "expected": "login_required",
+            "actual": "login_required"
+          },
+          {
+            "name": "navigation_free_signup_en",
+            "snapshot": "answer",
+            "expected": "login_required",
+            "actual": "login_required"
+          },
+          {
+            "name": "navigation_free_signup_ko",
+            "snapshot": "status",
+            "expected": "login_required",
+            "actual": "login_required"
+          },
+          {
+            "name": "navigation_free_signup_ko",
+            "snapshot": "answer",
+            "expected": "login_required",
+            "actual": "login_required"
+          }
+        ],
+        "assertions_pass": true,
+        "observation": {
+          "mode": "headless",
+          "browser": "Chrome/153.0.8010.47",
+          "arch": "arm64",
+          "sandbox": "namespace+seccomp",
+          "public_navigations": 0,
+          "prompts_sent": 0,
+          "browser_closed": true
+        }
+      },
+      {
+        "target": "m3",
+        "mode": "virtual",
+        "image": "sha256:9e7810909ea9b2309233076aacbab22fd773c7df5cf7a4a2067018e7b6d24cef",
+        "began": "2026-09-17T09:09:25.079Z",
+        "ended": "2026-09-17T09:09:29.860Z",
+        "exit_code": 0,
+        "cleanup": true,
+        "assertions": [
+          {
+            "name": "sidebar_message_noise",
+            "snapshot": "status",
+            "expected": null,
+            "actual": null
+          },
+          {
+            "name": "sidebar_message_noise",
+            "snapshot": "answer",
+            "expected": null,
+            "actual": null
+          },
+          {
+            "name": "genuine_challenge",
+            "snapshot": "status",
+            "expected": "cloudflare_check",
+            "actual": "cloudflare_check"
+          },
+          {
+            "name": "genuine_challenge",
+            "snapshot": "answer",
+            "expected": "cloudflare_check",
+            "actual": "cloudflare_check"
+          },
+          {
+            "name": "genuine_captcha",
+            "snapshot": "status",
+            "expected": "captcha_required",
+            "actual": "captcha_required"
+          },
+          {
+            "name": "genuine_captcha",
+            "snapshot": "answer",
+            "expected": "captcha_required",
+            "actual": "captcha_required"
+          },
+          {
+            "name": "genuine_limit",
+            "snapshot": "status",
+            "expected": "usage_limit",
+            "actual": "usage_limit"
+          },
+          {
+            "name": "genuine_limit",
+            "snapshot": "answer",
+            "expected": "usage_limit",
+            "actual": "usage_limit"
+          },
+          {
+            "name": "navigation_login_with_composer",
+            "snapshot": "status",
+            "expected": "login_required",
+            "actual": "login_required"
+          },
+          {
+            "name": "navigation_login_with_composer",
+            "snapshot": "answer",
+            "expected": "login_required",
+            "actual": "login_required"
+          },
+          {
+            "name": "navigation_free_signup_en",
+            "snapshot": "status",
+            "expected": "login_required",
+            "actual": "login_required"
+          },
+          {
+            "name": "navigation_free_signup_en",
+            "snapshot": "answer",
+            "expected": "login_required",
+            "actual": "login_required"
+          },
+          {
+            "name": "navigation_free_signup_ko",
+            "snapshot": "status",
+            "expected": "login_required",
+            "actual": "login_required"
+          },
+          {
+            "name": "navigation_free_signup_ko",
+            "snapshot": "answer",
+            "expected": "login_required",
+            "actual": "login_required"
+          }
+        ],
+        "assertions_pass": true,
+        "observation": {
+          "mode": "virtual",
+          "browser": "Chrome/153.0.8010.47",
+          "arch": "arm64",
+          "sandbox": "namespace+seccomp",
+          "public_navigations": 0,
+          "prompts_sent": 0,
+          "browser_closed": true
+        }
+      }
+    ]
+  }
 }

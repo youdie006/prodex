@@ -141,6 +141,27 @@ replacement publication of version `0.40.18`. Native remote CI results for the
 source commit are tracked in the PR separately; local Linux checks are not
 reported as native Windows or macOS passes.
 
+### Free-signup compatibility follow-up
+
+After source commit `692ded3`, a bounded compatibility probe found that the
+navigation whitelist omitted the already-supported exact `Sign up for free`
+and Korean free-signup controls. Both could become an unclassified login request
+when an anonymous composer was present. Two new tests reproduced that regression
+before extending the existing exact auth-control predicate. No fuzzy navigation
+text was added to protection detection.
+
+The follow-up passed `CI=1 npm test` (123 files, 1,757 passed, 3 skipped), the
+independent four-file regression command above (209 tests), typecheck, and build.
+Its seven synthetic DOM cases were also checked in both status and answer
+snapshots on actual Chrome 153, in headless and Xvfb modes on both architectures:
+56/56 assertions passed. The source hash, pinned candidate images, timestamps,
+per-case classifications, and cleanup are recorded under `follow_up_dom` in the
+JSON evidence. These four additional containers had networking disabled and made
+zero public navigations or prompts. The new source's expressions ran in Chrome;
+the matching source classifier ran locally on their snapshots. This was not an
+installed runtime upgrade. The PR records the follow-up commit and its CI
+separately from the preceding source commit's package checks and CI.
+
 ## Installation and publication scope
 
 WSL's original image/start time remained
