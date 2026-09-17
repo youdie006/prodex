@@ -27,14 +27,16 @@ automatic protection handling are part of this experiment.
   and same-volume synthetic-state persistence after container restart.
 - [x] Only after those checks, navigate the isolated browser for manual login.
   A protection or login prompt is a blocker for automation, not a retry instruction.
-- [ ] Verify one user-authorized Pro response and one continuation after manual
-  authentication; never call account-free smoke a successful Pro consultation.
+- [x] Verify one user-authorized Pro response and one continuation after manual
+  authentication. The [installed WSL check](#installed-container-acceptance-2026-09-17)
+  passed on 2026-09-17; M3 authenticated acceptance remains untested.
 
 The later [live host Pro acceptance](pro-acceptance-2026-09-16.md) passed using
 the separate existing WSL host browser. It does not satisfy this container gate:
 the container requires independent authentication and response verification.
-The [2026-09-17 check](#authenticated-container-check-2026-09-17) confirms its
-manual login, but the bounded request and recovery did not return an answer.
+The [initial 2026-09-17 check](#authenticated-container-check-2026-09-17) confirmed
+manual login but returned no answer. The later corrected WSL installation passed
+both live response gates; the earlier failed checks below are retained as history.
 
 ## Scope limits
 
@@ -589,3 +591,97 @@ another crash; do not label synthetic or model-tag-only evidence as acceptance.
 No npm release, image publication, GitHub Release, native Windows test, or complete
 OS acceptance is claimed. Commit/push evidence belongs in PR #7 alongside this
 durable record.
+
+## Installed container acceptance: 2026-09-17
+
+The user authorized applying the tested candidate and restarting only the WSL
+ProDex container. This supersedes the preceding installation-pending checkpoint.
+The 49 focused container/crash regression tests passed again before installation.
+
+### Installed target
+
+- Implementation commit: `fd85d377f7977da8a50f534a1f2beaa94efb7169`.
+- Target: WSL Linux x64, `prodex-browser-browser-1`.
+- Installed image: `sha256:1f5cf6a36323635c2f03bd3b011f89f9e5223cc955f10737bd187de7e89cfd18`.
+- Package: `0.40.18`; Chromium: `152.0.7977.82`, ordinary headed Chromium on Xvfb.
+- Service started: `2026-09-17T02:26:01.057464106Z`; final state `running healthy`, restart count `0`.
+- Preserved: `prodex-browser_browser-home:/home/node`, hostname `prodex-browser`, and viewer-password file inode, size, permissions, and modification time.
+- Actual launch flags: wrapper shared-memory/GPU overrides absent, explicit container privacy restrictions present, browser sandbox retained.
+
+The approved update tagged the already-tested image locally, then ran:
+
+```sh
+docker compose -f containers/browser/compose.json up -d --no-build --no-deps --force-recreate browser
+docker exec prodex-browser-browser-1 node /app/containers/browser/health.mjs
+```
+
+No volume deletion, profile copying, cookie/token extraction, password reset,
+host-browser window, Codex restart, or protective-control interaction occurred.
+One ChatGPT tab was opened inside the existing virtual display after startup.
+Its first bounded status read returned `loggedInLikely=true`, `hasComposer=true`,
+and no blocker, without another login. The user's existing loopback viewer tunnel
+remained alive and returned HTTP 200.
+
+### Actual response and continuation
+
+Two independent temporary stdio MCP clients each required the `0.40.18` handshake
+and used the same private bridge workspace and ordinary shared send lock. The
+first requested `new_chat: true`, `effort: "Pro"`, no model fallback, and a
+20-minute maximum budget. It asked for a short safe onboarding flow, an exact
+test prefix, and retention of a fictional label. The second used the first
+verified result's continuation handle, not an arbitrary current/latest tab.
+Each client closed and its process exit was verified before the check finished.
+
+| Evidence | First request | Continuation |
+| --- | --- | --- |
+| Task | `task_20260917_022732_gpt-pro-consult` | `task_20260917_022847_gpt-pro-consult` |
+| Request ID | `b20e6a8ee2584daf83bbbf64f12cf1fe` | `8550649076021c8f79761d45b6a480a2` |
+| Completed answer length | 795 characters | 45 characters |
+| Rendered model | `gpt-6-pro` | `gpt-6-pro` |
+| `request_verified` / `pro_verified` | `true` / `true` | `true` / `true` |
+| Task and session status | `done` | `done` |
+| Persistence warnings | 0 | 0 |
+
+The second prompt did not repeat the fictional label. Its exact answer was:
+
+```text
+PDX_CONTAINER_20260917_APPLIED_C6 SECOND N4J8
+```
+
+The test asserted equal conversation URLs internally, distinct request IDs, and
+`continued_from` equal to the first task ID. Exactly two prompts were submitted;
+no timeout, recovery, or automatic resend occurred. The earlier failed tasks
+were not overwritten. Private conversation URLs and raw account state were not
+published.
+
+A separate local read-back used `getFinalizedResultReadOnly`,
+`readFinalizedResultArtifactText`, `getTrustedReceipt`, and `getSessionReadOnly`.
+Both completion seals, saved model/request evidence, artifact SHA-256 checks,
+answer contents, and parent/session links passed. An initial diagnostic assertion
+incorrectly expected `integrity_status.trusted=true`; the display API emits that
+field only for untrusted receipts. The corrected check called the actual trusted
+receipt verifier and passed. No product code or record was changed to satisfy it.
+
+Final browser readiness remained logged in with a composer and no blocker. No
+temporary MCP processes remained. A point-in-time socket check found zero
+established raw VNC or web-viewer connections. SIGILL was not reproduced during
+these two live requests; this bounded pass does not establish that every possible
+renderer crash or upstream service failure is eliminated.
+
+### CI and publication scope
+
+[CI run 35173719307](https://github.com/youdie006/prodex/actions/runs/35173719307)
+completed successfully for the installed implementation: Ubuntu 24.04 on Node
+20/22/24, macOS 15 ARM64 and Intel on Node 22, and Windows Server 2025 x64 on Node
+22. All six jobs include build, account-free headless-browser smoke, and release
+verification. The existing GitHub Actions Node-20 deprecation annotation is
+non-blocking and is not suppressed. These native CI jobs do not exercise a
+signed-in ChatGPT account.
+
+**Acceptance:** the installed WSL virtual-display container passes saved-login
+retention, a real Pro response, and exact-thread continuation across MCP processes.
+This is not pure-headless authenticated access. M3's installed service remains
+unchanged and has no authenticated Pro pass; Codex's already-attached MCP was not
+reconnected by these fresh container clients. No npm publication, image-registry
+publication, release tag, or GitHub Release was made. The source and this durable
+installation record are tracked on the existing branch and PR #7.
