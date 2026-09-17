@@ -32,7 +32,9 @@ automatic protection handling are part of this experiment.
 
 The later [live host Pro acceptance](pro-acceptance-2026-09-16.md) passed using
 the separate existing WSL host browser. It does not satisfy this container gate:
-the container profile still requires its own manual authentication.
+the container requires independent authentication and response verification.
+The [2026-09-17 check](#authenticated-container-check-2026-09-17) confirms its
+manual login, but the bounded request and recovery did not return an answer.
 
 ## Scope limits
 
@@ -393,3 +395,73 @@ retrying the read-only summary with the resolved executable succeeded. Only
 failure counts were emitted, never raw logs or credentials. The routing correction
 does not demonstrate ChatGPT login or authenticated Pro operation in the container.
 No package release, browser restart, profile transfer, or password change occurred.
+
+## Authenticated container check: 2026-09-17
+
+After the user reported completing ChatGPT login through the corrected viewer,
+the WSL container returned `reachable=true`, `loggedInLikely=true`,
+`hasComposer=true`, and no rendered blocker. Runtime inspection verified a
+headed Linux x64 Chromium `152.0.7977.82`, not pure headless Chromium. This used
+the existing `prodex-browser-browser-1` service and its original named home volume;
+no login command, new browser window, mode change, or profile copying occurred.
+
+Source baseline: `8b5c4786838a02f87cfe002e5f616d43afb2ea9e`. The unchanged
+development image was
+`sha256:973e16dbbe4d0b988fa099fa76906809b53d4687029a3bbf11fa5fdcf9fa0cb2`.
+Both temporary stdio MCP handshakes reported `prodex` version `0.40.18`.
+They ran inside the container with `/home/node/bridge` as the durable workspace,
+`PRODEX_NO_AUTO_LOGIN=1`, and ordinary shared send locking. These connections
+did not reconnect the MCP already attached to Codex or change client settings.
+
+| Check | Result |
+| --- | --- |
+| Manual ChatGPT authentication and composer readiness | PASS |
+| Zero established VNC clients observed while browser/login remained available | PASS, point-in-time observation; user viewer was not forcibly disconnected |
+| Fresh Pro request, no model fallback, exact synthetic answer | FAIL: `send_timeout` at the explicit 300-second test budget |
+| One recovery of the original thread and exact request, no new send | FAIL: `no_recoverable_answer` after the additional 120-second recovery budget |
+| Rendered Pro model and completed-answer identity | NOT VERIFIED: no completed answer returned |
+| Planned same-thread continuation | NOT RUN: first-answer acceptance failed |
+| Temporary MCP child cleanup | PASS: both children closed and their PIDs were absent |
+| Container configuration/service/viewer regression tests | PASS: 27 tests across three files |
+
+The only sent prompt created `task_20260917_011931_gpt-pro-consult`. It asked
+for 31 x 37, with the expected answer `PDX_CONTAINER_20260917_Q9 FIRST 1147`,
+and supplied a synthetic label for a possible later memory check. A read-only
+rendered-DOM probe confirmed the request marker was present, but the assistant
+message had no text at that observation. The task and session were durably
+recorded as blocked with `send_timeout`. Recovery used the exact request ID from
+that task's recorded recovery instruction, never an arbitrary latest answer.
+Private conversation URLs and raw records remain inside the container.
+
+The 300-second ceiling was an explicit acceptance-test limit, shorter than the
+current CLI's 20-minute default for a Pro selection. These observations establish
+a failed bounded check, not a proven login failure, model-selection defect,
+service outage, or permanent inability to answer. Nothing was automatically
+resent. The follow-up branch stopped before sending because it required a
+finished, request-verified, Pro-verified first answer.
+
+Verification used inline Node MCP SDK clients via
+`docker exec --workdir /app prodex-browser-browser-1 node --input-type=module`.
+Each client launched `/app/dist/cli.js mcp --cwd /home/node/bridge`, required the
+`0.40.18` initialization handshake, and closed its transport and child process.
+The first call requested `effort: "Pro"`, `allow_model_fallback: false`,
+`new_chat: true`, and `timeout_ms: 300000`; recovery requested
+`timeout_ms: 120000`. Rendered-state probes used the existing container-loopback
+CDP connection only, without cookies, hidden endpoints, or page reloads.
+
+```sh
+npm test -- tests/container-browser-service.test.ts tests/container-browser-config.test.ts tests/container-viewer-smoke.test.ts
+docker inspect --format '{{.State.Status}} {{.State.Health.Status}} {{.State.StartedAt}} {{.RestartCount}}' prodex-browser-browser-1
+```
+
+The final service check remained `running healthy`, with the unchanged start
+time `2026-09-16T02:21:14.870311519Z` and restart count `0`. No authenticated
+restart test, M3 live request, or full OS matrix was performed in this follow-up.
+This is a verification-record update, not a runtime fix, package installation,
+image publication, or release. Commit/push verification is recorded in PR #7.
+
+The user also identified the manual Docker command for viewer-password retrieval
+as an onboarding problem. That workflow is still present; no automatic viewer
+handoff command was implemented or installed in this check. Improving it must
+retain local/SSH access controls and VNC authentication, without putting the
+credential in URLs, logs, command arguments, or support messages.

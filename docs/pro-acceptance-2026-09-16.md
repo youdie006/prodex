@@ -116,8 +116,10 @@ scope and date.
 - [ ] Actual attached Codex MCP loaded at the current version. Updating an
   installed package or spawning an SDK child is not client reconnection.
 - [ ] Container Pro response, continuation, and authentication persistence after
-  viewer disconnection. The existing WSL viewer is available for the user's
-  manual authentication; a host login does not authenticate this separate profile.
+  viewer disconnection. The [2026-09-17 follow-up](container-browser.md#authenticated-container-check-2026-09-17)
+  confirmed manual container login and readiness with no viewer connected, but
+  its bounded Pro request timed out and exact-request recovery found no answer.
+  No continuation was sent; the live container acceptance gate remains open.
 - [ ] Authenticated pure-headless Pro response and continuation. The earlier
   WSL/M3 403 trials and native M3 protection blocker remain unresolved.
 
