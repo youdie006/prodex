@@ -882,3 +882,83 @@ No new npm version, registry image, release tag, or GitHub Release is published
 by this source-only helper installation. The existing six-platform CI pass
 above applies to the installed image implementation; the helper's own checks
 and source commit are recorded in the follow-up PR deployment comment.
+
+## Live recheck: 2026-09-18
+
+**Overall pure-headless acceptance remains blocked.** This user-authorized
+recheck verifies the already-installed WSL virtual-display operating mode, not a
+substitute headless pass. No new headless navigation or protection retry occurred;
+the latest correlated public observation remains [307 -> 403 with a final
+challenge header](navigation-diagnostics-2026-09-18.md#one-public-observation).
+
+The WSL service retained image
+`sha256:1f5cf6a36323635c2f03bd3b011f89f9e5223cc955f10737bd187de7e89cfd18`,
+package `0.40.18`, container ID prefix `39b4ed5b4b12`, start time
+`2026-09-17T04:36:34.956128153Z`, and restart count zero. Before and after,
+`node scripts/container-client.mjs --context default status` reported healthy,
+actual `headed` mode, ready, and no blocker. No login window, service restart,
+profile transfer, password read, or configuration change was needed.
+
+Two temporary SDK clients launched the container helper sequentially. Each MCP
+handshake reported `0.40.18`; the first client closed before the second connected.
+Both requests selected `effort: "Pro"`, disabled model fallback, used the same
+explicit session key, and had a 20-minute maximum budget without retries.
+
+| Check | First request | Exact-task continuation |
+| --- | --- | --- |
+| Task | `task_20260917_160512_gpt-pro-consult` | `task_20260917_160602_gpt-pro-consult` |
+| Request ID | `3cc004e5f8d65ae957243645ff422040` | `099720a9b5caecc1086cd42e69471b47` |
+| Rendered model | `gpt-6-pro` | `gpt-6-pro` |
+| Completed / request verified / Pro verified | PASS | PASS |
+| Expected answer | Test prefix, `FIRST 1763` | Same prefix, `SECOND`, remembered fictional label, `1780` |
+
+The first prompt asked for 41 times 43 and retention of a random fictional label.
+The second did not repeat the label and asked to add 17 to the original result.
+Both exact answers matched. Internal assertions confirmed the same conversation,
+distinct request IDs, and `continued_from` equal to the first task. The test prefix
+was `PDX_FINAL_20260918_02DFFFDE`. Private conversation URLs remain local.
+
+Exactly two prompts were submitted. A subsequent `pro_recover` using the second
+request's exact thread and request ID returned the identical verified answer
+without sending another prompt. Independent store read-back verified both
+completion seals, trusted saved-answer receipts, model/request evidence, session
+links, artifact byte counts and SHA-256 hashes, and zero persistence warnings.
+An initial read-back assertion incorrectly required project verification for a
+root conversation. The existing destination contract omits that field when no
+project was requested; the corrected assertion checked `observed: "root"` and
+the exact conversation linkage. No product code or stored result was altered.
+
+Point-in-time checks found zero viewer connections before and after the requests;
+the final check covered IPv4 and IPv6. Both owned helper processes exited, and
+the final container process check found no remaining MCP process. The original
+Codex MCP attachment was neither replaced nor used as evidence for these fresh
+container-client handshakes.
+
+M3's unchanged Linux ARM64 service was healthy and reachable, but its read-only
+status returned actual `headed` mode and `login_required`. No M3 prompt, login,
+or protection interaction occurred; its authenticated acceptance is not passed.
+
+Verification:
+
+- PASS: the two real WSL Pro answers, continuation, no-send recovery, durable
+  result integrity, retained readiness, unchanged service identity, and cleanup.
+- PASS: `npm test -- tests/container-client.test.ts tests/mcp-consult.test.ts tests/continue-thread.test.ts tests/pro-selection-contract.test.ts`
+  (92 tests across four files). These source-checkout tests are separate from
+  the installed image's live checks.
+- PASS: `npm test -- tests/destination-verification.test.ts` (nine tests),
+  including the root-chat contract used by the corrected read-back assertion.
+- PASS: `git diff --check` and Node assertions for explicit acceptance limits,
+  ASCII additions, local document links, the changelog backlink, and absence of
+  private conversation URLs in this record.
+- PASS: [CI 35239179272](https://github.com/youdie006/prodex/actions/runs/35239179272)
+  completed all six native jobs for source commit
+  `bdfd9303d380562c66d1fbfb0fae257ed45cf480`. It does not exercise signed-in Pro.
+- FAIL, harness assertion only: the initial project-verification assumption
+  described above; corrected read-back passed without another browser request.
+- NOT PASSED: pure-headless Pro access, authenticated M3 operation, and current
+  attached-client reconnection. None is inferred from the WSL virtual-display pass.
+
+This is a verification-record update only. No npm/image publication, release tag,
+installation, or runtime change was made. Commit/push details are recorded in
+[PR 7](https://github.com/youdie006/prodex/pull/7); the user's untracked `Makefile`
+remains untouched.
