@@ -4,8 +4,10 @@
 
 The user approved trying the persistent virtual-desktop candidate in
 [the research record](headless-methods-research.md) on 2026-09-16. This is ordinary
-Chromium on an isolated Linux display, not true headless Chromium. The existing
-host browser, login profile, MCP settings, and installed package remain separate.
+Chromium on an isolated Linux display, not true headless Chromium. The host
+browser, login profile, and installed package remain separate. The later client
+setup below explicitly selects the container; it does not migrate a host profile
+or reconnect an already-running agent.
 
 The bounded implementation keeps Chromium, Xvfb, and ProDex in one single-user
 container. CDP stays on container loopback. A password-protected local noVNC viewer
@@ -74,12 +76,23 @@ Open <http://127.0.0.1:39333/vnc.html> on the computer hosting this container
 running the web browser, not the server selected in an SSH terminal. Separate
 WSL and Mac containers can serve that same URL with different viewer passwords.
 
-Retrieve the **local viewer password** from that same container and Docker
-context in your own terminal; it is separate from your ChatGPT password:
+Use the checkout helper in your own interactive terminal to select the matching
+Docker context, show the viewer URL, and copy the **local viewer password** to
+your clipboard. It is separate from your ChatGPT password:
 
 ```sh
-docker compose -f containers/browser/compose.json exec -T browser cat /home/node/.vnc/viewer-password
+node scripts/container-client.mjs --context default viewer --copy-password
 ```
+
+The command does not print the password, open a browser, or start a tunnel. It
+refuses password access unless both stdin and stdout are real terminals. macOS
+uses `pbcopy`, Windows/WSL use `clip.exe`, and Linux needs `wl-copy` or `xclip`
+with a working desktop clipboard. Linux waits for one paste, for at most 60
+seconds; a timeout fails instead of leaving a background clipboard process.
+Clear the clipboard after login; macOS/Windows clipboard history can retain it.
+An SSH terminal's clipboard belongs to the machine running the command, not
+necessarily the computer displaying your viewer. Do not run this command through
+an agent or a recorded/shared terminal, and do not paste its contents into chat.
 
 The eight-character password is the VNC protocol's effective limit. Keep the
 published port on localhost; the viewer is not an internet service and has no
@@ -146,6 +159,65 @@ share or mount the profile into another running browser.
 
 ## MCP transport
 
+### Everyday checkout helper
+
+The source checkout includes a Node 20+ launcher for an **already-running**
+container. It never builds, starts, replaces, or logs in a browser automatically:
+
+```sh
+node scripts/container-client.mjs --context default status
+node scripts/container-client.mjs --context default pro -- "Review this short plan: ..."
+node scripts/container-client.mjs --context default pro --continue-task TASK_ID -- "Clarify the previous answer."
+node scripts/container-client.mjs --context default mcp
+node scripts/container-client.mjs --context default viewer
+```
+
+Replace `default` with your Docker context (`colima-prodex-check` in the M3
+verification). Use `--container NAME` before the command for a nondefault name.
+`pro` is an explicit send, defaults to Pro effort only when no model/effort was
+chosen, and preserves native continuation and `--stdin` options. Login and
+private bridge/browser path overrides are refused. Other native ask options
+retain their existing validation. Status shows actual process mode, image ID,
+version, and readiness without conversation URLs, titles, or authentication data.
+
+The bridge is always `/home/node/bridge`. `--file` and `--attach` refer to
+container-relative files, not your host repository. No repository is mounted.
+Your host agent may include specifically authorized text in `prompt`, or your
+terminal can pipe that text to `pro --stdin`. Do not send unrelated local files.
+
+For a remote Docker endpoint, `viewer` requires `--forwarded-port PORT` for an
+existing local loopback tunnel. It cannot verify which endpoint an SSH tunnel
+reaches; establish and check the tunnel first. TCP Docker endpoints are treated
+as remote even when their hostname is localhost. Without password copying,
+`viewer` prints only the URL to stdout and target identity to stderr.
+
+Register the same helper with your client using absolute executable and checkout
+paths. Keep Docker on that client's PATH:
+
+```sh
+codex mcp add prodex -- /absolute/path/to/node /absolute/path/to/prodex/scripts/container-client.mjs --context default mcp
+claude mcp add prodex -s user --transport stdio -- /absolute/path/to/node /absolute/path/to/prodex/scripts/container-client.mjs --context default mcp
+```
+
+Replace an existing Claude entry in the same scope before adding it. Preserve
+unrelated settings. For Codex, set these values in the existing server section:
+
+```toml
+[mcp_servers.prodex]
+command = "/absolute/path/to/node"
+args = ["/absolute/path/to/prodex/scripts/container-client.mjs", "--context", "default", "mcp"]
+startup_timeout_sec = 30
+tool_timeout_sec = 3900
+```
+
+Reconnect through your agent's supported MCP controls before expecting its tools
+to use the new command. Saving configuration does not replace an existing stdio
+process. Until then, the explicit terminal `pro` command uses the selected
+container without restarting your coding session. This helper is source-only,
+not a new npm command or a public container image release.
+
+### Direct Docker transport
+
 An MCP client can use `docker` as the executable with these arguments, replacing
 the compose path with an absolute path:
 
@@ -158,8 +230,8 @@ option is required for clean stdio; do not allocate a terminal. Each client gets
 its own MCP process while the same-container bridge locks serialize shared work.
 The account-free smoke tests task locking, not real conversation identity.
 
-The compose file intentionally does not mount host repositories. This example
-is not installed into the user's Codex or Claude settings automatically. A green
+The compose file intentionally does not mount host repositories. The commands
+above change client settings only when explicitly run. A green
 container healthcheck means local CDP and viewer reachability only; it does not
 mean signed-in, Pro-ready, or attached to an existing MCP client.
 
@@ -685,3 +757,123 @@ unchanged and has no authenticated Pro pass; Codex's already-attached MCP was no
 reconnected by these fresh container clients. No npm publication, image-registry
 publication, release tag, or GitHub Release was made. The source and this durable
 installation record are tracked on the existing branch and PR #7.
+
+## Container client installation: 2026-09-17
+
+The user subsequently authorized finishing both machine installations and client
+setup. This checkpoint supersedes the previous M3-installation-pending statement;
+the earlier measurements above remain historical, not current service state.
+
+### Same-profile pure-headless check
+
+The authenticated WSL container was stopped gracefully before one disposable
+trial used its existing named volume and hostname with direct Chromium
+`--headless=new`. Process inspection confirmed headless mode without DISPLAY,
+XAUTHORITY, or WAYLAND_DISPLAY. The first ChatGPT navigation returned
+`cloudflare_check`, without a usable signed-in composer. **Zero prompts were
+sent.** No protection interaction, fingerprint change, profile copying, token
+extraction, or retry was attempted.
+
+The trial browser was closed and its disposable container removed. Restarting
+the known-good virtual-display container restored `loggedInLikely=true`,
+`hasComposer=true`, and no blocker without asking for another login. Therefore
+the tested operating mode remains virtual-display Chromium, not authenticated
+pure headless. A persistent signed-in profile alone did not pass the latter.
+
+### Installed machines and clients
+
+Both images retain package `0.40.18`, Chromium `152.0.7977.82`, the direct-binary
+implementation from `fd85d377f7977da8a50f534a1f2beaa94efb7169`, the named home
+volume, stable hostname, viewer password, and browser sandbox.
+
+| Target | Installed image | Service start (UTC) | Readiness |
+| --- | --- | --- | --- |
+| WSL x64 | `sha256:1f5cf6a36323635c2f03bd3b011f89f9e5223cc955f10737bd187de7e89cfd18` | `2026-09-17T03:09:21.168498573Z` | Healthy, signed in, composer ready |
+| M3 ARM64, `colima-prodex-check` | `sha256:73de64cca2889500e7683dd10e269cbf05f8997e6830d09641e44047cee5d6ac` | `2026-09-17T03:11:22.942538376Z` | Healthy, `login_required` |
+
+M3's first replacement began before the local image tag operation completed;
+inspection caught the old image, and a second explicit replacement installed
+the verified immutable image. Password-file metadata remained unchanged. M3
+has not been signed in automatically, received no Pro prompt, and needs its own
+manual first login. WSL credentials were not copied to it.
+
+The host-side helper was installed from this source checkout on WSL and copied
+to the versioned operator directory on M3. It is not inside the image and does
+not require another browser restart. Both machines' user-scoped Codex and Claude
+`prodex` entries now select their explicit local Docker context. Codex startup
+and tool timeouts are 30 and 3900 seconds. M3 also sets the public executable
+PATH for its noninteractive client. Unrelated MCP entries were preserved.
+
+| Client check | WSL | M3 |
+| --- | --- | --- |
+| Helper status reports actual process mode and immutable image | PASS | PASS |
+| Two independent helper-launched MCP handshakes, 20 tools, version 0.40.18 | PASS | PASS |
+| One client closes; the second remains usable | PASS | PASS |
+| Claude `mcp get prodex` reports Connected to the helper | PASS | PASS |
+| Codex `mcp get prodex --json` confirms command, context, and timeouts | PASS | PASS |
+
+These checks do not claim a live Claude-model consultation. Real clipboard
+copying was deliberately not invoked by the agent; its TTY guard, value
+validation, platform command selection, private pipes, and bounded cleanup are
+covered by tests using synthetic values. Remote viewer URLs still require the
+operator to establish the intended loopback tunnel.
+
+Both installed helper files have SHA-256
+`436d120c1ae7f3c1390b7b82e6b63ef3b7c6866c2e1ce9d0a4ec401a7229b89e`.
+The final WSL read remained signed in and ready; both containers had zero
+remaining temporary MCP processes after disconnect. The user's existing SSH
+viewer tunnel stayed alive. No host browser or visible login window was opened.
+
+The current Codex session was not restarted or disconnected. Its existing host
+MCP process is not changed by these saved settings. The installed Codex protocol
+does expose `config/mcpServer/reload`, but this session has no reachable managed
+app-server control socket. A separate temporary app-server was used only for
+M3's structured timeout configuration write and then closed, not as evidence of
+reconnecting the current session.
+
+### Fresh Codex continuation
+
+A separate Codex CLI `0.154.0` process initialized the helper MCP using existing
+Codex authentication without copying credentials or restarting the current
+session. The readiness wrapper initially kept stdin open, so the new CLI waited
+for piped input; closing that owned input pipe corrected the harness check.
+The first MCP attempt used `approval_policy="never"` and was refused by Codex
+before any browser send. The subsequent invocation retained a read-only sandbox,
+exposed only `pro_consult`, and used the built-in automatic approval reviewer
+with `approval_policy="on-request"`. It did not globally bypass approvals or
+change persistent approval settings.
+
+Exactly one Pro prompt was sent through that actual Codex MCP tool call:
+
+- Task: `task_20260917_034029_gpt-pro-consult`.
+- Request: `ea34149f28c6c29352ca900e38c2c828`.
+- `continued_from`: `task_20260917_022732_gpt-pro-consult`.
+- Rendered model: `gpt-6-pro`; status `done`.
+- `request_verified=true`, `pro_verified=true`, zero persistence warnings.
+- Answer: `PDX_REAL_CODEX_C7 THIRD N4J8`.
+
+The prompt did not repeat `N4J8`. A separate read-back verified the same original
+thread, trusted completion and model receipt, saved session/task links, and the
+answer artifact hash. The owned fresh Codex/MCP processes exited afterward. This
+is actual fresh-agent acceptance, not a claim that the older current attachment
+was replaced.
+
+The independent code review caught a context named `DOCKER_HOST` being mistaken
+for the environment-selected endpoint when deriving the viewer URL. A regression
+first reproduced the incorrect local/remote classification, then passed after
+routing was based on explicit context selection rather than its display label.
+The helper's 18 focused tests passed, including this collision and the unchanged
+environment-endpoint path. Automated password-copy and nonexistent-context
+negative probes both failed safely without reading a password or starting a
+container.
+
+Final local verification after the review fix: `npm test -- --reporter=dot`
+passed all 123 test files (1,741 passed, three platform exclusions); `npm run
+typecheck`, `node --check scripts/container-client.mjs`, and `git diff --check`
+passed. The review regression was observed failing before the correction. No
+real clipboard credential was read during any of these automated checks.
+
+No new npm version, registry image, release tag, or GitHub Release is published
+by this source-only helper installation. The existing six-platform CI pass
+above applies to the installed image implementation; the helper's own checks
+and source commit are recorded in the follow-up PR deployment comment.

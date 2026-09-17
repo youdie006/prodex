@@ -184,6 +184,9 @@ Linux virtual-display browser running on WSL and an M3 Linux VM, with a local
 password-protected viewer for manual login. It avoids switching browser modes
 after authentication. This source-only experiment is separate from the native
 commands below; it is not a guarantee of ChatGPT access or an installed default.
+For an existing container, the [checkout helper](docs/container-browser.md#everyday-checkout-helper)
+provides `status`, `pro`, `mcp`, and `viewer`, including interactive password
+copying. Use its client setup instructions instead of the native host commands.
 
 ```sh
 prodex pro browser login                    # once, headed: sign in
