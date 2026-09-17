@@ -1,5 +1,9 @@
 # Headless HTTP 403: GitHub and Reddit evidence
 
+Implementation follow-up: [navigation diagnostics and the bounded September 18 observation](navigation-diagnostics-2026-09-18.md).
+The research-pass boundaries below describe September 17; the linked follow-up
+records later code changes and one separately authorized public measurement.
+
 Date: 2026-09-17. Research only, following the stock Chrome comparison.
 Official product documentation was excluded. No upstream package was installed
 or executed, and no new ChatGPT navigation, login, prompt, or browser transition

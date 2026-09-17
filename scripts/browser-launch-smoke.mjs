@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import WebSocket from "ws";
 
 import { createBrowserCompatibilityEvidence } from "./browser-compatibility.mjs";
+import { runNavigationProbe } from "./browser-navigation-probe.mjs";
 import { openChatGptBrowser } from "../dist/chatgpt-browser.js";
 import {
   assertLaunchedBrowserMainProcess,
@@ -46,17 +47,25 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   }
 }
 
-function parseSmokeOptions(values) {
-  const options = { headed: false };
+export function parseSmokeOptions(values) {
+  const options = { headed: false, publicChatGpt: false };
   for (const value of values) {
     if (value === "--headed") {
       options.headed = true;
+      continue;
+    }
+    if (value === "--public-chatgpt") {
+      options.publicChatGpt = true;
       continue;
     }
     if (value.startsWith("-")) throw new Error(`unknown option ${value}`);
     throw new Error(`unexpected argument ${value}`);
   }
   return options;
+}
+
+export function browserSmokeOutcome(publicNavigation) {
+  return !publicNavigation || publicNavigation.outcome === "response" ? "ok" : "failed";
 }
 
 async function runSmoke(options) {
@@ -67,6 +76,8 @@ async function runSmoke(options) {
   let fixture;
   let activeBrowser;
   let evidence;
+  let navigationDiagnostics;
+  let publicNavigation;
   let port;
   let mainPid;
   try {
@@ -83,13 +94,21 @@ async function runSmoke(options) {
       fixtureUrl: fixture.url,
       attachmentPath
     });
+    navigationDiagnostics = await verifyLocalNavigationDiagnostics(port, fixture.url);
     await closeOwnedBrowser(activeBrowser);
     activeBrowser = undefined;
 
     activeBrowser = beginOwnedBrowser(port, profileDir, headless);
     const restartReady = await waitForOwnedBrowserReady(activeBrowser, READY_TIMEOUT_MS);
     assertSameBrowserMetadata(firstReady.version, restartReady.version);
-    capabilities.profileRestartMarker = await verifySyntheticProfileMarker(port, fixture.url);
+    const marker = await verifySyntheticProfileMarker(port, fixture.url);
+    capabilities.profileRestartMarker = marker.verified;
+    if (options.publicChatGpt) {
+      publicNavigation = await withCdpSession(localCdpSocket(marker.page.webSocketDebuggerUrl, port, "page"),
+        (send, subscribe) => runNavigationProbe({ send, subscribe }, { url: "https://chatgpt.com/" }));
+      // Preserve a partial report even if later owned-browser cleanup fails.
+      console.log(`public_navigation_diagnostics=${JSON.stringify(publicNavigation)}`);
+    }
     await closeOwnedBrowser(activeBrowser);
     activeBrowser = undefined;
 
@@ -119,9 +138,13 @@ async function runSmoke(options) {
       throw new Error(`browser or fixture shutdown could not be confirmed; temporary files retained at ${tempRoot}`);
     }
   }
+  const outcome = browserSmokeOutcome(publicNavigation);
   console.log(
-    `browser_launch_smoke=ok platform=${process.platform} port=${port} main_pid=${mainPid} evaluation=42 graceful_close=ok cleanup=ok evidence=${JSON.stringify(evidence)}`
+    `browser_launch_smoke=${outcome} platform=${process.platform} port=${port} main_pid=${mainPid} evaluation=42 graceful_close=ok cleanup=ok evidence=${JSON.stringify(evidence)} navigation_diagnostics=${JSON.stringify(navigationDiagnostics)}`
   );
+  if (outcome !== "ok") {
+    throw new Error(`public navigation did not pass: ${publicNavigation.outcome}; no retry or login attempted`);
+  }
 }
 
 async function unusedLoopbackPort() {
@@ -139,6 +162,26 @@ async function unusedLoopbackPort() {
 
 async function startFixtureServer() {
   const server = createHttpServer((request, response) => {
+    if (request.method === "GET" && request.url === "/navigation-redirect") {
+      response.writeHead(302, { location: "/navigation-final?synthetic=redirect", "cache-control": "no-store" });
+      response.end();
+      return;
+    }
+    if (request.method === "GET" && request.url === "/navigation-final?synthetic=redirect") {
+      response.writeHead(200, { "content-type": "text/html", "cache-control": "no-store" });
+      response.end('<!doctype html><title>Navigation fixture</title><iframe src="/navigation-child"></iframe>');
+      return;
+    }
+    if (request.method === "GET" && request.url === "/navigation-child") {
+      response.writeHead(418, { "content-type": "text/html", "cache-control": "no-store" });
+      response.end("<!doctype html><title>Child fixture</title>");
+      return;
+    }
+    if (request.method === "GET" && request.url === "/navigation-refusal") {
+      response.writeHead(403, { "content-type": "text/html", "cf-mitigated": "challenge", "cache-control": "no-store" });
+      response.end("<!doctype html><title>Synthetic refusal</title>");
+      return;
+    }
     if (request.method !== "GET" || request.url !== "/") {
       response.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
       response.end("not found\n");
@@ -446,7 +489,7 @@ async function verifyLocalCapabilities({ port, fixtureUrl, attachmentPath }) {
 
 async function verifySyntheticProfileMarker(port, fixtureUrl) {
   const page = await navigateBlankPageToFixture(port, fixtureUrl);
-  return withCdpSession(localCdpSocket(page.webSocketDebuggerUrl, port, "page"), async (send) => {
+  const verified = await withCdpSession(localCdpSocket(page.webSocketDebuggerUrl, port, "page"), async (send) => {
     await send("Runtime.enable");
     await waitForFixtureDom(send);
     const evaluation = await send("Runtime.evaluate", {
@@ -463,6 +506,29 @@ async function verifySyntheticProfileMarker(port, fixtureUrl) {
     }
     return true;
   });
+  return { verified, page };
+}
+
+async function verifyLocalNavigationDiagnostics(port, fixtureUrl) {
+  const page = await waitForFixturePage(port, fixtureUrl, READY_TIMEOUT_MS);
+  const reports = [];
+  for (const fixture of [
+    { route: "/navigation-redirect", outcome: "response", statuses: [302, 200] },
+    { route: "/navigation-refusal", outcome: "http_error", statuses: [403] }
+  ]) {
+    const report = await withCdpSession(localCdpSocket(page.webSocketDebuggerUrl, port, "page"),
+      (send, subscribe) => runNavigationProbe({ send, subscribe }, {
+        url: new URL(fixture.route, fixtureUrl).href
+      }));
+    const statuses = report.diagnostics?.responses.map(response => response.status);
+    if (report.outcome !== fixture.outcome || report.diagnostics?.correlation !== "confirmed" ||
+        JSON.stringify(statuses) !== JSON.stringify(fixture.statuses)) {
+      console.error(`local_navigation_diagnostics=${JSON.stringify(report)}`);
+      throw new Error("local navigation diagnostic fixture did not match");
+    }
+    reports.push(report);
+  }
+  return reports;
 }
 
 async function navigateBlankPageToFixture(port, fixtureUrl) {
@@ -520,10 +586,22 @@ function runtimeValue(evaluation, label) {
   return evaluation.result.value;
 }
 
-async function withCdpSession(socketUrl, callback) {
+export async function withCdpSession(socketUrl, callback) {
   const socket = new WebSocket(socketUrl);
+  const listeners = new Set();
+  const pending = new Set();
   try {
     await waitForSocketOpen(socket);
+    socket.on("message", data => {
+      let event;
+      try { event = JSON.parse(data.toString()); } catch { return; }
+      if (typeof event?.method !== "string" || event.id !== undefined) return;
+      for (const listener of listeners) listener(event);
+    });
+    const subscribe = listener => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    };
     let requestId = 0;
     const send = (method, params = {}) => new Promise((resolve, reject) => {
       const id = ++requestId;
@@ -532,6 +610,7 @@ async function withCdpSession(socketUrl, callback) {
         if (finished) return;
         finished = true;
         clearTimeout(timer);
+        pending.delete(cancel);
         socket.removeListener("message", onMessage);
         socket.removeListener("error", onError);
         socket.removeListener("close", onClose);
@@ -550,7 +629,9 @@ async function withCdpSession(socketUrl, callback) {
       };
       const onError = (error) => finish(error);
       const onClose = () => finish(new Error(`${method} socket closed before a reply`));
-      const timer = setTimeout(() => finish(new Error(`${method} timed out`)), REQUEST_TIMEOUT_MS);
+      const cancel = () => finish(new Error("CDP session closed before a reply"));
+      const timer = setTimeout(() => finish(Object.assign(new Error(`${method} timed out`), { code: "CDP_TIMEOUT" })), REQUEST_TIMEOUT_MS);
+      pending.add(cancel);
       socket.on("message", onMessage);
       socket.once("error", onError);
       socket.once("close", onClose);
@@ -560,8 +641,10 @@ async function withCdpSession(socketUrl, callback) {
         finish(error instanceof Error ? error : new Error(String(error)));
       }
     });
-    return await callback(send);
+    return await callback(send, subscribe);
   } finally {
+    for (const cancel of [...pending]) cancel();
+    listeners.clear();
     socket.removeAllListeners();
     socket.on("error", () => {});
     socket.terminate();

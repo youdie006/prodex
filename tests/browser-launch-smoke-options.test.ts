@@ -3,11 +3,27 @@ import { fileURLToPath } from "node:url";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { waitForFixturePage } from "../scripts/browser-launch-smoke.mjs";
+import { browserSmokeOutcome, parseSmokeOptions, waitForFixturePage } from "../scripts/browser-launch-smoke.mjs";
 
 const smokeScript = fileURLToPath(new URL("../scripts/browser-launch-smoke.mjs", import.meta.url));
 
 describe("browser launch smoke options", () => {
+  it.each(["http_error", "protection", "timeout", "protocol_error", "network_error", "uncorrelated"])(
+    "does not print a success marker for public outcome %s", outcome => {
+      expect(browserSmokeOutcome({ outcome })).toBe("failed");
+    }
+  );
+  it("keeps success for the default offline smoke and a completed HTTP document", () => {
+    expect(browserSmokeOutcome()).toBe("ok");
+    expect(browserSmokeOutcome({ outcome: "response" })).toBe("ok");
+  });
+
+  it("keeps public navigation disabled unless explicitly selected", () => {
+    expect(parseSmokeOptions([])).toMatchObject({ headed: false, publicChatGpt: false });
+    expect(parseSmokeOptions(["--public-chatgpt"])).toMatchObject({ headed: false, publicChatGpt: true });
+    expect(() => parseSmokeOptions(["https://chatgpt.com/"])).toThrow("unexpected argument");
+  });
+
   it("rejects an unknown flag before resolving or launching a browser", () => {
     const result = spawnSync(process.execPath, [smokeScript, "--unknown-smoke-option"], {
       encoding: "utf8",
