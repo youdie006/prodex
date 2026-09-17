@@ -102,6 +102,20 @@ loopback port rather than publishing the container on a network interface.
 
 ### Viewer on another computer
 
+First identify **the computer running the user's web browser**, not the computer
+running the agent or terminal. `127.0.0.1` always refers to the viewer computer.
+A URL tested on Windows/WSL does not establish reachability from a Mac, and an
+SSH tunnel created on WSL is not available at the same localhost port on a Mac.
+
+- Browser on the container host: use that host's published loopback viewer port.
+  For the installed M3 service this is port `39333`, with Docker context
+  `colima-prodex-check`; no WSL tunnel is needed.
+- Browser on a different computer: establish forwarding on **that viewer
+  computer** and use its local forwarded port, as below.
+- Copy the password into the viewer computer's clipboard. A helper run in an SSH
+  shell copies to the remote host's clipboard, which is correct only when that
+  host is also where the user is viewing the browser.
+
 From the computer running your web browser, forward an unused local port to the
 container host, replacing `user@container-host` with your existing SSH target:
 
@@ -122,6 +136,29 @@ For `password check failed`, identify the actual server before resetting anythin
 check the selected Docker context and which container records the failed
 authentication. A healthy HTTP page alone proves neither the target identity nor
 successful password authentication. Do not paste passwords into support messages.
+
+### M3 local-viewer correction: 2026-09-18
+
+The user was viewing the link on M3, but the agent had provided a WSL-local SSH
+forward on port `39335`. WSL and Windows HTTP checks passed; that did not make
+the same localhost URL valid on M3. M3's direct viewer on port `39333` returned
+HTTP 200. The WSL forward also passed a WebSocket/RFB greeting check with no
+password, narrowing the reported failure to the wrong viewer-computer route.
+
+The existing M3 viewer was opened directly on M3. An operator-owned M3 Terminal
+window was prepared with an explicit Return-to-copy / Ctrl+C-to-cancel prompt,
+followed by the already-installed helper's `viewer --copy-password` command and
+explicit `colima-prodex-check` context. The operator, not the agent, triggers the
+private clipboard transfer; no password is printed, embedded in a URL, or read
+back. No product code or helper was installed or changed. The dedicated WSL
+`39335` tunnel was closed and its listener confirmed absent; unrelated tunnels,
+the M3 service, saved profile, and viewer password were left unchanged.
+
+PASS: 18 container-client tests, direct M3 HTTP check, WSL/Windows HTTP checks,
+unauthenticated WebSocket/RFB greeting, existing helper SHA-256 match, and
+successful M3 browser/Terminal launch commands. These checks do not prove the
+user sees the page or has completed VNC or ChatGPT authentication. Login and
+authenticated M3 Pro acceptance still require subsequent verification.
 
 ### Authenticate ChatGPT
 
