@@ -31,7 +31,8 @@ automatic protection handling are part of this experiment.
   A protection or login prompt is a blocker for automation, not a retry instruction.
 - [x] Verify one user-authorized Pro response and one continuation after manual
   authentication. The [installed WSL check](#installed-container-acceptance-2026-09-17)
-  passed on 2026-09-17; M3 authenticated acceptance remains untested.
+  passed on 2026-09-17; [M3 authenticated acceptance](guided-login-2026-09-18.md#m3-live-pro-check)
+  passed independently on 2026-09-18.
 
 The later [live host Pro acceptance](pro-acceptance-2026-09-16.md) passed using
 the separate existing WSL host browser. It does not satisfy this container gate:
@@ -70,6 +71,27 @@ docker compose -f containers/browser/compose.json build browser
 docker compose -f containers/browser/compose.json up -d --no-build browser
 docker compose -f containers/browser/compose.json ps
 ```
+
+After the service is running, use the guided login on that same computer:
+
+```sh
+npm run build
+node dist/cli.js login
+```
+
+The command finds an existing local Docker/Colima service, reuses a ready login,
+and opens a private viewer only when needed. Sign into ChatGPT yourself; no viewer
+password copying or port selection is required. The viewer disconnects at READY
+without stopping the browser. Use `login --check` for a read-only readiness check
+and `--context NAME` if several local services match. This source command does not
+install Docker, create a container or update an already-installed npm command.
+See the [CLI reference](cli-reference.md#guided-container-login) and
+[verification record](guided-login-2026-09-18.md).
+
+### Advanced manual viewer
+
+The older manual path remains available for diagnostics. It is not the
+recommended local first-login flow.
 
 Open <http://127.0.0.1:39333/vnc.html> on the computer hosting this container
 (or its Windows host when running under WSL). `127.0.0.1` refers to the computer

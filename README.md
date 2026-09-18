@@ -184,6 +184,22 @@ Linux virtual-display browser running on WSL and an M3 Linux VM, with a local
 password-protected viewer for manual login. It avoids switching browser modes
 after authentication. This source-only experiment is separate from the native
 commands below; it is not a guarantee of ChatGPT access or an installed default.
+For an existing, running local container, the new guided command is:
+
+```sh
+prodex login         # reuse a ready session, otherwise open the local login screen
+prodex login --check # readiness only; no screen or password access
+```
+
+Run it on the computer where you will sign in. It finds the local Docker/Colima
+service and handles the viewer connection without manual port selection or
+viewer-password copying. You still complete ChatGPT login and security prompts
+yourself. Once READY appears, the temporary viewer disconnects; the browser and
+saved profile stay running. Already-ready sessions do not open anything.
+This does not install Docker or create a container. See
+[guided container login](docs/cli-reference.md#guided-container-login) for
+source-checkout usage, explicit context selection and SSH restrictions.
+
 For an existing container, the [checkout helper](docs/container-browser.md#everyday-checkout-helper)
 provides `status`, `pro`, `mcp`, and `viewer`, including interactive password
 copying. Use its client setup instructions instead of the native host commands.
@@ -245,7 +261,7 @@ The browser is a real Chrome launched with `--remote-debugging-port` on `127.0.0
 
 ### What it will not do
 
-- No hidden ChatGPT endpoints, no cookie, token, localStorage or sessionStorage extraction. It never reads a credential; the browser holds your login.
+- No hidden ChatGPT endpoints, no ChatGPT password, cookie, token, localStorage or sessionStorage extraction. The browser holds your account login. An explicit `prodex login` may privately read the separate local VNC viewer password for automatic viewer authentication; it is not printed, copied to the clipboard or stored in browser storage.
 - No captcha solving, Cloudflare bypass, proxies or stealth. Login, captcha, verification, usage and model limits stop the send with a named blocker.
 - No batch prompting or recurring loops. It is built for the occasional consult a person would make, and the pacing enforces that.
 - No shell tool and no ungated write over MCP. Reads and searches are bounded to the repo and refuse `.bridge`, `.git`, `.env*`, `node_modules`, `dist` and common credential files.

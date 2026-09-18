@@ -14,6 +14,7 @@ Ask ChatGPT from the terminal (visible logged-in browser):
   git diff | prodex ask --stdin "Review this diff"   # pipe anything in; --json for structured output
 
 First-time setup:
+  prodex login                # existing local container: private guided login, no viewer password copying
   prodex pro browser login    # dedicated Chrome; interactive runs wait until your login is READY
   prodex doctor               # bridge + MCP + browser health
 
