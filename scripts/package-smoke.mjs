@@ -90,6 +90,12 @@ try {
     throw new Error(`Installed --version returned ${version.stdout.trim()}, expected ${installedPackageJson.version}`);
   }
   const help = await run(binPath, ["help"], { cwd: consumerDir });
+  const loginHelp = await run(binPath, ["login", "--help"], { cwd: consumerDir });
+  assertIncludes(loginHelp.stdout, "prodex login", "installed guided login help");
+  assertIncludes(loginHelp.stdout, "existing local ProDex container", "installed guided login scope");
+  for (const file of ["cli-login.js", "login-container.js", "login-viewer.js", "login-viewer-page.js"]) {
+    if (!(await stat(path.join(installedPackageDir, "dist", file))).isFile()) throw new Error(`Missing guided login module ${file}`);
+  }
   assertIncludes(help.stdout, "prodex doctor [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]", "installed help output");
   assertIncludes(help.stdout, "prodex start [--cwd /absolute/path/to/repo] [--source-cli /absolute/path/to/dist/cli.js]", "installed help output");
   assertIncludes(

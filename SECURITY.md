@@ -40,6 +40,37 @@ prompts or credentials. The same caution applies to mounted filesystems that
 ignore POSIX modes. Symlink/junction, file identity, and hard-link checks remain
 enabled independently of permission modes.
 
+## Guided local login
+
+An explicit `prodex login` can connect to an existing local container's
+password-protected noVNC viewer. It never reads ChatGPT credentials, cookies or
+tokens. It reads only the separate eight-character VNC viewer password, through
+a private Docker subprocess pipe, after checking the container identity and the
+password file's ownership/type/permissions. Already-ready sessions and `--check`
+do not read that password.
+
+The temporary bridge listens on `127.0.0.1` at a random port and accepts only its
+exact Host. A random 256-bit, single-use URL fragment establishes an HttpOnly,
+SameSite=Strict browser session. The page immediately clears the fragment.
+Session bootstrap and WebSocket upgrades require the exact Origin; asset,
+credential and status requests require the session cookie and reject cross-origin
+requests. No CORS, arbitrary upstream proxying, redirects or directory traversal
+are supported. Responses are not cached and the page uses a restrictive CSP.
+
+The VNC password is delivered only to the authenticated noVNC client in memory,
+not in URLs, logs, command arguments, clipboard, DOM text or browser storage.
+The original VNC password authentication remains enabled. A short-lived bootstrap
+capability is necessarily passed to the OS URL opener and may briefly be visible
+in local process arguments or to privileged browser extensions. Do not share that
+URL or browser debugging output. This protects against unauthenticated web origins,
+not a malicious administrator or process with equivalent local-user access.
+
+Timeout, cancellation and readiness close the bridge's owned sockets; they do not
+stop the container or erase its saved profile. Docker context, immutable container
+ID, image and loopback viewer binding are rechecked before container operations.
+Remote contexts are refused. The command does not install services, copy account
+profiles, switch browser modes or automate a security challenge.
+
 ## Supported versions
 
 `prodex` is pre-release (`0.x`). Security fixes target the latest `main`.

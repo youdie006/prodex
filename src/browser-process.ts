@@ -216,6 +216,26 @@ export function findMatchingBrowserProcesses(
   return [...mains, ...children];
 }
 
+/** Revalidate recorded cleanup candidates; a PID alone is never ownership evidence. */
+export function findOwnedBrowserCleanupProcesses(
+  processes: BrowserProcessInfo[],
+  input: { platform?: NodeJS.Platform; port: number; profileDir: string; launchedProcessId: number; knownProcessIds: ReadonlySet<number> }
+): BrowserProcessInfo[] {
+  const platform = input.platform ?? process.platform;
+  const expectedProfile = normalizedProfile(input.profileDir, platform);
+  const sameProfile = processes.filter((processInfo) => {
+    const profile = browserProcessFlagValue(processInfo, "user-data-dir");
+    return isBrowserProcess(processInfo) && profile !== undefined && normalizedProfile(profile, platform) === expectedProfile;
+  });
+  const mainMatches = (processInfo: BrowserProcessInfo): boolean => {
+    const port = browserProcessFlagValue(processInfo, "remote-debugging-port");
+    return processInfo.processId === input.launchedProcessId && port !== undefined && /^\d+$/.test(port) && Number(port) === input.port;
+  };
+  if (sameProfile.some((processInfo) => isMainBrowserProcess(processInfo) && !mainMatches(processInfo))) return [];
+  return sameProfile.filter((processInfo) => input.knownProcessIds.has(processInfo.processId) &&
+    (isMainBrowserProcess(processInfo) ? mainMatches(processInfo) : browserProcessHasFlag(processInfo, "type")));
+}
+
 export function findBrowserProcessesByPort(
   processes: BrowserProcessInfo[],
   input: { platform?: NodeJS.Platform; port: number; fallbackProfileDir?: string }

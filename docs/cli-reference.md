@@ -77,7 +77,61 @@ Bridge inspection and task handoff commands such as `pro browser check`, `pro la
 When the file exists and you want it included, add it explicitly, for example `prodex pro ask --cwd /absolute/path/to/your/repo --file README.md "Review the project positioning"`.
 If your prompt itself starts with flag-like text, put `--` before the prompt. This applies to both preview and visible-browser sends, for example `prodex pro ask -- --strict mode review` or `prodex pro browser ask -- --strict mode review`.
 
+## Guided Container Login
+
+For an **existing, running local ProDex container browser**:
+
+```sh
+prodex login
+prodex login --check
+prodex login --context colima-prodex-check
+```
+
+Run this on the computer displaying your browser. A ready saved session returns
+immediately without opening a screen or reading a viewer credential. Otherwise,
+the command opens a private temporary login screen and connects to the existing
+viewer automatically. Complete ChatGPT sign-in or security verification yourself.
+READY closes only this temporary connection; your container, browser and saved
+profile remain running. No ChatGPT prompt is sent.
+
+For an unreleased source checkout, first run `npm run build`, then substitute
+`node dist/cli.js login` for `prodex login`. Updating source does not update an
+already-installed npm package, container image or attached MCP process.
+
+Options:
+
+| Option | Behavior |
+| --- | --- |
+| `--check` | Read-only readiness; no viewer, password read or tab creation. |
+| `--context NAME` | Choose the intended local Docker/Colima context if discovery is ambiguous. |
+| `--container NAME` | Select an existing Compose-managed ProDex browser explicitly. |
+| `--timeout-ms N` | Wait 1,000 to 1,200,000 ms; default 600,000 ms. |
+| `--local-screen` | Explicitly open the SSH host's desktop when invoked through SSH. |
+
+Docker Desktop/Colima and the existing service must already be running. This is
+not a new-machine installer: it never creates/replaces/restarts a service, copies
+a profile, changes browser mode, changes MCP routing or handles protective checks.
+Use the [container setup](https://github.com/youdie006/prodex/blob/feat/headless-browser-compatibility/docs/container-browser.md)
+for that separate opt-in setup. Native Windows needs a Linux-container engine;
+native Windows containers are not supported.
+
+Remote TCP/SSH Docker endpoints are refused. By default an SSH invocation also
+refuses to open a screen on an uncertain computer; normally run `prodex login`
+from a terminal on your own desktop instead. `--local-screen` is only for an
+intentional remote-host desktop, not automatic port forwarding. macOS uses
+`open`, Windows/WSL use Windows PowerShell, and Linux needs a desktop with
+`xdg-open`. WSL also needs working Windows-to-WSL localhost forwarding.
+
+Ctrl+C, timeout or an error closes only the temporary viewer. Do not reset a
+password or log in again merely because readiness is unknown. The command fails
+closed when the target is ambiguous, remote, stopped, not interactive or changed.
+The original password-protected VNC connection remains authenticated; no viewer
+password needs to be copied into a terminal, URL or clipboard.
+
 ## First Pro Login
+
+The following section covers the separate **host Chrome adapter**, not the
+container command above.
 
 Use this only when you explicitly want to use your logged-in ChatGPT Pro web session.
 
@@ -88,10 +142,24 @@ prodex pro browser login --headed  # visible mode when no incompatible browser i
 prodex pro browser login --headed --recover-visible  # guarded recovery of a blocked headless browser
 prodex pro browser help
 prodex pro browser check
+prodex pro browser check --runtime  # read-only version and actual process-mode evidence
 prodex pro browser smoke --cwd /absolute/path/to/your/repo
 ```
 
 If you use a non-default debug port or Chrome profile, pass it to `login`; the printed follow-up `check` and `smoke` commands keep the matching `--port`. To stop repeating `--port` on every command, export `PRODEX_CDP_PORT=<port>` once — explicit `--port` still wins. If you launch from outside the repo you want to inspect, pass `--cwd /absolute/path/to/your/repo` to `login`, `check`, or `smoke` so the command targets the same bridge. On slower first launches, add `--launch-timeout-ms 12000`.
+
+`check --runtime` adds one `browser_runtime: {...}` JSON line. `browser_product`
+and `protocol_version` come from the local CDP endpoint; `actual_mode` comes
+from the unique matching browser main process, not a user-agent string or saved
+setting. `saved_mode` is included only for the same port and profile.
+`resume_headless` describes a future relaunch preference, not the running mode.
+`mode_matches_saved: null` means unknown, including virtual-display settings
+whose actual display cannot be established by the headless flag alone. Missing
+or unrecognized metadata and inaccessible/ambiguous processes remain explicit
+uncertainty. The optional metadata request uses `--timeout-ms`; OS process
+inspection has its existing separate 10-second limit. It does not open, reload,
+close, or log in to a browser, and is not proof that ChatGPT Pro works. Existing
+ChatGPT blockers and the command's readiness exit code remain separate.
 
 For a source checkout, keep the follow-up commands in source-checkout form too:
 

@@ -2,6 +2,7 @@ import { existsSync, realpathSync, statSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { BrowserProcessInspectionError } from "./browser-process.js";
+import { getBrowserRuntimeInfo } from "./browser-runtime.js";
 import { buildDryRunBundle } from "./bundle.js";
 import {
   type BrowserWindowMode,
@@ -640,8 +641,8 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
         return runCliFn(["chatgpt", browserSubcommand, ...browserArgs], io);
       }
       if (browserSubcommand === "check") {
-        if (printProBrowserHelpIfRequested(browserArgs, "pro browser check", io, { valueFlags: ["--cwd", "--port", "--timeout-ms", "--source-cli"] })) return 0;
-        assertOnlyOptions(browserArgs, "pro browser check", ["--cwd", "--port", "--timeout-ms", "--source-cli"]);
+        if (printProBrowserHelpIfRequested(browserArgs, "pro browser check", io, { valueFlags: ["--cwd", "--port", "--timeout-ms", "--source-cli"], booleanFlags: ["--runtime"] })) return 0;
+        assertOnlyOptions(browserArgs, "pro browser check", ["--cwd", "--port", "--timeout-ms", "--source-cli"], ["--runtime"]);
         const targetCwd = resolveCwdFlag(io.cwd, browserArgs);
         readPortFlag(browserArgs, "--port");
         readPositiveIntegerFlag(browserArgs, "--timeout-ms");
@@ -2638,34 +2639,34 @@ export async function waitForChatGptLoginReady(
   );
   let lastState = "";
   let lastStatus: Awaited<ReturnType<typeof getChatGptBrowserStatus>> | undefined;
-  let openMissingTabAttempts = 0;
+  let mayOpenMissingTab = true;
   while (now() - startedAt < timeoutMs) {
     const status = await statusFn({ port: options.port, timeoutMs: 1_500 });
     lastStatus = status;
-    // A running Chrome with no chatgpt.com tab leaves the user nothing to log
-    // into, so prodex opens one. Keep trying while the tab is still missing:
-    // one silent attempt that fails looks exactly like no attempt, which is how
-    // a real machine sat for a minute reporting the missing tab and ended
-    // not-ready with nothing to go on.
+    // A login tab can leave chatgpt.com during authentication. Never replace an
+    // observed login flow, or repeat an opening whose tab may be redirecting.
     if (status.reachable && status.blocker?.code === "chatgpt_page_missing") {
-      const attempt = openMissingTabAttempts + 1;
-      openMissingTabAttempts = attempt;
-      stderr(
-        attempt === 1
-          ? "login: the running Chrome had no ChatGPT tab - opening a ChatGPT tab in it..."
-          : `login: still no ChatGPT tab - opening one again (attempt ${attempt})...`
-      );
-      const opened = await openTabFn(options.port);
-      if (opened === false) {
-        stderr(
-          hasInteractiveWindow
-            ? "login: could not open a ChatGPT tab through the debug port; open https://chatgpt.com/ in that browser."
-            : `login: could not open a ChatGPT tab through the debug port. ${manualInspection}`
-        );
+      if (mayOpenMissingTab) {
+        mayOpenMissingTab = false;
+        stderr("login: the running Chrome had no ChatGPT tab - opening a ChatGPT tab in it...");
+        const opened = await openTabFn(options.port);
+        if (opened === false) {
+          stderr(
+            hasInteractiveWindow
+              ? "login: could not open a ChatGPT tab through the debug port; open https://chatgpt.com/ in that browser."
+              : `login: could not open a ChatGPT tab through the debug port. ${manualInspection}`
+          );
+        }
+      }
+      const state = "login: waiting for an existing tab to return to ChatGPT. No additional tabs will be opened automatically.";
+      if (state !== lastState) {
+        stderr(state);
+        lastState = state;
       }
       await sleepFn(pollMs);
       continue;
     }
+    if (status.reachable) mayOpenMissingTab = false;
     const blocker = status.blocker;
     const blockerNextStep = blocker?.next_step ? ` Next: ${blocker.next_step}` : "";
     if (!hasInteractiveWindow && blocker && needsVisibleAuthRecovery(blocker.code)) {
@@ -3578,6 +3579,12 @@ export async function printProductCheck(store: BridgeStore, io: CliIO, args: str
   // --timeout-ms is a usage or config error, not a browser-check failure.
   const checkPort = resolveCdpPort(readPortFlag(args, "--port"));
   const checkTimeoutMs = readPositiveIntegerFlag(args, "--timeout-ms") ?? 1500;
+  if (args.includes("--runtime")) {
+    const runtime = await getBrowserRuntimeInfo({
+      port: checkPort, timeoutMs: checkTimeoutMs, savedLaunch: await readLastBrowserLoginLaunch()
+    });
+    io.stdout(`browser_runtime: ${JSON.stringify(runtime)}`);
+  }
   const browserCommandOptions = {
     cwd: setupHintCwd,
     port: checkPort !== DEFAULT_CDP_PORT ? checkPort : undefined
