@@ -8,12 +8,11 @@ export interface BrowserCompatibilityCapabilities {
   profileRestartMarker: boolean;
 }
 
-export interface BrowserCompatibilityEvidence {
+interface BrowserCompatibilityEvidenceBase {
   browser: string;
   protocol: string;
   platform: string;
   arch: string;
-  headless_process: true;
   runtime_enable: true;
   runtime_evaluate: true;
   dom: true;
@@ -23,10 +22,35 @@ export interface BrowserCompatibilityEvidence {
   profile_restart: "synthetic_marker";
 }
 
-export function createBrowserCompatibilityEvidence(input: {
+interface BrowserCompatibilityInputBase {
   cdpVersion: Record<string, unknown>;
   platform: string;
   arch: string;
-  headlessProcess: boolean;
   capabilities: BrowserCompatibilityCapabilities;
-}): BrowserCompatibilityEvidence;
+}
+
+interface HeadlessBrowserCompatibilityEvidence extends BrowserCompatibilityEvidenceBase {
+  headless_process: true;
+  headed_process?: never;
+}
+
+interface HeadedBrowserCompatibilityEvidence extends BrowserCompatibilityEvidenceBase {
+  headless_process?: never;
+  headed_process: true;
+}
+
+export type BrowserCompatibilityEvidence =
+  | HeadlessBrowserCompatibilityEvidence
+  | HeadedBrowserCompatibilityEvidence;
+
+type BrowserCompatibilityInput =
+  | (BrowserCompatibilityInputBase & { headlessProcess: boolean; headedProcess?: boolean })
+  | (BrowserCompatibilityInputBase & { headlessProcess?: boolean; headedProcess: boolean });
+
+export function createBrowserCompatibilityEvidence(
+  input: BrowserCompatibilityInputBase & { headlessProcess: true; headedProcess?: false }
+): HeadlessBrowserCompatibilityEvidence;
+export function createBrowserCompatibilityEvidence(
+  input: BrowserCompatibilityInputBase & { headlessProcess?: false; headedProcess: true }
+): HeadedBrowserCompatibilityEvidence;
+export function createBrowserCompatibilityEvidence(input: BrowserCompatibilityInput): BrowserCompatibilityEvidence;
