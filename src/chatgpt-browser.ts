@@ -3950,7 +3950,7 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
     chatGptRequestMatchesUserTurn(state.lastUserText ?? "", sentPrompt, requestId);
   const requestMismatch = (thread?: string): ChatGptBrowserBlockerError => new ChatGptBrowserBlockerError({
     code: "request_mismatch",
-    message: "The visible user turn does not match this prodex request. No answer was returned because it may belong to another session.",
+    message: "The latest visible user turn could not be verified against this prodex request. No answer was returned. This does not by itself prove another session interfered.",
     retryable: false,
     next_step: `Do not resend automatically. Inspect the original chat for [prodex-request:${requestId}] before recovering its answer.`,
     ...(thread ? { thread } : {})
@@ -6154,10 +6154,34 @@ function chatGptRequestMarkerMatches(userText: string, requestId: string): boole
   return markers.at(-1)?.[1] === requestId && markers.filter((match) => match[1] === requestId).length === 1;
 }
 
+function renderedSingleBacktickSpans(value: string): string {
+  let fence: { character: string; length: number } | undefined;
+  return value.split(/(\r?\n)/).map((line) => {
+    const boundary = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+    if (fence) {
+      if (boundary && boundary[1][0] === fence.character &&
+          boundary[1].length >= fence.length && boundary[2].trim() === "") fence = undefined;
+      return line;
+    }
+    if (boundary) {
+      fence = { character: boundary[1][0], length: boundary[1].length };
+      return line;
+    }
+    // Only the observed single-backtick rendering is supported. Preserve
+    // multi-backtick spans and escaped literals rather than guessing Markdown.
+    if (line.includes("``")) return line;
+    return line.replace(/\\.|`([^`]+)`/g, (match: string, content: string | undefined) => content ?? match);
+  }).join("");
+}
+
 /** Full prompt and per-send identity; wrappers may contain tool/file labels. */
 export function chatGptRequestMatchesUserTurn(userText: string, sentPrompt: string, requestId: string): boolean {
-  return chatGptRequestMarkerMatches(userText, requestId) &&
-    normalizeChatGptPromptText(userText).includes(normalizeChatGptPromptText(sentPrompt));
+  if (!chatGptRequestMarkerMatches(userText, requestId)) return false;
+  const seen = normalizeChatGptPromptText(userText);
+  if (seen.includes(normalizeChatGptPromptText(sentPrompt))) return true;
+  // ChatGPT may render inline code instead of displaying its delimiters. Keep
+  // the complete content and nonce check; only project the expected display.
+  return seen.includes(normalizeChatGptPromptText(renderedSingleBacktickSpans(sentPrompt)));
 }
 
 /**

@@ -167,11 +167,52 @@ Show more`;
 
     const inlineSent = `PROMPT\nUse \`INLINE_VALUE=817\` exactly.\n[prodex-request:${requestId}]`;
     const inlineWithoutBackticks = `PROMPT\nUse INLINE_VALUE=817 exactly.\n[prodex-request:${requestId}]`;
-    expect(chatGptRequestMatchesUserTurn(inlineWithoutBackticks, inlineSent, requestId)).toBe(false);
+    expect(chatGptRequestMatchesUserTurn(inlineWithoutBackticks, inlineSent, requestId)).toBe(true);
 
     const unmatchedSent = `PROMPT\n\n\`\`\`text\nINLINE_VALUE=817\n\n[prodex-request:${requestId}]`;
     const unmatchedWithoutFence = `PROMPT\n\ntext\nINLINE_VALUE=817\n\n[prodex-request:${requestId}]`;
     expect(chatGptRequestMatchesUserTurn(unmatchedWithoutFence, unmatchedSent, requestId)).toBe(false);
+  });
+
+  it("matches rendered inline code without relaxing request identity or complete content", () => {
+    const requestId = "c".repeat(32);
+    const marker = `[prodex-request:${requestId}]`;
+    const sent = `Compare \`tool run\` with \`tool check\`. Keep \`VALUE=817\`.\n${marker}`;
+    const rendered = `Compare tool run with tool check. Keep VALUE=817.\n${marker}\nShow more`;
+    expect(chatGptRequestMatchesUserTurn(sent, sent, requestId)).toBe(true);
+    expect(chatGptRequestMatchesUserTurn(rendered, sent, requestId)).toBe(true);
+    for (const changed of [
+      rendered.replace("VALUE=817", "VALUE=718"),
+      rendered.replace("Compare", "Delete"),
+      rendered.replace("tool check", ""),
+      rendered.replace(marker, ""),
+      rendered.replace(requestId, "d".repeat(32)),
+      `${rendered}\n${marker}`,
+      `${rendered}\n[prodex-request:${"d".repeat(32)}]`
+    ]) {
+      expect(chatGptRequestMatchesUserTurn(changed, sent, requestId)).toBe(false);
+    }
+  });
+
+  it("preserves literal backticks and fenced code in the inline rendering fallback", () => {
+    const requestId = "e".repeat(32);
+    const marker = `[prodex-request:${requestId}]`;
+    for (const literal of [
+      "Keep `unmatched exactly.",
+      "Keep \\`literal\\` exactly.",
+      "Keep ``double`` exactly.",
+      "```text\nrun `literal`\n```",
+      "```js\nrun `literal`\n```",
+      "~~~text\nrun `literal`\n~~~",
+      "```text\nrun `literal`"
+    ]) {
+      const sent = `Use \`VALUE=817\`.\n${literal}\n${marker}`;
+      const rendered = `Use VALUE=817.\n${literal}\n${marker}`;
+      expect(chatGptRequestMatchesUserTurn(rendered, sent, requestId)).toBe(true);
+      expect(chatGptRequestMatchesUserTurn(rendered.replaceAll("`", ""), sent, requestId)).toBe(false);
+    }
+    const mixed = `Keep \`\`literal\`\` and \`inline\`.\n${marker}`;
+    expect(chatGptRequestMatchesUserTurn(mixed.replace("`inline`", "inline"), mixed, requestId)).toBe(false);
   });
 
   it("checks busy state in the same browser evaluation as navigation", () => {
@@ -375,9 +416,38 @@ Show more`;
       { ...fakeAnswerState(other, "unrelated presentation review", false), lastUserText: "Review the presentation" }
     ]);
     const send = sendChatGptPrompt({ port: 19338, prompt: "Review our research", timeoutMs: 10_000 });
-    const rejection = expect(send).rejects.toMatchObject({ blocker: { code: "request_mismatch" } });
+    const rejection = expect(send).rejects.toMatchObject({ blocker: {
+      code: "request_mismatch", retryable: false,
+      message: expect.stringContaining("does not by itself prove"),
+      next_step: expect.stringContaining("Do not resend automatically")
+    } });
     await vi.advanceTimersByTimeAsync(20_000);
     await rejection;
+  });
+
+  it("accepts a new-chat answer after ChatGPT renders the marked prompt's inline code", async () => {
+    vi.useFakeTimers();
+    const root = "https://chatgpt.com/";
+    const thread = "https://chatgpt.com/c/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+    const fresh = { ...fakeAnswerState(root, "", false), assistantMessageCount: 0, userMessageCount: 0 };
+    const evaluations = installFakeChatGptSendCdp(root, [fresh, fresh, fakeAnswerState(thread, "correct answer", false)]);
+    const base = FakeCdpWebSocket.evaluate;
+    FakeCdpWebSocket.evaluate = (expression) => {
+      const result = base(expression);
+      if (result && typeof result === "object" && "lastUserText" in result && typeof result.lastUserText === "string") {
+        return { ...result, lastUserText: result.lastUserText.replace(/`([^`]+)`/g, "$1") };
+      }
+      return result;
+    };
+    const send = sendChatGptPrompt({ port: 19338, prompt: "Compare `tool run` and `tool check`.", newChat: true, timeoutMs: 10_000 });
+    void send.catch(() => undefined);
+    await vi.advanceTimersByTimeAsync(30_000);
+    await expect(send).resolves.toMatchObject({ answer: "correct answer", url: thread, requestVerified: true });
+    const navigation = evaluations.findIndex((expression) => expression.includes(`location.assign(${JSON.stringify(root)})`));
+    const typing = evaluations.findIndex((expression) => expression.includes("actualText: raw.slice"));
+    expect(navigation).toBeGreaterThanOrEqual(0);
+    expect(typing).toBeGreaterThan(navigation);
+    expect(evaluations.slice(navigation, typing).filter((expression) => expression.includes("assistantMessageCount"))).toHaveLength(2);
   });
 
   it("refuses another user's turn in the same conversation after acceptance", async () => {

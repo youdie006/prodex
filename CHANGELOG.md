@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Fixed
+- New-chat consults no longer reject their own marked question when ChatGPT renders balanced single-backtick inline code without its delimiters. Exact request identity and complete prompt content remain required; changed content, unrelated turns, duplicate markers and literal/fenced backticks still fail closed. A request mismatch no longer implies another session was proven to interfere. See the [incident and verification record](docs/request-mismatch-inline-code-2026-09-26.md).
+
+### Changed
+- Unsigned, different-payload and ambiguous legacy receipt rejection scenarios run as independent tests with unchanged assertions. This avoids combining three durable-I/O scenarios under one 30-second test deadline on macOS Intel; production behavior and timeouts are unchanged.
+- The tiny-timeout browser probe regression injects both TCP refusal and timeout outcomes instead of assuming a closed port always refuses within 250ms under test load. The real-socket check remains; uncertain connections still cannot authorize browser termination or automatic retry.
+
 ### Added
 - A [headless options matrix](docs/headless-options-matrix-2026-09-26.md) separates eighteen investigation paths, including stock-browser controls, independent engines, embedded hosts, profile ownership and terminal-only headless modes. Pinned source checks expose Moli authentication/cleanup limits, Lightpanda compatibility identity, and headed defaults hidden behind headless claims; this is research, not a 403 fix or installed-runtime change.
 - A [deeper headless evidence follow-up](docs/headless-evidence-followup-2026-09-26.md) records an upstream headless ChatGPT response report, audits its missing browser/authentication and Pro proof, and separates another headless implementation and Reddit benchmark claims from reproducible Pro acceptance. It also identifies missing controls in our 403 experiments; no browser, login, service or runtime default was changed.

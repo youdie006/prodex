@@ -911,7 +911,7 @@ describe("BridgeStore", () => {
     await expect(store.getFinalizedResultReadOnly(task.id)).resolves.toEqual(expect.objectContaining({ summary: "Legacy result summary." }));
   });
 
-  it("does not reseal a finalized result from unsigned or different-payload completion receipts", async () => {
+  it("does not reseal a finalized result from an unsigned completion receipt", async () => {
     const unsignedRoot = await mkdtemp(path.join(tmpdir(), "prodex-store-"));
     const unsignedStore = new BridgeStore(unsignedRoot);
     const unsignedTask = await unsignedStore.createTask({
@@ -944,7 +944,9 @@ describe("BridgeStore", () => {
       "utf8"
     );
     await expect(unsignedStore.resealResult(unsignedTask.id)).rejects.toThrow(/locally trusted legacy task_completed receipt/i);
+  });
 
+  it("does not reseal a finalized result from a different-payload completion receipt", async () => {
     const mismatchRoot = await mkdtemp(path.join(tmpdir(), "prodex-store-"));
     const mismatchStore = new BridgeStore(mismatchRoot);
     const mismatchTask = await mismatchStore.createTask({
@@ -967,7 +969,9 @@ describe("BridgeStore", () => {
     });
 
     await expect(mismatchStore.resealResult(mismatchTask.id)).rejects.toThrow(/locally trusted legacy task_completed receipt/i);
+  });
 
+  it("does not reseal a finalized result from multiple legacy signed completion receipts", async () => {
     const multipleRoot = await mkdtemp(path.join(tmpdir(), "prodex-store-"));
     const multipleStore = new BridgeStore(multipleRoot);
     const multipleTask = await multipleStore.createTask({
