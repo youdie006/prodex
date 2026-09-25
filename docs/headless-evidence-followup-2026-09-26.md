@@ -14,6 +14,10 @@ picker evidence. Its exact Chromium build and authentication preparation are not
 disclosed, and the selected model is not Pro. This improves the evidence for
 feasibility but is not a reproducible ProDex solution.[^oracle368]
 
+The subsequent [eighteen-path options matrix](headless-options-matrix-2026-09-26.md)
+adds independent engines, embedded hosts and runtime/authentication alternatives
+to this response-evidence audit, with pinned source checks and investigation order.
+
 Our measured result remains narrower: the September 23 stock Chrome 154
 anonymous headless trials received correlated 307 -> 403 protection responses on
 WSL and M3. The exact remote rule is unknown. Neither "headless is impossible"
