@@ -1,5 +1,9 @@
 # Inline-code request mismatch: 2026-09-26
 
+The installation-pending checkpoint below was subsequently superseded by the
+[authorized WSL/M3 deployment and live verification](request-mismatch-deployment-2026-09-26.md).
+The original incident evidence and pre-installation limits remain preserved here.
+
 ## Incident And Evidence
 
 Two manually requested `new_chat:true` consults stopped with `request_mismatch`.

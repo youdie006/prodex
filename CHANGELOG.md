@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Unreleased
 
 ### Fixed
+- The inline-code request-matching fix is now installed in both the WSL x64 and M3 Linux ARM64 browser containers, preserving their existing Chromium version, private login volumes and security settings. Four actual `gpt-6-pro` answers through fresh MCP clients passed exact-request, same-thread continuation and trusted artifact checks without re-login or automatic resends. See the [deployment record](docs/request-mismatch-deployment-2026-09-26.md); this is a local adapter-image update, not a new npm release or pure-headless promotion.
 - New-chat consults no longer reject their own marked question when ChatGPT renders balanced single-backtick inline code without its delimiters. Exact request identity and complete prompt content remain required; changed content, unrelated turns, duplicate markers and literal/fenced backticks still fail closed. A request mismatch no longer implies another session was proven to interfere. See the [incident and verification record](docs/request-mismatch-inline-code-2026-09-26.md).
 
 ### Changed
