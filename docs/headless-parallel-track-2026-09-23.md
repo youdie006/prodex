@@ -79,6 +79,11 @@ executed. Search results were treated as pointers, not successful reproductions.
 This bounded recheck did not find a newly demonstrated ordinary pure-headless
 Pro solution. It is not an exhaustive claim about all repositories or users.
 
+The [September 26 follow-up](headless-evidence-followup-2026-09-26.md) adds an
+upstream headless ChatGPT response report missed by this recheck and explains its
+missing binary/authentication and Pro evidence. It also audits our comparison
+limits; neither note establishes that headless is inherently impossible.
+
 ## Next experiment gates
 
 1. Reproduce ordinary browser compatibility locally first. Compare the same
