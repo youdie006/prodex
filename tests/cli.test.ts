@@ -2421,7 +2421,7 @@ describe("runCli", () => {
       "prodex pro browser login [--cwd /absolute/path/to/repo] [--dry-run] [--source-cli /absolute/path/to/dist/cli.js] [--profile-dir path] [--port 9333] [--url https://chatgpt.com/...] [--launch-timeout-ms 5000] [--wait|--no-wait] [--headed|--headless|--minimized|--virtual-display] [--wait-timeout-ms 300000] [--background] [--recover-visible]  # preview/open browser login"
     );
     expect(text).toContain(
-      "prodex pro browser check [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 1500]"
+      "prodex pro browser check [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 15000]"
     );
     expect(text).toContain(
       "prodex pro browser smoke [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 90000]"

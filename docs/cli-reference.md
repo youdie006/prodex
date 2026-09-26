@@ -142,11 +142,24 @@ prodex pro browser login --headed  # visible mode when no incompatible browser i
 prodex pro browser login --headed --recover-visible  # guarded recovery of a blocked headless browser
 prodex pro browser help
 prodex pro browser check
-prodex pro browser check --runtime  # read-only version and actual process-mode evidence
+prodex pro browser check --runtime  # also report version and actual process-mode evidence
 prodex pro browser smoke --cwd /absolute/path/to/your/repo
 ```
 
 If you use a non-default debug port or Chrome profile, pass it to `login`; the printed follow-up `check` and `smoke` commands keep the matching `--port`. To stop repeating `--port` on every command, export `PRODEX_CDP_PORT=<port>` once — explicit `--port` still wins. If you launch from outside the repo you want to inspect, pass `--cwd /absolute/path/to/your/repo` to `login`, `check`, or `smoke` so the command targets the same bridge. On slower first launches, add `--launch-timeout-ms 12000`.
+
+`check` verifies saved/environment model, effort and project defaults as well as
+the session. It takes the shared browser lock without waiting, opens the model
+menu and briefly walks the effort slider, then verifies the original setting
+and menu closure. It does not send a question, navigate, open login, or launch a
+browser. Project verification checks its exact navigation control without
+entering the project. Draft text, open overlays, active consultations, missing
+controls and incomplete cleanup produce `UNVERIFIED` or `MISSING`, a nonzero
+exit, and no `chatgpt: ok`. A check with no configured selectors explicitly says
+`scope=session-only`. `VERIFIED` describes UI controls, not a completed Pro
+answer; use a manually requested consultation for that. The selector budget is
+15 seconds by default; `--timeout-ms` overrides it and the base status budget,
+with a separate bounded cleanup attempt if inspection runs out of time.
 
 `check --runtime` adds one `browser_runtime: {...}` JSON line. `browser_product`
 and `protocol_version` come from the local CDP endpoint; `actual_mode` comes

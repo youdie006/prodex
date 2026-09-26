@@ -2016,8 +2016,10 @@ type CdpConnection = Awaited<ReturnType<typeof connectCdp>>;
 
 interface RectHit {
   ok: boolean;
+  strict?: boolean;
   x?: number;
   y?: number;
+  hover?: { x: number; y: number };
   reason?: string;
   available?: string[];
   role?: string | null;
@@ -2057,7 +2059,7 @@ async function verifiedClickWithRetry(
       continue;
     }
     try {
-      await verifiedClickAt(cdp, hit.x, hit.y, label);
+      await verifiedClickAt(cdp, hit.x, hit.y, label, hit.strict === true);
       return;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -2173,12 +2175,32 @@ const MENU_OPEN_TIMEOUT_MS = 5_000;
 const MENU_SETTLE_TIMEOUT_MS = 5_000;
 const PROJECT_NAVIGATION_TIMEOUT_MS = 8_000;
 
+function pickerMenuExpressionHelpers(): string {
+  return `
+    const findChatGptPickerMenu = () => {
+      const legacy = document.querySelector('[data-testid="composer-intelligence-picker-content"]');
+      const triggers = typeof document.querySelectorAll === "function" ?
+        [...document.querySelectorAll('[data-codex-intelligence-trigger="true"][aria-haspopup="menu"],button[aria-label="Select ChatGPT model"][aria-haspopup="menu"]')]
+          .filter((node) => node.offsetWidth || node.offsetHeight || node.getClientRects().length) : [];
+      if (triggers.length === 0) return legacy;
+      if (triggers.length !== 1) return null;
+      const trigger = triggers[0];
+      if (trigger.getAttribute("aria-expanded") !== "true" || !trigger.id) return null;
+      const id = trigger.getAttribute("aria-controls");
+      const menu = id ? document.getElementById(id) : null;
+      if (!menu || menu.getAttribute("role") !== "menu" ||
+          !(menu.getAttribute("aria-labelledby") || "").split(/\\s+/).includes(trigger.id)) return null;
+      return menu;
+    };
+  `;
+}
+
 export function menuOpenExpression(): string {
-  return `Boolean(document.querySelector('[data-testid="composer-intelligence-picker-content"]'))`;
+  return `(() => {${pickerMenuExpressionHelpers()} return Boolean(findChatGptPickerMenu()); })()`;
 }
 
 export function menuClosedExpression(): string {
-  return `!document.querySelector('[data-testid="composer-intelligence-picker-content"]')`;
+  return `(() => {${pickerMenuExpressionHelpers()} return !findChatGptPickerMenu(); })()`;
 }
 
 function toLabelCandidates(label: string | readonly string[]): string[] {
@@ -2234,11 +2256,11 @@ const CLICK_POINT_SNIPPET = `
       return { ok: true, x, y };
     };`;
 
-function hoverVerifyExpression(x: number, y: number): string {
+function hoverVerifyExpression(x: number, y: number, strict = false): string {
   return `(() => {
     const el = document.querySelector('[data-prodex-click]');
     const hit = document.elementFromPoint(${x}, ${y});
-    const ok = Boolean(el && hit && (hit === el || el.contains(hit) || hit.contains(el)));
+    const ok = Boolean(el && hit && (hit === el || el.contains(hit) ${strict ? "" : "|| hit.contains(el)"}));
     if (el) el.removeAttribute('data-prodex-click');
     return ok;
   })()`;
@@ -2248,10 +2270,10 @@ function hoverVerifyExpression(x: number, y: number): string {
 // tagged target is what would actually receive the click before pressing.
 // These clicks land in the user's real session, so a covered or scrolled-out
 // target must fail loudly instead of clicking whatever sits at the point.
-async function verifiedClickAt(cdp: CdpConnection, x: number, y: number, label: string): Promise<void> {
+async function verifiedClickAt(cdp: CdpConnection, x: number, y: number, label: string, strict = false): Promise<void> {
   await cdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", x, y });
   await sleep(150);
-  const onTarget = await cdp.evaluate<boolean>(hoverVerifyExpression(x, y));
+  const onTarget = await cdp.evaluate<boolean>(hoverVerifyExpression(x, y, strict));
   if (!onTarget) {
     throw new Error(
       `Refusing to click "${label}": another element covers its click point (overlay, scroll, or layout change). Retry, or interact manually in the visible browser.`
@@ -2315,12 +2337,9 @@ export function powerLabelMatches(requested: string, rendered: string): boolean 
 
 /** Slider position plus the Model/Effort readout next to it. */
 export function powerSliderStateExpression(): string {
-  return `(() => {
-    // Scoped to the picker, with a document-wide fallback for pickers that
-    // predate the testid. Asking the whole document first meant any other
-    // slider on the page became the one that got read and driven.
-    const menu = document.querySelector('[data-testid="composer-intelligence-picker-content"]');
-    const slider = (menu && menu.querySelector('[role="slider"]')) || (menu ? null : document.querySelector('[role="slider"]'));
+  return `(() => {${pickerMenuExpressionHelpers()}
+    const menu = findChatGptPickerMenu();
+    const slider = menu && menu.querySelector('[role="slider"]');
     const lines = menu ? (menu.innerText || "").split(String.fromCharCode(10)).map((l) => l.trim()).filter(Boolean) : [];
     if (!slider) return { ok: false, reason: "power slider not found", lines };
     const readPowerSliderSelection = ${readPowerSliderSelection.toString()};
@@ -2346,10 +2365,10 @@ export function powerSliderStateExpression(): string {
 }
 
 export function activeMenuItemExpression(): string {
-  return `(() => {
+  return `(() => {${pickerMenuExpressionHelpers()}
     const a = document.activeElement;
     if (!a) return null;
-    const menu = document.querySelector('[data-testid="composer-intelligence-picker-content"]');
+    const menu = findChatGptPickerMenu();
     if (menu && !menu.contains(a)) return null;
     const label = ((a.innerText || a.textContent || "").trim().split(String.fromCharCode(10))[0] || "").trim();
     return { role: a.getAttribute("role"), label };
@@ -2587,16 +2606,16 @@ export function composerProjectBinding(input: {
 }
 
 export function powerSliderPresentExpression(): string {
-  return `Boolean(document.querySelector('[data-testid="composer-intelligence-picker-content"] [role="slider"]'))`;
+  return `(() => {${pickerMenuExpressionHelpers()} return Boolean(findChatGptPickerMenu()?.querySelector('[role="slider"]')); })()`;
 }
 
 export function pickerClosedExpression(): string {
-  return `!document.querySelector('[data-testid="composer-intelligence-picker-content"]')`;
+  return menuClosedExpression();
 }
 
 export function focusPickerMenuExpression(): string {
-  return `(() => {
-    const menu = document.querySelector('[data-testid="composer-intelligence-picker-content"]');
+  return `(() => {${pickerMenuExpressionHelpers()}
+    const menu = findChatGptPickerMenu();
     if (!menu) return { ok: false, reason: "picker menu not open" };
     // Leave the focus the menu gave itself. It opens on the checked model row,
     // and ArrowDown from there walks the model list. Focusing the first item
@@ -2612,15 +2631,16 @@ export function focusPickerMenuExpression(): string {
 }
 
 export function focusPowerSliderExpression(): string {
-  return `(() => {
-    // Scoped to the picker, with a document-wide fallback for pickers that
-    // predate the testid. Asking the whole document first meant any other
-    // slider on the page became the one that got read and driven.
-    const menu = document.querySelector('[data-testid="composer-intelligence-picker-content"]');
-    const slider = (menu && menu.querySelector('[role="slider"]')) || (menu ? null : document.querySelector('[role="slider"]'));
+  return `(() => {${pickerMenuExpressionHelpers()}
+    const menu = findChatGptPickerMenu();
+    const slider = menu && menu.querySelector('[role="slider"]');
     if (!slider) return { ok: false, reason: "power slider not found" };
-    slider.focus();
-    return { ok: document.activeElement === slider };
+    const owner = slider.getAttribute("aria-hidden") === "true" ? slider.closest('[data-reasoning-slider="true"]') : slider;
+    if (!owner || !menu.contains(owner) || owner.closest?.('[inert],[aria-hidden="true"]')) {
+      return { ok: false, reason: "power slider keyboard control is not available" };
+    }
+    owner.focus();
+    return { ok: document.activeElement === owner };
   })()`;
 }
 
@@ -2642,8 +2662,8 @@ export function modelButtonRectExpression(): string {
 }
 
 export function menuItemRectExpression(label: string | readonly string[]): string {
-  return `(() => {${CLICK_POINT_SNIPPET}
-    const m = document.querySelector('[data-testid="composer-intelligence-picker-content"]');
+  return `(() => {${CLICK_POINT_SNIPPET}${pickerMenuExpressionHelpers()}
+    const m = findChatGptPickerMenu();
     if (!m) return { ok: false, reason: "reasoning/model menu did not open" };
     const items = [...m.querySelectorAll('[role="menuitemradio"],[role="menuitem"]')];
     const it = items.find(${menuLabelMatchPredicate(label)});
@@ -2673,8 +2693,8 @@ const PRO_RADIO_FINDER_SNIPPET = `
       [...scope.querySelectorAll('[role="menuitemradio"]')].find((r) => /^Pro( |$)/.test(((r.innerText || r.textContent || "").trim().split(String.fromCharCode(10))[0] || "").trim()));`;
 
 export function proRadioRectExpression(): string {
-  return `(() => {${CLICK_POINT_SNIPPET}${PRO_RADIO_FINDER_SNIPPET}
-    const m = document.querySelector('[data-testid="composer-intelligence-picker-content"]');
+  return `(() => {${CLICK_POINT_SNIPPET}${PRO_RADIO_FINDER_SNIPPET}${pickerMenuExpressionHelpers()}
+    const m = findChatGptPickerMenu();
     if (!m) return { ok: false, reason: "reasoning/model menu did not open" };
     const proRadio = findProRadio(m);
     if (!proRadio) return { ok: false, reason: "Pro option not found in the model menu" };
@@ -2683,8 +2703,8 @@ export function proRadioRectExpression(): string {
 }
 
 export function proSubmenuExpanderRectExpression(): string {
-  return `(() => {${CLICK_POINT_SNIPPET}${PRO_RADIO_FINDER_SNIPPET}
-    const m = document.querySelector('[data-testid="composer-intelligence-picker-content"],[role="menu"]');
+  return `(() => {${CLICK_POINT_SNIPPET}${PRO_RADIO_FINDER_SNIPPET}${pickerMenuExpressionHelpers()}
+    const m = findChatGptPickerMenu();
     if (!m) return { ok: false, reason: "model menu is not open" };
     const proRadio = findProRadio(m);
     if (!proRadio) return { ok: false, reason: "Pro option not found in the model menu" };
@@ -2706,8 +2726,18 @@ export function proSubmenuExpanderRectExpression(): string {
 
 // The sidebar project option button's aria-label wraps the project name:
 // English "Open project options for <name>", Korean "<name> 프로젝트 옵션 열기".
+const LEGACY_PROJECT_OPTION_BUTTON_SELECTOR =
+  '[aria-label^="Open project options for " i],[aria-label$=" 프로젝트 옵션 열기"]';
+const CURRENT_PROJECT_ROW_SELECTOR =
+  'div[role="button"][data-app-action-sidebar-project-row=""][data-app-action-sidebar-project-id^="g-p-"][data-app-action-sidebar-project-label]';
+const CURRENT_PROJECT_NEW_CHAT_PREFIX = "New chat in ";
+
 export function projectOptionButtonName(ariaLabel: string): string {
-  return (ariaLabel || "").replace(/^open project options for /i, "").replace(/\s*프로젝트 옵션 열기$/, "").trim();
+  return (ariaLabel || "")
+    .replace(/^open project options for /i, "")
+    .replace(/^project actions for /i, "")
+    .replace(/\s*프로젝트 옵션 열기$/, "")
+    .trim();
 }
 
 // Resolve which sidebar project button matches `wanted`, mirroring the in-page
@@ -2730,12 +2760,44 @@ export function projectItemRectExpression(name: string): string {
   return `(() => {${CLICK_POINT_SNIPPET}
     // Korean: "<name> 프로젝트 옵션 열기"; English: "Open project options for <name>".
     const wanted = ${JSON.stringify(name)};
+    const currentName = (row) => (row.getAttribute("data-app-action-sidebar-project-label") || "").trim();
+    const currentRows = [...document.querySelectorAll(${JSON.stringify(CURRENT_PROJECT_ROW_SELECTOR)})];
+    let currentRow = null;
+    const currentExact = currentRows.filter((row) => currentName(row) === wanted);
+    if (currentExact.length === 1) currentRow = currentExact[0];
+    else if (currentExact.length > 1) return { ok: false, reason: "project name matches multiple sidebar projects; rename one to disambiguate" };
+    else {
+      const currentCi = currentRows.filter((row) => currentName(row).toLowerCase() === wanted.toLowerCase());
+      if (currentCi.length === 1) currentRow = currentCi[0];
+      else if (currentCi.length > 1) return { ok: false, reason: "project name matches multiple sidebar projects case-insensitively; use the exact name" };
+    }
+    if (currentRow) {
+      const newChatLabel = ${JSON.stringify(CURRENT_PROJECT_NEW_CHAT_PREFIX)} + currentName(currentRow);
+      const newChatButtons = [...currentRow.querySelectorAll('button[aria-label]')]
+        .filter((button) => (button.getAttribute("aria-label") || "") === newChatLabel);
+      if (newChatButtons.length > 1) {
+        return { ok: false, reason: "project row has multiple matching New chat controls; refusing to guess" };
+      }
+      if (newChatButtons.length === 0) {
+        return { ok: false, reason: "project row has no exact New chat control" };
+      }
+      const point = clickPoint(newChatButtons[0]);
+      if (!point.ok) return point;
+      const rowRect = currentRow.getBoundingClientRect();
+      return {
+        ...point,
+        hover: {
+          x: Math.round(rowRect.x + rowRect.width / 2),
+          y: Math.round(rowRect.y + rowRect.height / 2)
+        }
+      };
+    }
     // Extract the project name from the aria-label wrapper, then match by
     // EQUALITY (mirror of matchProjectOptionName). A bare .includes() let
     // "Codex" select "Codex Review" (substring) and silently sent the prompt
     // into the wrong project.
     const projName = (b) => (b.getAttribute("aria-label") || "").replace(/^open project options for /i, "").replace(/\\s*프로젝트 옵션 열기$/, "").trim();
-    const optionButtons = [...document.querySelectorAll('[aria-label*="프로젝트 옵션"],[aria-label*="project options" i]')];
+    const optionButtons = [...document.querySelectorAll(${JSON.stringify(LEGACY_PROJECT_OPTION_BUTTON_SELECTOR)})];
     let opt = null;
     const exact = optionButtons.filter((b) => projName(b) === wanted);
     if (exact.length === 1) opt = exact[0];
@@ -2764,7 +2826,7 @@ export function projectItemRectExpression(name: string): string {
       if (named.length === 1) target = named[0];
     }
     if (!target) {
-      return { ok: false, reason: "project not found in sidebar (" + optionButtons.length + " projects visible; names are matched exactly first, then case-insensitively - check the exact sidebar spelling)" };
+      return { ok: false, reason: "project not found in sidebar (" + (currentRows.length + optionButtons.length) + " projects visible; names are matched exactly first, then case-insensitively - check the exact sidebar spelling)" };
     }
     // 2026-07 ChatGPT update: the project row (li) is no longer a link - the
     // navigation affordance is a dedicated "Open project home" button inside
@@ -2775,6 +2837,30 @@ export function projectItemRectExpression(name: string): string {
     if (home) return clickPoint(home);
     return clickPoint(target, 18);
   })()`;
+}
+
+export async function locateProjectNavigationTarget(cdp: CdpConnection, project: string): Promise<RectHit> {
+  const deadline = Date.now() + 2_000;
+  let covered: RectHit = { ok: false, reason: "project navigation target is covered or not hit-testable" };
+  for (let attempt = 0; attempt < 3 && Date.now() <= deadline; attempt += 1) {
+    let hit = await cdp.evaluate<RectHit>(projectItemRectExpression(project));
+    if (hit.hover) {
+      await cdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: hit.hover.x, y: hit.hover.y });
+      await sleep(150);
+      hit = await cdp.evaluate<RectHit>(projectItemRectExpression(project));
+    }
+    if (!hit.ok || hit.x === undefined || hit.y === undefined) return hit;
+    await cdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: hit.x, y: hit.y });
+    await sleep(150);
+    const strictlyOnTarget = await cdp.evaluate<boolean>(`(() => {
+      const target = document.querySelector('[data-prodex-click]');
+      const hit = document.elementFromPoint(${hit.x}, ${hit.y});
+      return Boolean(target && hit && (target === hit || target.contains(hit)));
+    })()`);
+    if (strictlyOnTarget) return { ...hit, strict: true };
+    covered = { ok: false, reason: "project navigation target is covered or not hit-testable" };
+  }
+  return covered;
 }
 
 // Clicking a menuitemradio commits the choice and closes the picker; a menu
@@ -3611,7 +3697,7 @@ async function navigateToExistingProject(cdp: CdpConnection, project: string): P
   let hit: RectHit = { ok: false };
   const projectDeadline = Date.now() + 6_000;
   for (;;) {
-    hit = await cdp.evaluate<RectHit>(projectItemRectExpression(project));
+    hit = await locateProjectNavigationTarget(cdp, project);
     if (hit.ok && hit.x !== undefined && hit.y !== undefined) break;
     if (Date.now() >= projectDeadline) break;
     await sleep(300);
@@ -3622,7 +3708,7 @@ async function navigateToExistingProject(cdp: CdpConnection, project: string): P
       `ChatGPT project not found in sidebar: ${project}${detail} List the visible names with \`prodex pro browser projects\`.`
     );
   }
-  await verifiedClickWithRetry(cdp, () => cdp.evaluate<RectHit>(projectItemRectExpression(project)), `project ${project}`);
+  await verifiedClickWithRetry(cdp, () => locateProjectNavigationTarget(cdp, project), `project ${project}`);
   const navigated = await waitForExpressionTrue(
     cdp,
     `location.href !== ${JSON.stringify(hrefBefore)}`,
@@ -3759,7 +3845,7 @@ async function selectProject(
       await openFreshChatGptHome(cdp);
       await verifiedClickWithRetry(
         cdp,
-        () => cdp.evaluate<RectHit>(projectItemRectExpression(wanted)),
+        () => locateProjectNavigationTarget(cdp, wanted),
         `project ${wanted}`
       );
       // The click's navigation has to land before the placeholder means
@@ -4557,8 +4643,8 @@ export interface ListChatGptModelOptionsResult {
 }
 
 export function modelMenuOptionsExpression(): string {
-  return `(() => {
-    const m = document.querySelector('[data-testid="composer-intelligence-picker-content"]');
+  return `(() => {${pickerMenuExpressionHelpers()}
+    const m = findChatGptPickerMenu();
     if (!m) return [];
     // Radios are models, and so are the submenu rows an earlier picker kept them
     // behind. What is NOT a model is the power slider's own rows - its track,
@@ -4594,10 +4680,13 @@ export function modelMenuOptionsExpression(): string {
 // (English "Open project options for <name>", Korean "<name> 프로젝트 옵션 열기").
 export function sidebarProjectNamesExpression(): string {
   return `(() => {
-    const names = [...document.querySelectorAll('[aria-label*="프로젝트 옵션"],[aria-label*="project options" i]')]
+    const currentNames = [...document.querySelectorAll(${JSON.stringify(CURRENT_PROJECT_ROW_SELECTOR)})]
+      .map((row) => (row.getAttribute("data-app-action-sidebar-project-label") || "").trim())
+      .filter(Boolean);
+    const legacyNames = [...document.querySelectorAll(${JSON.stringify(LEGACY_PROJECT_OPTION_BUTTON_SELECTOR)})]
       .map((b) => (b.getAttribute("aria-label") || "").replace(/^open project options for /i, "").replace(/\\s*프로젝트 옵션 열기$/, "").trim())
       .filter(Boolean);
-    return [...new Set(names)];
+    return [...new Set([...currentNames, ...legacyNames])];
   })()`;
 }
 
@@ -4983,6 +5072,195 @@ async function restorePowerSlider(cdp: CdpConnection, target?: number): Promise<
     }
     await sleep(150);
   }
+}
+
+export type SelectorCheck = {
+  state: "VERIFIED" | "MISSING" | "UNVERIFIED";
+  requested: string;
+  observed?: string[];
+  reason?: string;
+};
+
+export type ConfiguredSelectorProbe = {
+  url?: string;
+  modelMenu: "OPENED" | "UNVERIFIED";
+  model?: SelectorCheck;
+  proMode?: SelectorCheck;
+  effort?: SelectorCheck;
+  project?: SelectorCheck;
+};
+
+function selectorProbeSnapshotExpression(): string {
+  return `(() => {${composerExpressionHelpers()}
+    const selectorProbeSnapshot = true;
+    const composer = findChatGptComposerCandidate();
+    const visible = (el) => Boolean(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
+    const expanded = [...document.querySelectorAll('[aria-haspopup="menu"][aria-expanded="true"]')].some(visible);
+    const overlays = [...document.querySelectorAll('[role="menu"],[role="dialog"]')].some(visible);
+    return { url: location.href,
+      composerEmpty: Boolean(composer && !("value" in composer ? composer.value : composer.innerText || composer.textContent || "").trim()),
+      menuClosed: !expanded && !overlays, overlayOpen: expanded || overlays };
+  })()`;
+}
+
+/** Caller holds the shared send lock. Never sends, navigates, launches, or logs in. */
+export async function inspectConfiguredBrowserSelectors(input: {
+  port?: number;
+  timeoutMs?: number;
+  selection: { model?: string; proMode?: string; effort?: string; project?: string };
+}): Promise<ConfiguredSelectorProbe> {
+  const result: ConfiguredSelectorProbe = { modelMenu: "UNVERIFIED" };
+  const axes = ["model", "proMode", "effort", "project"] as const;
+  for (const axis of axes) {
+    const requested = input.selection[axis];
+    if (requested) result[axis] = { state: "UNVERIFIED", requested, reason: "Selector was not inspected" };
+  }
+  const invalidate = (reason: string): void => {
+    for (const axis of axes) if (result[axis]) result[axis] = { ...result[axis]!, state: "UNVERIFIED", reason };
+  };
+  const timeoutMs = input.timeoutMs ?? 15_000;
+  const deadline = Date.now() + timeoutMs;
+  const remaining = (): number => {
+    const left = deadline - Date.now();
+    if (left <= 0) throw new Error("Configured selector check timed out");
+    return left;
+  };
+  let raw: CdpConnection | undefined;
+  let openedByProbe = false;
+  let start: PowerSliderState | undefined;
+  let originalUrl: string | undefined;
+  const assertSamePage = async (): Promise<void> => {
+    if (originalUrl && await raw!.evaluate<string>("location.href") !== originalUrl) {
+      throw new Error("Conversation changed during selector inspection; no further input is allowed");
+    }
+  };
+  try {
+    const found = await findChatGptPage(resolveCdpPort(input.port), computePageDiscoveryTimeout(remaining()));
+    if (!found.ok || !found.page) throwBlockerOrError(found.blocker, "ChatGPT browser page is not available");
+    const page = found.page!;
+    raw = await connectCdp(page.webSocketDebuggerUrl, Math.min(remaining(), 3_000));
+    const cdp: CdpConnection = {
+      ...raw,
+      send: async (method, params) => {
+        remaining();
+        if (method.startsWith("Input.")) await assertSamePage();
+        remaining();
+        return raw!.send(method, params);
+      },
+      evaluate: async <T>(expression: string) => { remaining(); return raw!.evaluate<T>(expression); }
+    };
+    const status = await cdp.evaluate<ChatGptPageStatus>(statusExpression());
+    const blocker = detectChatGptPageBlocker(status);
+    if (blocker) throw new ChatGptBrowserBlockerError(blocker);
+    assertChatGptIdleAndReadyForPrompt(status);
+    assertVisibleChatGptTab(status.visibilityState, status.url, undefined);
+    const before = await cdp.evaluate<{ url: string; composerEmpty: boolean; overlayOpen: boolean }>(selectorProbeSnapshotExpression());
+    if (!before.composerEmpty || before.overlayOpen) throw new Error("Selector check requires an empty composer and no open menu or dialog");
+    originalUrl = before.url;
+    result.url = before.url;
+    if (result.project) {
+      const target = await locateProjectNavigationTarget(cdp, result.project.requested);
+      result.project = { ...result.project,
+        state: target.ok ? "VERIFIED" : /project not found in sidebar/.test(target.reason ?? "") ? "MISSING" : "UNVERIFIED",
+        reason: target.ok ? "Exact sidebar navigation control passed hover hit-testing; project was not opened" : target.reason ?? "Project target unavailable" };
+    }
+    if (result.model || result.effort || result.proMode) {
+      const button = await cdp.evaluate<RectHit>(modelButtonRectExpression());
+      if (!button.ok || button.x === undefined || button.y === undefined) throw new Error(button.reason ?? "Model selector not found");
+      openedByProbe = true;
+      await verifiedClickAt(cdp, button.x, button.y, "model selector");
+      if (!(await waitForExpressionTrue(cdp, menuOpenExpression(), Math.min(remaining(), MENU_OPEN_TIMEOUT_MS)))) {
+        throw new Error("ChatGPT model menu did not open after clicking the selector");
+      }
+      result.modelMenu = "OPENED";
+      const options = await cdp.evaluate<ChatGptModelOption[]>(modelMenuOptionsExpression());
+      start = await cdp.evaluate<PowerSliderState>(powerSliderStateExpression());
+      const plan = pickerSelectionPlan(input.selection);
+      const modelAlreadySelected = !plan.modelLabel || options.some((o) => o.kind === "radio" && o.checked && menuItemLabelMatches(o.label, [plan.modelLabel!]));
+      const modelControlUsable = async (target: RectHit): Promise<boolean> => {
+        if (!target.ok || target.x === undefined || target.y === undefined || target.haspopup === "menu") return false;
+        await cdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: target.x, y: target.y });
+        await sleep(150);
+        return cdp.evaluate<boolean>(hoverVerifyExpression(target.x, target.y, true));
+      };
+      if (result.model && plan.modelLabel) {
+        const target = await cdp.evaluate<RectHit>(menuItemRectExpression(plan.modelLabel));
+        const usable = modelAlreadySelected || await modelControlUsable(target);
+        result.model = { ...result.model, observed: options.map((o) => o.label),
+          state: usable ? "VERIFIED" : "UNVERIFIED",
+          reason: modelAlreadySelected ? "Model is already selected" : usable ? "Model control passed hover hit-testing; selection was not changed" : target.reason ?? "Model control is covered or requires an unsupported submenu" };
+      }
+      if (plan.sliderLabel && start?.ok && modelAlreadySelected) {
+        const steps = await readEffortSteps(cdp);
+        remaining();
+        const walk = sliderWalkPlan(start);
+        const positions = new Set(steps?.rungs.map((r) => r.position));
+        const complete = walk && positions.size === walk.climb + 1 &&
+          steps?.rungs.every((r) => r.position >= start!.min! && r.position <= start!.max!);
+        const observed = steps?.rungs.map((r) => r.effort) ?? [];
+        const state = complete ? observed.some((label) => powerLabelMatches(plan.sliderLabel!, label)) ? "VERIFIED" : "MISSING" : "UNVERIFIED";
+        const axis = result.effort ? "effort" : "model";
+        result[axis] = { ...result[axis]!, state, observed, reason: complete ? "All effort steps inspected; original setting restored" : "Effort ladder could not be fully inspected" };
+        if (result.model && !plan.modelLabel && result.effort) {
+          result.model = { ...result.model, state: "UNVERIFIED", reason: "Saved Pro model is overridden by an explicit effort; clear the obsolete model default" };
+        }
+      } else if (!start?.ok && result.model && !plan.modelLabel) {
+        const target = await cdp.evaluate<RectHit>(menuItemRectExpression(result.model.requested));
+        const usable = await modelControlUsable(target);
+        result.model = { ...result.model, state: usable ? "VERIFIED" : "UNVERIFIED", reason: usable ? "Legacy model control passed hover hit-testing" : target.reason ?? "Model control is covered or unsupported" };
+      }
+      if (result.proMode) result.proMode.reason = "Pro sub-mode was not verified; no sub-mode was changed";
+    }
+    remaining();
+  } catch (error) {
+    invalidate(error instanceof Error ? error.message : String(error));
+  } finally {
+    if (raw) {
+      // Cleanup has its own hard ceiling; an inspection deadline must not
+      // silently skip restoring the setting or leave a hanging CDP command.
+      const cleanupTimer = setTimeout(() => {
+        invalidate("Selector cleanup exceeded its 5000ms deadline; inspect the picker before sending");
+        raw!.close();
+      }, 5_000);
+      const cleanup: CdpConnection = {
+        ...raw,
+        send: async (method, params) => {
+          if (method.startsWith("Input.")) await assertSamePage();
+          return raw!.send(method, params);
+        }
+      };
+      try {
+        await assertSamePage();
+        try {
+          if (openedByProbe && start?.ok && start.position !== undefined) {
+            await restorePowerSlider(cleanup, start.position);
+            const restored = await cleanup.evaluate<PowerSliderState>(powerSliderStateExpression());
+            if (!restored?.ok || restored.position !== start.position || restored.model !== start.model || restored.effort !== start.effort) {
+              invalidate("Could not verify restoration of the original model/effort setting; inspect the picker before sending");
+            }
+          }
+        } finally {
+          if (openedByProbe) {
+            await dispatchEscapeKey(cleanup);
+            await sleep(150);
+          }
+        }
+        if (originalUrl) {
+          await cleanup.evaluate(`document.querySelectorAll('[data-prodex-click]').forEach((node) => node.removeAttribute("data-prodex-click"))`);
+          const after = await raw.evaluate<{ url: string; composerEmpty: boolean; menuClosed: boolean }>(selectorProbeSnapshotExpression());
+          if (after.url !== originalUrl || !after.composerEmpty || !after.menuClosed) {
+            invalidate("Selector check did not finish on the original idle page with the menu closed");
+          }
+        }
+      } catch {
+        invalidate("Selector cleanup could not be verified; inspect the picker before sending");
+      } finally {
+        clearTimeout(cleanupTimer);
+        raw.close();
+      }
+    }
+  }
+  return result;
 }
 
 export async function listChatGptModelOptions(
