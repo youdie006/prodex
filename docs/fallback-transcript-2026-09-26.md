@@ -56,13 +56,16 @@ final answer still requires the existing complete-prompt/request validation.
   no blocker, two users/two assistants, full last prompt and exact request
   marker matched, post-submit acknowledgment returned true, answer began with
   the expected research marker. Model slug
-  was absent, so `proVerified:false` remained explicit.
+  was absent. The diagnostic recorded `proVerified:false` to mean unverified;
+  the product CLI omits `pro_verified` when provenance is unknown, rather than
+  asserting either a Pro success or a known non-Pro model.
 - PASS: final focused regressions, `npx vitest run docs/experiments/ozone-2026-09-26/focus-results.test.mjs tests/chatgpt-browser.test.ts tests/browser-crash-recovery.test.ts`,
   196 tests across three files. This includes the posted-question acknowledgment
   and corrected Vitest discovery.
 
 The live-read expression build's `dist/chatgpt-browser.js` SHA-256 was
 `0696f84c82dd3e968719d13f84ef0d30d3c0baffc21941b919c472a58f39687b`.
+Verified source commit: `1ad5a0e1acdb0b7b542e5712f11aae82511d0987`.
 
 The read-only verifier initially passed a shell-escaped prompt incorrectly and
 failed identity matching; corrected argument quoting passed with no parser or
