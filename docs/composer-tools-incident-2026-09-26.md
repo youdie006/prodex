@@ -116,13 +116,40 @@ The earlier successful live activation preceded the rendering-guard adjustment.
 A final-source live attempt stopped at another consultation's send lock without
 browser input; final installed-runtime verification is recorded separately.
 
+## WSL Host Installation
+
+Source correction: `3f48185cbc5a587783db300fa7ba6ecdf1dc50d4`.
+At `2026-09-26T10:27:08Z`, the existing Node 22.22.0 global scoped ProDex package
+was updated from the local candidate. Installation waited for the active
+consultation to release the shared send lock, checked the previous module hash,
+and backed up the installed package before invoking npm with scripts disabled.
+Rollback was prepared but not needed. Version remains `0.40.18`.
+
+| Installed artifact | SHA-256 |
+| --- | --- |
+| Local tarball | `7326b52891774bb8e6bf2aba3a5849a8d8acd6c50ed607ad8fae3f268e33a873` |
+| `dist/chatgpt-browser.js` | `071297d709b48295f0a23f71129f10b4a690dbbc3f14e110bb525d3c236620bf` |
+| `dist/cli-pro.js` | `e01605871198af7e1e64848452261fe3490f4b319674910f284616d134c142f3` |
+
+PASS: a new verification process imported `enableComposerTools` from the actual
+global installation, not the source checkout. Web search activation passed;
+native clearing restored tool inactivity, the empty composer, menu closure and
+the unchanged conversation URL. Zero prompts were sent. `prodex --version` and
+both installed module hashes were checked after installation.
+
+No browser or login window was opened, and the host browser was not restarted.
+The WSL container remained healthy on image
+`sha256:a3d8998ebdcecba7e71661a4f31b4aef508402fa02bfb94bc19f7d2befe9eeba`,
+with start time `2026-09-25T16:10:22.715590748Z` and zero restarts. Its stale
+adapter and already-attached MCP processes were not replaced by this host update.
+
 ## Delivery Boundary
 
 Branch: `feat/headless-browser-compatibility`,
 [PR 7](https://github.com/youdie006/prodex/pull/7). Package version remains
 `0.40.18`; there is no new release tag, npm publication or public image release.
-Commit, host installation hashes and post-install checks are recorded in the
-PR deployment ledger after source verification.
+Source delivery and this host installation are also recorded in the PR
+deployment ledger. The public npm package was not updated.
 
 The container has a read-only root filesystem. Updating the host package does
 not repair its adapter or reload an attached MCP process. Service replacement
