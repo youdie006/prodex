@@ -7,7 +7,8 @@ submission: the saved `Codex` project was not found, and an explicit
 `--no-project` attempt could not open the model menu. Earlier successful
 consultations do not identify the exact time or cause of the UI rollout.
 The reported task files were not present in the initially inspected bridge;
-their historical contents were not reconstructed or treated as verified.
+their historical contents were not reconstructed at that stage. The reporter
+later supplied the actual working directory; see the follow-up below.
 
 The installed WSL host CLI reproduced the false-positive health check: saved
 defaults were `model=Pro, project=Codex`, while the command returned `chatgpt: ok`
@@ -95,7 +96,7 @@ verification is not proof of the response's underlying model.
 - PASS: the completed project-hover helper itself, starting with the pointer
   away from the sidebar, reached the exact project composer and project URL,
   then restored the original conversation. This supersedes the earlier manual
-  hover prerequisite. The built CLI check against the reporting repository's
+  hover prerequisite. The built CLI check against the initially assumed repository's
   defaults returned `readiness=VERIFIED`, `model-menu=OPENED`, model `Pro`
   verified and project `Codex` verified by strict hover hit-testing, exit zero.
 
@@ -146,13 +147,15 @@ Installed development package version: `0.40.18`. Identity is pinned by:
 | Installed `dist/cli-pro.js` | `e01605871198af7e1e64848452261fe3490f4b319674910f284616d134c142f3` |
 
 Both installed module hashes match the final source build. The new **installed**
-`prodex pro browser check --cwd <reporting-repository>` returned exit zero,
+`prodex pro browser check --cwd <initially-assumed-reporting-repository>` returned exit zero,
 `scope=configured-selection`, `model-menu=OPENED`, model `Pro=VERIFIED`, and
 project `Codex=VERIFIED` after strict hover hit-testing. Login remained active.
 The installed `prodex pro browser models --timeout-ms 15000` also succeeded and
 listed the full effort ladder, including Pro, restoring the previous setting.
-These are actual post-install checks of the command used for the report,
-not a claim that old in-memory MCP modules or M3 installations were updated.
+These are actual post-install checks of the installed command. The reporter
+subsequently identified a different working directory, checked separately below.
+They do not establish that old in-memory MCP modules or M3 installations were
+updated.
 
 This source change's commit and delivery status are preserved in the PR's
 deployment comment. Native CI for this change is separate from local WSL
@@ -162,3 +165,67 @@ The previous baseline's native CI passed at
 [run 36215592209](https://github.com/youdie006/prodex/actions/runs/36215592209).
 It is not verification of this new patch. This incident does not change the
 pure-headless protection result or promote an experimental browser backend.
+
+## Reporter Path and MCP Follow-Up
+
+The reporter subsequently supplied the exact host CLI, actual working directory
+and three task records. The following checks used those authorized paths, not
+the initially assumed repository. No prompt or answer contents were needed.
+
+- The actual host command is the updated Node 22.22.0 global ProDex package,
+  still version `0.40.18`. Its selector source commit is
+  `77feb382930069cce2c29706cbb22b2f121925b8`; the hashes above identify the
+  installed build rather than claiming an npm release.
+- The two failed records confirm `project_not_found` and `browser_send_failed`.
+  Both the project failure and the earlier successful consultation persist
+  `project: "<project>"`. `sendChatGptPrompt` receives the selected project before
+  redaction; the persisted selection and blocker are redacted afterward.
+  This is not evidence of a substitution bug. The historical original argument
+  cannot be recovered or independently proved from these redacted records.
+- Current defaults at the actual working directory are `model=Pro` and
+  `project=codex`. A bounded installed CLI check there exited 1 with
+  `readiness=UNVERIFIED`, reason `browser_send_lock_busy`. Another consultation
+  owned the shared browser; no menu operation or prompt was attempted and the
+  check was not retried. This does not establish selector readiness in that
+  working directory.
+
+### Separate MCP Transport
+
+The optional bridge HTTP URL used port 8787, which was owned by `swapdex`.
+Its `/health` returned 404. However, the reporter's actual Claude `prodex`
+configuration was **stdio**: Node running `scripts/container-client.mjs
+--context default mcp`. That path uses Docker `exec -i`, not port 8787.
+Changing the HTTP port would not repair this configured connection, so neither
+service's port, configuration nor process was changed. The swapdex owner was
+notified of that decision.
+
+A fresh MCP client used the exact configured command, arguments and reporting
+working directory. Initialization and `listTools` passed: server `prodex
+0.40.18`, 20 tools including `pro_consult` and `pro_recover`, zero stderr bytes,
+zero tool calls and zero prompts. The client transport closed and its child
+process was confirmed reaped. The existing browser container remained running
+and healthy, with zero restarts and its unchanged September 25 start time.
+
+This reproduces a successful **new** stdio connection, not the existing Claude
+client's failed connection. The owner was asked to reconnect only ProDex if that
+failure remained and report the result or first error. No owner-confirmed
+reconnection or new Pro response is claimed. The container package and already
+attached MCP runtimes were not updated by the host CLI installation above.
+
+### Follow-Up Verification
+
+- PASS: `npx vitest run tests/browser-selection-check.test.ts tests/project-sidebar-current-ui.test.ts tests/cli-product-check.test.ts tests/picker-current-ui.test.ts` (62 tests).
+- PASS: `npx vitest run tests/recorded-selection.test.ts tests/privacy-remediation.test.ts tests/project-composer-binding.test.ts` (34 tests).
+- PASS: `npx vitest run tests/cli-pro-browser-send.test.ts -t 'redacts the project name in the persisted blocked consult'` (one selected test; 123 intentionally unselected).
+- PASS: exact-config, no-tool-call stdio MCP initialization/catalog/cleanup
+  probe described above. The original client failure was not reproduced.
+- PASS: `git diff --check` and a local documentation check of all 31 relative
+  link targets in the four changed files, the follow-up anchor and HTTP scope.
+- Native CI for selector commit `77feb38` is
+  [run 36228450030](https://github.com/youdie006/prodex/actions/runs/36228450030).
+  At this follow-up, Ubuntu Node 20/22/24 and macOS ARM64 completed successfully;
+  macOS Intel and Windows were still running. This is not an all-platform pass.
+
+This follow-up changes documentation only: transport troubleshooting, HTTP tool
+scope and interpretation of redacted project names. No release, installation,
+login, browser restart, service replacement or automatic consult resend occurred.
