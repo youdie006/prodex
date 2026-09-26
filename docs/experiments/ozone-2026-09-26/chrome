@@ -1,0 +1,3 @@
+#!/bin/sh
+# Experimental display backend only; retain stock browser properties and sandbox.
+exec /opt/prodex-cft154/chrome --ozone-platform=headless --window-size=1440,900 "$@"

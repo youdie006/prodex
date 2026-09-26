@@ -391,13 +391,19 @@ interface ChatGptPageStatus extends ChatGptPageTextState {
 // Text/buttons for login and status detection: exclude message bodies and the
 // composer, but KEEP the sidebar/nav - the logged-in signals ("New chat",
 // "Projects", the profile button, the plan hint) live there.
+export const CHATGPT_FALLBACK_TRANSCRIPT_MESSAGE_SELECTOR =
+  '[data-content-search-unit-key^="fallback-turn-"][data-content-search-unit-key$=":user"],' +
+  '[data-content-search-unit-key^="fallback-turn-"][data-content-search-unit-key$=":assistant"]';
+export const CHATGPT_TRANSCRIPT_MESSAGE_SELECTOR =
+  `[data-message-author-role],${CHATGPT_FALLBACK_TRANSCRIPT_MESSAGE_SELECTOR}`;
+export const CHATGPT_USER_MESSAGE_BUBBLE_SELECTOR = '[data-user-message-bubble="true"]';
 export const CHATGPT_RUNTIME_BLOCKER_TEXT_EXCLUDED_ANCESTORS =
-  '[data-message-author-role],script,style,noscript,[aria-hidden="true"],div[role="textbox"],textarea,[contenteditable="true"]';
+  `[data-message-author-role],${CHATGPT_USER_MESSAGE_BUBBLE_SELECTOR},script,style,noscript,[aria-hidden="true"],div[role="textbox"],textarea,[contenteditable="true"]`;
 // Text scanned for PAGE BLOCKERS (captcha/usage-limit/cloudflare/...) also
 // excludes the sidebar/nav: a past-chat title like "usage limit reset" or
 // "verify human" in the history list must not be matched as a live blocker.
 export const CHATGPT_BLOCKER_SCAN_EXCLUDED_ANCESTORS =
-  `${'[data-message-author-role],script,style,noscript,[aria-hidden="true"],div[role="textbox"],textarea,[contenteditable="true"]'},nav,aside,[role="navigation"]`;
+  `${`[data-message-author-role],${CHATGPT_USER_MESSAGE_BUBBLE_SELECTOR},script,style,noscript,[aria-hidden="true"],div[role="textbox"],textarea,[contenteditable="true"]`},nav,aside,[role="navigation"]`;
 export const CHATGPT_COMPOSER_CANDIDATE_EXCLUDED_ANCESTORS = '[data-message-author-role],script,style,noscript,[aria-hidden="true"]';
 export const PRODEX_ACTIVE_COMPOSER_ATTRIBUTE = "data-prodex-active-composer";
 
@@ -4311,10 +4317,7 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
     // inserts a newline) fall back to clicking the send button, re-reading
     // FRESH coordinates each attempt. Safe against double-submit: once the
     // prompt posts the composer clears and no send button is found.
-    const promptPostedExpression = `(() => {
-      const last = [...document.querySelectorAll('[data-message-author-role="user"]')].at(-1);
-      return Boolean(last && (last.innerText || "").includes(${JSON.stringify(`[prodex-request:${requestId}]`)}));
-    })()`;
+    const promptPostedExpression = chatGptPromptPostedExpression(requestId);
     // A dispatch can reach Chrome even if its acknowledgement is lost.
     submissionAttempted = true;
     await cdp.send("Input.dispatchKeyEvent", enterKeyEvent("keyDown"));
@@ -5431,6 +5434,102 @@ async function connectCdp(webSocketUrl: string, timeoutMs?: number): Promise<{
 export const CHATGPT_THINKING_PLACEHOLDER_JS =
   `ansLines.length <= 1 && (/^(생각\\s*중|thinking)$/i.test(ansStripped) || /^thought (for|about)\\b.*$/i.test(ansStripped) || /\\d+\\s*s\\s*동안\\s*생각함$/.test(ansStripped) || /(^|\\s)(생각\\s*중|thinking)$/i.test(ansStripped))`;
 
+function chatGptTranscriptExpressionHelpers(): string {
+  const transcriptMessageSelector = JSON.stringify(CHATGPT_TRANSCRIPT_MESSAGE_SELECTOR);
+  const userMessageBubbleSelector = JSON.stringify(CHATGPT_USER_MESSAGE_BUBBLE_SELECTOR);
+  return `
+    const transcriptMessageSelector = ${transcriptMessageSelector};
+    const userMessageBubbleSelector = ${userMessageBubbleSelector};
+    const fallbackMessageKeyPattern = /^fallback-turn-(\\d+):(\\d+):(user|assistant)$/;
+    const readChatGptTranscriptMessage = (node) => {
+      const legacyRole = node.getAttribute('data-message-author-role');
+      const fallbackKey = node.getAttribute('data-content-search-unit-key') || "";
+      const fallbackMatch = fallbackMessageKeyPattern.exec(fallbackKey);
+      const legacyMessageRole = legacyRole === "user" || legacyRole === "assistant" ? legacyRole : undefined;
+      let source;
+      let role;
+      let turn;
+      let position;
+      if (fallbackMatch) {
+        source = "fallback";
+        role = fallbackMatch[3];
+        turn = Number(fallbackMatch[1]);
+        position = Number(fallbackMatch[2]);
+        if (!Number.isSafeInteger(turn) || !Number.isSafeInteger(position)) return { invalid: true, source, turn, position };
+        if (legacyRole !== null && legacyRole !== role) return { invalid: true, source, turn, position };
+      } else if (legacyMessageRole) {
+        source = "legacy";
+        role = legacyMessageRole;
+      } else {
+        return undefined;
+      }
+      let modelSlug = node.getAttribute('data-message-model-slug') || undefined;
+      if (!modelSlug && typeof node.closest === "function") {
+        const tagged = node.closest('[data-message-model-slug]');
+        if (tagged) modelSlug = tagged.getAttribute('data-message-model-slug') || undefined;
+      }
+      let messageText = node.innerText || "";
+      if (source === "fallback" && role === "assistant") {
+        const directChildren = Array.from(node.children || []);
+        const heading = directChildren[0];
+        const body = directChildren[1];
+        const headingClasses = (heading?.getAttribute("class") || "").split(/\\s+/).filter(Boolean);
+        const measuredAssistantShape = directChildren.length === 2 &&
+          heading?.tagName?.toLowerCase() === "h4" && headingClasses.includes("sr-only") &&
+          body?.tagName?.toLowerCase() === "div";
+        if (measuredAssistantShape) messageText = body.innerText || "";
+      }
+      return { source, role, turn, position, text: messageText, modelSlug };
+    };
+    const isInsideChatGptTranscriptMessage = (node) => {
+      if (!node || typeof node.closest !== "function") return false;
+      if (node.closest(userMessageBubbleSelector)) return true;
+      const message = node.closest(transcriptMessageSelector);
+      if (!message) return false;
+      if (message.getAttribute('data-message-author-role') !== null) return true;
+      return fallbackMessageKeyPattern.test(message.getAttribute('data-content-search-unit-key') || "");
+    };
+    const collectChatGptTranscriptMessages = () => {
+      const nodes = [...document.querySelectorAll(transcriptMessageSelector)];
+      const fallbackNodes = nodes.filter((node) => fallbackMessageKeyPattern.test(node.getAttribute('data-content-search-unit-key') || ""));
+      if (fallbackNodes.length > 0) {
+        const legacyMessageNodes = nodes.filter((node) => {
+          const role = node.getAttribute('data-message-author-role');
+          return role === "user" || role === "assistant";
+        });
+        if (legacyMessageNodes.some((node) => !fallbackNodes.includes(node))) return [];
+        const fallbackMessages = fallbackNodes.map(readChatGptTranscriptMessage);
+        if (fallbackMessages.some((message) => !message || message.invalid)) return [];
+        const coordinates = new Set();
+        for (const message of fallbackMessages) {
+          const coordinate = message.turn + ":" + message.position;
+          if (coordinates.has(coordinate)) return [];
+          coordinates.add(coordinate);
+        }
+        return fallbackMessages.sort((left, right) => left.turn - right.turn || left.position - right.position);
+      }
+      return nodes.map(readChatGptTranscriptMessage).filter((message) => message && !message.invalid && message.source === "legacy");
+    };
+    const latestAssistantForLatestUser = (messages) => {
+      const lastUserIndex = messages.map((message) => message.role).lastIndexOf("user");
+      if (lastUserIndex < 0) return undefined;
+      const user = messages[lastUserIndex];
+      const assistants = messages.slice(lastUserIndex + 1).filter((message) =>
+        message.role === "assistant" && (user.source !== "fallback" || (message.source === "fallback" && message.turn === user.turn))
+      );
+      return assistants.at(-1);
+    };
+  `;
+}
+
+export function chatGptPromptPostedExpression(requestId: string): string {
+  return `(() => {
+    ${chatGptTranscriptExpressionHelpers()}
+    const last = collectChatGptTranscriptMessages().filter((message) => message.role === "user").at(-1);
+    return Boolean(last && last.text.includes(${JSON.stringify(`[prodex-request:${requestId}]`)}));
+  })()`;
+}
+
 export function statusExpression(): string {
   const excludedTextSelector = JSON.stringify(CHATGPT_RUNTIME_BLOCKER_TEXT_EXCLUDED_ANCESTORS);
   const blockerScanExcludedSelector = JSON.stringify(CHATGPT_BLOCKER_SCAN_EXCLUDED_ANCESTORS);
@@ -5444,6 +5543,7 @@ export function statusExpression(): string {
     const runtimeExcludedTextSelector = ${excludedTextSelector};
     const blockerScanExcludedSelector = ${blockerScanExcludedSelector};
     const generatingControlPattern = new RegExp(${generatingControlPattern}, ${generatingControlFlags});
+    ${chatGptTranscriptExpressionHelpers()}
     const visibleTextOutsideMessages = (excludedSelector) => {
       if (!document.body) return "";
       const parts = [];
@@ -5454,6 +5554,7 @@ export function statusExpression(): string {
         const value = node.nodeValue?.trim();
         if (!parent || !value) continue;
         if (parent.closest(excludedSelector)) continue;
+        if (isInsideChatGptTranscriptMessage(parent)) continue;
         const style = window.getComputedStyle(parent);
         if (style.display === "none" || style.visibility === "hidden") continue;
         if (!(parent.offsetWidth || parent.offsetHeight || parent.getClientRects().length)) continue;
@@ -5466,7 +5567,7 @@ export function statusExpression(): string {
     const lines = text.split(String.fromCharCode(10)).map((line) => line.trim()).filter(Boolean);
     const visibleControls = [...document.querySelectorAll('button,a,[role="button"]')]
       .filter((el) => !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length))
-      .filter((el) => !el.closest(runtimeExcludedTextSelector));
+      .filter((el) => !el.closest(runtimeExcludedTextSelector) && !isInsideChatGptTranscriptMessage(el));
     const visibleButtonLabels = visibleControls
       .map((el) => (el.innerText || el.getAttribute("aria-label") || el.getAttribute("data-testid") || "").trim())
       .filter(Boolean);
@@ -5474,10 +5575,7 @@ export function statusExpression(): string {
       .filter((el) => !el.closest(blockerScanExcludedSelector))
       .map((el) => (el.innerText || el.getAttribute("aria-label") || el.getAttribute("data-testid") || "").trim())
       .filter(Boolean);
-    const messages = [...document.querySelectorAll('[data-message-author-role]')].map((node) => ({
-      role: node.getAttribute('data-message-author-role'),
-      text: node.innerText || ""
-    }));
+    const messages = collectChatGptTranscriptMessages();
     const assistant = messages.filter((message) => message.role === "assistant").at(-1);
     const answer = assistant?.text || "";
     const ansStripped = answer.trim().replace(/\\.+$/, "");
@@ -6455,6 +6553,7 @@ export function answerExpression(): string {
     const excludedTextSelector = ${excludedTextSelector};
     const blockerScanExcludedSelector = ${blockerScanExcludedSelector};
     const generatingControlPattern = new RegExp(${generatingControlPattern}, ${generatingControlFlags});
+    ${chatGptTranscriptExpressionHelpers()}
     const visibleTextOutsideMessages = (excludedSelector) => {
       if (!document.body) return "";
       const parts = [];
@@ -6465,6 +6564,7 @@ export function answerExpression(): string {
         const value = node.nodeValue?.trim();
         if (!parent || !value) continue;
         if (parent.closest(excludedSelector)) continue;
+        if (isInsideChatGptTranscriptMessage(parent)) continue;
         const style = window.getComputedStyle(parent);
         if (style.display === "none" || style.visibility === "hidden") continue;
         if (!(parent.offsetWidth || parent.offsetHeight || parent.getClientRects().length)) continue;
@@ -6473,30 +6573,19 @@ export function answerExpression(): string {
       return parts.join(String.fromCharCode(10));
     };
     const lines = text.split(String.fromCharCode(10)).map((line) => line.trim()).filter(Boolean);
-    const messages = [...document.querySelectorAll('[data-message-author-role]')].map((node) => {
-      // ChatGPT tags each message with the model that produced it, on the
-      // message node or an ancestor depending on the build. This is the only
-      // ground truth for "did the Pro selection actually take".
-      let modelSlug = node.getAttribute('data-message-model-slug') || undefined;
-      if (!modelSlug && typeof node.closest === "function") {
-        const tagged = node.closest('[data-message-model-slug]');
-        if (tagged) modelSlug = tagged.getAttribute('data-message-model-slug') || undefined;
-      }
-      return { role: node.getAttribute('data-message-author-role'), text: node.innerText || "", modelSlug };
-    });
+    const messages = collectChatGptTranscriptMessages();
     const assistantMessages = messages.filter((message) => message.role === "assistant");
     const userMessages = messages.filter((message) => message.role === "user");
     // A turn without an assistant message is NOT an answer. Treating one as an
     // answer (a 0.21.3 fallback for deep research, which is read from the
     // transcript now) turned a tool's progress panel into a 28-character
     // "answer" that a consult returned as its result.
-    const lastUserIndex = messages.map((message) => message.role).lastIndexOf("user");
     // Pair only within the latest user turn; a previous reply is not the
     // answer to a new question whose assistant node has not rendered yet.
-    const assistant = lastUserIndex < 0 ? undefined : messages.slice(lastUserIndex + 1).filter((message) => message.role === "assistant").at(-1);
+    const assistant = latestAssistantForLatestUser(messages);
     const visibleControls = [...document.querySelectorAll('button,[role="button"]')]
       .filter((node) => !!(node.offsetWidth || node.offsetHeight || node.getClientRects().length))
-      .filter((node) => !node.closest(excludedTextSelector));
+      .filter((node) => !node.closest(excludedTextSelector) && !isInsideChatGptTranscriptMessage(node));
     const buttons = visibleControls
       .map((node) => (node.innerText || node.getAttribute("aria-label") || node.getAttribute("data-testid") || "").trim())
       .filter(Boolean);

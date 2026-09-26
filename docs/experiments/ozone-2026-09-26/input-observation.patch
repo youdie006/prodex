@@ -1,0 +1,14 @@
+--- a/scripts/browser-launch-smoke.mjs
++++ b/scripts/browser-launch-smoke.mjs
+@@ -412,0 +413,5 @@
++    await send("Runtime.evaluate", { expression: `window.inputTrace=[]; for (const type of ['keydown','keyup','beforeinput','input','focus','blur']) document.querySelector('#keyboard').addEventListener(type,e=>window.inputTrace.push({type:e.type,key:e.key??null,data:e.data??null}));` });
++    const observeInput = async (stage) => {
++      const result = await send("Runtime.evaluate", { expression: `({focus:document.hasFocus(),active:document.activeElement?.id,visibility:document.visibilityState,value:document.querySelector('#keyboard').value,events:window.inputTrace})`, returnByValue: true });
++      console.log(`ozone_input=${JSON.stringify({stage,...runtimeValue(result,"input observation")})}`);
++    };
+@@ -413,0 +419 @@
++    await observeInput("focused");
+@@ -429,0 +436 @@
++    await observeInput("after_keyboard");
+@@ -449,0 +457 @@
++    await observeInput("after_mouse_and_file");

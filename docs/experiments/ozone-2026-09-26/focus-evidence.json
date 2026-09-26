@@ -1,0 +1,3745 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-09-26",
+  "classification": "INVALID_INFRASTRUCTURE",
+  "publicNavigations": 0,
+  "targets": [
+    {
+      "target": "wsl",
+      "exitCode": 1,
+      "rawLogSha256": "9312b5038197e866cff7545ae8a859cd0b423bda3396cbab10b64ae8546a2b04",
+      "rawLogBytes": 36739,
+      "originalSummary": {
+        "kind": "focus-probe-final",
+        "schemaVersion": 1,
+        "arch": "x64",
+        "measuredTrials": 16,
+        "outcome": "FAIL",
+        "interpretation": "At least one measured trial or bounded cleanup failed.",
+        "matrix": [
+          {
+            "pair": 1,
+            "repeat": 1,
+            "startup": "cold",
+            "load": "isolated",
+            "armOrder": "AB",
+            "A": "pass",
+            "B": "pass"
+          },
+          {
+            "pair": 2,
+            "repeat": 1,
+            "startup": "restart",
+            "load": "single-render-load",
+            "armOrder": "BA",
+            "A": "fail",
+            "B": "fail"
+          },
+          {
+            "pair": 3,
+            "repeat": 1,
+            "startup": "cold",
+            "load": "single-render-load",
+            "armOrder": "AB",
+            "A": "fail",
+            "B": "fail"
+          },
+          {
+            "pair": 4,
+            "repeat": 1,
+            "startup": "restart",
+            "load": "isolated",
+            "armOrder": "BA",
+            "A": "fail",
+            "B": "fail"
+          },
+          {
+            "pair": 5,
+            "repeat": 2,
+            "startup": "restart",
+            "load": "isolated",
+            "armOrder": "AB",
+            "A": "fail",
+            "B": "fail"
+          },
+          {
+            "pair": 6,
+            "repeat": 2,
+            "startup": "cold",
+            "load": "single-render-load",
+            "armOrder": "BA",
+            "A": "fail",
+            "B": "fail"
+          },
+          {
+            "pair": 7,
+            "repeat": 2,
+            "startup": "restart",
+            "load": "single-render-load",
+            "armOrder": "AB",
+            "A": "fail",
+            "B": "fail"
+          },
+          {
+            "pair": 8,
+            "repeat": 2,
+            "startup": "cold",
+            "load": "isolated",
+            "armOrder": "BA",
+            "A": "fail",
+            "B": "fail"
+          }
+        ],
+        "failures": [
+          {
+            "trial": "pair-02-B",
+            "phase": "target:navigate",
+            "message": "Page.enable timed out"
+          },
+          {
+            "trial": "pair-02-A",
+            "phase": "restart:prime-close",
+            "message": "Could not inspect browser processes."
+          },
+          {
+            "trial": "pair-03-A",
+            "phase": "load:launch",
+            "message": "Could not inspect browser processes."
+          },
+          {
+            "trial": "pair-03-B",
+            "phase": "load:launch",
+            "message": "Could not inspect browser processes."
+          },
+          {
+            "trial": "pair-04-B",
+            "phase": "restart:prime-launch",
+            "message": "Could not inspect browser processes."
+          },
+          {
+            "trial": "pair-04-A",
+            "phase": "restart:prime-launch",
+            "message": "Could not inspect browser processes."
+          },
+          {
+            "trial": "pair-05-A",
+            "phase": "restart:prime-launch",
+            "message": "Could not inspect browser processes."
+          },
+          {
+            "trial": "pair-05-B",
+            "phase": "restart:prime-launch",
+            "message": "Could not inspect browser processes."
+          },
+          {
+            "trial": "pair-06-B",
+            "phase": "load:launch",
+            "message": "Could not inspect browser processes."
+          },
+          {
+            "trial": "pair-06-A",
+            "phase": "load:launch",
+            "message": "Could not inspect browser processes."
+          },
+          {
+            "trial": "pair-07-A",
+            "phase": "load:launch",
+            "message": "Could not inspect browser processes."
+          },
+          {
+            "trial": "pair-07-B",
+            "phase": "load:ready",
+            "message": "render-load exited before readiness: {\"code\":null,\"signal\":\"SIGTRAP\"}"
+          },
+          {
+            "trial": "pair-08-B",
+            "phase": "target:ready",
+            "message": "target-measured exited before readiness: {\"code\":null,\"signal\":\"SIGTRAP\"}"
+          },
+          {
+            "trial": "pair-08-A",
+            "phase": "target:ready",
+            "message": "target-measured exited before readiness: {\"code\":null,\"signal\":\"SIGTRAP\"}"
+          }
+        ],
+        "cleanup": false,
+        "workloadLimitation": "single-render-load shares the target container CPU budget; it is not the original separate-container load model",
+        "publicNavigation": "not_tested",
+        "authenticationData": "not_accessed"
+      },
+      "correctedClassification": {
+        "plannedTrials": 16,
+        "attemptedTrials": 16,
+        "validInputTrials": 2,
+        "unattemptedTrials": 0,
+        "outcome": "INVALID_INFRASTRUCTURE"
+      },
+      "trials": [
+        {
+          "id": "pair-01-A",
+          "status": "pass",
+          "commands": 11,
+          "events": 6,
+          "cleanup": {
+            "confirmed": true,
+            "errors": []
+          }
+        },
+        {
+          "id": "pair-01-B",
+          "status": "pass",
+          "commands": 16,
+          "events": 23,
+          "cleanup": {
+            "confirmed": true,
+            "errors": []
+          }
+        },
+        {
+          "id": "pair-02-B",
+          "status": "fail",
+          "failure": {
+            "phase": "target:navigate",
+            "message": "Page.enable timed out"
+          },
+          "commands": 0,
+          "events": null,
+          "cleanup": {
+            "confirmed": true,
+            "errors": []
+          }
+        },
+        {
+          "id": "pair-02-A",
+          "status": "fail",
+          "failure": {
+            "phase": "restart:prime-close",
+            "message": "Could not inspect browser processes."
+          },
+          "commands": 0,
+          "events": null,
+          "cleanup": {
+            "confirmed": false,
+            "errors": [
+              {
+                "phase": "cleanup:target-prime",
+                "message": "Could not inspect browser processes."
+              },
+              {
+                "phase": "cleanup:render-load",
+                "message": "Could not inspect browser processes."
+              }
+            ]
+          }
+        },
+        {
+          "id": "pair-03-A",
+          "status": "fail",
+          "failure": {
+            "phase": "load:launch",
+            "message": "Could not inspect browser processes."
+          },
+          "commands": 0,
+          "events": null,
+          "cleanup": {
+            "confirmed": true,
+            "errors": []
+          }
+        },
+        {
+          "id": "pair-03-B",
+          "status": "fail",
+          "failure": {
+            "phase": "load:launch",
+            "message": "Could not inspect browser processes."
+          },
+          "commands": 0,
+          "events": null,
+          "cleanup": {
+            "confirmed": true,
+            "errors": []
+          }
+        },
+        {
+          "id": "pair-04-B",
+          "status": "fail",
+          "failure": {
+            "phase": "restart:prime-launch",
+            "message": "Could not inspect browser processes."
+          },
+          "commands": 0,
+          "events": null,
+          "cleanup": {
+            "confirmed": true,
+            "errors": []
+          }
+        },
+        {
+          "id": "pair-04-A",
+          "status": "fail",
+          "failure": {
+            "phase": "restart:prime-launch",
+            "message": "Could not inspect browser processes."
+          },
+          "commands": 0,
+          "events": null,
+          "cleanup": {
+            "confirmed": true,
+            "errors": []
+          }
+        },
+        {
+          "id": "pair-05-A",
+          "status": "fail",
+          "failure": {
+            "phase": "restart:prime-launch",
+            "message": "Could not inspect browser processes."
+          },
+          "commands": 0,
+          "events": null,
+          "cleanup": {
+            "confirmed": true,
+            "errors": []
+          }
+        },
+        {
+          "id": "pair-05-B",
+          "status": "fail",
+          "failure": {
+            "phase": "restart:prime-launch",
+            "message": "Could not inspect browser processes."
+          },
+          "commands": 0,
+          "events": null,
+          "cleanup": {
+            "confirmed": true,
+            "errors": []
+          }
+        },
+        {
+          "id": "pair-06-B",
+          "status": "fail",
+          "failure": {
+            "phase": "load:launch",
+            "message": "Could not inspect browser processes."
+          },
+          "commands": 0,
+          "events": null,
+          "cleanup": {
+            "confirmed": true,
+            "errors": []
+          }
+        },
+        {
+          "id": "pair-06-A",
+          "status": "fail",
+          "failure": {
+            "phase": "load:launch",
+            "message": "Could not inspect browser processes."
+          },
+          "commands": 0,
+          "events": null,
+          "cleanup": {
+            "confirmed": true,
+            "errors": []
+          }
+        },
+        {
+          "id": "pair-07-A",
+          "status": "fail",
+          "failure": {
+            "phase": "load:launch",
+            "message": "Could not inspect browser processes."
+          },
+          "commands": 0,
+          "events": null,
+          "cleanup": {
+            "confirmed": true,
+            "errors": []
+          }
+        },
+        {
+          "id": "pair-07-B",
+          "status": "fail",
+          "failure": {
+            "phase": "load:ready",
+            "message": "render-load exited before readiness: {\"code\":null,\"signal\":\"SIGTRAP\"}"
+          },
+          "commands": 0,
+          "events": null,
+          "cleanup": {
+            "confirmed": true,
+            "errors": []
+          }
+        },
+        {
+          "id": "pair-08-B",
+          "status": "fail",
+          "failure": {
+            "phase": "target:ready",
+            "message": "target-measured exited before readiness: {\"code\":null,\"signal\":\"SIGTRAP\"}"
+          },
+          "commands": 0,
+          "events": null,
+          "cleanup": {
+            "confirmed": true,
+            "errors": []
+          }
+        },
+        {
+          "id": "pair-08-A",
+          "status": "fail",
+          "failure": {
+            "phase": "target:ready",
+            "message": "target-measured exited before readiness: {\"code\":null,\"signal\":\"SIGTRAP\"}"
+          },
+          "commands": 0,
+          "events": null,
+          "cleanup": {
+            "confirmed": true,
+            "errors": []
+          }
+        }
+      ],
+      "firstPairTraces": [
+        {
+          "id": "pair-01-A",
+          "initial": {
+            "trigger": "installed",
+            "atMs": 727.5,
+            "eventSequence": 0,
+            "documentIdentity": "pair-01-A:doc:0a75cee9-c484-4633-8fc1-56d0152db3cb",
+            "documentHasFocus": false,
+            "activeElement": "element:body",
+            "inputConnected": true,
+            "disabled": false,
+            "readOnly": false,
+            "value": "",
+            "primeMarker": null
+          },
+          "final": {
+            "trigger": "final",
+            "atMs": 848.6000000238419,
+            "eventSequence": 6,
+            "documentIdentity": "pair-01-A:doc:0a75cee9-c484-4633-8fc1-56d0152db3cb",
+            "documentHasFocus": true,
+            "activeElement": "input",
+            "inputConnected": true,
+            "disabled": false,
+            "readOnly": false,
+            "value": "k",
+            "focusReady": {
+              "ok": true,
+              "trigger": "focus",
+              "snapshot": {
+                "trigger": "focus",
+                "atMs": 784.3999999761581,
+                "eventSequence": 1,
+                "documentIdentity": "pair-01-A:doc:0a75cee9-c484-4633-8fc1-56d0152db3cb",
+                "documentHasFocus": true,
+                "activeElement": "input",
+                "inputConnected": true,
+                "disabled": false,
+                "readOnly": false,
+                "value": ""
+              }
+            },
+            "inputCompletion": {
+              "ok": true,
+              "trigger": "keyup",
+              "snapshot": {
+                "trigger": "keyup",
+                "atMs": 826.5,
+                "eventSequence": 6,
+                "documentIdentity": "pair-01-A:doc:0a75cee9-c484-4633-8fc1-56d0152db3cb",
+                "documentHasFocus": true,
+                "activeElement": "input",
+                "inputConnected": true,
+                "disabled": false,
+                "readOnly": false,
+                "value": "k"
+              }
+            },
+            "events": [
+              {
+                "sequence": 1,
+                "atMs": 784.2999999523163,
+                "type": "focus",
+                "target": "input",
+                "isTrusted": true,
+                "focus": {
+                  "documentHasFocus": true,
+                  "activeElement": "input"
+                },
+                "value": "",
+                "key": null,
+                "code": null,
+                "data": null,
+                "inputType": null,
+                "button": null
+              },
+              {
+                "sequence": 2,
+                "atMs": 784.3999999761581,
+                "type": "focusin",
+                "target": "input",
+                "isTrusted": true,
+                "focus": {
+                  "documentHasFocus": true,
+                  "activeElement": "input"
+                },
+                "value": "",
+                "key": null,
+                "code": null,
+                "data": null,
+                "inputType": null,
+                "button": null
+              },
+              {
+                "sequence": 3,
+                "atMs": 791.8999999761581,
+                "type": "keydown",
+                "target": "input",
+                "isTrusted": true,
+                "focus": {
+                  "documentHasFocus": true,
+                  "activeElement": "input"
+                },
+                "value": "",
+                "key": "k",
+                "code": "KeyK",
+                "data": null,
+                "inputType": null,
+                "button": null
+              },
+              {
+                "sequence": 4,
+                "atMs": 792.8999999761581,
+                "type": "beforeinput",
+                "target": "input",
+                "isTrusted": true,
+                "focus": {
+                  "documentHasFocus": true,
+                  "activeElement": "input"
+                },
+                "value": "",
+                "key": null,
+                "code": null,
+                "data": "k",
+                "inputType": "insertText",
+                "button": null
+              },
+              {
+                "sequence": 5,
+                "atMs": 794.7999999523163,
+                "type": "input",
+                "target": "input",
+                "isTrusted": true,
+                "focus": {
+                  "documentHasFocus": true,
+                  "activeElement": "input"
+                },
+                "value": "k",
+                "key": null,
+                "code": null,
+                "data": "k",
+                "inputType": "insertText",
+                "button": null
+              },
+              {
+                "sequence": 6,
+                "atMs": 826.5,
+                "type": "keyup",
+                "target": "input",
+                "isTrusted": true,
+                "focus": {
+                  "documentHasFocus": true,
+                  "activeElement": "input"
+                },
+                "value": "k",
+                "key": "k",
+                "code": "KeyK",
+                "data": null,
+                "inputType": null,
+                "button": null
+              }
+            ]
+          },
+          "events": [
+            {
+              "sequence": 1,
+              "atMs": 784.2999999523163,
+              "type": "focus",
+              "target": "input",
+              "isTrusted": true,
+              "focus": {
+                "documentHasFocus": true,
+                "activeElement": "input"
+              },
+              "value": "",
+              "key": null,
+              "code": null,
+              "data": null,
+              "inputType": null,
+              "button": null
+            },
+            {
+              "sequence": 2,
+              "atMs": 784.3999999761581,
+              "type": "focusin",
+              "target": "input",
+              "isTrusted": true,
+              "focus": {
+                "documentHasFocus": true,
+                "activeElement": "input"
+              },
+              "value": "",
+              "key": null,
+              "code": null,
+              "data": null,
+              "inputType": null,
+              "button": null
+            },
+            {
+              "sequence": 3,
+              "atMs": 791.8999999761581,
+              "type": "keydown",
+              "target": "input",
+              "isTrusted": true,
+              "focus": {
+                "documentHasFocus": true,
+                "activeElement": "input"
+              },
+              "value": "",
+              "key": "k",
+              "code": "KeyK",
+              "data": null,
+              "inputType": null,
+              "button": null
+            },
+            {
+              "sequence": 4,
+              "atMs": 792.8999999761581,
+              "type": "beforeinput",
+              "target": "input",
+              "isTrusted": true,
+              "focus": {
+                "documentHasFocus": true,
+                "activeElement": "input"
+              },
+              "value": "",
+              "key": null,
+              "code": null,
+              "data": "k",
+              "inputType": "insertText",
+              "button": null
+            },
+            {
+              "sequence": 5,
+              "atMs": 794.7999999523163,
+              "type": "input",
+              "target": "input",
+              "isTrusted": true,
+              "focus": {
+                "documentHasFocus": true,
+                "activeElement": "input"
+              },
+              "value": "k",
+              "key": null,
+              "code": null,
+              "data": "k",
+              "inputType": "insertText",
+              "button": null
+            },
+            {
+              "sequence": 6,
+              "atMs": 826.5,
+              "type": "keyup",
+              "target": "input",
+              "isTrusted": true,
+              "focus": {
+                "documentHasFocus": true,
+                "activeElement": "input"
+              },
+              "value": "k",
+              "key": "k",
+              "code": "KeyK",
+              "data": null,
+              "inputType": null,
+              "button": null
+            }
+          ],
+          "commands": [
+            {
+              "sequence": 1,
+              "phase": "measure:runtime-enable",
+              "method": "Runtime.enable",
+              "sentAtMs": 2312.15,
+              "replyAtMs": 2396.038,
+              "ok": true
+            },
+            {
+              "sequence": 2,
+              "phase": "measure:dom-enable",
+              "method": "DOM.enable",
+              "sentAtMs": 2396.089,
+              "replyAtMs": 2434.873,
+              "ok": true
+            },
+            {
+              "sequence": 3,
+              "phase": "measure:document",
+              "method": "DOM.getDocument",
+              "sentAtMs": 2456.475,
+              "replyAtMs": 2467.544,
+              "ok": true
+            },
+            {
+              "sequence": 4,
+              "phase": "measure:query-input",
+              "method": "DOM.querySelector",
+              "sentAtMs": 2467.824,
+              "replyAtMs": 2473.578,
+              "ok": true
+            },
+            {
+              "sequence": 5,
+              "phase": "measure:input-box",
+              "method": "DOM.getBoxModel",
+              "sentAtMs": 2473.61,
+              "replyAtMs": 2491.625,
+              "ok": true
+            },
+            {
+              "sequence": 6,
+              "phase": "measure:install-observers",
+              "method": "Runtime.evaluate",
+              "sentAtMs": 2492.183,
+              "replyAtMs": 2528.067,
+              "ok": true
+            },
+            {
+              "sequence": 7,
+              "phase": "measure:dom-focus",
+              "method": "DOM.focus",
+              "sentAtMs": 2528.117,
+              "replyAtMs": 2553.972,
+              "ok": true
+            },
+            {
+              "sequence": 8,
+              "phase": "measure:key-down",
+              "method": "Input.dispatchKeyEvent",
+              "sentAtMs": 2554.01,
+              "replyAtMs": 2587.103,
+              "ok": true
+            },
+            {
+              "sequence": 9,
+              "phase": "measure:key-up",
+              "method": "Input.dispatchKeyEvent",
+              "sentAtMs": 2587.145,
+              "replyAtMs": 2620.895,
+              "ok": true
+            },
+            {
+              "sequence": 10,
+              "phase": "measure:input-completion",
+              "method": "Runtime.evaluate",
+              "sentAtMs": 2620.96,
+              "replyAtMs": 2627.222,
+              "ok": true
+            },
+            {
+              "sequence": 11,
+              "phase": "measure:final-inspection",
+              "method": "Runtime.evaluate",
+              "sentAtMs": 2627.377,
+              "replyAtMs": 2632.271,
+              "ok": true
+            }
+          ]
+        },
+        {
+          "id": "pair-01-B",
+          "initial": {
+            "trigger": "installed",
+            "atMs": 691.2999999523163,
+            "eventSequence": 0,
+            "documentIdentity": "pair-01-B:doc:42aa291b-6503-46c7-8c6b-8e9eb546389d",
+            "documentHasFocus": false,
+            "activeElement": "element:body",
+            "inputConnected": true,
+            "disabled": false,
+            "readOnly": false,
+            "value": "",
+            "primeMarker": null
+          },
+          "barrier": {
+            "ok": true,
+            "trigger": "focus",
+            "snapshot": {
+              "trigger": "focus",
+              "atMs": 774.3999999761581,
+              "eventSequence": 1,
+              "documentIdentity": "pair-01-B:doc:42aa291b-6503-46c7-8c6b-8e9eb546389d",
+              "documentHasFocus": true,
+              "activeElement": "input",
+              "inputConnected": true,
+              "disabled": false,
+              "readOnly": false,
+              "value": ""
+            }
+          },
+          "preKeyRecheck": {
+            "trigger": "immediate-pre-key-recheck",
+            "atMs": 844.2999999523163,
+            "eventSequence": 19,
+            "documentIdentity": "pair-01-B:doc:42aa291b-6503-46c7-8c6b-8e9eb546389d",
+            "documentHasFocus": true,
+            "activeElement": "input",
+            "inputConnected": true,
+            "disabled": false,
+            "readOnly": false,
+            "value": ""
+          },
+          "final": {
+            "trigger": "final",
+            "atMs": 906,
+            "eventSequence": 23,
+            "documentIdentity": "pair-01-B:doc:42aa291b-6503-46c7-8c6b-8e9eb546389d",
+            "documentHasFocus": true,
+            "activeElement": "input",
+            "inputConnected": true,
+            "disabled": false,
+            "readOnly": false,
+            "value": "k",
+            "focusReady": {
+              "ok": true,
+              "trigger": "focus",
+              "snapshot": {
+                "trigger": "focus",
+                "atMs": 774.3999999761581,
+                "eventSequence": 1,
+                "documentIdentity": "pair-01-B:doc:42aa291b-6503-46c7-8c6b-8e9eb546389d",
+                "documentHasFocus": true,
+                "activeElement": "input",
+                "inputConnected": true,
+                "disabled": false,
+                "readOnly": false,
+                "value": ""
+              }
+            },
+            "inputCompletion": {
+              "ok": true,
+              "trigger": "keyup",
+              "snapshot": {
+                "trigger": "keyup",
+                "atMs": 887.8999999761581,
+                "eventSequence": 23,
+                "documentIdentity": "pair-01-B:doc:42aa291b-6503-46c7-8c6b-8e9eb546389d",
+                "documentHasFocus": true,
+                "activeElement": "input",
+                "inputConnected": true,
+                "disabled": false,
+                "readOnly": false,
+                "value": "k"
+              }
+            },
+            "events": [
+              {
+                "sequence": 1,
+                "atMs": 774.2999999523163,
+                "type": "focus",
+                "target": "input",
+                "isTrusted": true,
+                "focus": {
+                  "documentHasFocus": true,
+                  "activeElement": "input"
+                },
+                "value": "",
+                "key": null,
+                "code": null,
+                "data": null,
+                "inputType": null,
+                "button": null
+              },
+              {
+                "sequence": 2,
+                "atMs": 774.5,
+                "type": "focusin",
+                "target": "input",
+                "isTrusted": true,
+                "focus": {
+                  "documentHasFocus": true,
+                  "activeElement": "input"
+                },
+                "value": "",
+                "key": null,
+                "code": null,
+                "data": null,
+                "inputType": null,
+                "button": null
+              },
+              {
+                "sequence": 3,
+                "atMs": 775.1999999284744,
+                "type": "pointerover",
+                "target": "input",
+                "isTrusted": true,
+                "focus": {
+                  "documentHasFocus": true,
+                  "activeElement": "input"
+                },
+                "value": "",
+                "key": null,
+                "code": null,
+                "data": null,
+                "inputType": null,
+                "button": -1
+              },
+              {
+                "sequence": 4,
+                "atMs": 775.2999999523163,
+                "type": "pointerenter",
+                "target": "document",
+                "isTrusted": true,
+                "focus": {
+                  "documentHasFocus": true,
+                  "activeElement": "input"
+                },
+                "value": "",
+                "key": null,
+                "code": null,
+                "data": null,
+                "inputType": null,
+                "button": -1
+              },
+              {
+                "sequence": 5,
+                "atMs": 775.2999999523163,
+                "type": "pointerenter",
+                "target": "element:html",
+                "isTrusted": true,
+                "focus": {
+                  "documentHasFocus": true,
+                  "activeElement": "input"
+                },
+                "value": "",
+                "key": null,
+                "code": null,
+                "data": null,
+                "inputType": null,
+                "button": -1
+              },
+              {
+                "sequence": 6,
+                "atMs": 775.3999999761581,
+                "type": "pointerenter",
+                "target": "element:body",
+                "isTrusted": true,
+                "focus": {
+                  "documentHasFocus": true,
+                  "activeElement": "input"
+                },
+                "value": "",
+                "key": null,
+                "code": null,
+                "data": null,
+                "inputType": null,
+                "button": -1
+              },
+              {
+                "sequence": 7,
+                "atMs": 775.3999999761581,
+                "type": "pointerenter",
+                "target": "input",
+                "isTrusted": true,
+                "focus": {
+                  "documentHasFocus": true,
+                  "activeElement": "input"
+                },
+                "value": "",
+                "key": null,
+                "code": null,
+                "data": null,
+                "inputType": null,
+                "button": -1
+              },
+              {
+                "sequence": 8,
+                "atMs": 775.5,
+                "type": "mouseover",
+                "target": "input",
+                "isTrusted": true,
+                "focus": {
+                  "documentHasFocus": true,
+                  "activeElement": "input"
+                },
+                "value": "",
+                "key": null,
+                "code": null,
+                "data": null,
+                "inputType": null,
+                "button": 0
+              },
+              {
+                "sequence": 9,
+                "atMs": 775.5,
+                "type": "mouseenter",
+                "target": "document",
+                "isTrusted": true,
+                "focus": {
+                  "documentHasFocus": true,
+                  "activeElement": "input"
+                },
+                "value": "",
+                "key": null,
+                "code": null,
+                "data": null,
+                "inputType": null,
+                "button": 0
+              },
+              {
+                "sequence": 10,
+                "atMs": 775.5999999046326,
+                "type": "mouseenter",
+                "target": "element:html",
+                "isTrusted": true,
+                "focus": {
+                  "documentHasFocus": true,
+                  "activeElement": "input"
+                },
+                "value": "",
+                "key": null,
+                "code": null,
+                "data": null,
+                "inputType": null,
+                "button": 0
+              },
+              {
+                "sequence": 11,
+                "atMs": 775.6999999284744,
+                "type": "mouseenter",
+                "target": "element:body",
+                "isTrusted": true,
+                "focus": {
+                  "documentHasFocus": true,
+                  "activeElement": "input"
+                },
+                "value": "",
+                "key": null,
+                "code": null,
+                "data": null,
+                "inputType": null,
+                "button": 0
+              },
+              {
+                "sequence": 12,
+                "atMs": 775.7999999523163,
+                "type": "mouseenter",
+                "target": "input",
+                "isTrusted": true,
+                "focus": {
+                  "documentHasFocus": true,
+                  "activeElement": "input"
+                },
+                "value": "",
+                "key": null,
+                "code": null,
+                "data": null,
+                "inputType": null,
+                "button": 0
+              },
+              {
+                "sequence": 13,
+                "atMs": 775.7999999523163,
+                "type": "pointermove",
+                "target": "input",
+                "isTrusted": true,
+                "focus": {
+                  "documentHasFocus": true,
+                  "activeElement": "input"
+                },
+                "value": "",
+                "key": null,
+                "code": null,
+                "data": null,
+                "inputType": null,
+                "button": -1
+              },
+              {
+                "sequence": 14,
+                "atMs": 775.7999999523163,
+                "type": "mousemove",
+                "target": "input",
+                "isTrusted": true,
+                "focus": {
+                  "documentHasFocus": true,
+                  "activeElement": "input"
+                },
+                "value": "",
+                "key": null,
+                "code": null,
+                "data": null,
+                "inputType": null,
+                "button": 0
+              },
+              {
+                "sequence": 15,
+                "atMs": 808.5,
+                "type": "pointerdown",
+                "target": "input",
+                "isTrusted": true,
+                "focus": {
+                  "documentHasFocus": true,
+                  "activeElement": "input"
+                },
+                "value": "",
+                "key": null,
+                "code": null,
+                "data": null,
+                "inputType": null,
+                "button": 0
+              },
+              {
+                "sequence": 16,
+                "atMs": 808.5,
+                "type": "mousedown",
+                "target": "input",
+                "isTrusted": true,
+                "focus": {
+                  "documentHasFocus": true,
+                  "activeElement": "input"
+                },
+                "value": "",
+                "key": null,
+                "code": null,
+                "data": null,
+                "inputType": null,
+                "button": 0
+              },
+              {
+                "sequence": 17,
+                "atMs": 833.3999999761581,
+                "type": "pointerup",
+                "target": "input",
+                "isTrusted": true,
+                "focus": {
+                  "documentHasFocus": true,
+                  "activeElement": "input"
+                },
+                "value": "",
+                "key": null,
+                "code": null,
+                "data": null,
+                "inputType": null,
+                "button": 0
+              },
+              {
+                "sequence": 18,
+                "atMs": 833.5,
+                "type": "mouseup",
+                "target": "input",
+                "isTrusted": true,
+                "focus": {
+                  "documentHasFocus": true,
+                  "activeElement": "input"
+                },
+                "value": "",
+                "key": null,
+                "code": null,
+                "data": null,
+                "inputType": null,
+                "button": 0
+              },
+              {
+                "sequence": 19,
+                "atMs": 833.5,
+                "type": "click",
+                "target": "input",
+                "isTrusted": true,
+                "focus": {
+                  "documentHasFocus": true,
+                  "activeElement": "input"
+                },
+                "value": "",
+                "key": null,
+                "code": null,
+                "data": null,
+                "inputType": null,
+                "button": 0
+              },
+              {
+                "sequence": 20,
+                "atMs": 859.2999999523163,
+                "type": "keydown",
+                "target": "input",
+                "isTrusted": true,
+                "focus": {
+                  "documentHasFocus": true,
+                  "activeElement": "input"
+                },
+                "value": "",
+                "key": "k",
+                "code": "KeyK",
+                "data": null,
+                "inputType": null,
+                "button": null
+              },
+              {
+                "sequence": 21,
+                "atMs": 861.1999999284744,
+                "type": "beforeinput",
+                "target": "input",
+                "isTrusted": true,
+                "focus": {
+                  "documentHasFocus": true,
+                  "activeElement": "input"
+                },
+                "value": "",
+                "key": null,
+                "code": null,
+                "data": "k",
+                "inputType": "insertText",
+                "button": null
+              },
+              {
+                "sequence": 22,
+                "atMs": 869.7999999523163,
+                "type": "input",
+                "target": "input",
+                "isTrusted": true,
+                "focus": {
+                  "documentHasFocus": true,
+                  "activeElement": "input"
+                },
+                "value": "k",
+                "key": null,
+                "code": null,
+                "data": "k",
+                "inputType": "insertText",
+                "button": null
+              },
+              {
+                "sequence": 23,
+                "atMs": 887.7999999523163,
+                "type": "keyup",
+                "target": "input",
+                "isTrusted": true,
+                "focus": {
+                  "documentHasFocus": true,
+                  "activeElement": "input"
+                },
+                "value": "k",
+                "key": "k",
+                "code": "KeyK",
+                "data": null,
+                "inputType": null,
+                "button": null
+              }
+            ]
+          },
+          "events": [
+            {
+              "sequence": 1,
+              "atMs": 774.2999999523163,
+              "type": "focus",
+              "target": "input",
+              "isTrusted": true,
+              "focus": {
+                "documentHasFocus": true,
+                "activeElement": "input"
+              },
+              "value": "",
+              "key": null,
+              "code": null,
+              "data": null,
+              "inputType": null,
+              "button": null
+            },
+            {
+              "sequence": 2,
+              "atMs": 774.5,
+              "type": "focusin",
+              "target": "input",
+              "isTrusted": true,
+              "focus": {
+                "documentHasFocus": true,
+                "activeElement": "input"
+              },
+              "value": "",
+              "key": null,
+              "code": null,
+              "data": null,
+              "inputType": null,
+              "button": null
+            },
+            {
+              "sequence": 3,
+              "atMs": 775.1999999284744,
+              "type": "pointerover",
+              "target": "input",
+              "isTrusted": true,
+              "focus": {
+                "documentHasFocus": true,
+                "activeElement": "input"
+              },
+              "value": "",
+              "key": null,
+              "code": null,
+              "data": null,
+              "inputType": null,
+              "button": -1
+            },
+            {
+              "sequence": 4,
+              "atMs": 775.2999999523163,
+              "type": "pointerenter",
+              "target": "document",
+              "isTrusted": true,
+              "focus": {
+                "documentHasFocus": true,
+                "activeElement": "input"
+              },
+              "value": "",
+              "key": null,
+              "code": null,
+              "data": null,
+              "inputType": null,
+              "button": -1
+            },
+            {
+              "sequence": 5,
+              "atMs": 775.2999999523163,
+              "type": "pointerenter",
+              "target": "element:html",
+              "isTrusted": true,
+              "focus": {
+                "documentHasFocus": true,
+                "activeElement": "input"
+              },
+              "value": "",
+              "key": null,
+              "code": null,
+              "data": null,
+              "inputType": null,
+              "button": -1
+            },
+            {
+              "sequence": 6,
+              "atMs": 775.3999999761581,
+              "type": "pointerenter",
+              "target": "element:body",
+              "isTrusted": true,
+              "focus": {
+                "documentHasFocus": true,
+                "activeElement": "input"
+              },
+              "value": "",
+              "key": null,
+              "code": null,
+              "data": null,
+              "inputType": null,
+              "button": -1
+            },
+            {
+              "sequence": 7,
+              "atMs": 775.3999999761581,
+              "type": "pointerenter",
+              "target": "input",
+              "isTrusted": true,
+              "focus": {
+                "documentHasFocus": true,
+                "activeElement": "input"
+              },
+              "value": "",
+              "key": null,
+              "code": null,
+              "data": null,
+              "inputType": null,
+              "button": -1
+            },
+            {
+              "sequence": 8,
+              "atMs": 775.5,
+              "type": "mouseover",
+              "target": "input",
+              "isTrusted": true,
+              "focus": {
+                "documentHasFocus": true,
+                "activeElement": "input"
+              },
+              "value": "",
+              "key": null,
+              "code": null,
+              "data": null,
+              "inputType": null,
+              "button": 0
+            },
+            {
+              "sequence": 9,
+              "atMs": 775.5,
+              "type": "mouseenter",
+              "target": "document",
+              "isTrusted": true,
+              "focus": {
+                "documentHasFocus": true,
+                "activeElement": "input"
+              },
+              "value": "",
+              "key": null,
+              "code": null,
+              "data": null,
+              "inputType": null,
+              "button": 0
+            },
+            {
+              "sequence": 10,
+              "atMs": 775.5999999046326,
+              "type": "mouseenter",
+              "target": "element:html",
+              "isTrusted": true,
+              "focus": {
+                "documentHasFocus": true,
+                "activeElement": "input"
+              },
+              "value": "",
+              "key": null,
+              "code": null,
+              "data": null,
+              "inputType": null,
+              "button": 0
+            },
+            {
+              "sequence": 11,
+              "atMs": 775.6999999284744,
+              "type": "mouseenter",
+              "target": "element:body",
+              "isTrusted": true,
+              "focus": {
+                "documentHasFocus": true,
+                "activeElement": "input"
+              },
+              "value": "",
+              "key": null,
+              "code": null,
+              "data": null,
+              "inputType": null,
+              "button": 0
+            },
+            {
+              "sequence": 12,
+              "atMs": 775.7999999523163,
+              "type": "mouseenter",
+              "target": "input",
+              "isTrusted": true,
+              "focus": {
+                "documentHasFocus": true,
+                "activeElement": "input"
+              },
+              "value": "",
+              "key": null,
+              "code": null,
+              "data": null,
+              "inputType": null,
+              "button": 0
+            },
+            {
+              "sequence": 13,
+              "atMs": 775.7999999523163,
+              "type": "pointermove",
+              "target": "input",
+              "isTrusted": true,
+              "focus": {
+                "documentHasFocus": true,
+                "activeElement": "input"
+              },
+              "value": "",
+              "key": null,
+              "code": null,
+              "data": null,
+              "inputType": null,
+              "button": -1
+            },
+            {
+              "sequence": 14,
+              "atMs": 775.7999999523163,
+              "type": "mousemove",
+              "target": "input",
+              "isTrusted": true,
+              "focus": {
+                "documentHasFocus": true,
+                "activeElement": "input"
+              },
+              "value": "",
+              "key": null,
+              "code": null,
+              "data": null,
+              "inputType": null,
+              "button": 0
+            },
+            {
+              "sequence": 15,
+              "atMs": 808.5,
+              "type": "pointerdown",
+              "target": "input",
+              "isTrusted": true,
+              "focus": {
+                "documentHasFocus": true,
+                "activeElement": "input"
+              },
+              "value": "",
+              "key": null,
+              "code": null,
+              "data": null,
+              "inputType": null,
+              "button": 0
+            },
+            {
+              "sequence": 16,
+              "atMs": 808.5,
+              "type": "mousedown",
+              "target": "input",
+              "isTrusted": true,
+              "focus": {
+                "documentHasFocus": true,
+                "activeElement": "input"
+              },
+              "value": "",
+              "key": null,
+              "code": null,
+              "data": null,
+              "inputType": null,
+              "button": 0
+            },
+            {
+              "sequence": 17,
+              "atMs": 833.3999999761581,
+              "type": "pointerup",
+              "target": "input",
+              "isTrusted": true,
+              "focus": {
+                "documentHasFocus": true,
+                "activeElement": "input"
+              },
+              "value": "",
+              "key": null,
+              "code": null,
+              "data": null,
+              "inputType": null,
+              "button": 0
+            },
+            {
+              "sequence": 18,
+              "atMs": 833.5,
+              "type": "mouseup",
+              "target": "input",
+              "isTrusted": true,
+              "focus": {
+                "documentHasFocus": true,
+                "activeElement": "input"
+              },
+              "value": "",
+              "key": null,
+              "code": null,
+              "data": null,
+              "inputType": null,
+              "button": 0
+            },
+            {
+              "sequence": 19,
+              "atMs": 833.5,
+              "type": "click",
+              "target": "input",
+              "isTrusted": true,
+              "focus": {
+                "documentHasFocus": true,
+                "activeElement": "input"
+              },
+              "value": "",
+              "key": null,
+              "code": null,
+              "data": null,
+              "inputType": null,
+              "button": 0
+            },
+            {
+              "sequence": 20,
+              "atMs": 859.2999999523163,
+              "type": "keydown",
+              "target": "input",
+              "isTrusted": true,
+              "focus": {
+                "documentHasFocus": true,
+                "activeElement": "input"
+              },
+              "value": "",
+              "key": "k",
+              "code": "KeyK",
+              "data": null,
+              "inputType": null,
+              "button": null
+            },
+            {
+              "sequence": 21,
+              "atMs": 861.1999999284744,
+              "type": "beforeinput",
+              "target": "input",
+              "isTrusted": true,
+              "focus": {
+                "documentHasFocus": true,
+                "activeElement": "input"
+              },
+              "value": "",
+              "key": null,
+              "code": null,
+              "data": "k",
+              "inputType": "insertText",
+              "button": null
+            },
+            {
+              "sequence": 22,
+              "atMs": 869.7999999523163,
+              "type": "input",
+              "target": "input",
+              "isTrusted": true,
+              "focus": {
+                "documentHasFocus": true,
+                "activeElement": "input"
+              },
+              "value": "k",
+              "key": null,
+              "code": null,
+              "data": "k",
+              "inputType": "insertText",
+              "button": null
+            },
+            {
+              "sequence": 23,
+              "atMs": 887.7999999523163,
+              "type": "keyup",
+              "target": "input",
+              "isTrusted": true,
+              "focus": {
+                "documentHasFocus": true,
+                "activeElement": "input"
+              },
+              "value": "k",
+              "key": "k",
+              "code": "KeyK",
+              "data": null,
+              "inputType": null,
+              "button": null
+            }
+          ],
+          "commands": [
+            {
+              "sequence": 1,
+              "phase": "measure:runtime-enable",
+              "method": "Runtime.enable",
+              "sentAtMs": 5618.734,
+              "replyAtMs": 5635.886,
+              "ok": true
+            },
+            {
+              "sequence": 2,
+              "phase": "measure:dom-enable",
+              "method": "DOM.enable",
+              "sentAtMs": 5635.941,
+              "replyAtMs": 5651.685,
+              "ok": true
+            },
+            {
+              "sequence": 3,
+              "phase": "measure:document",
+              "method": "DOM.getDocument",
+              "sentAtMs": 5651.708,
+              "replyAtMs": 5667.216,
+              "ok": true
+            },
+            {
+              "sequence": 4,
+              "phase": "measure:query-input",
+              "method": "DOM.querySelector",
+              "sentAtMs": 5667.294,
+              "replyAtMs": 5677.889,
+              "ok": true
+            },
+            {
+              "sequence": 5,
+              "phase": "measure:input-box",
+              "method": "DOM.getBoxModel",
+              "sentAtMs": 5677.923,
+              "replyAtMs": 5687.631,
+              "ok": true
+            },
+            {
+              "sequence": 6,
+              "phase": "measure:install-observers",
+              "method": "Runtime.evaluate",
+              "sentAtMs": 5687.877,
+              "replyAtMs": 5716.588,
+              "ok": true
+            },
+            {
+              "sequence": 7,
+              "phase": "measure:dom-focus",
+              "method": "DOM.focus",
+              "sentAtMs": 5717.155,
+              "replyAtMs": 5768.881,
+              "ok": true
+            },
+            {
+              "sequence": 8,
+              "phase": "measure:click-move",
+              "method": "Input.dispatchMouseEvent",
+              "sentAtMs": 5768.981,
+              "replyAtMs": 5817.806,
+              "ok": true
+            },
+            {
+              "sequence": 9,
+              "phase": "measure:click-press",
+              "method": "Input.dispatchMouseEvent",
+              "sentAtMs": 5817.855,
+              "replyAtMs": 5836.996,
+              "ok": true
+            },
+            {
+              "sequence": 10,
+              "phase": "measure:click-release",
+              "method": "Input.dispatchMouseEvent",
+              "sentAtMs": 5837.032,
+              "replyAtMs": 5852.824,
+              "ok": true
+            },
+            {
+              "sequence": 11,
+              "phase": "measure:focus-barrier",
+              "method": "Runtime.evaluate",
+              "sentAtMs": 5852.859,
+              "replyAtMs": 5860.03,
+              "ok": true
+            },
+            {
+              "sequence": 12,
+              "phase": "measure:immediate-focus-recheck",
+              "method": "Runtime.evaluate",
+              "sentAtMs": 5860.072,
+              "replyAtMs": 5864.127,
+              "ok": true
+            },
+            {
+              "sequence": 13,
+              "phase": "measure:key-down",
+              "method": "Input.dispatchKeyEvent",
+              "sentAtMs": 5864.306,
+              "replyAtMs": 5895.429,
+              "ok": true
+            },
+            {
+              "sequence": 14,
+              "phase": "measure:key-up",
+              "method": "Input.dispatchKeyEvent",
+              "sentAtMs": 5895.449,
+              "replyAtMs": 5914.75,
+              "ok": true
+            },
+            {
+              "sequence": 15,
+              "phase": "measure:input-completion",
+              "method": "Runtime.evaluate",
+              "sentAtMs": 5914.77,
+              "replyAtMs": 5922.52,
+              "ok": true
+            },
+            {
+              "sequence": 16,
+              "phase": "measure:final-inspection",
+              "method": "Runtime.evaluate",
+              "sentAtMs": 5922.562,
+              "replyAtMs": 5927.072,
+              "ok": true
+            }
+          ]
+        }
+      ],
+      "renderFinal": {
+        "schemaVersion": 1,
+        "arch": "x64",
+        "runs": [
+          {
+            "stage": "initial",
+            "mainPid": 22,
+            "executable": "/opt/prodex-cft154/chrome",
+            "binarySha256": "e528b77a8b250c48a5bbd7aeeabbc2813940c0a2fe39b1b11fbaf1f01fb04f18",
+            "commandLine": "/opt/prodex-cft154/chrome --ozone-platform=headless --window-size=1440,900 --remote-debugging-address=127.0.0.1 --remote-debugging-port=9334 --user-data-dir=/tmp/prodex-ozone-render-profile --no-first-run --no-default-browser-check --disable-backgrounding-occluded-windows --disable-renderer-backgrounding --disable-background-timer-throttling --new-window about:blank",
+            "browser": "Chrome/154.0.8037.57",
+            "displayEnvironment": {
+              "DISPLAY": null,
+              "XAUTHORITY": null,
+              "WAYLAND_DISPLAY": null
+            },
+            "externalDisplayServer": false,
+            "displaySocketPresent": false,
+            "noNewPrivileges": true,
+            "effectiveCapabilities": "0",
+            "browserHeadlessSwitch": false,
+            "ozonePlatform": "headless",
+            "observation": {
+              "innerWidth": 1440,
+              "innerHeight": 757,
+              "outerWidth": 1440,
+              "outerHeight": 900,
+              "screenWidth": 1,
+              "screenHeight": 1,
+              "devicePixelRatio": 1,
+              "visibility": "visible",
+              "pixels": [
+                214,
+                45,
+                32,
+                255,
+                0,
+                135,
+                68,
+                255
+              ]
+            },
+            "screenshotBytes": 15667,
+            "screenshotSha256": "f0b21d6964c93ce9f24d2460e6f5b5ccb878df140b4c2d05080e57a3feb9df1c"
+          },
+          {
+            "stage": "restart",
+            "mainPid": 242,
+            "executable": "/opt/prodex-cft154/chrome",
+            "binarySha256": "e528b77a8b250c48a5bbd7aeeabbc2813940c0a2fe39b1b11fbaf1f01fb04f18",
+            "commandLine": "/opt/prodex-cft154/chrome --ozone-platform=headless --window-size=1440,900 --remote-debugging-address=127.0.0.1 --remote-debugging-port=9334 --user-data-dir=/tmp/prodex-ozone-render-profile --no-first-run --no-default-browser-check --disable-backgrounding-occluded-windows --disable-renderer-backgrounding --disable-background-timer-throttling --new-window about:blank",
+            "browser": "Chrome/154.0.8037.57",
+            "displayEnvironment": {
+              "DISPLAY": null,
+              "XAUTHORITY": null,
+              "WAYLAND_DISPLAY": null
+            },
+            "externalDisplayServer": false,
+            "displaySocketPresent": false,
+            "noNewPrivileges": true,
+            "effectiveCapabilities": "0",
+            "browserHeadlessSwitch": false,
+            "ozonePlatform": "headless",
+            "observation": {
+              "innerWidth": 1440,
+              "innerHeight": 757,
+              "outerWidth": 1440,
+              "outerHeight": 900,
+              "screenWidth": 1,
+              "screenHeight": 1,
+              "devicePixelRatio": 1,
+              "visibility": "visible",
+              "pixels": [
+                214,
+                45,
+                32,
+                255,
+                0,
+                135,
+                68,
+                255
+              ]
+            },
+            "screenshotBytes": 15667,
+            "screenshotSha256": "f0b21d6964c93ce9f24d2460e6f5b5ccb878df140b4c2d05080e57a3feb9df1c"
+          }
+        ],
+        "cleanup": true,
+        "publicAdmission": "not_tested",
+        "proResponse": "not_tested"
+      },
+      "outerContainerRemoved": true
+    },
+    {
+      "target": "m3",
+      "exitCode": 1,
+      "rawLogSha256": "d1671e989122ec88dfb8c6451864e85e5bdea6f159bfbd26e8f5dba6f9bd26d1",
+      "rawLogBytes": 35915,
+      "originalSummary": {
+        "kind": "focus-probe-final",
+        "schemaVersion": 1,
+        "arch": "arm64",
+        "measuredTrials": 16,
+        "outcome": "FAIL",
+        "interpretation": "At least one measured trial or bounded cleanup failed.",
+        "matrix": [
+          {
+            "pair": 1,
+            "repeat": 1,
+            "startup": "cold",
+            "load": "isolated",
+            "armOrder": "AB",
+            "A": "pass",
+            "B": "pass"
+          },
+          {
+            "pair": 2,
+            "repeat": 1,
+            "startup": "restart",
+            "load": "single-render-load",
+            "armOrder": "BA",
+            "A": "fail",
+            "B": "fail"
+          },
+          {
+            "pair": 3,
+            "repeat": 1,
+            "startup": "cold",
+            "load": "single-render-load",
+            "armOrder": "AB",
+            "A": "fail",
+            "B": "fail"
+          },
+          {
+            "pair": 4,
+            "repeat": 1,
+            "startup": "restart",
+            "load": "isolated",
+            "armOrder": "BA",
+            "A": "fail",
+            "B": "fail"
+          },
+          {
+            "pair": 5,
+            "repeat": 2,
+            "startup": "restart",
+            "load": "isolated",
+            "armOrder": "AB",
+            "A": "fail",
+            "B": "fail"
+          },
+          {
+            "pair": 6,
+            "repeat": 2,
+            "startup": "cold",
+            "load": "single-render-load",
+            "armOrder": "BA",
+            "A": "fail",
+            "B": "fail"
+          },
+          {
+            "pair": 7,
+            "repeat": 2,
+            "startup": "restart",
+            "load": "single-render-load",
+            "armOrder": "AB",
+            "A": "fail",
+            "B": "fail"
+          },
+          {
+            "pair": 8,
+            "repeat": 2,
+            "startup": "cold",
+            "load": "isolated",
+            "armOrder": "BA",
+            "A": "fail",
+            "B": "fail"
+          }
+        ],
+        "failures": [
+          {
+            "trial": "pair-02-B",
+            "phase": "restart:prime-close",
+            "message": "Could not inspect browser processes."
+          },
+          {
+            "trial": "pair-02-A",
+            "phase": "load:launch",
+            "message": "Could not inspect browser processes."
+          },
+          {
+            "trial": "pair-03-A",
+            "phase": "load:launch",
+            "message": "Could not inspect browser processes."
+          },
+          {
+            "trial": "pair-03-B",
+            "phase": "load:launch",
+            "message": "Could not inspect browser processes."
+          },
+          {
+            "trial": "pair-04-B",
+            "phase": "restart:prime-launch",
+            "message": "Could not inspect browser processes."
+          },
+          {
+            "trial": "pair-04-A",
+            "phase": "restart:prime-launch",
+            "message": "Could not inspect browser processes."
+          },
+          {
+            "trial": "pair-05-A",
+            "phase": "restart:prime-launch",
+            "message": "Could not inspect browser processes."
+          },
+          {
+            "trial": "pair-05-B",
+            "phase": "restart:prime-launch",
+            "message": "Could not inspect browser processes."
+          },
+          {
+            "trial": "pair-06-B",
+            "phase": "load:launch",
+            "message": "Could not inspect browser processes."
+          },
+          {
+            "trial": "pair-06-A",
+            "phase": "load:launch",
+            "message": "Could not inspect browser processes."
+          },
+          {
+            "trial": "pair-07-A",
+            "phase": "load:launch",
+            "message": "Could not inspect browser processes."
+          },
+          {
+            "trial": "pair-07-B",
+            "phase": "load:launch",
+            "message": "Could not inspect browser processes."
+          },
+          {
+            "trial": "pair-08-B",
+            "phase": "target:launch",
+            "message": "Could not inspect browser processes."
+          },
+          {
+            "trial": "pair-08-A",
+            "phase": "target:launch",
+            "message": "Could not inspect browser processes."
+          }
+        ],
+        "cleanup": false,
+        "workloadLimitation": "single-render-load shares the target container CPU budget; it is not the original separate-container load model",
+        "publicNavigation": "not_tested",
+        "authenticationData": "not_accessed"
+      },
+      "correctedClassification": {
+        "plannedTrials": 16,
+        "attemptedTrials": 16,
+        "validInputTrials": 2,
+        "unattemptedTrials": 0,
+        "outcome": "INVALID_INFRASTRUCTURE"
+      },
+      "trials": [
+        {
+          "id": "pair-01-A",
+          "status": "pass",
+          "commands": 11,
+          "events": 6,
+          "cleanup": {
+            "confirmed": true,
+            "errors": []
+          }
+        },
+        {
+          "id": "pair-01-B",
+          "status": "pass",
+          "commands": 16,
+          "events": 23,
+          "cleanup": {
+            "confirmed": true,
+            "errors": []
+          }
+        },
+        {
+          "id": "pair-02-B",
+          "status": "fail",
+          "failure": {
+            "phase": "restart:prime-close",
+            "message": "Could not inspect browser processes."
+          },
+          "commands": 0,
+          "events": null,
+          "cleanup": {
+            "confirmed": false,
+            "errors": [
+              {
+                "phase": "cleanup:target-prime",
+                "message": "Could not inspect browser processes."
+              },
+              {
+                "phase": "cleanup:render-load",
+                "message": "Could not inspect browser processes."
+              }
+            ]
+          }
+        },
+        {
+          "id": "pair-02-A",
+          "status": "fail",
+          "failure": {
+            "phase": "load:launch",
+            "message": "Could not inspect browser processes."
+          },
+          "commands": 0,
+          "events": null,
+          "cleanup": {
+            "confirmed": true,
+            "errors": []
+          }
+        },
+        {
+          "id": "pair-03-A",
+          "status": "fail",
+          "failure": {
+            "phase": "load:launch",
+            "message": "Could not inspect browser processes."
+          },
+          "commands": 0,
+          "events": null,
+          "cleanup": {
+            "confirmed": true,
+            "errors": []
+          }
+        },
+        {
+          "id": "pair-03-B",
+          "status": "fail",
+          "failure": {
+            "phase": "load:launch",
+            "message": "Could not inspect browser processes."
+          },
+          "commands": 0,
+          "events": null,
+          "cleanup": {
+            "confirmed": true,
+            "errors": []
+          }
+        },
+        {
+          "id": "pair-04-B",
+          "status": "fail",
+          "failure": {
+            "phase": "restart:prime-launch",
+            "message": "Could not inspect browser processes."
+          },
+          "commands": 0,
+          "events": null,
+          "cleanup": {
+            "confirmed": true,
+            "errors": []
+          }
+        },
+        {
+          "id": "pair-04-A",
+          "status": "fail",
+          "failure": {
+            "phase": "restart:prime-launch",
+            "message": "Could not inspect browser processes."
+          },
+          "commands": 0,
+          "events": null,
+          "cleanup": {
+            "confirmed": true,
+            "errors": []
+          }
+        },
+        {
+          "id": "pair-05-A",
+          "status": "fail",
+          "failure": {
+            "phase": "restart:prime-launch",
+            "message": "Could not inspect browser processes."
+          },
+          "commands": 0,
+          "events": null,
+          "cleanup": {
+            "confirmed": true,
+            "errors": []
+          }
+        },
+        {
+          "id": "pair-05-B",
+          "status": "fail",
+          "failure": {
+            "phase": "restart:prime-launch",
+            "message": "Could not inspect browser processes."
+          },
+          "commands": 0,
+          "events": null,
+          "cleanup": {
+            "confirmed": true,
+            "errors": []
+          }
+        },
+        {
+          "id": "pair-06-B",
+          "status": "fail",
+          "failure": {
+            "phase": "load:launch",
+            "message": "Could not inspect browser processes."
+          },
+          "commands": 0,
+          "events": null,
+          "cleanup": {
+            "confirmed": true,
+            "errors": []
+          }
+        },
+        {
+          "id": "pair-06-A",
+          "status": "fail",
+          "failure": {
+            "phase": "load:launch",
+            "message": "Could not inspect browser processes."
+          },
+          "commands": 0,
+          "events": null,
+          "cleanup": {
+            "confirmed": true,
+            "errors": []
+          }
+        },
+        {
+          "id": "pair-07-A",
+          "status": "fail",
+          "failure": {
+            "phase": "load:launch",
+            "message": "Could not inspect browser processes."
+          },
+          "commands": 0,
+          "events": null,
+          "cleanup": {
+            "confirmed": true,
+            "errors": []
+          }
+        },
+        {
+          "id": "pair-07-B",
+          "status": "fail",
+          "failure": {
+            "phase": "load:launch",
+            "message": "Could not inspect browser processes."
+          },
+          "commands": 0,
+          "events": null,
+          "cleanup": {
+            "confirmed": true,
+            "errors": []
+          }
+        },
+        {
+          "id": "pair-08-B",
+          "status": "fail",
+          "failure": {
+            "phase": "target:launch",
+            "message": "Could not inspect browser processes."
+          },
+          "commands": 0,
+          "events": null,
+          "cleanup": {
+            "confirmed": true,
+            "errors": []
+          }
+        },
+        {
+          "id": "pair-08-A",
+          "status": "fail",
+          "failure": {
+            "phase": "target:launch",
+            "message": "Could not inspect browser processes."
+          },
+          "commands": 0,
+          "events": null,
+          "cleanup": {
+            "confirmed": true,
+            "errors": []
+          }
+        }
+      ],
+      "firstPairTraces": [
+        {
+          "id": "pair-01-A",
+          "initial": {
+            "trigger": "installed",
+            "atMs": 174.19999992847443,
+            "eventSequence": 0,
+            "documentIdentity": "pair-01-A:doc:544d1458-9502-4e50-8638-e5bc0b89d682",
+            "documentHasFocus": false,
+            "activeElement": "element:body",
+            "inputConnected": true,
+            "disabled": false,
+            "readOnly": false,
+            "value": "",
+            "primeMarker": null
+          },
+          "final": {
+            "trigger": "final",
+            "atMs": 180.69999992847443,
+            "eventSequence": 6,
+            "documentIdentity": "pair-01-A:doc:544d1458-9502-4e50-8638-e5bc0b89d682",
+            "documentHasFocus": true,
+            "activeElement": "input",
+            "inputConnected": true,
+            "disabled": false,
+            "readOnly": false,
+            "value": "k",
+            "focusReady": {
+              "ok": true,
+              "trigger": "focus",
+              "snapshot": {
+                "trigger": "focus",
+                "atMs": 176.10000002384186,
+                "eventSequence": 1,
+                "documentIdentity": "pair-01-A:doc:544d1458-9502-4e50-8638-e5bc0b89d682",
+                "documentHasFocus": true,
+                "activeElement": "input",
+                "inputConnected": true,
+                "disabled": false,
+                "readOnly": false,
+                "value": ""
+              }
+            },
+            "inputCompletion": {
+              "ok": true,
+              "trigger": "keyup",
+              "snapshot": {
+                "trigger": "keyup",
+                "atMs": 177.89999997615814,
+                "eventSequence": 6,
+                "documentIdentity": "pair-01-A:doc:544d1458-9502-4e50-8638-e5bc0b89d682",
+                "documentHasFocus": true,
+                "activeElement": "input",
+                "inputConnected": true,
+                "disabled": false,
+                "readOnly": false,
+                "value": "k"
+              }
+            },
+            "events": [
+              {
+                "sequence": 1,
+                "atMs": 176,
+                "type": "focus",
+                "target": "input",
+                "isTrusted": true,
+                "focus": {
+                  "documentHasFocus": true,
+                  "activeElement": "input"
+                },
+                "value": "",
+                "key": null,
+                "code": null,
+                "data": null,
+                "inputType": null,
+                "button": null
+              },
+              {
+                "sequence": 2,
+                "atMs": 176.10000002384186,
+                "type": "focusin",
+                "target": "input",
+                "isTrusted": true,
+                "focus": {
+                  "documentHasFocus": true,
+                  "activeElement": "input"
+                },
+                "value": "",
+                "key": null,
+                "code": null,
+                "data": null,
+                "inputType": null,
+                "button": null
+              },
+              {
+                "sequence": 3,
+                "atMs": 176.5,
+                "type": "keydown",
+                "target": "input",
+                "isTrusted": true,
+                "focus": {
+                  "documentHasFocus": true,
+                  "activeElement": "input"
+                },
+                "value": "",
+                "key": "k",
+                "code": "KeyK",
+                "data": null,
+                "inputType": null,
+                "button": null
+              },
+              {
+                "sequence": 4,
+                "atMs": 176.60000002384186,
+                "type": "beforeinput",
+                "target": "input",
+                "isTrusted": true,
+                "focus": {
+                  "documentHasFocus": true,
+                  "activeElement": "input"
+                },
+                "value": "",
+                "key": null,
+                "code": null,
+                "data": "k",
+                "inputType": "insertText",
+                "button": null
+              },
+              {
+                "sequence": 5,
+                "atMs": 177.19999992847443,
+                "type": "input",
+                "target": "input",
+                "isTrusted": true,
+                "focus": {
+                  "documentHasFocus": true,
+                  "activeElement": "input"
+                },
+                "value": "k",
+                "key": null,
+                "code": null,
+                "data": "k",
+                "inputType": "insertText",
+                "button": null
+              },
+              {
+                "sequence": 6,
+                "atMs": 177.89999997615814,
+                "type": "keyup",
+                "target": "input",
+                "isTrusted": true,
+                "focus": {
+                  "documentHasFocus": true,
+                  "activeElement": "input"
+                },
+                "value": "k",
+                "key": "k",
+                "code": "KeyK",
+                "data": null,
+                "inputType": null,
+                "button": null
+              }
+            ]
+          },
+          "events": [
+            {
+              "sequence": 1,
+              "atMs": 176,
+              "type": "focus",
+              "target": "input",
+              "isTrusted": true,
+              "focus": {
+                "documentHasFocus": true,
+                "activeElement": "input"
+              },
+              "value": "",
+              "key": null,
+              "code": null,
+              "data": null,
+              "inputType": null,
+              "button": null
+            },
+            {
+              "sequence": 2,
+              "atMs": 176.10000002384186,
+              "type": "focusin",
+              "target": "input",
+              "isTrusted": true,
+              "focus": {
+                "documentHasFocus": true,
+                "activeElement": "input"
+              },
+              "value": "",
+              "key": null,
+              "code": null,
+              "data": null,
+              "inputType": null,
+              "button": null
+            },
+            {
+              "sequence": 3,
+              "atMs": 176.5,
+              "type": "keydown",
+              "target": "input",
+              "isTrusted": true,
+              "focus": {
+                "documentHasFocus": true,
+                "activeElement": "input"
+              },
+              "value": "",
+              "key": "k",
+              "code": "KeyK",
+              "data": null,
+              "inputType": null,
+              "button": null
+            },
+            {
+              "sequence": 4,
+              "atMs": 176.60000002384186,
+              "type": "beforeinput",
+              "target": "input",
+              "isTrusted": true,
+              "focus": {
+                "documentHasFocus": true,
+                "activeElement": "input"
+              },
+              "value": "",
+              "key": null,
+              "code": null,
+              "data": "k",
+              "inputType": "insertText",
+              "button": null
+            },
+            {
+              "sequence": 5,
+              "atMs": 177.19999992847443,
+              "type": "input",
+              "target": "input",
+              "isTrusted": true,
+              "focus": {
+                "documentHasFocus": true,
+                "activeElement": "input"
+              },
+              "value": "k",
+              "key": null,
+              "code": null,
+              "data": "k",
+              "inputType": "insertText",
+              "button": null
+            },
+            {
+              "sequence": 6,
+              "atMs": 177.89999997615814,
+              "type": "keyup",
+              "target": "input",
+              "isTrusted": true,
+              "focus": {
+                "documentHasFocus": true,
+                "activeElement": "input"
+              },
+              "value": "k",
+              "key": "k",
+              "code": "KeyK",
+              "data": null,
+              "inputType": null,
+              "button": null
+            }
+          ],
+          "commands": [
+            {
+              "sequence": 1,
+              "phase": "measure:runtime-enable",
+              "method": "Runtime.enable",
+              "sentAtMs": 594.119,
+              "replyAtMs": 595.369,
+              "ok": true
+            },
+            {
+              "sequence": 2,
+              "phase": "measure:dom-enable",
+              "method": "DOM.enable",
+              "sentAtMs": 595.378,
+              "replyAtMs": 596.55,
+              "ok": true
+            },
+            {
+              "sequence": 3,
+              "phase": "measure:document",
+              "method": "DOM.getDocument",
+              "sentAtMs": 598.037,
+              "replyAtMs": 610.847,
+              "ok": true
+            },
+            {
+              "sequence": 4,
+              "phase": "measure:query-input",
+              "method": "DOM.querySelector",
+              "sentAtMs": 610.864,
+              "replyAtMs": 613.58,
+              "ok": true
+            },
+            {
+              "sequence": 5,
+              "phase": "measure:input-box",
+              "method": "DOM.getBoxModel",
+              "sentAtMs": 613.588,
+              "replyAtMs": 615.123,
+              "ok": true
+            },
+            {
+              "sequence": 6,
+              "phase": "measure:install-observers",
+              "method": "Runtime.evaluate",
+              "sentAtMs": 615.225,
+              "replyAtMs": 616.826,
+              "ok": true
+            },
+            {
+              "sequence": 7,
+              "phase": "measure:dom-focus",
+              "method": "DOM.focus",
+              "sentAtMs": 616.834,
+              "replyAtMs": 617.765,
+              "ok": true
+            },
+            {
+              "sequence": 8,
+              "phase": "measure:key-down",
+              "method": "Input.dispatchKeyEvent",
+              "sentAtMs": 617.77,
+              "replyAtMs": 619.434,
+              "ok": true
+            },
+            {
+              "sequence": 9,
+              "phase": "measure:key-up",
+              "method": "Input.dispatchKeyEvent",
+              "sentAtMs": 619.438,
+              "replyAtMs": 620.637,
+              "ok": true
+            },
+            {
+              "sequence": 10,
+              "phase": "measure:input-completion",
+              "method": "Runtime.evaluate",
+              "sentAtMs": 620.645,
+              "replyAtMs": 622.543,
+              "ok": true
+            },
+            {
+              "sequence": 11,
+              "phase": "measure:final-inspection",
+              "method": "Runtime.evaluate",
+              "sentAtMs": 622.55,
+              "replyAtMs": 623.022,
+              "ok": true
+            }
+          ]
+        },
+        {
+          "id": "pair-01-B",
+          "initial": {
+            "trigger": "installed",
+            "atMs": 135.79999995231628,
+            "eventSequence": 0,
+            "documentIdentity": "pair-01-B:doc:c12a152c-749d-459a-956f-b7aecf2508bb",
+            "documentHasFocus": false,
+            "activeElement": "element:body",
+            "inputConnected": true,
+            "disabled": false,
+            "readOnly": false,
+            "value": "",
+            "primeMarker": null
+          },
+          "barrier": {
+            "ok": true,
+            "trigger": "focus",
+            "snapshot": {
+              "trigger": "focus",
+              "atMs": 142.89999997615814,
+              "eventSequence": 1,
+              "documentIdentity": "pair-01-B:doc:c12a152c-749d-459a-956f-b7aecf2508bb",
+              "documentHasFocus": true,
+              "activeElement": "input",
+              "inputConnected": true,
+              "disabled": false,
+              "readOnly": false,
+              "value": ""
+            }
+          },
+          "preKeyRecheck": {
+            "trigger": "immediate-pre-key-recheck",
+            "atMs": 159,
+            "eventSequence": 19,
+            "documentIdentity": "pair-01-B:doc:c12a152c-749d-459a-956f-b7aecf2508bb",
+            "documentHasFocus": true,
+            "activeElement": "input",
+            "inputConnected": true,
+            "disabled": false,
+            "readOnly": false,
+            "value": ""
+          },
+          "final": {
+            "trigger": "final",
+            "atMs": 161.29999995231628,
+            "eventSequence": 23,
+            "documentIdentity": "pair-01-B:doc:c12a152c-749d-459a-956f-b7aecf2508bb",
+            "documentHasFocus": true,
+            "activeElement": "input",
+            "inputConnected": true,
+            "disabled": false,
+            "readOnly": false,
+            "value": "k",
+            "focusReady": {
+              "ok": true,
+              "trigger": "focus",
+              "snapshot": {
+                "trigger": "focus",
+                "atMs": 142.89999997615814,
+                "eventSequence": 1,
+                "documentIdentity": "pair-01-B:doc:c12a152c-749d-459a-956f-b7aecf2508bb",
+                "documentHasFocus": true,
+                "activeElement": "input",
+                "inputConnected": true,
+                "disabled": false,
+                "readOnly": false,
+                "value": ""
+              }
+            },
+            "inputCompletion": {
+              "ok": true,
+              "trigger": "keyup",
+              "snapshot": {
+                "trigger": "keyup",
+                "atMs": 160.69999992847443,
+                "eventSequence": 23,
+                "documentIdentity": "pair-01-B:doc:c12a152c-749d-459a-956f-b7aecf2508bb",
+                "documentHasFocus": true,
+                "activeElement": "input",
+                "inputConnected": true,
+                "disabled": false,
+                "readOnly": false,
+                "value": "k"
+              }
+            },
+            "events": [
+              {
+                "sequence": 1,
+                "atMs": 142.89999997615814,
+                "type": "focus",
+                "target": "input",
+                "isTrusted": true,
+                "focus": {
+                  "documentHasFocus": true,
+                  "activeElement": "input"
+                },
+                "value": "",
+                "key": null,
+                "code": null,
+                "data": null,
+                "inputType": null,
+                "button": null
+              },
+              {
+                "sequence": 2,
+                "atMs": 142.89999997615814,
+                "type": "focusin",
+                "target": "input",
+                "isTrusted": true,
+                "focus": {
+                  "documentHasFocus": true,
+                  "activeElement": "input"
+                },
+                "value": "",
+                "key": null,
+                "code": null,
+                "data": null,
+                "inputType": null,
+                "button": null
+              },
+              {
+                "sequence": 3,
+                "atMs": 155.10000002384186,
+                "type": "pointerover",
+                "target": "input",
+                "isTrusted": true,
+                "focus": {
+                  "documentHasFocus": true,
+                  "activeElement": "input"
+                },
+                "value": "",
+                "key": null,
+                "code": null,
+                "data": null,
+                "inputType": null,
+                "button": -1
+              },
+              {
+                "sequence": 4,
+                "atMs": 155.10000002384186,
+                "type": "pointerenter",
+                "target": "document",
+                "isTrusted": true,
+                "focus": {
+                  "documentHasFocus": true,
+                  "activeElement": "input"
+                },
+                "value": "",
+                "key": null,
+                "code": null,
+                "data": null,
+                "inputType": null,
+                "button": -1
+              },
+              {
+                "sequence": 5,
+                "atMs": 155.10000002384186,
+                "type": "pointerenter",
+                "target": "element:html",
+                "isTrusted": true,
+                "focus": {
+                  "documentHasFocus": true,
+                  "activeElement": "input"
+                },
+                "value": "",
+                "key": null,
+                "code": null,
+                "data": null,
+                "inputType": null,
+                "button": -1
+              },
+              {
+                "sequence": 6,
+                "atMs": 155.10000002384186,
+                "type": "pointerenter",
+                "target": "element:body",
+                "isTrusted": true,
+                "focus": {
+                  "documentHasFocus": true,
+                  "activeElement": "input"
+                },
+                "value": "",
+                "key": null,
+                "code": null,
+                "data": null,
+                "inputType": null,
+                "button": -1
+              },
+              {
+                "sequence": 7,
+                "atMs": 155.10000002384186,
+                "type": "pointerenter",
+                "target": "input",
+                "isTrusted": true,
+                "focus": {
+                  "documentHasFocus": true,
+                  "activeElement": "input"
+                },
+                "value": "",
+                "key": null,
+                "code": null,
+                "data": null,
+                "inputType": null,
+                "button": -1
+              },
+              {
+                "sequence": 8,
+                "atMs": 155.19999992847443,
+                "type": "mouseover",
+                "target": "input",
+                "isTrusted": true,
+                "focus": {
+                  "documentHasFocus": true,
+                  "activeElement": "input"
+                },
+                "value": "",
+                "key": null,
+                "code": null,
+                "data": null,
+                "inputType": null,
+                "button": 0
+              },
+              {
+                "sequence": 9,
+                "atMs": 155.19999992847443,
+                "type": "mouseenter",
+                "target": "document",
+                "isTrusted": true,
+                "focus": {
+                  "documentHasFocus": true,
+                  "activeElement": "input"
+                },
+                "value": "",
+                "key": null,
+                "code": null,
+                "data": null,
+                "inputType": null,
+                "button": 0
+              },
+              {
+                "sequence": 10,
+                "atMs": 155.29999995231628,
+                "type": "mouseenter",
+                "target": "element:html",
+                "isTrusted": true,
+                "focus": {
+                  "documentHasFocus": true,
+                  "activeElement": "input"
+                },
+                "value": "",
+                "key": null,
+                "code": null,
+                "data": null,
+                "inputType": null,
+                "button": 0
+              },
+              {
+                "sequence": 11,
+                "atMs": 155.39999997615814,
+                "type": "mouseenter",
+                "target": "element:body",
+                "isTrusted": true,
+                "focus": {
+                  "documentHasFocus": true,
+                  "activeElement": "input"
+                },
+                "value": "",
+                "key": null,
+                "code": null,
+                "data": null,
+                "inputType": null,
+                "button": 0
+              },
+              {
+                "sequence": 12,
+                "atMs": 155.39999997615814,
+                "type": "mouseenter",
+                "target": "input",
+                "isTrusted": true,
+                "focus": {
+                  "documentHasFocus": true,
+                  "activeElement": "input"
+                },
+                "value": "",
+                "key": null,
+                "code": null,
+                "data": null,
+                "inputType": null,
+                "button": 0
+              },
+              {
+                "sequence": 13,
+                "atMs": 155.39999997615814,
+                "type": "pointermove",
+                "target": "input",
+                "isTrusted": true,
+                "focus": {
+                  "documentHasFocus": true,
+                  "activeElement": "input"
+                },
+                "value": "",
+                "key": null,
+                "code": null,
+                "data": null,
+                "inputType": null,
+                "button": -1
+              },
+              {
+                "sequence": 14,
+                "atMs": 155.39999997615814,
+                "type": "mousemove",
+                "target": "input",
+                "isTrusted": true,
+                "focus": {
+                  "documentHasFocus": true,
+                  "activeElement": "input"
+                },
+                "value": "",
+                "key": null,
+                "code": null,
+                "data": null,
+                "inputType": null,
+                "button": 0
+              },
+              {
+                "sequence": 15,
+                "atMs": 156.5,
+                "type": "pointerdown",
+                "target": "input",
+                "isTrusted": true,
+                "focus": {
+                  "documentHasFocus": true,
+                  "activeElement": "input"
+                },
+                "value": "",
+                "key": null,
+                "code": null,
+                "data": null,
+                "inputType": null,
+                "button": 0
+              },
+              {
+                "sequence": 16,
+                "atMs": 156.5,
+                "type": "mousedown",
+                "target": "input",
+                "isTrusted": true,
+                "focus": {
+                  "documentHasFocus": true,
+                  "activeElement": "input"
+                },
+                "value": "",
+                "key": null,
+                "code": null,
+                "data": null,
+                "inputType": null,
+                "button": 0
+              },
+              {
+                "sequence": 17,
+                "atMs": 158.39999997615814,
+                "type": "pointerup",
+                "target": "input",
+                "isTrusted": true,
+                "focus": {
+                  "documentHasFocus": true,
+                  "activeElement": "input"
+                },
+                "value": "",
+                "key": null,
+                "code": null,
+                "data": null,
+                "inputType": null,
+                "button": 0
+              },
+              {
+                "sequence": 18,
+                "atMs": 158.39999997615814,
+                "type": "mouseup",
+                "target": "input",
+                "isTrusted": true,
+                "focus": {
+                  "documentHasFocus": true,
+                  "activeElement": "input"
+                },
+                "value": "",
+                "key": null,
+                "code": null,
+                "data": null,
+                "inputType": null,
+                "button": 0
+              },
+              {
+                "sequence": 19,
+                "atMs": 158.5,
+                "type": "click",
+                "target": "input",
+                "isTrusted": true,
+                "focus": {
+                  "documentHasFocus": true,
+                  "activeElement": "input"
+                },
+                "value": "",
+                "key": null,
+                "code": null,
+                "data": null,
+                "inputType": null,
+                "button": 0
+              },
+              {
+                "sequence": 20,
+                "atMs": 159.60000002384186,
+                "type": "keydown",
+                "target": "input",
+                "isTrusted": true,
+                "focus": {
+                  "documentHasFocus": true,
+                  "activeElement": "input"
+                },
+                "value": "",
+                "key": "k",
+                "code": "KeyK",
+                "data": null,
+                "inputType": null,
+                "button": null
+              },
+              {
+                "sequence": 21,
+                "atMs": 159.69999992847443,
+                "type": "beforeinput",
+                "target": "input",
+                "isTrusted": true,
+                "focus": {
+                  "documentHasFocus": true,
+                  "activeElement": "input"
+                },
+                "value": "",
+                "key": null,
+                "code": null,
+                "data": "k",
+                "inputType": "insertText",
+                "button": null
+              },
+              {
+                "sequence": 22,
+                "atMs": 160,
+                "type": "input",
+                "target": "input",
+                "isTrusted": true,
+                "focus": {
+                  "documentHasFocus": true,
+                  "activeElement": "input"
+                },
+                "value": "k",
+                "key": null,
+                "code": null,
+                "data": "k",
+                "inputType": "insertText",
+                "button": null
+              },
+              {
+                "sequence": 23,
+                "atMs": 160.69999992847443,
+                "type": "keyup",
+                "target": "input",
+                "isTrusted": true,
+                "focus": {
+                  "documentHasFocus": true,
+                  "activeElement": "input"
+                },
+                "value": "k",
+                "key": "k",
+                "code": "KeyK",
+                "data": null,
+                "inputType": null,
+                "button": null
+              }
+            ]
+          },
+          "events": [
+            {
+              "sequence": 1,
+              "atMs": 142.89999997615814,
+              "type": "focus",
+              "target": "input",
+              "isTrusted": true,
+              "focus": {
+                "documentHasFocus": true,
+                "activeElement": "input"
+              },
+              "value": "",
+              "key": null,
+              "code": null,
+              "data": null,
+              "inputType": null,
+              "button": null
+            },
+            {
+              "sequence": 2,
+              "atMs": 142.89999997615814,
+              "type": "focusin",
+              "target": "input",
+              "isTrusted": true,
+              "focus": {
+                "documentHasFocus": true,
+                "activeElement": "input"
+              },
+              "value": "",
+              "key": null,
+              "code": null,
+              "data": null,
+              "inputType": null,
+              "button": null
+            },
+            {
+              "sequence": 3,
+              "atMs": 155.10000002384186,
+              "type": "pointerover",
+              "target": "input",
+              "isTrusted": true,
+              "focus": {
+                "documentHasFocus": true,
+                "activeElement": "input"
+              },
+              "value": "",
+              "key": null,
+              "code": null,
+              "data": null,
+              "inputType": null,
+              "button": -1
+            },
+            {
+              "sequence": 4,
+              "atMs": 155.10000002384186,
+              "type": "pointerenter",
+              "target": "document",
+              "isTrusted": true,
+              "focus": {
+                "documentHasFocus": true,
+                "activeElement": "input"
+              },
+              "value": "",
+              "key": null,
+              "code": null,
+              "data": null,
+              "inputType": null,
+              "button": -1
+            },
+            {
+              "sequence": 5,
+              "atMs": 155.10000002384186,
+              "type": "pointerenter",
+              "target": "element:html",
+              "isTrusted": true,
+              "focus": {
+                "documentHasFocus": true,
+                "activeElement": "input"
+              },
+              "value": "",
+              "key": null,
+              "code": null,
+              "data": null,
+              "inputType": null,
+              "button": -1
+            },
+            {
+              "sequence": 6,
+              "atMs": 155.10000002384186,
+              "type": "pointerenter",
+              "target": "element:body",
+              "isTrusted": true,
+              "focus": {
+                "documentHasFocus": true,
+                "activeElement": "input"
+              },
+              "value": "",
+              "key": null,
+              "code": null,
+              "data": null,
+              "inputType": null,
+              "button": -1
+            },
+            {
+              "sequence": 7,
+              "atMs": 155.10000002384186,
+              "type": "pointerenter",
+              "target": "input",
+              "isTrusted": true,
+              "focus": {
+                "documentHasFocus": true,
+                "activeElement": "input"
+              },
+              "value": "",
+              "key": null,
+              "code": null,
+              "data": null,
+              "inputType": null,
+              "button": -1
+            },
+            {
+              "sequence": 8,
+              "atMs": 155.19999992847443,
+              "type": "mouseover",
+              "target": "input",
+              "isTrusted": true,
+              "focus": {
+                "documentHasFocus": true,
+                "activeElement": "input"
+              },
+              "value": "",
+              "key": null,
+              "code": null,
+              "data": null,
+              "inputType": null,
+              "button": 0
+            },
+            {
+              "sequence": 9,
+              "atMs": 155.19999992847443,
+              "type": "mouseenter",
+              "target": "document",
+              "isTrusted": true,
+              "focus": {
+                "documentHasFocus": true,
+                "activeElement": "input"
+              },
+              "value": "",
+              "key": null,
+              "code": null,
+              "data": null,
+              "inputType": null,
+              "button": 0
+            },
+            {
+              "sequence": 10,
+              "atMs": 155.29999995231628,
+              "type": "mouseenter",
+              "target": "element:html",
+              "isTrusted": true,
+              "focus": {
+                "documentHasFocus": true,
+                "activeElement": "input"
+              },
+              "value": "",
+              "key": null,
+              "code": null,
+              "data": null,
+              "inputType": null,
+              "button": 0
+            },
+            {
+              "sequence": 11,
+              "atMs": 155.39999997615814,
+              "type": "mouseenter",
+              "target": "element:body",
+              "isTrusted": true,
+              "focus": {
+                "documentHasFocus": true,
+                "activeElement": "input"
+              },
+              "value": "",
+              "key": null,
+              "code": null,
+              "data": null,
+              "inputType": null,
+              "button": 0
+            },
+            {
+              "sequence": 12,
+              "atMs": 155.39999997615814,
+              "type": "mouseenter",
+              "target": "input",
+              "isTrusted": true,
+              "focus": {
+                "documentHasFocus": true,
+                "activeElement": "input"
+              },
+              "value": "",
+              "key": null,
+              "code": null,
+              "data": null,
+              "inputType": null,
+              "button": 0
+            },
+            {
+              "sequence": 13,
+              "atMs": 155.39999997615814,
+              "type": "pointermove",
+              "target": "input",
+              "isTrusted": true,
+              "focus": {
+                "documentHasFocus": true,
+                "activeElement": "input"
+              },
+              "value": "",
+              "key": null,
+              "code": null,
+              "data": null,
+              "inputType": null,
+              "button": -1
+            },
+            {
+              "sequence": 14,
+              "atMs": 155.39999997615814,
+              "type": "mousemove",
+              "target": "input",
+              "isTrusted": true,
+              "focus": {
+                "documentHasFocus": true,
+                "activeElement": "input"
+              },
+              "value": "",
+              "key": null,
+              "code": null,
+              "data": null,
+              "inputType": null,
+              "button": 0
+            },
+            {
+              "sequence": 15,
+              "atMs": 156.5,
+              "type": "pointerdown",
+              "target": "input",
+              "isTrusted": true,
+              "focus": {
+                "documentHasFocus": true,
+                "activeElement": "input"
+              },
+              "value": "",
+              "key": null,
+              "code": null,
+              "data": null,
+              "inputType": null,
+              "button": 0
+            },
+            {
+              "sequence": 16,
+              "atMs": 156.5,
+              "type": "mousedown",
+              "target": "input",
+              "isTrusted": true,
+              "focus": {
+                "documentHasFocus": true,
+                "activeElement": "input"
+              },
+              "value": "",
+              "key": null,
+              "code": null,
+              "data": null,
+              "inputType": null,
+              "button": 0
+            },
+            {
+              "sequence": 17,
+              "atMs": 158.39999997615814,
+              "type": "pointerup",
+              "target": "input",
+              "isTrusted": true,
+              "focus": {
+                "documentHasFocus": true,
+                "activeElement": "input"
+              },
+              "value": "",
+              "key": null,
+              "code": null,
+              "data": null,
+              "inputType": null,
+              "button": 0
+            },
+            {
+              "sequence": 18,
+              "atMs": 158.39999997615814,
+              "type": "mouseup",
+              "target": "input",
+              "isTrusted": true,
+              "focus": {
+                "documentHasFocus": true,
+                "activeElement": "input"
+              },
+              "value": "",
+              "key": null,
+              "code": null,
+              "data": null,
+              "inputType": null,
+              "button": 0
+            },
+            {
+              "sequence": 19,
+              "atMs": 158.5,
+              "type": "click",
+              "target": "input",
+              "isTrusted": true,
+              "focus": {
+                "documentHasFocus": true,
+                "activeElement": "input"
+              },
+              "value": "",
+              "key": null,
+              "code": null,
+              "data": null,
+              "inputType": null,
+              "button": 0
+            },
+            {
+              "sequence": 20,
+              "atMs": 159.60000002384186,
+              "type": "keydown",
+              "target": "input",
+              "isTrusted": true,
+              "focus": {
+                "documentHasFocus": true,
+                "activeElement": "input"
+              },
+              "value": "",
+              "key": "k",
+              "code": "KeyK",
+              "data": null,
+              "inputType": null,
+              "button": null
+            },
+            {
+              "sequence": 21,
+              "atMs": 159.69999992847443,
+              "type": "beforeinput",
+              "target": "input",
+              "isTrusted": true,
+              "focus": {
+                "documentHasFocus": true,
+                "activeElement": "input"
+              },
+              "value": "",
+              "key": null,
+              "code": null,
+              "data": "k",
+              "inputType": "insertText",
+              "button": null
+            },
+            {
+              "sequence": 22,
+              "atMs": 160,
+              "type": "input",
+              "target": "input",
+              "isTrusted": true,
+              "focus": {
+                "documentHasFocus": true,
+                "activeElement": "input"
+              },
+              "value": "k",
+              "key": null,
+              "code": null,
+              "data": "k",
+              "inputType": "insertText",
+              "button": null
+            },
+            {
+              "sequence": 23,
+              "atMs": 160.69999992847443,
+              "type": "keyup",
+              "target": "input",
+              "isTrusted": true,
+              "focus": {
+                "documentHasFocus": true,
+                "activeElement": "input"
+              },
+              "value": "k",
+              "key": "k",
+              "code": "KeyK",
+              "data": null,
+              "inputType": null,
+              "button": null
+            }
+          ],
+          "commands": [
+            {
+              "sequence": 1,
+              "phase": "measure:runtime-enable",
+              "method": "Runtime.enable",
+              "sentAtMs": 1109.462,
+              "replyAtMs": 1110.895,
+              "ok": true
+            },
+            {
+              "sequence": 2,
+              "phase": "measure:dom-enable",
+              "method": "DOM.enable",
+              "sentAtMs": 1110.903,
+              "replyAtMs": 1111.156,
+              "ok": true
+            },
+            {
+              "sequence": 3,
+              "phase": "measure:document",
+              "method": "DOM.getDocument",
+              "sentAtMs": 1111.158,
+              "replyAtMs": 1111.49,
+              "ok": true
+            },
+            {
+              "sequence": 4,
+              "phase": "measure:query-input",
+              "method": "DOM.querySelector",
+              "sentAtMs": 1111.497,
+              "replyAtMs": 1111.84,
+              "ok": true
+            },
+            {
+              "sequence": 5,
+              "phase": "measure:input-box",
+              "method": "DOM.getBoxModel",
+              "sentAtMs": 1111.845,
+              "replyAtMs": 1112.076,
+              "ok": true
+            },
+            {
+              "sequence": 6,
+              "phase": "measure:install-observers",
+              "method": "Runtime.evaluate",
+              "sentAtMs": 1112.16,
+              "replyAtMs": 1116.164,
+              "ok": true
+            },
+            {
+              "sequence": 7,
+              "phase": "measure:dom-focus",
+              "method": "DOM.focus",
+              "sentAtMs": 1116.171,
+              "replyAtMs": 1119.545,
+              "ok": true
+            },
+            {
+              "sequence": 8,
+              "phase": "measure:click-move",
+              "method": "Input.dispatchMouseEvent",
+              "sentAtMs": 1119.556,
+              "replyAtMs": 1132.711,
+              "ok": true
+            },
+            {
+              "sequence": 9,
+              "phase": "measure:click-press",
+              "method": "Input.dispatchMouseEvent",
+              "sentAtMs": 1132.724,
+              "replyAtMs": 1134.739,
+              "ok": true
+            },
+            {
+              "sequence": 10,
+              "phase": "measure:click-release",
+              "method": "Input.dispatchMouseEvent",
+              "sentAtMs": 1134.745,
+              "replyAtMs": 1135.639,
+              "ok": true
+            },
+            {
+              "sequence": 11,
+              "phase": "measure:focus-barrier",
+              "method": "Runtime.evaluate",
+              "sentAtMs": 1135.645,
+              "replyAtMs": 1135.974,
+              "ok": true
+            },
+            {
+              "sequence": 12,
+              "phase": "measure:immediate-focus-recheck",
+              "method": "Runtime.evaluate",
+              "sentAtMs": 1135.981,
+              "replyAtMs": 1136.246,
+              "ok": true
+            },
+            {
+              "sequence": 13,
+              "phase": "measure:key-down",
+              "method": "Input.dispatchKeyEvent",
+              "sentAtMs": 1136.304,
+              "replyAtMs": 1137.372,
+              "ok": true
+            },
+            {
+              "sequence": 14,
+              "phase": "measure:key-up",
+              "method": "Input.dispatchKeyEvent",
+              "sentAtMs": 1137.374,
+              "replyAtMs": 1137.856,
+              "ok": true
+            },
+            {
+              "sequence": 15,
+              "phase": "measure:input-completion",
+              "method": "Runtime.evaluate",
+              "sentAtMs": 1137.859,
+              "replyAtMs": 1138.127,
+              "ok": true
+            },
+            {
+              "sequence": 16,
+              "phase": "measure:final-inspection",
+              "method": "Runtime.evaluate",
+              "sentAtMs": 1138.133,
+              "replyAtMs": 1138.768,
+              "ok": true
+            }
+          ]
+        }
+      ],
+      "renderFinal": {
+        "schemaVersion": 1,
+        "arch": "arm64",
+        "runs": [
+          {
+            "stage": "initial",
+            "mainPid": 21,
+            "executable": "/opt/prodex-cft154/chrome",
+            "binarySha256": "6a27f994cf8916471f61695e217824168167c506b595d2f1249540026d98aaa2",
+            "commandLine": "/opt/prodex-cft154/chrome --ozone-platform=headless --window-size=1440,900 --remote-debugging-address=127.0.0.1 --remote-debugging-port=9334 --user-data-dir=/tmp/prodex-ozone-render-profile --no-first-run --no-default-browser-check --disable-backgrounding-occluded-windows --disable-renderer-backgrounding --disable-background-timer-throttling --new-window about:blank",
+            "browser": "Chrome/154.0.8037.57",
+            "displayEnvironment": {
+              "DISPLAY": null,
+              "XAUTHORITY": null,
+              "WAYLAND_DISPLAY": null
+            },
+            "externalDisplayServer": false,
+            "displaySocketPresent": false,
+            "noNewPrivileges": true,
+            "effectiveCapabilities": "0",
+            "browserHeadlessSwitch": false,
+            "ozonePlatform": "headless",
+            "observation": {
+              "innerWidth": 1440,
+              "innerHeight": 757,
+              "outerWidth": 1440,
+              "outerHeight": 900,
+              "screenWidth": 1,
+              "screenHeight": 1,
+              "devicePixelRatio": 1,
+              "visibility": "visible",
+              "pixels": [
+                214,
+                45,
+                32,
+                255,
+                0,
+                135,
+                68,
+                255
+              ]
+            },
+            "screenshotBytes": 15667,
+            "screenshotSha256": "f0b21d6964c93ce9f24d2460e6f5b5ccb878df140b4c2d05080e57a3feb9df1c"
+          },
+          {
+            "stage": "restart",
+            "mainPid": 225,
+            "executable": "/opt/prodex-cft154/chrome",
+            "binarySha256": "6a27f994cf8916471f61695e217824168167c506b595d2f1249540026d98aaa2",
+            "commandLine": "/opt/prodex-cft154/chrome --ozone-platform=headless --window-size=1440,900 --remote-debugging-address=127.0.0.1 --remote-debugging-port=9334 --user-data-dir=/tmp/prodex-ozone-render-profile --no-first-run --no-default-browser-check --disable-backgrounding-occluded-windows --disable-renderer-backgrounding --disable-background-timer-throttling --new-window about:blank",
+            "browser": "Chrome/154.0.8037.57",
+            "displayEnvironment": {
+              "DISPLAY": null,
+              "XAUTHORITY": null,
+              "WAYLAND_DISPLAY": null
+            },
+            "externalDisplayServer": false,
+            "displaySocketPresent": false,
+            "noNewPrivileges": true,
+            "effectiveCapabilities": "0",
+            "browserHeadlessSwitch": false,
+            "ozonePlatform": "headless",
+            "observation": {
+              "innerWidth": 1440,
+              "innerHeight": 757,
+              "outerWidth": 1440,
+              "outerHeight": 900,
+              "screenWidth": 1,
+              "screenHeight": 1,
+              "devicePixelRatio": 1,
+              "visibility": "visible",
+              "pixels": [
+                214,
+                45,
+                32,
+                255,
+                0,
+                135,
+                68,
+                255
+              ]
+            },
+            "screenshotBytes": 15667,
+            "screenshotSha256": "f0b21d6964c93ce9f24d2460e6f5b5ccb878df140b4c2d05080e57a3feb9df1c"
+          }
+        ],
+        "cleanup": true,
+        "publicAdmission": "not_tested",
+        "proResponse": "not_tested"
+      },
+      "outerContainerRemoved": true
+    }
+  ],
+  "resourcePreflight": {
+    "description": "Separate two-browser about:blank preflight under the same 256-task limit; no input or remote requests.",
+    "targets": [
+      {
+        "target": "wsl",
+        "exitCode": 0,
+        "exitCodeIsPass": false,
+        "reason": "final resource snapshot was not checked by this diagnostic version",
+        "pidsCurrent": 256,
+        "pidsMax": 256,
+        "pidsMaxEvents": 44,
+        "memoryCurrent": 462340096,
+        "memoryMax": 2147483648,
+        "oom": 0,
+        "oomKill": 0
+      },
+      {
+        "target": "m3",
+        "exitCode": 1,
+        "pidsCurrent": 256,
+        "pidsMax": 256,
+        "pidsMaxEvents": 11,
+        "memoryCurrent": 444887040,
+        "memoryMax": 2147483648,
+        "oom": 0,
+        "oomKill": 0
+      }
+    ]
+  }
+}
