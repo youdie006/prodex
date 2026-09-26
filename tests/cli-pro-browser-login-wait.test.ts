@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 const openChatGptBrowserMock = vi.hoisted(() => vi.fn());
 const getChatGptBrowserStatusMock = vi.hoisted(() => vi.fn());
 const minimizeChatGptWindowMock = vi.hoisted(() => vi.fn());
+const getDedicatedBrowserHeadlessModeMock = vi.hoisted(() => vi.fn(() => true));
 
 vi.mock("../src/chatgpt-browser.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/chatgpt-browser.js")>();
@@ -19,6 +20,10 @@ vi.mock("../src/chatgpt-browser.js", async (importOriginal) => {
     minimizeChatGptWindow: minimizeChatGptWindowMock
   };
 });
+vi.mock("../src/browser-handoff.js", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../src/browser-handoff.js")>(),
+  getDedicatedBrowserHeadlessMode: getDedicatedBrowserHeadlessModeMock
+}));
 
 const { runCli } = await import("../src/cli.js");
 const { browserReadinessNextStep, printBrowserLoginGuide, waitForChatGptLoginReady } = await import("../src/cli-pro.js");
