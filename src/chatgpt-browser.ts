@@ -6134,9 +6134,46 @@ export function defaultTimeoutForTools(tools: readonly string[], fallbackMs: num
 
 export function composerToolsButtonRectExpression(): string {
   return `(() => {${CLICK_POINT_SNIPPET}
-    const b = document.querySelector('[data-testid="composer-plus-btn"]');
-    if (!b) return { ok: false, reason: "composer tools button not found" };
-    return clickPoint(b);
+    ${composerExpressionHelpers()}
+    const isRenderedComposer = (node) => {
+      if (!isVisible(node) || node.closest('[inert],[aria-hidden="true"]')) return false;
+      for (let ancestor = node; ancestor; ancestor = ancestor.parentElement) {
+        const style = getComputedStyle(ancestor);
+        if (style.display === "none" || style.visibility === "hidden" || style.visibility === "collapse" || style.opacity === "0") return false;
+      }
+      return true;
+    };
+    const visibleRoots = [...new Set(
+      [...document.querySelectorAll('textarea[data-testid="prompt-textarea"], div[role="textbox"], textarea, [contenteditable="true"]')]
+        .filter(isEditableComposer)
+        .filter(isRenderedComposer)
+        .map(findChatGptComposerRoot)
+        .filter((candidateRoot) => candidateRoot && isChatGptComposerRootEl(candidateRoot) && isRenderedComposer(candidateRoot))
+    )];
+    if (visibleRoots.length === 0) return { ok: false, reason: "composer tools button not found: no visible composer" };
+    if (visibleRoots.length !== 1) {
+      return { ok: false, reason: "multiple visible composer roots found" };
+    }
+    const root = visibleRoots[0];
+    const legacy = [...root.querySelectorAll('[data-testid="composer-plus-btn"]')];
+    const current = [...root.querySelectorAll('button[aria-label="Add files and more"]')].filter((button) =>
+      button.getAttribute("type") === "button" &&
+      button.getAttribute("aria-expanded") === "false" &&
+      button.getAttribute("data-state") === "closed"
+    );
+    const candidates = [...new Set([...legacy, ...current])];
+    if (candidates.length === 0) return { ok: false, reason: "composer tools button not found" };
+    if (candidates.length !== 1) return { ok: false, reason: "multiple composer tools buttons found" };
+    const b = candidates[0];
+    const style = getComputedStyle(b);
+    if (b.disabled || b.getAttribute("aria-disabled") === "true" || b.closest('[inert],[aria-hidden="true"]')) {
+      return { ok: false, reason: "composer tools button is disabled or inert" };
+    }
+    if (style.display === "none" || style.visibility === "hidden" || style.visibility === "collapse" || style.opacity === "0") {
+      return { ok: false, reason: "composer tools button is hidden" };
+    }
+    const point = clickPoint(b);
+    return point.ok ? { ...point, strict: true } : point;
   })()`;
 }
 
@@ -6241,7 +6278,7 @@ export async function enableComposerTools(cdp: CdpConnection, labels: readonly s
     if (!button.ok || button.x === undefined || button.y === undefined) {
       throw new Error(button.reason ?? "Could not open the ChatGPT composer tools menu");
     }
-    await dispatchMouseClickAt(cdp, button.x, button.y);
+    await verifiedClickAt(cdp, button.x, button.y, "composer tools button", true);
     let entry: RectHit = { ok: false };
     const menuDeadline = Date.now() + 6_000;
     for (;;) {
@@ -6269,7 +6306,7 @@ export async function enableComposerTools(cdp: CdpConnection, labels: readonly s
       // still settling, which looks identical to a refused selection.
       const retryButton = await cdp.evaluate<RectHit>(composerToolsButtonRectExpression());
       if (retryButton.ok && retryButton.x !== undefined && retryButton.y !== undefined) {
-        await dispatchMouseClickAt(cdp, retryButton.x, retryButton.y);
+        await verifiedClickAt(cdp, retryButton.x, retryButton.y, "composer tools button", true);
         await sleep(1_000);
         const retryEntry = await cdp.evaluate<RectHit>(composerToolEntryRectExpression(label));
         if (retryEntry.ok && retryEntry.x !== undefined && retryEntry.y !== undefined) {
