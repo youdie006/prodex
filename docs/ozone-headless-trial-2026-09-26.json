@@ -1,0 +1,242 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-09-26",
+  "sourceCommit": "309376440a1f492c0b4fc4f53723621ebdb5829c",
+  "classification": "regular_chrome_ozone_headless_no_external_display",
+  "promoted": false,
+  "publicNavigations": 0,
+  "authenticationTests": 0,
+  "proResponsesInCandidate": 0,
+  "targets": [
+    {
+      "target": "wsl_linux_x64",
+      "baseImage": "sha256:e3e3b7c886e1f37c08c97956604977f3d41d132f080eaaf01513e023ae37e7b9",
+      "offlineSmoke": [
+        {
+          "variant": "original",
+          "exitCode": 0
+        }
+      ],
+      "rendering": {
+        "schemaVersion": 1,
+        "arch": "x64",
+        "runs": [
+          {
+            "stage": "initial",
+            "mainPid": 18,
+            "executable": "/opt/prodex-cft154/chrome",
+            "binarySha256": "e528b77a8b250c48a5bbd7aeeabbc2813940c0a2fe39b1b11fbaf1f01fb04f18",
+            "commandLine": "/opt/prodex-cft154/chrome --ozone-platform=headless --window-size=1440,900 --remote-debugging-address=127.0.0.1 --remote-debugging-port=9334 --user-data-dir=/tmp/prodex-ozone-render-profile --no-first-run --no-default-browser-check --disable-backgrounding-occluded-windows --disable-renderer-backgrounding --disable-background-timer-throttling --new-window about:blank",
+            "browser": "Chrome/154.0.8037.57",
+            "displayEnvironment": {
+              "DISPLAY": null,
+              "XAUTHORITY": null,
+              "WAYLAND_DISPLAY": null
+            },
+            "externalDisplayServer": false,
+            "displaySocketPresent": false,
+            "noNewPrivileges": true,
+            "effectiveCapabilities": "0",
+            "browserHeadlessSwitch": false,
+            "ozonePlatform": "headless",
+            "observation": {
+              "innerWidth": 1440,
+              "innerHeight": 757,
+              "outerWidth": 1440,
+              "outerHeight": 900,
+              "screenWidth": 1,
+              "screenHeight": 1,
+              "devicePixelRatio": 1,
+              "visibility": "visible",
+              "pixels": [
+                214,
+                45,
+                32,
+                255,
+                0,
+                135,
+                68,
+                255
+              ]
+            },
+            "screenshotBytes": 15667,
+            "screenshotSha256": "f0b21d6964c93ce9f24d2460e6f5b5ccb878df140b4c2d05080e57a3feb9df1c"
+          },
+          {
+            "stage": "restart",
+            "mainPid": 238,
+            "executable": "/opt/prodex-cft154/chrome",
+            "binarySha256": "e528b77a8b250c48a5bbd7aeeabbc2813940c0a2fe39b1b11fbaf1f01fb04f18",
+            "commandLine": "/opt/prodex-cft154/chrome --ozone-platform=headless --window-size=1440,900 --remote-debugging-address=127.0.0.1 --remote-debugging-port=9334 --user-data-dir=/tmp/prodex-ozone-render-profile --no-first-run --no-default-browser-check --disable-backgrounding-occluded-windows --disable-renderer-backgrounding --disable-background-timer-throttling --new-window about:blank",
+            "browser": "Chrome/154.0.8037.57",
+            "displayEnvironment": {
+              "DISPLAY": null,
+              "XAUTHORITY": null,
+              "WAYLAND_DISPLAY": null
+            },
+            "externalDisplayServer": false,
+            "displaySocketPresent": false,
+            "noNewPrivileges": true,
+            "effectiveCapabilities": "0",
+            "browserHeadlessSwitch": false,
+            "ozonePlatform": "headless",
+            "observation": {
+              "innerWidth": 1440,
+              "innerHeight": 757,
+              "outerWidth": 1440,
+              "outerHeight": 900,
+              "screenWidth": 1,
+              "screenHeight": 1,
+              "devicePixelRatio": 1,
+              "visibility": "visible",
+              "pixels": [
+                214,
+                45,
+                32,
+                255,
+                0,
+                135,
+                68,
+                255
+              ]
+            },
+            "screenshotBytes": 15667,
+            "screenshotSha256": "f0b21d6964c93ce9f24d2460e6f5b5ccb878df140b4c2d05080e57a3feb9df1c"
+          }
+        ],
+        "cleanup": true,
+        "publicAdmission": "not_tested",
+        "proResponse": "not_tested"
+      }
+    },
+    {
+      "target": "m3_colima_linux_arm64",
+      "baseImage": "sha256:7741e053af2b9336b458049b31ba3a5f004a3034bae0fba42f9223a7d1ece5e9",
+      "probeImage": "sha256:41da519c76ef4b267c40ef7f227bb02978315fab52cb5b915dd0f36f54c0889e",
+      "offlineSmoke": [
+        {
+          "variant": "original_concurrent_with_render_probe",
+          "exitCode": 1,
+          "error": "CDP keyboard input did not update the loopback fixture"
+        },
+        {
+          "variant": "input_observations_added",
+          "exitCode": 0,
+          "focused": {
+            "documentHasFocus": false,
+            "activeElement": "keyboard",
+            "value": "",
+            "events": []
+          },
+          "afterKeyboard": {
+            "documentHasFocus": true,
+            "activeElement": "keyboard",
+            "value": "k",
+            "events": [
+              "focus",
+              "keydown",
+              "beforeinput",
+              "input",
+              "keyup"
+            ]
+          }
+        },
+        {
+          "variant": "original_isolated_repeat",
+          "exitCode": 0
+        }
+      ],
+      "rendering": {
+        "schemaVersion": 1,
+        "arch": "arm64",
+        "runs": [
+          {
+            "stage": "initial",
+            "mainPid": 18,
+            "executable": "/opt/prodex-cft154/chrome",
+            "binarySha256": "6a27f994cf8916471f61695e217824168167c506b595d2f1249540026d98aaa2",
+            "commandLine": "/opt/prodex-cft154/chrome --ozone-platform=headless --window-size=1440,900 --remote-debugging-address=127.0.0.1 --remote-debugging-port=9334 --user-data-dir=/tmp/prodex-ozone-render-profile --no-first-run --no-default-browser-check --disable-backgrounding-occluded-windows --disable-renderer-backgrounding --disable-background-timer-throttling --new-window about:blank",
+            "browser": "Chrome/154.0.8037.57",
+            "displayEnvironment": {
+              "DISPLAY": null,
+              "XAUTHORITY": null,
+              "WAYLAND_DISPLAY": null
+            },
+            "externalDisplayServer": false,
+            "displaySocketPresent": false,
+            "noNewPrivileges": true,
+            "effectiveCapabilities": "0",
+            "browserHeadlessSwitch": false,
+            "ozonePlatform": "headless",
+            "observation": {
+              "innerWidth": 1440,
+              "innerHeight": 757,
+              "outerWidth": 1440,
+              "outerHeight": 900,
+              "screenWidth": 1,
+              "screenHeight": 1,
+              "devicePixelRatio": 1,
+              "visibility": "visible",
+              "pixels": [
+                214,
+                45,
+                32,
+                255,
+                0,
+                135,
+                68,
+                255
+              ]
+            },
+            "screenshotBytes": 15667,
+            "screenshotSha256": "f0b21d6964c93ce9f24d2460e6f5b5ccb878df140b4c2d05080e57a3feb9df1c"
+          },
+          {
+            "stage": "restart",
+            "mainPid": 242,
+            "executable": "/opt/prodex-cft154/chrome",
+            "binarySha256": "6a27f994cf8916471f61695e217824168167c506b595d2f1249540026d98aaa2",
+            "commandLine": "/opt/prodex-cft154/chrome --ozone-platform=headless --window-size=1440,900 --remote-debugging-address=127.0.0.1 --remote-debugging-port=9334 --user-data-dir=/tmp/prodex-ozone-render-profile --no-first-run --no-default-browser-check --disable-backgrounding-occluded-windows --disable-renderer-backgrounding --disable-background-timer-throttling --new-window about:blank",
+            "browser": "Chrome/154.0.8037.57",
+            "displayEnvironment": {
+              "DISPLAY": null,
+              "XAUTHORITY": null,
+              "WAYLAND_DISPLAY": null
+            },
+            "externalDisplayServer": false,
+            "displaySocketPresent": false,
+            "noNewPrivileges": true,
+            "effectiveCapabilities": "0",
+            "browserHeadlessSwitch": false,
+            "ozonePlatform": "headless",
+            "observation": {
+              "innerWidth": 1440,
+              "innerHeight": 757,
+              "outerWidth": 1440,
+              "outerHeight": 900,
+              "screenWidth": 1,
+              "screenHeight": 1,
+              "devicePixelRatio": 1,
+              "visibility": "visible",
+              "pixels": [
+                214,
+                45,
+                32,
+                255,
+                0,
+                135,
+                68,
+                255
+              ]
+            },
+            "screenshotBytes": 15667,
+            "screenshotSha256": "f0b21d6964c93ce9f24d2460e6f5b5ccb878df140b4c2d05080e57a3feb9df1c"
+          }
+        ],
+        "cleanup": true,
+        "publicAdmission": "not_tested",
+        "proResponse": "not_tested"
+      }
+    }
+  ]
+}

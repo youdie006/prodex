@@ -1,0 +1,763 @@
+{
+  "schema_version": 1,
+  "date": "2026-09-17",
+  "source_checkout": "679bfc3076fe32a7c1892df234dfb8aff505857d",
+  "scope": "stock-browser isolated candidate; no authenticated candidate acceptance",
+  "vendor": {
+    "repository": "https://github.com/GoogleChromeLabs/chrome-for-testing",
+    "revision": "49df3201407c3640a8f9465ace6ad8166ab77d3c",
+    "manifest": "https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions-with-downloads.json",
+    "manifest_timestamp": "2026-09-16T22:17:43.773Z",
+    "channel": "Stable",
+    "version": "153.0.8010.47",
+    "archives": [
+      {
+        "platform": "linux64",
+        "url": "https://storage.googleapis.com/chrome-for-testing-public/153.0.8010.47/linux64/chrome-linux64.zip",
+        "sha256": "89778cbf7a852726b6f51649b2586b894c00737e81f8031733721560d21bbea7"
+      },
+      {
+        "platform": "linux-arm64",
+        "url": "https://storage.googleapis.com/chrome-for-testing-public/153.0.8010.47/linux-arm64/chrome-linux-arm64.zip",
+        "sha256": "ef3d2fea85e675ba8e9a7894c0be4595e5130659a9ac95e04c6064ed09f411da"
+      }
+    ]
+  },
+  "fixture_script_sha256": "2c68543813b60f08314bf36a7e745dc1a57801ba597e89df04906649b32f2ecf",
+  "initial_failures": [
+    "x64 image file-integrity check: EACCES reading root-owned deb.deps; rebuilt both candidates with COPY --chown=node:node and verified all 303 regular files per architecture against extracted vendor archive",
+    "x64 smoke before target-ID fix: expected one loopback fixture page, found 2; ARM64 initial smoke passed; four final smoke runs passed after scoped fix"
+  ],
+  "integrity": [
+    {
+      "target": "x64",
+      "files": 303,
+      "byte_for_byte": true,
+      "total_bytes": 409996571
+    },
+    {
+      "target": "arm64",
+      "files": 303,
+      "byte_for_byte": true,
+      "total_bytes": 410270900
+    }
+  ],
+  "trials": [
+    {
+      "kind": "smoke",
+      "target": "wsl",
+      "mode": "headless",
+      "began": "2026-09-17T08:44:18.672Z",
+      "ended": "2026-09-17T08:44:21.599Z",
+      "image": "sha256:73bf6af5bd67e6a2a39baf16313414275d7ac20ef20c31dcdebf9f60c1eb19cf",
+      "exit_code": 0,
+      "killed": false,
+      "cleanup": true,
+      "observation": {
+        "browser": "Chrome/153.0.8010.47",
+        "protocol": "1.3",
+        "platform": "linux",
+        "arch": "x64",
+        "headless_process": true,
+        "runtime_enable": true,
+        "runtime_evaluate": true,
+        "dom": true,
+        "keyboard": true,
+        "mouse": true,
+        "file_attachment": true,
+        "profile_restart": "synthetic_marker"
+      },
+      "error": null
+    },
+    {
+      "kind": "smoke",
+      "target": "wsl",
+      "mode": "virtual",
+      "began": "2026-09-17T08:44:38.418Z",
+      "ended": "2026-09-17T08:44:41.936Z",
+      "image": "sha256:73bf6af5bd67e6a2a39baf16313414275d7ac20ef20c31dcdebf9f60c1eb19cf",
+      "exit_code": 0,
+      "killed": false,
+      "cleanup": true,
+      "observation": {
+        "browser": "Chrome/153.0.8010.47",
+        "protocol": "1.3",
+        "platform": "linux",
+        "arch": "x64",
+        "headed_process": true,
+        "runtime_enable": true,
+        "runtime_evaluate": true,
+        "dom": true,
+        "keyboard": true,
+        "mouse": true,
+        "file_attachment": true,
+        "profile_restart": "synthetic_marker"
+      },
+      "error": null
+    },
+    {
+      "kind": "smoke",
+      "target": "m3",
+      "mode": "headless",
+      "began": "2026-09-17T08:44:20.473Z",
+      "ended": "2026-09-17T08:44:26.021Z",
+      "image": "sha256:9e7810909ea9b2309233076aacbab22fd773c7df5cf7a4a2067018e7b6d24cef",
+      "exit_code": 0,
+      "killed": false,
+      "cleanup": true,
+      "observation": {
+        "browser": "Chrome/153.0.8010.47",
+        "protocol": "1.3",
+        "platform": "linux",
+        "arch": "arm64",
+        "headless_process": true,
+        "runtime_enable": true,
+        "runtime_evaluate": true,
+        "dom": true,
+        "keyboard": true,
+        "mouse": true,
+        "file_attachment": true,
+        "profile_restart": "synthetic_marker"
+      },
+      "error": null
+    },
+    {
+      "kind": "smoke",
+      "target": "m3",
+      "mode": "virtual",
+      "began": "2026-09-17T08:44:40.274Z",
+      "ended": "2026-09-17T08:44:43.027Z",
+      "image": "sha256:9e7810909ea9b2309233076aacbab22fd773c7df5cf7a4a2067018e7b6d24cef",
+      "exit_code": 0,
+      "killed": false,
+      "cleanup": true,
+      "observation": {
+        "browser": "Chrome/153.0.8010.47",
+        "protocol": "1.3",
+        "platform": "linux",
+        "arch": "arm64",
+        "headed_process": true,
+        "runtime_enable": true,
+        "runtime_evaluate": true,
+        "dom": true,
+        "keyboard": true,
+        "mouse": true,
+        "file_attachment": true,
+        "profile_restart": "synthetic_marker"
+      },
+      "error": null
+    },
+    {
+      "kind": "public",
+      "target": "wsl",
+      "mode": "headless",
+      "began": "2026-09-17T08:44:52.187Z",
+      "ended": "2026-09-17T08:45:02.745Z",
+      "image": "sha256:73bf6af5bd67e6a2a39baf16313414275d7ac20ef20c31dcdebf9f60c1eb19cf",
+      "exit_code": 0,
+      "killed": false,
+      "cleanup": true,
+      "observation": {
+        "mode": "headless",
+        "browser": "Chrome/153.0.8010.47",
+        "arch": "x64",
+        "actual_headless": true,
+        "sandbox": "namespace+seccomp",
+        "profile": "fresh disposable tmpfs",
+        "public_navigations": 1,
+        "http_status": 403,
+        "observation_ms": 3189,
+        "reachable": true,
+        "logged_in_likely": false,
+        "has_composer": false,
+        "blocker": "cloudflare_check",
+        "independent_dom": {
+          "at_chatgpt": true,
+          "title_is_interstitial": true,
+          "human_verification_text": false,
+          "challenge_element": false,
+          "composer": false,
+          "dom_complete": true
+        },
+        "prompts_sent": 0,
+        "login_attempts": 0,
+        "browser_closed": true
+      },
+      "error": null
+    },
+    {
+      "kind": "public",
+      "target": "wsl",
+      "mode": "virtual",
+      "began": "2026-09-17T08:45:15.310Z",
+      "ended": "2026-09-17T08:45:27.563Z",
+      "image": "sha256:73bf6af5bd67e6a2a39baf16313414275d7ac20ef20c31dcdebf9f60c1eb19cf",
+      "exit_code": 1,
+      "killed": false,
+      "cleanup": true,
+      "observation": null,
+      "error": "Page.navigate exceeded 10-second CDP deadline; original probe did not preserve which navigation timed out"
+    },
+    {
+      "kind": "public",
+      "target": "m3",
+      "mode": "headless",
+      "began": "2026-09-17T08:44:53.978Z",
+      "ended": "2026-09-17T08:45:04.186Z",
+      "image": "sha256:9e7810909ea9b2309233076aacbab22fd773c7df5cf7a4a2067018e7b6d24cef",
+      "exit_code": 0,
+      "killed": false,
+      "cleanup": true,
+      "observation": {
+        "mode": "headless",
+        "browser": "Chrome/153.0.8010.47",
+        "arch": "arm64",
+        "actual_headless": true,
+        "sandbox": "namespace+seccomp",
+        "profile": "fresh disposable tmpfs",
+        "public_navigations": 1,
+        "http_status": 403,
+        "observation_ms": 3091,
+        "reachable": true,
+        "logged_in_likely": false,
+        "has_composer": false,
+        "blocker": "cloudflare_check",
+        "independent_dom": {
+          "at_chatgpt": true,
+          "title_is_interstitial": true,
+          "human_verification_text": false,
+          "challenge_element": false,
+          "composer": false,
+          "dom_complete": true
+        },
+        "prompts_sent": 0,
+        "login_attempts": 0,
+        "browser_closed": true
+      },
+      "error": null
+    },
+    {
+      "kind": "public",
+      "target": "m3",
+      "mode": "virtual",
+      "began": "2026-09-17T08:45:17.225Z",
+      "ended": "2026-09-17T08:45:28.233Z",
+      "image": "sha256:9e7810909ea9b2309233076aacbab22fd773c7df5cf7a4a2067018e7b6d24cef",
+      "exit_code": 1,
+      "killed": false,
+      "cleanup": true,
+      "observation": null,
+      "error": "Page.navigate exceeded 10-second CDP deadline; original probe did not preserve which navigation timed out"
+    },
+    {
+      "kind": "sandbox",
+      "target": "wsl",
+      "mode": "virtual",
+      "began": "2026-09-17T08:47:00.378Z",
+      "ended": "2026-09-17T08:47:05.105Z",
+      "image": "sha256:73bf6af5bd67e6a2a39baf16313414275d7ac20ef20c31dcdebf9f60c1eb19cf",
+      "exit_code": 0,
+      "killed": false,
+      "cleanup": true,
+      "observation": {
+        "mode": "virtual",
+        "browser": "Chrome/153.0.8010.47",
+        "arch": "x64",
+        "sandbox": "namespace+seccomp",
+        "public_navigations": 0,
+        "prompts_sent": 0,
+        "browser_closed": true
+      },
+      "error": null
+    },
+    {
+      "kind": "sandbox",
+      "target": "m3",
+      "mode": "virtual",
+      "began": "2026-09-17T08:47:02.212Z",
+      "ended": "2026-09-17T08:47:06.587Z",
+      "image": "sha256:9e7810909ea9b2309233076aacbab22fd773c7df5cf7a4a2067018e7b6d24cef",
+      "exit_code": 0,
+      "killed": false,
+      "cleanup": true,
+      "observation": {
+        "mode": "virtual",
+        "browser": "Chrome/153.0.8010.47",
+        "arch": "arm64",
+        "sandbox": "namespace+seccomp",
+        "public_navigations": 0,
+        "prompts_sent": 0,
+        "browser_closed": true
+      },
+      "error": null
+    }
+  ],
+  "services_preserved": [
+    {
+      "target": "wsl",
+      "package_version": "0.40.18",
+      "browser": "Chromium 152.0.7977.82",
+      "image": "sha256:1f5cf6a36323635c2f03bd3b011f89f9e5223cc955f10737bd187de7e89cfd18",
+      "started_at": "2026-09-17T04:36:34.956128153Z",
+      "status": "running",
+      "health": "healthy",
+      "reachable": true,
+      "logged_in_likely": true,
+      "has_composer": true,
+      "blocker": null
+    },
+    {
+      "target": "m3",
+      "package_version": "0.40.18",
+      "browser": "Chromium 152.0.7977.82",
+      "image": "sha256:73de64cca2889500e7683dd10e269cbf05f8997e6830d09641e44047cee5d6ac",
+      "started_at": "2026-09-17T03:11:22.942538376Z",
+      "status": "running",
+      "health": "healthy",
+      "reachable": true,
+      "logged_in_likely": false,
+      "has_composer": true,
+      "blocker": "login_required"
+    }
+  ],
+  "candidate_tag": "prodex-browser:stock-chrome-153-check",
+  "installed_or_released": false,
+  "prompts_sent": 0,
+  "login_attempts": 0,
+  "visible_host_windows_opened": 0,
+  "limitations": [
+    "A probe exit code 0 means measurement completed, not ChatGPT access passed.",
+    "The two virtual public probes failed; no HTTP result or blocker was captured and neither is classified as Cloudflare.",
+    "At most one public navigation per fresh candidate run; no online retries. Offline diagnostic follow-ups made zero public navigations.",
+    "Candidates retain the installed baseline runtime classifier; the independent public DOM/status measurement is not evidence that newly edited product code was installed.",
+    "Vendor/build and version changed together; not a causal headless-versus-headed or version-only comparison.",
+    "Both headless public probes stopped at HTTP 403 without prompt/login attempts; no Pro model or continuation was tested."
+  ],
+  "follow_up_dom": {
+    "source_file_sha256": "7cb1665d9de1559c76648e7b7cbefe701923f4bb68395dcb39de67b4a07efe37",
+    "base_revision": "692ded3d9bcf93bd69d9bc7ac8a2772cbc8af074",
+    "method": "built source status/answer expressions evaluated on real offline Chrome DOM; snapshots classified by the same built source; no candidate/runtime installation",
+    "trials": [
+      {
+        "target": "wsl",
+        "mode": "headless",
+        "image": "sha256:73bf6af5bd67e6a2a39baf16313414275d7ac20ef20c31dcdebf9f60c1eb19cf",
+        "began": "2026-09-17T09:08:55.311Z",
+        "ended": "2026-09-17T09:09:00.654Z",
+        "exit_code": 0,
+        "cleanup": true,
+        "assertions": [
+          {
+            "name": "sidebar_message_noise",
+            "snapshot": "status",
+            "expected": null,
+            "actual": null
+          },
+          {
+            "name": "sidebar_message_noise",
+            "snapshot": "answer",
+            "expected": null,
+            "actual": null
+          },
+          {
+            "name": "genuine_challenge",
+            "snapshot": "status",
+            "expected": "cloudflare_check",
+            "actual": "cloudflare_check"
+          },
+          {
+            "name": "genuine_challenge",
+            "snapshot": "answer",
+            "expected": "cloudflare_check",
+            "actual": "cloudflare_check"
+          },
+          {
+            "name": "genuine_captcha",
+            "snapshot": "status",
+            "expected": "captcha_required",
+            "actual": "captcha_required"
+          },
+          {
+            "name": "genuine_captcha",
+            "snapshot": "answer",
+            "expected": "captcha_required",
+            "actual": "captcha_required"
+          },
+          {
+            "name": "genuine_limit",
+            "snapshot": "status",
+            "expected": "usage_limit",
+            "actual": "usage_limit"
+          },
+          {
+            "name": "genuine_limit",
+            "snapshot": "answer",
+            "expected": "usage_limit",
+            "actual": "usage_limit"
+          },
+          {
+            "name": "navigation_login_with_composer",
+            "snapshot": "status",
+            "expected": "login_required",
+            "actual": "login_required"
+          },
+          {
+            "name": "navigation_login_with_composer",
+            "snapshot": "answer",
+            "expected": "login_required",
+            "actual": "login_required"
+          },
+          {
+            "name": "navigation_free_signup_en",
+            "snapshot": "status",
+            "expected": "login_required",
+            "actual": "login_required"
+          },
+          {
+            "name": "navigation_free_signup_en",
+            "snapshot": "answer",
+            "expected": "login_required",
+            "actual": "login_required"
+          },
+          {
+            "name": "navigation_free_signup_ko",
+            "snapshot": "status",
+            "expected": "login_required",
+            "actual": "login_required"
+          },
+          {
+            "name": "navigation_free_signup_ko",
+            "snapshot": "answer",
+            "expected": "login_required",
+            "actual": "login_required"
+          }
+        ],
+        "assertions_pass": true,
+        "observation": {
+          "mode": "headless",
+          "browser": "Chrome/153.0.8010.47",
+          "arch": "x64",
+          "sandbox": "namespace+seccomp",
+          "public_navigations": 0,
+          "prompts_sent": 0,
+          "browser_closed": true
+        }
+      },
+      {
+        "target": "wsl",
+        "mode": "virtual",
+        "image": "sha256:73bf6af5bd67e6a2a39baf16313414275d7ac20ef20c31dcdebf9f60c1eb19cf",
+        "began": "2026-09-17T09:09:22.636Z",
+        "ended": "2026-09-17T09:09:27.947Z",
+        "exit_code": 0,
+        "cleanup": true,
+        "assertions": [
+          {
+            "name": "sidebar_message_noise",
+            "snapshot": "status",
+            "expected": null,
+            "actual": null
+          },
+          {
+            "name": "sidebar_message_noise",
+            "snapshot": "answer",
+            "expected": null,
+            "actual": null
+          },
+          {
+            "name": "genuine_challenge",
+            "snapshot": "status",
+            "expected": "cloudflare_check",
+            "actual": "cloudflare_check"
+          },
+          {
+            "name": "genuine_challenge",
+            "snapshot": "answer",
+            "expected": "cloudflare_check",
+            "actual": "cloudflare_check"
+          },
+          {
+            "name": "genuine_captcha",
+            "snapshot": "status",
+            "expected": "captcha_required",
+            "actual": "captcha_required"
+          },
+          {
+            "name": "genuine_captcha",
+            "snapshot": "answer",
+            "expected": "captcha_required",
+            "actual": "captcha_required"
+          },
+          {
+            "name": "genuine_limit",
+            "snapshot": "status",
+            "expected": "usage_limit",
+            "actual": "usage_limit"
+          },
+          {
+            "name": "genuine_limit",
+            "snapshot": "answer",
+            "expected": "usage_limit",
+            "actual": "usage_limit"
+          },
+          {
+            "name": "navigation_login_with_composer",
+            "snapshot": "status",
+            "expected": "login_required",
+            "actual": "login_required"
+          },
+          {
+            "name": "navigation_login_with_composer",
+            "snapshot": "answer",
+            "expected": "login_required",
+            "actual": "login_required"
+          },
+          {
+            "name": "navigation_free_signup_en",
+            "snapshot": "status",
+            "expected": "login_required",
+            "actual": "login_required"
+          },
+          {
+            "name": "navigation_free_signup_en",
+            "snapshot": "answer",
+            "expected": "login_required",
+            "actual": "login_required"
+          },
+          {
+            "name": "navigation_free_signup_ko",
+            "snapshot": "status",
+            "expected": "login_required",
+            "actual": "login_required"
+          },
+          {
+            "name": "navigation_free_signup_ko",
+            "snapshot": "answer",
+            "expected": "login_required",
+            "actual": "login_required"
+          }
+        ],
+        "assertions_pass": true,
+        "observation": {
+          "mode": "virtual",
+          "browser": "Chrome/153.0.8010.47",
+          "arch": "x64",
+          "sandbox": "namespace+seccomp",
+          "public_navigations": 0,
+          "prompts_sent": 0,
+          "browser_closed": true
+        }
+      },
+      {
+        "target": "m3",
+        "mode": "headless",
+        "image": "sha256:9e7810909ea9b2309233076aacbab22fd773c7df5cf7a4a2067018e7b6d24cef",
+        "began": "2026-09-17T09:08:57.554Z",
+        "ended": "2026-09-17T09:09:02.092Z",
+        "exit_code": 0,
+        "cleanup": true,
+        "assertions": [
+          {
+            "name": "sidebar_message_noise",
+            "snapshot": "status",
+            "expected": null,
+            "actual": null
+          },
+          {
+            "name": "sidebar_message_noise",
+            "snapshot": "answer",
+            "expected": null,
+            "actual": null
+          },
+          {
+            "name": "genuine_challenge",
+            "snapshot": "status",
+            "expected": "cloudflare_check",
+            "actual": "cloudflare_check"
+          },
+          {
+            "name": "genuine_challenge",
+            "snapshot": "answer",
+            "expected": "cloudflare_check",
+            "actual": "cloudflare_check"
+          },
+          {
+            "name": "genuine_captcha",
+            "snapshot": "status",
+            "expected": "captcha_required",
+            "actual": "captcha_required"
+          },
+          {
+            "name": "genuine_captcha",
+            "snapshot": "answer",
+            "expected": "captcha_required",
+            "actual": "captcha_required"
+          },
+          {
+            "name": "genuine_limit",
+            "snapshot": "status",
+            "expected": "usage_limit",
+            "actual": "usage_limit"
+          },
+          {
+            "name": "genuine_limit",
+            "snapshot": "answer",
+            "expected": "usage_limit",
+            "actual": "usage_limit"
+          },
+          {
+            "name": "navigation_login_with_composer",
+            "snapshot": "status",
+            "expected": "login_required",
+            "actual": "login_required"
+          },
+          {
+            "name": "navigation_login_with_composer",
+            "snapshot": "answer",
+            "expected": "login_required",
+            "actual": "login_required"
+          },
+          {
+            "name": "navigation_free_signup_en",
+            "snapshot": "status",
+            "expected": "login_required",
+            "actual": "login_required"
+          },
+          {
+            "name": "navigation_free_signup_en",
+            "snapshot": "answer",
+            "expected": "login_required",
+            "actual": "login_required"
+          },
+          {
+            "name": "navigation_free_signup_ko",
+            "snapshot": "status",
+            "expected": "login_required",
+            "actual": "login_required"
+          },
+          {
+            "name": "navigation_free_signup_ko",
+            "snapshot": "answer",
+            "expected": "login_required",
+            "actual": "login_required"
+          }
+        ],
+        "assertions_pass": true,
+        "observation": {
+          "mode": "headless",
+          "browser": "Chrome/153.0.8010.47",
+          "arch": "arm64",
+          "sandbox": "namespace+seccomp",
+          "public_navigations": 0,
+          "prompts_sent": 0,
+          "browser_closed": true
+        }
+      },
+      {
+        "target": "m3",
+        "mode": "virtual",
+        "image": "sha256:9e7810909ea9b2309233076aacbab22fd773c7df5cf7a4a2067018e7b6d24cef",
+        "began": "2026-09-17T09:09:25.079Z",
+        "ended": "2026-09-17T09:09:29.860Z",
+        "exit_code": 0,
+        "cleanup": true,
+        "assertions": [
+          {
+            "name": "sidebar_message_noise",
+            "snapshot": "status",
+            "expected": null,
+            "actual": null
+          },
+          {
+            "name": "sidebar_message_noise",
+            "snapshot": "answer",
+            "expected": null,
+            "actual": null
+          },
+          {
+            "name": "genuine_challenge",
+            "snapshot": "status",
+            "expected": "cloudflare_check",
+            "actual": "cloudflare_check"
+          },
+          {
+            "name": "genuine_challenge",
+            "snapshot": "answer",
+            "expected": "cloudflare_check",
+            "actual": "cloudflare_check"
+          },
+          {
+            "name": "genuine_captcha",
+            "snapshot": "status",
+            "expected": "captcha_required",
+            "actual": "captcha_required"
+          },
+          {
+            "name": "genuine_captcha",
+            "snapshot": "answer",
+            "expected": "captcha_required",
+            "actual": "captcha_required"
+          },
+          {
+            "name": "genuine_limit",
+            "snapshot": "status",
+            "expected": "usage_limit",
+            "actual": "usage_limit"
+          },
+          {
+            "name": "genuine_limit",
+            "snapshot": "answer",
+            "expected": "usage_limit",
+            "actual": "usage_limit"
+          },
+          {
+            "name": "navigation_login_with_composer",
+            "snapshot": "status",
+            "expected": "login_required",
+            "actual": "login_required"
+          },
+          {
+            "name": "navigation_login_with_composer",
+            "snapshot": "answer",
+            "expected": "login_required",
+            "actual": "login_required"
+          },
+          {
+            "name": "navigation_free_signup_en",
+            "snapshot": "status",
+            "expected": "login_required",
+            "actual": "login_required"
+          },
+          {
+            "name": "navigation_free_signup_en",
+            "snapshot": "answer",
+            "expected": "login_required",
+            "actual": "login_required"
+          },
+          {
+            "name": "navigation_free_signup_ko",
+            "snapshot": "status",
+            "expected": "login_required",
+            "actual": "login_required"
+          },
+          {
+            "name": "navigation_free_signup_ko",
+            "snapshot": "answer",
+            "expected": "login_required",
+            "actual": "login_required"
+          }
+        ],
+        "assertions_pass": true,
+        "observation": {
+          "mode": "virtual",
+          "browser": "Chrome/153.0.8010.47",
+          "arch": "arm64",
+          "sandbox": "namespace+seccomp",
+          "public_navigations": 0,
+          "prompts_sent": 0,
+          "browser_closed": true
+        }
+      }
+    ]
+  }
+}

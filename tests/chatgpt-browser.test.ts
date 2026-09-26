@@ -21,6 +21,7 @@ import {
   chatGptUrlsReferToSameTarget,
   chatGptThreadReadyExpression,
   chatGptRequestMatchesUserTurn,
+  chatGptPromptPostedExpression,
   idleChatGptNavigationExpression,
   chatGptBlockerErrorFromAnswerState,
   chatGptBlockerFromAnswerState,
@@ -87,6 +88,7 @@ import {
   selectChatGptPage,
   prepareComposerExpression,
   composerTextStateExpression,
+  statusExpression,
   answerExpression,
   modelButtonRectExpression,
   menuOpenExpression,
@@ -166,11 +168,52 @@ Show more`;
 
     const inlineSent = `PROMPT\nUse \`INLINE_VALUE=817\` exactly.\n[prodex-request:${requestId}]`;
     const inlineWithoutBackticks = `PROMPT\nUse INLINE_VALUE=817 exactly.\n[prodex-request:${requestId}]`;
-    expect(chatGptRequestMatchesUserTurn(inlineWithoutBackticks, inlineSent, requestId)).toBe(false);
+    expect(chatGptRequestMatchesUserTurn(inlineWithoutBackticks, inlineSent, requestId)).toBe(true);
 
     const unmatchedSent = `PROMPT\n\n\`\`\`text\nINLINE_VALUE=817\n\n[prodex-request:${requestId}]`;
     const unmatchedWithoutFence = `PROMPT\n\ntext\nINLINE_VALUE=817\n\n[prodex-request:${requestId}]`;
     expect(chatGptRequestMatchesUserTurn(unmatchedWithoutFence, unmatchedSent, requestId)).toBe(false);
+  });
+
+  it("matches rendered inline code without relaxing request identity or complete content", () => {
+    const requestId = "c".repeat(32);
+    const marker = `[prodex-request:${requestId}]`;
+    const sent = `Compare \`tool run\` with \`tool check\`. Keep \`VALUE=817\`.\n${marker}`;
+    const rendered = `Compare tool run with tool check. Keep VALUE=817.\n${marker}\nShow more`;
+    expect(chatGptRequestMatchesUserTurn(sent, sent, requestId)).toBe(true);
+    expect(chatGptRequestMatchesUserTurn(rendered, sent, requestId)).toBe(true);
+    for (const changed of [
+      rendered.replace("VALUE=817", "VALUE=718"),
+      rendered.replace("Compare", "Delete"),
+      rendered.replace("tool check", ""),
+      rendered.replace(marker, ""),
+      rendered.replace(requestId, "d".repeat(32)),
+      `${rendered}\n${marker}`,
+      `${rendered}\n[prodex-request:${"d".repeat(32)}]`
+    ]) {
+      expect(chatGptRequestMatchesUserTurn(changed, sent, requestId)).toBe(false);
+    }
+  });
+
+  it("preserves literal backticks and fenced code in the inline rendering fallback", () => {
+    const requestId = "e".repeat(32);
+    const marker = `[prodex-request:${requestId}]`;
+    for (const literal of [
+      "Keep `unmatched exactly.",
+      "Keep \\`literal\\` exactly.",
+      "Keep ``double`` exactly.",
+      "```text\nrun `literal`\n```",
+      "```js\nrun `literal`\n```",
+      "~~~text\nrun `literal`\n~~~",
+      "```text\nrun `literal`"
+    ]) {
+      const sent = `Use \`VALUE=817\`.\n${literal}\n${marker}`;
+      const rendered = `Use VALUE=817.\n${literal}\n${marker}`;
+      expect(chatGptRequestMatchesUserTurn(rendered, sent, requestId)).toBe(true);
+      expect(chatGptRequestMatchesUserTurn(rendered.replaceAll("`", ""), sent, requestId)).toBe(false);
+    }
+    const mixed = `Keep \`\`literal\`\` and \`inline\`.\n${marker}`;
+    expect(chatGptRequestMatchesUserTurn(mixed.replace("`inline`", "inline"), mixed, requestId)).toBe(false);
   });
 
   it("checks busy state in the same browser evaluation as navigation", () => {
@@ -374,9 +417,38 @@ Show more`;
       { ...fakeAnswerState(other, "unrelated presentation review", false), lastUserText: "Review the presentation" }
     ]);
     const send = sendChatGptPrompt({ port: 19338, prompt: "Review our research", timeoutMs: 10_000 });
-    const rejection = expect(send).rejects.toMatchObject({ blocker: { code: "request_mismatch" } });
+    const rejection = expect(send).rejects.toMatchObject({ blocker: {
+      code: "request_mismatch", retryable: false,
+      message: expect.stringContaining("does not by itself prove"),
+      next_step: expect.stringContaining("Do not resend automatically")
+    } });
     await vi.advanceTimersByTimeAsync(20_000);
     await rejection;
+  });
+
+  it("accepts a new-chat answer after ChatGPT renders the marked prompt's inline code", async () => {
+    vi.useFakeTimers();
+    const root = "https://chatgpt.com/";
+    const thread = "https://chatgpt.com/c/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+    const fresh = { ...fakeAnswerState(root, "", false), assistantMessageCount: 0, userMessageCount: 0 };
+    const evaluations = installFakeChatGptSendCdp(root, [fresh, fresh, fakeAnswerState(thread, "correct answer", false)]);
+    const base = FakeCdpWebSocket.evaluate;
+    FakeCdpWebSocket.evaluate = (expression) => {
+      const result = base(expression);
+      if (result && typeof result === "object" && "lastUserText" in result && typeof result.lastUserText === "string") {
+        return { ...result, lastUserText: result.lastUserText.replace(/`([^`]+)`/g, "$1") };
+      }
+      return result;
+    };
+    const send = sendChatGptPrompt({ port: 19338, prompt: "Compare `tool run` and `tool check`.", newChat: true, timeoutMs: 10_000 });
+    void send.catch(() => undefined);
+    await vi.advanceTimersByTimeAsync(30_000);
+    await expect(send).resolves.toMatchObject({ answer: "correct answer", url: thread, requestVerified: true });
+    const navigation = evaluations.findIndex((expression) => expression.includes(`location.assign(${JSON.stringify(root)})`));
+    const typing = evaluations.findIndex((expression) => expression.includes("actualText: raw.slice"));
+    expect(navigation).toBeGreaterThanOrEqual(0);
+    expect(typing).toBeGreaterThan(navigation);
+    expect(evaluations.slice(navigation, typing).filter((expression) => expression.includes("assistantMessageCount"))).toHaveLength(2);
   });
 
   it("refuses another user's turn in the same conversation after acceptance", async () => {
@@ -1596,6 +1668,177 @@ Show more`;
     expect(detectChatGptPageBlocker(state)).toBeUndefined();
   });
 
+  it("ignores conversation navigation labels when blocker text excludes the sidebar", () => {
+    const state = {
+      hasComposer: true,
+      textSample: "New chat\nProjects\nJust a moment...\nPlease solve this captcha to continue",
+      blockerTextSample: "New chat\nProjects\nChatGPT Pro\nJust a moment...",
+      blockerScanTextSample: "",
+      visibleButtonLabels: ["Profile menu", "Just a moment..."]
+    };
+
+    expect(inferChatGptPageLoggedInLikely(state)).toBe(true);
+    for (const label of ["Just a moment...", "Please solve this captcha to continue", "You've reached the message limit"]) {
+      expect(detectChatGptPageBlocker({ ...state, visibleButtonLabels: ["Profile menu", label] })).toBeUndefined();
+    }
+  });
+
+  it.each([
+    { name: "status", expression: statusExpression },
+    { name: "answer", expression: answerExpression }
+  ])("keeps visible labels but separates blocker-safe controls in $name snapshot", ({ expression }) => {
+    const root = new FakeElement("form");
+    const nav = new FakeElement("nav");
+    const message = new FakeElement("div");
+    const sidebarTitle = new FakeButton("Just a moment...");
+    const messageControl = new FakeButton("Please solve this captcha to continue");
+    const challenge = new FakeButton("Verifying you are human");
+    sidebarTitle.closest = (selector) => selector.includes("nav") ? nav : undefined;
+    messageControl.closest = (selector) => selector.includes('[data-message-author-role]') ? message : undefined;
+    root.buttons = [sidebarTitle, messageControl, challenge];
+    const doc = new FakeDocument([], [root]);
+    doc.body.innerText = "New chat\nProjects\nJust a moment...\nPlease solve this captcha to continue";
+
+    const state = evaluateBrowserStatusExpression<{
+      textSample: string;
+      blockerScanTextSample: string;
+      visibleButtonLabels: string[];
+      blockerButtonLabels: string[];
+    }>(expression(), doc);
+
+    expect(state.visibleButtonLabels).toEqual(["Just a moment...", "Verifying you are human"]);
+    expect(state.blockerButtonLabels).toEqual(["Verifying you are human"]);
+    expect(detectChatGptPageBlocker(state)?.code).toBe("cloudflare_check");
+
+    root.buttons = [sidebarTitle, messageControl];
+    const normalState = evaluateBrowserStatusExpression<typeof state>(expression(), doc);
+    expect(normalState.visibleButtonLabels).toEqual(["Just a moment..."]);
+    expect(normalState.blockerButtonLabels).toEqual([]);
+    expect(detectChatGptPageBlocker(normalState)).toBeUndefined();
+  });
+
+  it.each([
+    { name: "status", expression: statusExpression },
+    { name: "answer", expression: answerExpression }
+  ])("excludes fallback-turn messages but preserves external blockers in $name snapshot", ({ expression }) => {
+    const prompt = "Research why CAPTCHA, Cloudflare, and login bypasses are prohibited.";
+    const user = fallbackTranscriptMessage(0, 0, "user", prompt);
+    user.setAttribute("data-user-message-bubble", "true");
+    const assistant = fallbackTranscriptMessage(0, 2, "assistant", "I will stay within those limits.");
+    assistant.setAttribute("data-chatgpt-search-unit-key", "fallback-turn-0:2:assistant");
+    const messageControl = new FakeButton("Please solve this captcha to continue");
+    messageControl.parentElement = user;
+    const root = new FakeElement("FORM");
+    root.buttons = [messageControl];
+    const composer = new FakeTextArea();
+    composer.formRoot = root;
+    const doc = new FakeDocument([composer], [root]);
+    doc.searchUnitMessages = [user, assistant];
+    doc.textNodes = [
+      { parentElement: user, nodeValue: prompt },
+      { parentElement: assistant, nodeValue: assistant.innerText }
+    ];
+
+    const safeState = evaluateBrowserStatusExpression<{
+      hasComposer?: boolean;
+      blockerScanTextSample: string;
+      blockerButtonLabels: string[];
+    }>(expression(), doc);
+    expect(safeState.hasComposer ?? true).toBe(true);
+    expect(safeState.blockerScanTextSample).toBe("");
+    expect(safeState.blockerButtonLabels).toEqual([]);
+    expect(detectChatGptPageBlocker(safeState)).toBeUndefined();
+
+    const challenge = new FakeElement("div");
+    const externalButton = new FakeButton("Please solve this captcha to continue");
+    externalButton.parentElement = challenge;
+    root.buttons.push(externalButton);
+    doc.textNodes.push({ parentElement: challenge, nodeValue: "Please solve this captcha to continue" });
+
+    const blockedState = evaluateBrowserStatusExpression<typeof safeState>(expression(), doc);
+    expect(blockedState.blockerScanTextSample).toContain("Please solve this captcha to continue");
+    expect(blockedState.blockerButtonLabels).toEqual(["Please solve this captcha to continue"]);
+    expect(detectChatGptPageBlocker(blockedState)?.code).toBe("captcha_required");
+  });
+
+  it.each([
+    { labels: ["Log in", "Sign up"], code: "login_required" },
+    { labels: ["You've reached the message limit"], code: "usage_limit" }
+  ])("reports $code from a real non-navigation control", ({ labels, code }) => {
+    expect(detectChatGptPageBlocker({
+      textSample: "New chat\nProjects",
+      blockerScanTextSample: "",
+      visibleButtonLabels: ["Just a moment...", ...labels],
+      blockerButtonLabels: labels
+    })?.code).toBe(code);
+  });
+
+  it("keeps explicit login evidence from a composer-absent legacy snapshot", () => {
+    expect(detectChatGptPageBlocker({
+      textSample: "",
+      blockerTextSample: "",
+      blockerScanTextSample: "",
+      visibleButtonLabels: ["Log in", "Sign up"],
+      hasComposer: false
+    })?.code).toBe("login_required");
+  });
+
+  it.each([false, true])("reports nav-only login controls with hasComposer=%s", (hasComposer) => {
+    const state = {
+      textSample: "New chat\nProjects",
+      blockerTextSample: "New chat\nProjects",
+      blockerScanTextSample: "",
+      visibleButtonLabels: ["Log in", "Sign up"],
+      blockerButtonLabels: [],
+      hasComposer
+    };
+
+    expect(inferChatGptPageLoggedInLikely(state)).toBe(false);
+    expect(detectChatGptPageBlocker(state)?.code).toBe("login_required");
+  });
+
+  it.each(["Sign up for free", "무료로 가입"])("preserves the nav-only %s authentication control", (label) => {
+    const state = {
+      textSample: "New chat\nProjects",
+      blockerTextSample: "New chat\nProjects",
+      blockerScanTextSample: "",
+      visibleButtonLabels: ["Just a moment...", label],
+      blockerButtonLabels: [],
+      hasComposer: true
+    };
+
+    expect(detectChatGptBlocker("", [label])?.code).toBe("login_required");
+    expect(detectChatGptPageBlocker(state)?.code).toBe("login_required");
+    expect(inferChatGptPageLoggedInLikely(state)).toBe(false);
+  });
+
+  it.each([
+    { name: "status", expression: statusExpression },
+    { name: "answer", expression: answerExpression }
+  ])("classifies nav-only auth controls from the $name snapshot", ({ expression }) => {
+    const root = new FakeElement("form");
+    const nav = new FakeElement("nav");
+    const login = new FakeButton("Log in");
+    const signup = new FakeButton("Sign up");
+    login.closest = signup.closest = (selector) => selector.includes("nav") ? nav : undefined;
+    root.buttons = [login, signup];
+    const doc = new FakeDocument([], [root]);
+    doc.body.innerText = "New chat\nProjects";
+
+    const state = evaluateBrowserStatusExpression<{
+      textSample: string;
+      blockerTextSample: string;
+      blockerScanTextSample: string;
+      visibleButtonLabels: string[];
+      blockerButtonLabels: string[];
+    }>(expression(), doc);
+
+    expect(state.visibleButtonLabels).toEqual(["Log in", "Sign up"]);
+    expect(state.blockerButtonLabels).toEqual([]);
+    expect(inferChatGptPageLoggedInLikely(state)).toBe(false);
+    expect(detectChatGptPageBlocker(state)?.code).toBe("login_required");
+  });
+
   it("detects ChatGPT browser blocker states before sending", () => {
     expect(detectChatGptBlocker("Just a moment... Checking if the site connection is secure", [])?.code).toBe("cloudflare_check");
     expect(detectChatGptBlocker("Please solve this captcha to continue", [])?.code).toBe("captcha_required");
@@ -2273,6 +2516,207 @@ Show more`;
     expect(none.assistantMessageCount).toBe(0);
   });
 
+  it("answerExpression reads strict fallback turns without inventing model provenance", () => {
+    const doc = new FakeDocument([], []);
+    doc.body.innerText = "ChatGPT\nPro";
+    const user1 = fallbackTranscriptMessage(0, 0, "user", "first question");
+    const assistant1 = fallbackTranscriptMessage(0, 2, "assistant", "first answer");
+    assistant1.setAttribute("data-chatgpt-search-unit-key", "fallback-turn-0:2:assistant");
+    const user2Outer = new FakeElement("div");
+    user2Outer.setAttribute("data-chatgpt-search-unit-key", "fallback-turn-1:0:user");
+    user2Outer.innerText = "second question";
+    const user2 = fallbackTranscriptMessage(1, 0, "user", "second question");
+    user2.parentElement = user2Outer;
+    const assistant2 = fallbackTranscriptMessage(1, 2, "assistant", "second answer");
+    assistant2.setAttribute("data-chatgpt-search-unit-key", "fallback-turn-1:2:assistant");
+    doc.searchUnitMessages = [user1, assistant1, user2Outer, user2, assistant2];
+
+    const state = evaluateBrowserStatusExpression<AnswerStateWithModel>(answerExpression(), doc);
+    expect(state.userMessageCount).toBe(2);
+    expect(state.assistantMessageCount).toBe(2);
+    expect(state.lastUserText).toBe("second question");
+    expect(state.answer).toBe("second answer");
+    expect(state.modelSlug).toBeUndefined();
+  });
+
+  it("acknowledges only the latest unambiguous user request in either transcript layout", () => {
+    const requestId = "b0f3c430e8694f61be27709a2c65a9f0";
+    const marker = `[prodex-request:${requestId}]`;
+    const expression = chatGptPromptPostedExpression(requestId);
+    const doc = new FakeDocument([], []);
+    doc.searchUnitMessages = [fallbackTranscriptMessage(0, 0, "user", `question ${marker}`)];
+    expect(evaluateBrowserStatusExpression<boolean>(expression, doc)).toBe(true);
+    doc.searchUnitMessages.push(fallbackTranscriptMessage(1, 0, "user", "another question"));
+    expect(evaluateBrowserStatusExpression<boolean>(expression, doc)).toBe(false);
+    doc.searchUnitMessages = [fallbackTranscriptMessage(0, 2, "assistant", marker)];
+    expect(evaluateBrowserStatusExpression<boolean>(expression, doc)).toBe(false);
+    doc.searchUnitMessages = [];
+    doc.messages = [legacyTranscriptMessage("user", `question ${marker}`)];
+    expect(evaluateBrowserStatusExpression<boolean>(expression, doc)).toBe(true);
+    doc.searchUnitMessages = [fallbackTranscriptMessage(0, 0, "user", marker)];
+    expect(evaluateBrowserStatusExpression<boolean>(expression, doc)).toBe(false);
+  });
+
+  it("answerExpression unwraps only the measured fallback assistant body shape", () => {
+    const doc = new FakeDocument([], []);
+    const user = fallbackTranscriptMessage(0, 0, "user", "question");
+    const assistant = fallbackTranscriptMessage(0, 2, "assistant", "ChatGPT said:\nHEADLESS_MARKER answer");
+    const heading = new FakeElement("H4");
+    heading.setAttribute("class", "sr-only m-0 select-none");
+    heading.innerText = "ChatGPT said:";
+    const body = new FakeElement("DIV");
+    body.innerText = "HEADLESS_MARKER answer";
+    assistant.children = [heading, body];
+    doc.searchUnitMessages = [user, assistant];
+
+    expect(evaluateBrowserStatusExpression<AnswerStateWithModel>(answerExpression(), doc).answer).toBe("HEADLESS_MARKER answer");
+
+    body.innerText = "ChatGPT said:\nThis prefix belongs to the answer.";
+    assistant.innerText = "ChatGPT said:\nChatGPT said:\nThis prefix belongs to the answer.";
+    expect(evaluateBrowserStatusExpression<AnswerStateWithModel>(answerExpression(), doc).answer)
+      .toBe("ChatGPT said:\nThis prefix belongs to the answer.");
+
+    const unknownShape = fallbackTranscriptMessage(0, 2, "assistant", "ChatGPT said:\nUnknown shape answer");
+    unknownShape.children = [heading, new FakeElement("SPAN")];
+    doc.searchUnitMessages = [user, unknownShape];
+    expect(evaluateBrowserStatusExpression<AnswerStateWithModel>(answerExpression(), doc).answer)
+      .toBe("ChatGPT said:\nUnknown shape answer");
+
+    const legacy = legacyTranscriptMessage("assistant", "ChatGPT said:\nLegacy answer");
+    legacy.children = [heading, body];
+    doc.messages = [legacyTranscriptMessage("user", "legacy question"), legacy];
+    doc.searchUnitMessages = [];
+    expect(evaluateBrowserStatusExpression<AnswerStateWithModel>(answerExpression(), doc).answer)
+      .toBe("ChatGPT said:\nLegacy answer");
+  });
+
+  it("answerExpression does not reuse an old fallback answer for an unreplied latest turn", () => {
+    const doc = new FakeDocument([], []);
+    doc.searchUnitMessages = [
+      fallbackTranscriptMessage(0, 0, "user", "first question"),
+      fallbackTranscriptMessage(0, 2, "assistant", "old answer"),
+      fallbackTranscriptMessage(1, 0, "user", "new question")
+    ];
+
+    const state = evaluateBrowserStatusExpression<AnswerStateWithModel>(answerExpression(), doc);
+    expect(state.userMessageCount).toBe(2);
+    expect(state.assistantMessageCount).toBe(1);
+    expect(state.lastUserText).toBe("new question");
+    expect(state.answer).toBe("");
+    expect(state.modelSlug).toBeUndefined();
+  });
+
+  it("answerExpression fails closed when separate legacy and fallback representations coexist", () => {
+    const doc = new FakeDocument([], []);
+    doc.messages = [
+      legacyTranscriptMessage("user", "first question"),
+      legacyTranscriptMessage("assistant", "first answer"),
+      legacyTranscriptMessage("user", "second question"),
+      legacyTranscriptMessage("assistant", "second answer")
+    ];
+    doc.searchUnitMessages = [
+      fallbackTranscriptMessage(0, 0, "user", "first question"),
+      fallbackTranscriptMessage(0, 2, "assistant", "first answer"),
+      fallbackTranscriptMessage(1, 0, "user", "second question"),
+      fallbackTranscriptMessage(1, 2, "assistant", "second answer")
+    ];
+
+    const state = evaluateBrowserStatusExpression<AnswerStateWithModel>(answerExpression(), doc);
+    expect(state.userMessageCount).toBe(0);
+    expect(state.assistantMessageCount).toBe(0);
+    expect(state.answer).toBe("");
+  });
+
+  it("answerExpression does not return an old fallback answer before a later legacy-only user", () => {
+    const doc = new FakeDocument([], []);
+    const fallbackUser = fallbackTranscriptMessage(0, 0, "user", "old question");
+    const fallbackAssistant = fallbackTranscriptMessage(0, 2, "assistant", "stale answer");
+    const laterLegacyUser = legacyTranscriptMessage("user", "new question");
+    doc.transcriptNodes = [fallbackUser, fallbackAssistant, laterLegacyUser];
+
+    const state = evaluateBrowserStatusExpression<AnswerStateWithModel>(answerExpression(), doc);
+    expect(state.userMessageCount).toBe(0);
+    expect(state.assistantMessageCount).toBe(0);
+    expect(state.answer).toBe("");
+  });
+
+  it("answerExpression fails closed when a later legacy pair conflicts with a fallback pair", () => {
+    const doc = new FakeDocument([], []);
+    doc.transcriptNodes = [
+      fallbackTranscriptMessage(0, 0, "user", "fallback question"),
+      fallbackTranscriptMessage(0, 2, "assistant", "fallback answer"),
+      legacyTranscriptMessage("user", "legacy question"),
+      legacyTranscriptMessage("assistant", "legacy answer")
+    ];
+
+    const state = evaluateBrowserStatusExpression<AnswerStateWithModel>(answerExpression(), doc);
+    expect(state.userMessageCount).toBe(0);
+    expect(state.assistantMessageCount).toBe(0);
+    expect(state.answer).toBe("");
+  });
+
+  it("answerExpression fails closed on duplicate fallback coordinates and conflicting roles", () => {
+    const duplicateDoc = new FakeDocument([], []);
+    duplicateDoc.transcriptNodes = [
+      fallbackTranscriptMessage(0, 0, "user", "question"),
+      fallbackTranscriptMessage(0, 2, "assistant", "first candidate"),
+      fallbackTranscriptMessage(0, 2, "assistant", "duplicate candidate")
+    ];
+    expect(evaluateBrowserStatusExpression<AnswerStateWithModel>(answerExpression(), duplicateDoc).answer).toBe("");
+
+    const conflict = fallbackTranscriptMessage(0, 2, "assistant", "conflicting node");
+    conflict.setAttribute("data-message-author-role", "user");
+    const conflictDoc = new FakeDocument([], []);
+    conflictDoc.transcriptNodes = [fallbackTranscriptMessage(0, 0, "user", "question"), conflict];
+    expect(evaluateBrowserStatusExpression<AnswerStateWithModel>(answerExpression(), conflictDoc).answer).toBe("");
+  });
+
+  it("answerExpression rejects fallback turn indices outside the safe integer range", () => {
+    const doc = new FakeDocument([], []);
+    const user = new FakeElement("div");
+    user.setAttribute("data-content-search-unit-key", "fallback-turn-9007199254740992:0:user");
+    user.innerText = "question";
+    const assistant = new FakeElement("div");
+    assistant.setAttribute("data-content-search-unit-key", "fallback-turn-9007199254740992:2:assistant");
+    assistant.innerText = "must not be accepted";
+    doc.transcriptNodes = [user, assistant];
+
+    const state = evaluateBrowserStatusExpression<AnswerStateWithModel>(answerExpression(), doc);
+    expect(state.userMessageCount).toBe(0);
+    expect(state.assistantMessageCount).toBe(0);
+    expect(state.answer).toBe("");
+  });
+
+  it("statusExpression preserves a legacy assistant-only thinking placeholder", () => {
+    const doc = new FakeDocument([], []);
+    doc.messages = [legacyTranscriptMessage("assistant", "Thinking")];
+
+    const state = evaluateBrowserStatusExpression<{ generating: boolean }>(statusExpression(), doc);
+    expect(state.generating).toBe(true);
+  });
+
+  it("answerExpression ignores non-message fallback units and unknown legacy roles", () => {
+    const doc = new FakeDocument([], []);
+    const progress = new FakeElement("div");
+    progress.setAttribute("data-content-search-unit-key", "fallback-turn-1:1:analysis");
+    progress.innerText = "private reasoning progress";
+    const search = new FakeElement("div");
+    search.setAttribute("data-content-search-unit-key", "search-result-1:assistant");
+    search.innerText = "unrelated search result";
+    doc.messages = [legacyTranscriptMessage("tool", "tool progress")];
+    doc.searchUnitMessages = [
+      fallbackTranscriptMessage(0, 0, "user", "question"),
+      fallbackTranscriptMessage(0, 2, "assistant", "answer"),
+      progress,
+      search
+    ];
+
+    const state = evaluateBrowserStatusExpression<AnswerStateWithModel>(answerExpression(), doc);
+    expect(state.userMessageCount).toBe(1);
+    expect(state.assistantMessageCount).toBe(1);
+    expect(state.answer).toBe("answer");
+  });
+
   it("prefers the row's project-home button for project navigation (2026-07 UI)", async () => {
     const browser = await import("../src/chatgpt-browser.js");
     const projectItemRectExpression = (browser as { projectItemRectExpression: (name: string) => string }).projectItemRectExpression;
@@ -2411,6 +2855,28 @@ function fakeAnswerState(url: string, answer: string, generating: boolean) {
   };
 }
 
+type AnswerStateWithModel = {
+  answer: string;
+  assistantMessageCount: number;
+  userMessageCount: number;
+  lastUserText: string;
+  modelSlug?: string;
+};
+
+function legacyTranscriptMessage(role: string, messageText: string): FakeElement {
+  const element = new FakeElement("div");
+  element.setAttribute("data-message-author-role", role);
+  element.innerText = messageText;
+  return element;
+}
+
+function fallbackTranscriptMessage(turn: number, position: number, role: "user" | "assistant", messageText: string): FakeElement {
+  const element = new FakeElement("div");
+  element.setAttribute("data-content-search-unit-key", `fallback-turn-${turn}:${position}:${role}`);
+  element.innerText = messageText;
+  return element;
+}
+
 function installFakeChatGptCdp(states: ReturnType<typeof fakeAnswerState>[], statusOverride: Record<string, unknown> = {}): string[] {
   const evaluations: string[] = [];
   let answerIndex = 0;
@@ -2485,7 +2951,11 @@ function installFakeChatGptSendCdp(threadUrl: string, states: ReturnType<typeof 
       return { ok: true, actualText: insertedPrompt };
     }
     if (expression.includes(").ok === true")) return true;
-    if (expression.includes(`document.querySelectorAll('[data-message-author-role="user"]')`)) return true;
+    if (expression.includes("return Boolean(last && last.text.includes(")) {
+      const doc = new FakeDocument([], []);
+      doc.searchUnitMessages = [fallbackTranscriptMessage(0, 0, "user", insertedPrompt)];
+      return evaluateBrowserStatusExpression<boolean>(expression, doc);
+    }
     if (expression.includes("location.assign(")) return undefined;
     return undefined;
   };
@@ -2573,6 +3043,7 @@ class FakeElement {
   textContent = "";
   parentElement?: FakeElement;
   formRoot?: FakeElement;
+  children: FakeElement[] = [];
   buttons: FakeButton[] = [];
   onDispatch?: (event: FakeEvent) => void;
   private attributes = new Map<string, string>();
@@ -2605,7 +3076,14 @@ class FakeElement {
   }
 
   closest(selector: string): FakeElement | undefined {
-    if (selector.includes("[data-message-author-role]")) return undefined;
+    let current: FakeElement | undefined = this;
+    while (current) {
+      if (selector.includes("[data-message-author-role]") && current.getAttribute("data-message-author-role") !== null) return current;
+      if (selector.includes('[data-user-message-bubble="true"]') && current.getAttribute("data-user-message-bubble") === "true") return current;
+      if (selector.includes("[data-content-search-unit-key") && current.getAttribute("data-content-search-unit-key") !== null) return current;
+      if ((selector.includes("nav") || selector.includes('[role="navigation"]')) && current.tagName.toLowerCase() === "nav") return current;
+      current = current.parentElement;
+    }
     if (selector === "form") return this.formRoot ?? (this.tagName === "form" ? this : undefined);
     if (selector.includes("data-testid") || selector.includes("class")) return this.formRoot;
     return undefined;
@@ -2671,6 +3149,9 @@ class FakeDocument {
   menuItems: FakeElement[] = [];
   dialogs: FakeElement[] = [];
   messages: FakeElement[] = [];
+  searchUnitMessages: FakeElement[] = [];
+  transcriptNodes?: FakeElement[];
+  textNodes: Array<{ parentElement?: FakeElement; nodeValue?: string }> = [];
   projectOptionButtons: FakeElement[] = [];
 
   constructor(
@@ -2679,14 +3160,36 @@ class FakeDocument {
   ) {}
 
   createTreeWalker(): { nextNode: () => boolean; currentNode?: { parentElement?: FakeElement; nodeValue?: string } } {
-    return { nextNode: () => false };
+    let index = -1;
+    const walker: { nextNode: () => boolean; currentNode?: { parentElement?: FakeElement; nodeValue?: string } } = {
+      nextNode: () => {
+        index += 1;
+        walker.currentNode = this.textNodes[index];
+        return index < this.textNodes.length;
+      }
+    };
+    return walker;
   }
 
   querySelectorAll(selector: string): FakeElement[] {
     if (selector === "button,a,[role=\"button\"]" || selector === 'button,[role="button"]') {
       return this.roots.flatMap((root) => root.buttons);
     }
+    if (selector.includes("[data-message-author-role]") && selector.includes("[data-content-search-unit-key")) {
+      const nodes = this.transcriptNodes ?? [...this.messages, ...this.searchUnitMessages];
+      return nodes.filter((node) => {
+        if (node.getAttribute("data-message-author-role") !== null) return true;
+        const key = node.getAttribute("data-content-search-unit-key") ?? "";
+        return /^fallback-turn-\d+:\d+:(?:user|assistant)$/.test(key);
+      });
+    }
     if (selector === "[data-message-author-role]") return this.messages;
+    if (selector.includes("[data-content-search-unit-key")) {
+      return this.searchUnitMessages.filter((node) => {
+        const key = node.getAttribute("data-content-search-unit-key") ?? "";
+        return /^fallback-turn-\d+:\d+:(?:user|assistant)$/.test(key);
+      });
+    }
     if (selector.includes("menuitemradio") || selector.includes('[role="menuitem"]')) return this.menuItems;
     if (selector.includes("프로젝트 옵션") || selector.includes("project options")) return this.projectOptionButtons;
     if (selector.includes('[role="dialog"]')) return this.dialogs;

@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-09-26",
+  "sourceCommit": "8e1a3e589990d7ecbdae0f2b0cc0fde20ce5b7be",
+  "browser": "Chrome/154.0.8037.57",
+  "profilePolicy": "fresh disposable profile per run; synthetic local marker only",
+  "authenticatedRequests": 0,
+  "promptSends": 0,
+  "publicNavigationCommands": 4,
+  "productionRestarts": 0,
+  "results": [
+    {
+      "target": "wsl-linux-x64",
+      "image": "sha256:e3e3b7c886e1f37c08c97956604977f3d41d132f080eaaf01513e023ae37e7b9",
+      "actualMode": "headed-xvfb",
+      "exitCode": 0,
+      "localCapabilitiesPassed": true,
+      "gracefulClose": true,
+      "cleanup": true,
+      "publicNavigation": {"schemaVersion":1,"outcome":"response","phase":"complete","failedPhase":null,"elapsedMs":483,"navigationCommands":1,"diagnostics":{"httpStatus":200,"correlation":"confirmed","responses":[{"atMs":167.06134599999996,"status":200,"kind":"response","contentType":"text/html","challenge":false}],"transportFailure":null,"truncated":false,"documentLoaded":true},"error":null}
+    },
+    {
+      "target": "wsl-linux-x64",
+      "image": "sha256:e3e3b7c886e1f37c08c97956604977f3d41d132f080eaaf01513e023ae37e7b9",
+      "actualMode": "pure-headless",
+      "exitCode": 1,
+      "localCapabilitiesPassed": true,
+      "gracefulClose": true,
+      "cleanup": true,
+      "publicNavigation": {"schemaVersion":1,"outcome":"http_error","phase":"complete","failedPhase":null,"elapsedMs":144,"navigationCommands":1,"diagnostics":{"httpStatus":403,"correlation":"confirmed","responses":[{"atMs":88.62903099999994,"status":307,"kind":"redirect","contentType":null,"challenge":false},{"atMs":107.4088099999999,"status":403,"kind":"response","contentType":"text/html","challenge":true}],"transportFailure":null,"truncated":false,"documentLoaded":false},"error":null}
+    },
+    {
+      "target": "m3-colima-linux-arm64",
+      "image": "sha256:7741e053af2b9336b458049b31ba3a5f004a3034bae0fba42f9223a7d1ece5e9",
+      "actualMode": "headed-xvfb",
+      "exitCode": 0,
+      "localCapabilitiesPassed": true,
+      "gracefulClose": true,
+      "cleanup": true,
+      "publicNavigation": {"schemaVersion":1,"outcome":"response","phase":"complete","failedPhase":null,"elapsedMs":216,"navigationCommands":1,"diagnostics":{"httpStatus":200,"correlation":"confirmed","responses":[{"atMs":86.36948299999995,"status":200,"kind":"response","contentType":"text/html","challenge":false}],"transportFailure":null,"truncated":false,"documentLoaded":true},"error":null}
+    },
+    {
+      "target": "m3-colima-linux-arm64",
+      "image": "sha256:7741e053af2b9336b458049b31ba3a5f004a3034bae0fba42f9223a7d1ece5e9",
+      "actualMode": "pure-headless",
+      "exitCode": 1,
+      "localCapabilitiesPassed": true,
+      "gracefulClose": true,
+      "cleanup": true,
+      "publicNavigation": {"schemaVersion":1,"outcome":"http_error","phase":"complete","failedPhase":null,"elapsedMs":38,"navigationCommands":1,"diagnostics":{"httpStatus":403,"correlation":"confirmed","responses":[{"atMs":24.238931000000093,"status":307,"kind":"redirect","contentType":null,"challenge":false},{"atMs":33.45208700000012,"status":403,"kind":"response","contentType":"text/html","challenge":true}],"transportFailure":null,"truncated":false,"documentLoaded":false},"error":null}
+    }
+  ]
+}

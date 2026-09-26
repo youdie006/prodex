@@ -243,7 +243,7 @@ function install(pages: Page[], options: { crashesAgain?: boolean; changesBefore
           }
           else if (expression.includes("return { ok: true, hasText }")) value = { ok: true, hasText: false };
           else if (expression.includes(").ok === true")) value = true;
-          else if (expression.includes(`document.querySelectorAll('[data-message-author-role="user"]')`)) value = fixture.submissions > 0;
+          else if (expression.includes("return Boolean(last && last.text.includes(")) value = fixture.submissions > 0;
         }
         this.emit({ id: request.id, result: { result: { value } } });
       });

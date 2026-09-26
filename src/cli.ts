@@ -280,6 +280,8 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
 
   if (command === "init") return runInitCommand(rest, io);
 
+  if (command === "login") return (await import("./cli-login.js")).runLoginCommand(rest, io);
+
   if (command === "setup") return runSetupCommand(rest, io);
 
   if (command === "start") return runStartCommand(rest, io);
