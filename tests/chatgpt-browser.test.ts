@@ -23,6 +23,7 @@ import {
   chatGptRequestMatchesUserTurn,
   chatGptPromptPostedExpression,
   idleChatGptNavigationExpression,
+  freshChatGptHomeReadyExpression,
   chatGptBlockerErrorFromAnswerState,
   chatGptBlockerFromAnswerState,
   CHATGPT_RUNTIME_BLOCKER_TEXT_EXCLUDED_ANCESTORS,
@@ -309,6 +310,36 @@ Show more`;
     await vi.advanceTimersByTimeAsync(30_000);
     await expect(send).resolves.toMatchObject({ answer: "correct answer", requestVerified: true });
     expect(reads).toBeGreaterThan(1);
+  });
+
+  it("uses an already-open model menu without resolving its aria-hidden background trigger", async () => {
+    vi.useFakeTimers();
+    const thread = "https://chatgpt.com/c/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+    installFakeChatGptSendCdp(thread, [
+      { ...fakeAnswerState(thread, "", false), assistantMessageCount: 0, userMessageCount: 0 },
+      fakeAnswerState(thread, "correct answer", false)
+    ]);
+    const base = FakeCdpWebSocket.evaluate;
+    let triggerReads = 0;
+    FakeCdpWebSocket.evaluate = (expression) => {
+      if (expression === menuOpenExpression() || expression === powerSliderPresentExpression()) return true;
+      if (expression === modelButtonRectExpression()) {
+        triggerReads += 1;
+        return { ok: false, reason: "background composer is aria-hidden while the picker is open" };
+      }
+      if (expression === powerSliderStateExpression()) {
+        return { ok: true, position: 4, min: 0, max: 4, model: "GPT-5.6 Sol", effort: "Pro" };
+      }
+      if (expression === focusPowerSliderExpression()) return { ok: true };
+      return base(expression);
+    };
+
+    const send = sendChatGptPrompt({ port: 19338, prompt: "answer this", effort: "Pro", targetUrl: thread, timeoutMs: 10_000 });
+    void send.catch(() => undefined);
+    await vi.advanceTimersByTimeAsync(30_000);
+
+    await expect(send).resolves.toMatchObject({ answer: "correct answer", requestVerified: true });
+    expect(triggerReads).toBe(0);
   });
 
   it.each([
@@ -2939,6 +2970,7 @@ function installFakeChatGptSendCdp(threadUrl: string, states: ReturnType<typeof 
         ...statusOverride
       };
     }
+    if (expression === freshChatGptHomeReadyExpression()) return /^https:\/\/chatgpt\.com\/?(?:[?#].*)?$/.test(threadUrl);
     if (expression.includes("assistantMessageCount")) {
       const state = states[Math.min(answerIndex, states.length - 1)];
       answerIndex += 1;

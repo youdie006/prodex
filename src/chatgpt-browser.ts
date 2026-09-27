@@ -1140,6 +1140,10 @@ async function waitForFreshChatGptPage(page: DevtoolsPage, timeoutMs: number): P
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     try {
+      if (!await evaluateOnPage<boolean>(page, freshChatGptHomeReadyExpression())) {
+        await sleep(300);
+        continue;
+      }
       const state = await evaluateOnPage<ChatGptAnswerState>(page, answerExpression());
       if (isFreshChatGptPage(state)) return true;
     } catch (error) {
@@ -2646,18 +2650,41 @@ export function focusPowerSliderExpression(): string {
 
 export function modelButtonRectExpression(): string {
   return `(() => {${CLICK_POINT_SNIPPET}
-    const c = document.querySelector('#prompt-textarea,[contenteditable="true"],textarea');
-    const scope = c ? (c.closest('form') || document) : document;
-    const b = [...scope.querySelectorAll('[aria-haspopup="menu"]')].find((el) => {
-      const t = (el.textContent || "").trim();
-      const aria = el.getAttribute("aria-label") || "";
-      return /\\S/.test(t) && !/파일|첨부|받아쓰기|음성|dictation|attach|file|voice|record|search|mic/i.test(t + aria);
-    });
-    if (!b) return { ok: false, reason: "model selector button not found" };
+    ${composerExpressionHelpers()}
+    const isRenderedComposer = (node) => {
+      if (!isVisible(node) || node.closest('[inert],[aria-hidden="true"]')) return false;
+      for (let ancestor = node; ancestor; ancestor = ancestor.parentElement) {
+        const style = getComputedStyle(ancestor);
+        if (style.display === "none" || style.visibility === "hidden" || style.visibility === "collapse" || style.opacity === "0") return false;
+      }
+      return true;
+    };
+    const roots = [...new Set(
+      [...document.querySelectorAll('textarea[data-testid="prompt-textarea"], div[role="textbox"], textarea, [contenteditable="true"]')]
+        .filter(isEditableComposer)
+        .filter(isRenderedComposer)
+        .map(findChatGptComposerRoot)
+        .filter((root) => root && isChatGptComposerRootEl(root) && isRenderedComposer(root))
+    )];
+    if (roots.length === 0) return { ok: false, reason: "model selector button not found: no rendered composer" };
+    if (roots.length !== 1) return { ok: false, reason: "multiple rendered composer roots found" };
+    const exactSelector = '[data-codex-intelligence-trigger="true"][aria-haspopup="menu"],button[aria-label="Select ChatGPT model"][aria-haspopup="menu"]';
+    const matches = [...new Set([...roots[0].querySelectorAll(exactSelector)])];
+    if (matches.length === 0) return { ok: false, reason: "model selector button not found" };
+    if (matches.length !== 1) return { ok: false, reason: "multiple model selector buttons found" };
+    const b = matches[0];
+    const style = getComputedStyle(b);
+    if (b.disabled || b.getAttribute("aria-disabled") === "true" || b.closest('[inert],[aria-hidden="true"]')) {
+      return { ok: false, reason: "model selector button is disabled or inert" };
+    }
+    if (!isRenderedComposer(b) || style.pointerEvents === "none") {
+      return { ok: false, reason: "model selector button is hidden or not clickable" };
+    }
     // Return the label too: the caller compares it against the requested model
     // to skip opening the menu when it is already selected.
     const label = ((b.getAttribute("aria-label") || b.textContent || "").trim().split(String.fromCharCode(10))[0] || "").trim();
-    return { ...clickPoint(b), label };
+    const point = clickPoint(b);
+    return point.ok ? { ...point, label, strict: true } : point;
   })()`;
 }
 
@@ -3162,10 +3189,10 @@ async function ensurePickerOpen(cdp: CdpConnection): Promise<boolean> {
   // has not painted its slider yet looks identical to one that has.
   for (let attempt = 0; attempt < 3; attempt += 1) {
     if (await cdp.evaluate<boolean>(powerSliderPresentExpression())) return true;
-    await waitForExpressionTrue(cdp, pickerClosedExpression(), 1_500);
+    if (!await waitForExpressionTrue(cdp, pickerClosedExpression(), 1_500)) return false;
     const button = await cdp.evaluate<RectHit>(modelButtonRectExpression());
     if (!button.ok || button.x === undefined || button.y === undefined) return false;
-    await verifiedClickAt(cdp, button.x, button.y, "model selector");
+    await verifiedClickAt(cdp, button.x, button.y, "model selector", true);
     if (await waitForExpressionTrue(cdp, powerSliderPresentExpression(), MENU_OPEN_TIMEOUT_MS)) return true;
   }
   return false;
@@ -3308,10 +3335,15 @@ async function selectModelReasoning(
   if (options.proMode && options.model && !/pro/i.test(options.model)) {
     throw new Error(`--pro-mode applies to the Pro model, but --model is "${options.model}". Drop --model (or set --model Pro) to choose a Pro sub-mode.`);
   }
-  // Poll for the model selector button rather than checking once: right after a
-  // new-chat navigation the composer form (and the selector inside it) has not
-  // finished rendering yet, so a single check throws "model selector button not
-  // found" even though the button appears a moment later.
+  // An already-open Radix menu can aria-hide the background composer. Observe
+  // that state before resolving its trigger; resolving first would reject the
+  // hidden trigger even though the requested picker is already usable.
+  const alreadyOpen = await cdp.evaluate<boolean>(menuOpenExpression());
+  // Poll for the model selector button rather than checking once when the menu
+  // is closed: right after a new-chat navigation the composer form (and the
+  // selector inside it) has not finished rendering yet, so a single check
+  // throws "model selector button not found" even though the button appears a
+  // moment later.
   //
   // Four seconds was not enough for the case this browser exists for: two
   // agents sending one after the other. Measured - a send that started two
@@ -3320,21 +3352,23 @@ async function selectModelReasoning(
   // the same pattern succeeded either side of it. The neighbouring waits for
   // the same kind of render already allow six to eight.
   let button: RectHit = { ok: false };
-  const buttonDeadline = Date.now() + PROJECT_NAVIGATION_TIMEOUT_MS;
-  for (;;) {
-    button = await cdp.evaluate<RectHit>(modelButtonRectExpression());
-    if (button.ok && button.x !== undefined && button.y !== undefined) break;
-    if (Date.now() >= buttonDeadline) break;
-    await sleep(200);
-  }
-  if (!button.ok || button.x === undefined || button.y === undefined) {
-    throw new ChatGptBrowserBlockerError(chatGptComposerNotReadyBlocker(button.reason));
+  if (!alreadyOpen) {
+    const buttonDeadline = Date.now() + PROJECT_NAVIGATION_TIMEOUT_MS;
+    for (;;) {
+      button = await cdp.evaluate<RectHit>(modelButtonRectExpression());
+      if (button.ok && button.x !== undefined && button.y !== undefined) break;
+      if (Date.now() >= buttonDeadline) break;
+      await sleep(200);
+    }
+    if (!button.ok || button.x === undefined || button.y === undefined) {
+      throw new ChatGptBrowserBlockerError(chatGptComposerNotReadyBlocker(button.reason));
+    }
   }
   // Skip the menu entirely when the picker already shows the requested model:
   // it is the same end state, and it survives ChatGPT reshuffling the menu
   // (which it did - the models moved behind a "Model" submenu and every
   // --model Pro send started failing).
-  if (options.model && !options.proMode && !options.effort && modelButtonAlreadyShows(options.model, button.label)) {
+  if (!alreadyOpen && options.model && !options.proMode && !options.effort && modelButtonAlreadyShows(options.model, button.label)) {
     return;
   }
   try {
@@ -3347,10 +3381,9 @@ async function selectModelReasoning(
     // Clicking the trigger TOGGLES the picker, so clicking one that is already
     // open shuts it and the next step reports "power slider not found" about a
     // control that was on screen a moment earlier.
-    const alreadyOpen = await cdp.evaluate<boolean>(powerSliderPresentExpression());
     for (; !alreadyOpen; ) {
       try {
-        await verifiedClickAt(cdp, button.x!, button.y!, "model selector");
+        await verifiedClickAt(cdp, button.x!, button.y!, "model selector", true);
         break;
       } catch (error) {
         if (Date.now() >= clickDeadline || !/Refusing to click/.test(error instanceof Error ? error.message : String(error))) throw error;
@@ -4223,6 +4256,7 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
     // caller timed out and released the process lock. Project homes supply
     // their own fresh composer and must not pass through the root first.
     const freshUrl = options.temporary ? "https://chatgpt.com/?temporary-chat=true" : "https://chatgpt.com/";
+    await evaluateOnPage(page, markDocumentForReloadExpression());
     await navigateIdleChatGptPage(page, freshUrl);
     if (!await waitForFreshChatGptPage(page, 8_000)) {
       throw new ChatGptBrowserBlockerError({
@@ -5168,7 +5202,7 @@ export async function inspectConfiguredBrowserSelectors(input: {
       const button = await cdp.evaluate<RectHit>(modelButtonRectExpression());
       if (!button.ok || button.x === undefined || button.y === undefined) throw new Error(button.reason ?? "Model selector not found");
       openedByProbe = true;
-      await verifiedClickAt(cdp, button.x, button.y, "model selector");
+      await verifiedClickAt(cdp, button.x, button.y, "model selector", true);
       if (!(await waitForExpressionTrue(cdp, menuOpenExpression(), Math.min(remaining(), MENU_OPEN_TIMEOUT_MS)))) {
         throw new Error("ChatGPT model menu did not open after clicking the selector");
       }
@@ -5305,7 +5339,7 @@ export async function listChatGptModelOptions(
       throw new Error(button.reason ?? "Could not open the ChatGPT model selector");
     }
     try {
-      await verifiedClickAt(cdp, button.x, button.y, "model selector");
+      await verifiedClickAt(cdp, button.x, button.y, "model selector", true);
       const opened = await waitForExpressionTrue(cdp, menuOpenExpression(), MENU_OPEN_TIMEOUT_MS);
       if (!opened) throw new Error("ChatGPT model menu did not open after clicking the selector");
       const options = await cdp.evaluate<ChatGptModelOption[]>(modelMenuOptionsExpression());
