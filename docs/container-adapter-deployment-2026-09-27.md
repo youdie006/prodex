@@ -128,6 +128,23 @@ reattached. An affected Claude session needs only `/mcp` -> ProDex reconnect,
 not a login reset or full agent restart. The reporting harness session was
 notified and asked for one read-only connection check, without a consult resend.
 
+### Reporting Session Reconnected
+
+The original reporting Claude session confirmed that replacement had closed
+its old transport and removed its ProDex tools. The user then reconnected
+ProDex through `/mcp`, which reported `Reconnected to prodex`.
+
+At `2026-09-27T14:21:35Z`, that same session successfully called
+`mcp__prodex__bridge_list_tasks(status=new)` once and received the normal
+`{"tasks":[]}` response. This evidence was reported by the owning session,
+not inferred from the separate fresh-client check above. It reported no
+consult submission, task creation or browser interaction during verification.
+
+The deployment/reconnect incident is closed for this reporting session.
+Other already-open clients are not covered by that confirmation; no new
+Pro-answer or pure-headless verification is implied. The deployed image and
+adapter were not changed during this follow-up.
+
 Rollback, if required, retags the recorded old image as
 `prodex-browser:experimental` and recreates only the idle existing Compose
 browser service while preserving the named volume. Rollback was not needed.
