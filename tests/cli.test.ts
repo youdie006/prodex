@@ -5050,7 +5050,7 @@ describe("runCli", () => {
     expect(out.join("\n")).not.toContain("Opened ChatGPT browser");
   });
 
-  it("rejects fake Chrome-compatible commands found on PATH", async () => {
+  it("rejects an explicitly selected fake Chrome-compatible command on PATH", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     const binDir = await mkdtemp(path.join(tmpdir(), "prodex-fake-browser-"));
     const out: string[] = [];
@@ -5062,15 +5062,17 @@ describe("runCli", () => {
       await chmod(fake, 0o755);
     }
     process.env.PATH = `${binDir}${path.delimiter}${previousPath ?? ""}`;
-    delete process.env.PRODEX_CHROME;
+    // Pin the fake PATH command so native install-path fallbacks cannot launch.
+    process.env.PRODEX_CHROME = "google-chrome";
+    mockRefusedBrowserConnection();
     try {
       await expect(
-        runCli(["pro", "browser", "login", "--port", "9"], {
+        runCli(["pro", "browser", "login", "--profile-dir", path.join(cwd, "profile"), "--port", "9"], {
           cwd,
           stdout: (line) => out.push(line),
           stderr: () => {}
         })
-      ).rejects.toThrow(/Chrome|Chromium/i);
+      ).rejects.toThrow(/PRODEX_CHROME.*(?:Chrome\/Chromium-compatible|not found)/i);
     } finally {
       if (previousPath === undefined) delete process.env.PATH;
       else process.env.PATH = previousPath;

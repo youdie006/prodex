@@ -227,3 +227,29 @@ The follow-up separates `target_url_mismatch` and `target_tab_missing` with
 all test fixtures and the global 30-second deadline. No runtime code or
 production timeout changes. The failed run is retained; replacement native
 CI results are recorded in the PR rather than calling a rerun itself a fix.
+
+Replacement run [36333317322](https://github.com/youdie006/prodex/actions/runs/36333317322)
+for `69b20d538ff25d2bc975b442cf3aebee7ee17a53` passed all six native jobs:
+Ubuntu Node 20/22/24, Windows x64 and macOS Intel/ARM64. The corresponding
+local suite passed 140 files, 1,978 tests with three skipped. This closes the
+measured retry-scenario timeout, not the separate cleanup observation below.
+
+The follow-up also examined CI runner cleanup logs: both failed Intel and
+passing ARM jobs terminated a later Chrome process tree after their separately
+owned account-free smoke had completed. A source trace identified a test-only
+route: the fake-PATH CLI test cleared `PRODEX_CHROME`, allowing discovery to
+continue to a valid macOS application or Windows install path. Its broad
+Chrome-error assertion could then pass after a real launch/readiness failure.
+The orphan logs do not contain command lines, so attribution of every orphan
+to this test remains an inference, not a measured process correlation.
+
+The CLI test now pins the fake PATH command, passes an isolated profile and
+mocks refused browser connections. Eight separate process/filesystem-mocked
+discovery tests exercise Linux, macOS and Windows rejection, valid PATH
+selection and installed fallback. They deterministically confirm that invalid
+PATH candidates do not prohibit a valid installed fallback, without executing
+any real browser. An initial overly broad assertion rejected Linux's legitimate
+X0 socket stat; it was narrowed to permit only that display-presence read while
+still rejecting any unexpected install-path access. Production discovery and
+browser lifecycle behavior are unchanged. Subsequent native CI cleanup logs
+are checked separately before claiming the observed orphan symptom resolved.
