@@ -1,5 +1,10 @@
 # Composer tools and stale-container blocker: 2026-09-26
 
+The pending WSL container replacement described below was authorized and
+[completed on September 27](container-adapter-deployment-2026-09-27.md).
+The original observations and September 26 delivery limits remain historical
+checkpoints, not the current WSL installation state.
+
 ## Separate Reports
 
 The reporting Claude session had already recovered its stdio MCP connection.
