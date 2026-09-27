@@ -253,3 +253,32 @@ X0 socket stat; it was narrowed to permit only that display-presence read while
 still rejecting any unexpected install-path access. Production discovery and
 browser lifecycle behavior are unchanged. Subsequent native CI cleanup logs
 are checked separately before claiming the observed orphan symptom resolved.
+
+Run [36334465570](https://github.com/youdie006/prodex/actions/runs/36334465570)
+for `b8ed9d2c8eca2333eae406e405a8878fa8e86cb6` passed Ubuntu Node 20/22/24,
+Windows x64 and macOS ARM64. The final cleanup logs for Windows and both macOS
+jobs contain no orphan-process termination, unlike the earlier runs. This is
+an observed cleanup improvement, not proof of every prior orphan's identity.
+
+The Intel job failed the existing cross-client follow-up approval test at
+30.02 seconds, followed by a shared-mock send-count failure in the zero-budget
+test. Its prior passing duration was 9.19 seconds. In the same file, the
+two-turn evidence test increased from 9.63 to 19.90 seconds, and the existing
+60-second approval-renewal test increased from 22.77 to 41.15 seconds. The
+timed-out async workflow can continue after the next test resets the shared
+mock, so the second failure is consistent with timeout spillover; the logs
+alone do not prove the identity of that extra mock call.
+
+Unlike the independent retry cases, this test must build a root and follow-up
+before checking the exhausted budget through a new MCP client. It now receives
+the same scoped 60-second budget as neighboring durable multi-turn cases. All
+approval, send-count and task-count assertions remain unchanged, as do global
+test limits and production deadlines. Both failures remain in the linked run;
+replacement CI results are recorded in the PR after verification.
+
+Local verification of this follow-up passed all 28 MCP consult tests, then
+the complete 141-file suite (1,986 passed, three skipped), `npm run typecheck`
+and `git diff --check`. A read-only service check also reconfirmed both
+original container IDs/images as healthy with zero restarts and the same
+restored start times. No additional account question or browser action was
+needed for these test-only changes.

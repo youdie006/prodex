@@ -450,7 +450,7 @@ describe("MCP follow-up approval checkpoints", () => {
     expect(payload.blocker.code).toBe("followup_approval_required");
     expect(sendChatGptPromptMock).toHaveBeenCalledTimes(2);
     expect((await store.listTasks()).length).toBe(before);
-  });
+  }, 60_000); // Sequential durable history plus a fresh MCP client on native CI.
 
   it("requires approval before every follow-up with a zero budget, without persisting approval in the handle", async () => {
     vi.stubEnv("PRODEX_MAX_AUTO_FOLLOWUPS", "0");
