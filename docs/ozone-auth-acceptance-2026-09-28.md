@@ -210,3 +210,20 @@ The Ozone functional gate now passes on both available architectures. Full
 strict-Pro acceptance and automatic/default production promotion remain open;
 neither missing evidence nor the earlier pure-headless 403 is erased by these
 successful results.
+
+## Native CI Follow-up
+
+CI run [36332040945](https://github.com/youdie006/prodex/actions/runs/36332040945)
+for source commit `7dd6e2c37529c16469a163456aaf47d12458c97b` passed the three
+Ubuntu Node versions, Windows x64 and macOS ARM64. The macOS Intel job failed one existing
+CLI test: `prints actual target-url retry commands for targeted browser ask
+blockers` exceeded 30 seconds. Its other 1,975 tests passed, with
+four tests skipped; the new runner tests did not fail. Build and account-free
+native browser smoke had passed before the test failure.
+
+That test performed two independent durable CLI workflows in a single loop.
+The follow-up separates `target_url_mismatch` and `target_tab_missing` with
+`it.each`, keeping the same thrown-error and persisted retry-command checks,
+all test fixtures and the global 30-second deadline. No runtime code or
+production timeout changes. The failed run is retained; replacement native
+CI results are recorded in the PR rather than calling a rerun itself a fix.
