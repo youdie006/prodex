@@ -188,6 +188,12 @@ containers, matching the original topology and preserving each browser's PID
 budget. Repeating the exhausted shared-container matrix or sending a candidate
 ChatGPT request would not answer the unresolved local input question.
 
+That separate-container comparison was subsequently executed on September 27.
+The [follow-up record](separate-load-focus-2026-09-27.md) preserves an initial
+read-only-home startup failure and sixteen valid, passing input measurements
+after correcting that experiment prerequisite. Its classification remains
+non-reproduction, not proof that the original intermittent failure is fixed.
+
 ## Reproduction materials
 
 [Experimental files](experiments/ozone-2026-09-26/) are container-only research

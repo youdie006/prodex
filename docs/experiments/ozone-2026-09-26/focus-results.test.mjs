@@ -16,12 +16,12 @@ test('pre-input and cleanup failures stop subsequent trials', () => {
 
 test('attempts are not measurements and an incomplete matrix cannot pass', () => {
   const failed = { status: 'fail', cleanup: { confirmed: false }, commands: [] };
-  const result = classifyTrials([measured(), measured(), failed], 16, []);
+  const result = classifyTrials([measured(), measured(), failed], 4, []);
   assert.deepEqual(result, {
-    plannedTrials: 16, attemptedTrials: 3, validInputTrials: 2,
-    unattemptedTrials: 13, outcome: 'INVALID_INFRASTRUCTURE'
+    plannedTrials: 4, attemptedTrials: 3, validInputTrials: 2,
+    unattemptedTrials: 1, outcome: 'INVALID_INFRASTRUCTURE'
   });
-  assert.equal(classifyTrials([measured()], 16, []).outcome, 'INCOMPLETE');
+  assert.equal(classifyTrials([measured()], 4, []).outcome, 'INCOMPLETE');
   assert.equal(classifyTrials([measured()], 1, []).outcome, 'INCONCLUSIVE_NON_REPRODUCTION');
 });
 

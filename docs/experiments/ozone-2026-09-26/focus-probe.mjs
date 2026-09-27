@@ -16,6 +16,12 @@ import {
   inspectBrowserProcesses
 } from '/app/dist/browser-process.js';
 import { withCdpSession } from '/app/scripts/browser-launch-smoke.mjs';
+import {
+  FOCUS_TRIALS,
+  externalLoadEvidence,
+  parseExternalLoad,
+  selectFocusTrials
+} from './experiment-support.mjs';
 import { classifyTrials, mustStop } from './focus-results.mjs';
 
 const READY_TIMEOUT_MS = 20_000;
@@ -28,25 +34,6 @@ const EXPECTED_WRAPPER = '/opt/prodex-ozone/chrome';
 const PRIME_MARKER_KEY = 'prodex-ozone-focus-prime-v1';
 const probeStartedAt = performance.now();
 const allocatedBrowserPorts = new Set();
-
-const PAIRS = Object.freeze([
-  { pair: 1, repeat: 1, startup: 'cold', load: 'isolated', armOrder: ['A', 'B'] },
-  { pair: 2, repeat: 1, startup: 'restart', load: 'single-render-load', armOrder: ['B', 'A'] },
-  { pair: 3, repeat: 1, startup: 'cold', load: 'single-render-load', armOrder: ['A', 'B'] },
-  { pair: 4, repeat: 1, startup: 'restart', load: 'isolated', armOrder: ['B', 'A'] },
-  { pair: 5, repeat: 2, startup: 'restart', load: 'isolated', armOrder: ['A', 'B'] },
-  { pair: 6, repeat: 2, startup: 'cold', load: 'single-render-load', armOrder: ['B', 'A'] },
-  { pair: 7, repeat: 2, startup: 'restart', load: 'single-render-load', armOrder: ['A', 'B'] },
-  { pair: 8, repeat: 2, startup: 'cold', load: 'isolated', armOrder: ['B', 'A'] }
-]);
-
-const TRIALS = Object.freeze(PAIRS.flatMap((pair) => pair.armOrder.map((arm, armPosition) => Object.freeze({
-  ...pair,
-  arm,
-  armPosition: armPosition + 1,
-  trial: (pair.pair - 1) * 2 + armPosition + 1,
-  id: `pair-${String(pair.pair).padStart(2, '0')}-${arm}`
-}))));
 
 const KEY_DOWN = Object.freeze({
   type: 'keyDown',
@@ -95,8 +82,10 @@ await run().catch((error) => {
 });
 
 async function run() {
+  const trials = selectFocusTrials(process.env.PRODEX_FOCUS_TRIAL);
+  const externalLoadRequested = parseExternalLoad(process.env.PRODEX_FOCUS_EXTERNAL_LOAD);
   await assertOfflineAdmission();
-  assertPredeclaredDesign();
+  assertPredeclaredDesign(trials);
 
   let tempRoot;
   let fixture;
@@ -105,8 +94,8 @@ async function run() {
   try {
     tempRoot = await realpath(await mkdtemp(path.join(tmpdir(), 'prodex-ozone-focus-')));
     fixture = await startFixtureServer();
-    for (const trial of TRIALS) {
-      const result = await runTrial(trial, tempRoot, fixture.url);
+    for (const trial of trials) {
+      const result = await runTrial(trial, tempRoot, fixture.url, externalLoadRequested);
       results.push(result);
       console.log(JSON.stringify(result));
       if (mustStop(result)) break;
@@ -129,7 +118,8 @@ async function run() {
     .filter((result) => result.status === 'fail')
     .map((result) => ({ trial: result.trial.id, ...result.failure }));
   const failures = [...trialFailures, ...harnessFailures];
-  const matrix = PAIRS.map((pair) => {
+  const plannedPairs = [...new Map(trials.map((trial) => [trial.pair, trial])).values()];
+  const matrix = plannedPairs.map((pair) => {
     const arms = Object.fromEntries(results
       .filter((result) => result.trial.pair === pair.pair)
       .map((result) => [result.trial.arm, result.status]));
@@ -137,17 +127,17 @@ async function run() {
       pair: pair.pair,
       repeat: pair.repeat,
       startup: pair.startup,
-      load: pair.load,
+      load: externalLoadRequested ? 'external-render-load-requested' : 'isolated',
       armOrder: pair.armOrder.join(''),
       A: arms.A ?? 'not-run',
       B: arms.B ?? 'not-run'
     };
   });
-  const classification = classifyTrials(results, TRIALS.length, harnessFailures);
+  const classification = classifyTrials(results, trials.length, harnessFailures);
   const allPassed = classification.outcome === 'INCONCLUSIVE_NON_REPRODUCTION';
   console.log(JSON.stringify({
     kind: 'focus-probe-final',
-    schemaVersion: 2,
+    schemaVersion: 3,
     arch: process.arch,
     ...classification,
     interpretation: allPassed
@@ -156,7 +146,11 @@ async function run() {
     matrix,
     failures,
     cleanup: harnessFailures.length === 0 && results.every((result) => result.cleanup?.confirmed === true),
-    workloadLimitation: 'single-render-load shares the target container CPU budget; it is not the original separate-container load model',
+    externalLoad: externalLoadEvidence(externalLoadRequested),
+    resourceScope: 'target-container-only',
+    workloadLimitation: externalLoadRequested
+      ? 'External load readiness, browser state, process state, and resources are not observed by this target probe; coordinator evidence is required.'
+      : null,
     publicNavigation: 'not_tested',
     authenticationData: 'not_accessed'
   }));
@@ -183,20 +177,16 @@ async function assertOfflineAdmission() {
     'ozone wrapper must not add graphics, identity, or security experiment flags');
 }
 
-function assertPredeclaredDesign() {
-  assert.equal(PAIRS.length, 8);
-  assert.equal(TRIALS.length, 16);
-  for (const startup of ['cold', 'restart']) {
-    for (const load of ['isolated', 'single-render-load']) {
-      const pairs = PAIRS.filter((pair) => pair.startup === startup && pair.load === load);
-      assert.equal(pairs.length, 2, `expected two pairs for ${startup}/${load}`);
-      assert.deepEqual(pairs.map((pair) => pair.repeat).sort(), [1, 2]);
-      assert.deepEqual(pairs.map((pair) => pair.armOrder.join('')).sort(), ['AB', 'BA']);
-    }
-  }
+function assertPredeclaredDesign(trials) {
+  assert.equal(FOCUS_TRIALS.length, 4);
+  assert.deepEqual(FOCUS_TRIALS.map((trial) => `${trial.startup}-${trial.arm}`),
+    ['cold-A', 'cold-B', 'restart-B', 'restart-A']);
+  assert.deepEqual(FOCUS_TRIALS.map((trial) => trial.armOrder.join('')), ['AB', 'AB', 'BA', 'BA']);
+  assert.ok(trials.length === 1 || trials.length === FOCUS_TRIALS.length,
+    'focus run must select one exact trial or the default four-trial plan');
 }
 
-async function runTrial(plan, tempRoot, fixtureBaseUrl) {
+async function runTrial(plan, tempRoot, fixtureBaseUrl, externalLoadRequested) {
   const resourcesBefore = await readCgroupResources();
   const state = {
     phase: 'trial:prepare',
@@ -208,33 +198,17 @@ async function runTrial(plan, tempRoot, fixtureBaseUrl) {
     preKeyRecheck: undefined,
     final: undefined,
     targetBrowser: undefined,
-    loadBrowser: undefined,
     restart: { primed: false, sameProfile: false, metadataStable: false },
     cleanupErrors: []
   };
   const trialRoot = path.join(tempRoot, plan.id);
   const targetProfile = path.join(trialRoot, 'target-profile');
-  const loadProfile = path.join(trialRoot, 'load-profile');
   const targetIdentity = `${plan.id}:target`;
   const sessionIdentity = `${plan.id}:session`;
   let failure;
 
   try {
     await mkdir(targetProfile, { recursive: true });
-    if (plan.load === 'single-render-load') await mkdir(loadProfile, { recursive: true });
-
-    if (plan.load === 'single-render-load') {
-      state.phase = 'load:allocate-port';
-      const loadPort = await unusedLoopbackPort();
-      state.phase = 'load:launch';
-      const loadBrowser = launchOwnedBrowser({ role: 'render-load', port: loadPort, profileDir: loadProfile });
-      state.active.push(loadBrowser);
-      state.phase = 'load:ready';
-      const ready = await waitForOwnedBrowserReady(loadBrowser);
-      state.loadBrowser = browserEvidence(loadBrowser, ready);
-      state.phase = 'load:navigate';
-      await navigateBlankPage(loadBrowser, fixtureUrl(fixtureBaseUrl, 'load', plan.id), 'render');
-    }
 
     state.phase = 'target:allocate-port';
     const targetPort = await unusedLoopbackPort();
@@ -337,7 +311,7 @@ async function runTrial(plan, tempRoot, fixtureBaseUrl) {
       pair: plan.pair,
       repeat: plan.repeat,
       startup: plan.startup,
-      load: plan.load,
+      load: externalLoadRequested ? 'external-render-load-requested' : 'isolated',
       arm: plan.arm,
       armOrder: plan.armOrder.join(''),
       armPosition: plan.armPosition,
@@ -347,9 +321,10 @@ async function runTrial(plan, tempRoot, fixtureBaseUrl) {
     },
     status,
     resources: { before: resourcesBefore, after: await readCgroupResources() },
+    resourceScope: 'target-container-only',
     ...(failure ? { failure } : {}),
     browser: state.targetBrowser,
-    ...(state.loadBrowser ? { renderLoadBrowser: state.loadBrowser } : {}),
+    externalLoad: externalLoadEvidence(externalLoadRequested),
     restart: state.restart,
     commandClock: 'monotonic performance.now milliseconds since probe start',
     commands: state.commands,
@@ -362,11 +337,9 @@ async function runTrial(plan, tempRoot, fixtureBaseUrl) {
     ...(state.traceError ? { traceError: state.traceError } : {}),
     assertions: state.assertions,
     cleanup: { confirmed: state.cleanupErrors.length === 0, errors: state.cleanupErrors },
-    workloadModel: plan.load === 'single-render-load'
-      ? 'same-container-single-render-browser'
-      : 'same-container-isolated-target',
-    workloadLimitation: plan.load === 'single-render-load'
-      ? 'shares the target container CPU budget; differs from the original separate-container load'
+    workloadModel: externalLoadRequested ? 'external-render-load-requested-unobserved' : 'isolated-target',
+    workloadLimitation: externalLoadRequested
+      ? 'External load is not observed by the target probe; coordinator evidence is required.'
       : null,
     publicNavigation: 'not_tested',
     authenticationData: 'not_accessed'
@@ -743,17 +716,7 @@ async function navigateBlankPage(browser, url, readiness) {
     await send('Runtime.enable');
     await waitForRuntimeCondition(send, readiness === 'focus'
       ? 'document.readyState === "complete" && Boolean(document.querySelector("#probe-input")) && Boolean(window.__focusFixture?.documentIdentity)'
-      : readiness === 'render'
-        ? 'document.readyState === "complete" && Boolean(window.__renderReady)'
-        : 'document.readyState === "complete"');
-    if (readiness === 'render') {
-      const rendered = await send('Runtime.evaluate', {
-        expression: 'window.__renderReady',
-        awaitPromise: true,
-        returnByValue: true
-      });
-      assert.equal(runtimeValue(rendered, 'render load readiness')?.ready, true, 'render load did not animate');
-    }
+      : 'document.readyState === "complete"');
   });
   return page;
 }
@@ -878,7 +841,7 @@ async function unusedLoopbackPort() {
 async function startFixtureServer() {
   const server = createHttpServer((request, response) => {
     const requestUrl = new URL(request.url ?? '/', 'http://127.0.0.1');
-    const match = /^\/(focus|prime|load)\/([A-Za-z0-9-]+)$/.exec(requestUrl.pathname);
+    const match = /^\/(focus|prime)\/([A-Za-z0-9-]+)$/.exec(requestUrl.pathname);
     if (request.method !== 'GET' || !match) {
       response.writeHead(404, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' });
       response.end('not found\n');
@@ -890,7 +853,7 @@ async function startFixtureServer() {
       'content-security-policy': "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'",
       'content-type': 'text/html; charset=utf-8'
     });
-    response.end(kind === 'focus' ? focusFixtureHtml(trialId) : kind === 'load' ? renderFixtureHtml(trialId) : primeFixtureHtml(trialId));
+    response.end(kind === 'focus' ? focusFixtureHtml(trialId) : primeFixtureHtml(trialId));
   });
   server.requestTimeout = REQUEST_TIMEOUT_MS;
   server.headersTimeout = REQUEST_TIMEOUT_MS;
@@ -939,17 +902,6 @@ function focusFixtureHtml(trialId) {
 
 function primeFixtureHtml(trialId) {
   return `<!doctype html><html><head><meta charset="utf-8"><title>Synthetic restart prime</title></head><body data-trial=${JSON.stringify(trialId)}>restart prime</body></html>`;
-}
-
-function renderFixtureHtml(trialId) {
-  const id = jsonForInlineScript(trialId);
-  return `<!doctype html><html><head><meta charset="utf-8"><title>Synthetic render load</title>
-<style>html,body,canvas{margin:0;width:100%;height:100%;display:block;background:#fff}</style></head><body>
-<canvas id="load" width="1440" height="900"></canvas><script>(()=>{
-const trialId=${id};const canvas=document.querySelector('#load');const context=canvas.getContext('2d');let frames=0;let ready;
-window.__renderReady=new Promise(resolve=>{ready=resolve});
-function draw(time){for(let i=0;i<720;i++){const x=(i*37+time/3)%1440;const y=(i*53+time/5)%900;context.fillStyle='hsl('+((i+time/20)%360)+' 75% 50%)';context.fillRect(x,y,24,24)}frames+=1;if(frames===3)ready({ready:true,frames,trialId});requestAnimationFrame(draw)}
-requestAnimationFrame(draw);})();</script></body></html>`;
 }
 
 function fixtureUrl(baseUrl, kind, trialId) {

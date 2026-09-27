@@ -70,6 +70,7 @@ resolving its temporarily aria-hidden background trigger.
 - PASS: `npm run build`; built adapter SHA-256
   `079a054574c48fee7e3b5f0db4c936eb4158da080acecff82afa8aff01e80400`.
 
-The complete suite, built artifacts and per-machine runtime results are
-recorded separately after execution. No source-only result proves Pro model
-provenance or public pure-headless acceptance.
+The [deployment record](selector-ready-deployment-2026-09-27.md) records the
+WSL/M3 installed hashes, real request-verified answers and host CLI replacement.
+Both answers lacked response-level model metadata, so neither is reported as
+verified Pro provenance. Public pure-headless acceptance remains separate.
