@@ -357,6 +357,8 @@ interface ChatGptAnswerState {
   userMessageCount: number;
   /** The user turn immediately preceding the candidate answer. */
   lastUserText?: string;
+  /** A generated image follows the last user turn and no assistant turn does. */
+  nonTextAnswer?: boolean;
   /** ChatGPT's own tag for the model that produced the last answer. */
   modelSlug?: string;
   textSample: string;
@@ -462,8 +464,16 @@ const CHATGPT_GENERATING_CONTROL_PATTERN = /\bstop\s+(?:generating|responding|re
 // are more reliable than the button label text, which the pattern above can
 // miss on an icon-only/relabeled control - a miss would let a mid-stream pause
 // be accepted as the final answer, silently truncating it.
+//
+// Measured 2026-09-29: the stop control lost its test id and is now a composer
+// button labelled just "Stop". Sampled every 1.5 s through a streamed answer,
+// prodex reported generating=false on all 23 samples while that button was on
+// screen - so a pause mid-answer (a Pro reasoning gap, a network stall) could
+// be taken for the end and a truncated answer returned as complete. The label
+// is matched only inside the composer's form, where the send control lives,
+// so a "Stop" elsewhere on the page cannot answer for it.
 export const CHATGPT_STREAMING_SELECTOR =
-  '[data-testid="stop-button"],[data-message-author-role="assistant"][aria-busy="true"],[data-message-author-role="assistant"] [aria-busy="true"]';
+  '[data-testid="stop-button"],form button[aria-label="Stop"],form button[aria-label="중지"],[data-message-author-role="assistant"][aria-busy="true"],[data-message-author-role="assistant"] [aria-busy="true"]';
 
 export function defaultChatGptProfileDir(): string {
   return path.join(os.homedir(), ".local", "share", "prodex", "chrome-chatgpt-pro");
@@ -2625,15 +2635,36 @@ export function focusPowerSliderExpression(): string {
   })()`;
 }
 
+/**
+ * The composer's model trigger - and nothing outside the composer.
+ *
+ * With no composer rendered yet the lookup used to fall back to the whole
+ * document and take the first menu button with text in it. On the current
+ * sidebar that is "Pinned" or "Explore": measured 2026-09-29, every send that
+ * started on a fresh chat - a new chat, an attachment, a tool, a temporary chat
+ * - clicked a sidebar menu, then failed with "model menu did not open". A
+ * project send passed only because the project page had already rendered its
+ * composer. Now the trigger is looked for inside the rendered composer's form
+ * only (the exact "Select ChatGPT model" control first, the older heuristic
+ * second), and an unrendered composer is reported as not found, which the
+ * caller's poll waits out.
+ */
 export function modelButtonRectExpression(): string {
   return `(() => {${CLICK_POINT_SNIPPET}
-    const c = document.querySelector('#prompt-textarea,[contenteditable="true"],textarea');
-    const scope = c ? (c.closest('form') || document) : document;
-    const b = [...scope.querySelectorAll('[aria-haspopup="menu"]')].find((el) => {
+    const composer = [...document.querySelectorAll('#prompt-textarea,[contenteditable="true"],textarea')].find((el) => {
+      const r = el.getBoundingClientRect();
+      return r.width > 0 && r.height > 0;
+    });
+    if (!composer) return { ok: false, reason: "model selector button not found: the composer has not rendered" };
+    const scope = composer.closest('form');
+    if (!scope) return { ok: false, reason: "model selector button not found: the composer has no form around it" };
+    const exact = [...scope.querySelectorAll('button[aria-label="Select ChatGPT model"][aria-haspopup="menu"],[data-codex-intelligence-trigger="true"][aria-haspopup="menu"]')];
+    const b = exact.length === 1 ? exact[0] : exact.length > 1 ? null : [...scope.querySelectorAll('[aria-haspopup="menu"]')].find((el) => {
       const t = (el.textContent || "").trim();
       const aria = el.getAttribute("aria-label") || "";
       return /\\S/.test(t) && !/파일|첨부|받아쓰기|음성|dictation|attach|file|voice|record|search|mic/i.test(t + aria);
     });
+    if (exact.length > 1) return { ok: false, reason: "model selector button not found: more than one model trigger in the composer" };
     if (!b) return { ok: false, reason: "model selector button not found" };
     // Return the label too: the caller compares it against the requested model
     // to skip opening the menu when it is already selected.
@@ -3553,14 +3584,42 @@ async function dispatchEnterKey(cdp: CdpConnection): Promise<void> {
 // Creates a project in the user's real ChatGPT account: sidebar 새 프로젝트 →
 // type the name into the popover input → Enter → wait for navigation into the
 // new project. Backs out with Escape on any failure.
+/**
+ * Open the create-project dialog on the current sidebar by keyboard.
+ *
+ * Measured 2026-09-29: the sidebar's "Add new project" button sits at the
+ * sidebar's edge underneath the composer's overlay (z-20), so the point prodex
+ * clicked resolved to the overlay and nothing opened - `--project-new` failed
+ * with "new-project name input did not appear". The button carries a stable
+ * data-app-action-sidebar-project-create attribute; focusing it and pressing
+ * Enter opens the same "Create project" dialog without depending on what is
+ * drawn over it. Returns false on a sidebar without that control, where the
+ * older click path still applies.
+ */
+async function openNewProjectDialogByKeyboard(cdp: CdpConnection): Promise<boolean> {
+  const focused = await cdp.evaluate<boolean>(`(() => {
+    const button = document.querySelector('[data-app-action-sidebar-project-create]');
+    if (!button || button.disabled) return false;
+    button.focus();
+    return document.activeElement === button;
+  })()`);
+  if (!focused) return false;
+  // A button is activated by the key's text, not by the keydown alone:
+  // without text the event reaches the page and nothing opens (measured).
+  await dispatchEnterKey(cdp);
+  return true;
+}
+
 async function createChatGptProject(cdp: CdpConnection, name: string): Promise<void> {
   const hrefBefore = await cdp.evaluate<string>("location.href");
-  const button = await cdp.evaluate<RectHit>(newProjectButtonRectExpression());
-  if (!button.ok || button.x === undefined || button.y === undefined) {
-    throw new Error(button.reason ?? "new-project button not found in the sidebar");
-  }
   try {
-    await verifiedClickAt(cdp, button.x, button.y, "새 프로젝트");
+    if (!(await openNewProjectDialogByKeyboard(cdp))) {
+      const button = await cdp.evaluate<RectHit>(newProjectButtonRectExpression());
+      if (!button.ok || button.x === undefined || button.y === undefined) {
+        throw new Error(button.reason ?? "new-project button not found in the sidebar");
+      }
+      await verifiedClickAt(cdp, button.x, button.y, "새 프로젝트");
+    }
     const inputVisible = await waitForExpressionTrue(cdp, newProjectNameInputVisibleExpression(), MENU_OPEN_TIMEOUT_MS);
     if (!inputVisible) throw new Error("new-project name input did not appear");
     const input = await cdp.evaluate<RectHit>(newProjectNameInputRectExpression());
@@ -4490,6 +4549,8 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
     : undefined;
   let consecutiveReadFailures = 0;
   let answerSettled = false;
+  let nonTextPolls = 0;
+  let nonTextSettled = false;
   const answerIsStable = createChatGptAnswerStabilityTracker();
   while (Date.now() - started < timeoutMs) {
     await sleep(1000);
@@ -4536,6 +4597,19 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
     const runtimeBlocker = chatGptBlockerFromAnswerState(finalState);
     if (runtimeBlocker) throw new ChatGptBrowserBlockerError(submittedRequestBlocker(runtimeBlocker, requestId, pinnedThreadUrl));
     emitProgress("waiting", finalState.generating ? "generating" : "stabilizing");
+    // A turn that answered with an image leaves no assistant message, so the
+    // count below never moves and the send used to wait out its whole budget
+    // and report a timeout - measured again on 2026-09-29 after the page-only
+    // reader replaced the transcript. Two quiet polls in a row settle it.
+    if (finalState.nonTextAnswer && !finalState.generating && finalState.userMessageCount > beforeSubmit.userMessageCount) {
+      nonTextPolls += 1;
+      if (nonTextPolls >= 2) {
+        nonTextSettled = true;
+        break;
+      }
+      continue;
+    }
+    nonTextPolls = 0;
     if (!hasFreshChatGptAnswer(beforeSubmit.assistantMessageCount, finalState)) continue;
     // A "fresh" answer must also be stable: ChatGPT can momentarily look done
     // mid-stream, and the streaming caret renders as a literal trailing
@@ -4547,6 +4621,19 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
     }
   }
   const completed = finalState;
+  if (nonTextSettled && completed) {
+    emitProgress("answered", "non-text");
+    return {
+      url: pinnedThreadUrl ?? completed.url,
+      title: completed.title,
+      answer: CHATGPT_NON_TEXT_ANSWER_NOTE,
+      modelHints: completed.modelHints,
+      ...(boundProjectId ? { boundProjectId } : {}),
+      requestId,
+      requestVerified: true,
+      warnings: withDialogNote([...sendWarnings]).filter((warning): warning is string => Boolean(warning))
+    };
+  }
   if (answerSettled && completed && hasFreshChatGptAnswer(beforeSubmit.assistantMessageCount, completed)) {
     emitProgress("answered");
     return {
@@ -5828,9 +5915,27 @@ export function defaultTimeoutForTools(tools: readonly string[], fallbackMs: num
 }
 
 
+/**
+ * The composer's "+" control that opens its tools.
+ *
+ * Measured 2026-09-29: ChatGPT dropped data-testid="composer-plus-btn"; the
+ * control is now `Add files and more` with
+ * data-composer-navigation-target="add-context", and every `--tool` send
+ * failed with "composer tools button not found". Looked for inside the
+ * rendered composer's form, so a similarly labelled control elsewhere cannot
+ * answer for it; the old test id still wins where it exists.
+ */
 export function composerToolsButtonRectExpression(): string {
   return `(() => {${CLICK_POINT_SNIPPET}
-    const b = document.querySelector('[data-testid="composer-plus-btn"]');
+    const legacy = document.querySelector('[data-testid="composer-plus-btn"]');
+    if (legacy) return clickPoint(legacy);
+    const composer = [...document.querySelectorAll('#prompt-textarea,[contenteditable="true"],textarea')].find((el) => {
+      const r = el.getBoundingClientRect();
+      return r.width > 0 && r.height > 0;
+    });
+    const form = composer && composer.closest('form');
+    if (!form) return { ok: false, reason: "composer tools button not found: the composer has not rendered" };
+    const b = form.querySelector('button[data-composer-navigation-target="add-context"],button[aria-label="Add files and more"]');
     if (!b) return { ok: false, reason: "composer tools button not found" };
     return clickPoint(b);
   })()`;
@@ -6531,7 +6636,7 @@ export function answerExpression(): string {
         const tagged = node.closest('[data-message-model-slug]');
         if (tagged) modelSlug = tagged.getAttribute('data-message-model-slug') || undefined;
       }
-      return { role, text: textNode.innerText || "", modelSlug };
+      return { role, node, text: textNode.innerText || "", modelSlug };
     });
     const assistantMessages = messages.filter((message) => message.role === "assistant");
     const userMessages = messages.filter((message) => message.role === "user");
@@ -6568,6 +6673,22 @@ export function answerExpression(): string {
       assistantMessageCount: assistantMessages.length,
       userMessageCount: userMessages.length,
       lastUserText: userMessages.at(-1)?.text || "",
+      // An image result is rendered outside every message unit and leaves no
+      // assistant message at all (measured 2026-09-29), so it is reported here
+      // for the waiter to recognize: a generated image that comes after the
+      // last user turn, with no assistant turn after that user turn.
+      nonTextAnswer: (() => {
+        const lastUser = userMessages.at(-1);
+        if (!lastUser || !lastUser.node) return false;
+        const lastRole = messages.at(-1) ? messages.at(-1).role : null;
+        if (lastRole !== "user") return false;
+        return [...document.querySelectorAll('main img')].some((img) => {
+          const r = img.getBoundingClientRect();
+          if (r.width < 60 || r.height < 60) return false;
+          if (!/^generated image/i.test(img.getAttribute("alt") || "")) return false;
+          return Boolean(lastUser.node.compareDocumentPosition(img) & Node.DOCUMENT_POSITION_FOLLOWING);
+        });
+      })(),
       // ChatGPT tags each assistant message with the model that produced it -
       // the only ground truth for "did the Pro selection actually take".
       modelSlug: assistant ? assistant.modelSlug : undefined,

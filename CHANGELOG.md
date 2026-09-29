@@ -4,6 +4,15 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Fixed
+- 0.40.20 fixed project sends and broke everything that starts on a fresh chat: a new chat, an attachment, a composer tool and a temporary chat all failed with "model menu did not open". Before the composer renders, the model-trigger lookup fell back to the whole document and took the first menu button with text in it - the sidebar's "Pinned" or "Explore" - so prodex clicked a sidebar menu in the user's session. The trigger is now looked for only inside the rendered composer's form, exact "Select ChatGPT model" control first, and an unrendered composer is waited out instead. The sibling branch had found and fixed the same fall-back on its own.
+- The composer "+" control lost its test id, so every `--tool` send failed with "composer tools button not found". It is found by its new `data-composer-navigation-target="add-context"` attribute inside the composer.
+- `--project-new` failed with "new-project name input did not appear": the sidebar's "Add new project" button sits under the composer's overlay, so the click landed on the overlay. prodex focuses the button and presses Enter, which opens the same "Create project" dialog regardless of what is drawn over it.
+- An image answer was waited on for the whole budget and reported as a timeout again. The result is rendered outside every message and leaves no assistant message, and the page-only reader had no way to notice it. A generated image after the last prompt, with nothing generating, now comes back as a non-text answer pointing at the thread - measured: 32 seconds instead of a 6 m 40 s timeout.
+- prodex could not tell a response was still being written. The stop control lost its test id and is a composer button labelled "Stop"; sampled through a streamed answer, prodex read "not generating" on every sample, so a pause mid-answer could end the wait and return a truncated answer as complete. The composer's Stop button now counts.
+
 ## 0.40.20
 
 ### Fixed
