@@ -16,6 +16,18 @@ Release target: `v0.40.13` on `main`. The GitHub Release records the resolved co
 
 The release adds a guarded, opt-in transition and more accurate blocker reporting. It does not claim that headless Pro consultation is verified on either deployment target or that authentication can be retained indefinitely.
 
+## 0.40.21 Release Record
+
+Release commit `936b009` on `main` (cut after PR #10, merge `5e74ba2`); tag `v0.40.21`. `publish.yml` run 36538816944 passed all six platforms on the first attempt, then npm publish with SLSA v1 provenance and the GitHub Release (2026-09-29 08:08 UTC).
+
+What it fixes: what 0.40.20 left broken after the ChatGPT redesign - sends starting on a fresh chat, composer tools, `--project-new`, image answers that timed out, and response streaming that was never detected. Found by a live feature matrix against the published 0.40.20; each fix re-run live before release. `--project-new` created a probe project in the user's account, which was deleted afterwards through the project's own actions menu after checking the menu belonged to that project; the other nine projects were compared by id and left intact.
+
+Installation on 2026-09-29, global npm, each verified with `prodex --version` = 0.40.21:
+
+- WSL, M3, Mac mini: installed. On WSL a fresh-chat consult through the installed binary answered (`v21-ok`). Running services were not restarted: 3 stdio MCP servers on WSL and 4 on M3 keep older code until their clients reconnect; the Mac mini had none.
+- M4: not reachable (hostname does not resolve); not updated.
+- The browser container still runs its own build of `feat/headless-browser-compatibility` `b5eac7d` (see 0.40.20); it was not rebuilt for this release.
+
 ## 0.40.20 Release Record
 
 Release commit `b8f8004` on `main` (cut after PR #9, merge `b134eae`); tag `v0.40.20`. `publish.yml` run 36522237267: the first attempt failed on macOS 15 Intel, where `tests/cli.test.ts` "uses an explicit --cwd target for doctor checks" exceeded its 30 s timeout on the slowest runner (full suite 9.5 min there; the same code had passed that runner in PR #9's CI, and no earlier failed CI run showed this test). Nothing was published by that attempt. Re-running the failed job passed all six platforms, then npm publish with SLSA v1 provenance and the GitHub Release (2026-09-29 05:18 UTC).
