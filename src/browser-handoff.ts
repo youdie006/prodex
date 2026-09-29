@@ -159,7 +159,7 @@ async function verifyIdle(page: DevtoolsPage): Promise<void> {
       draft: composer.ok !== false || composer.reason !== 'Composer stayed empty after text insertion',
       dialog: [...document.querySelectorAll('dialog[open],[role="dialog"],[aria-modal="true"]')].some(visible),
       attachments: attachmentState.removed > 0 || [...document.querySelectorAll('input[type="file"]')].some(e => e.files?.length > 0) || [...document.querySelectorAll('[role="progressbar"]')].some(visible),
-      unpersisted: !location.pathname.includes('/c/') && !!document.querySelector('[data-message-author-role]')
+      unpersisted: !location.pathname.includes('/c/') && !!document.querySelector('[data-message-author-role],[data-chatgpt-search-unit-key]')
     };
   })()`;
   const reply = await request(page.webSocketDebuggerUrl, "Runtime.evaluate", { expression, returnByValue: true }) as {
@@ -192,7 +192,7 @@ async function verifyVisibleAuthRecovery(page: DevtoolsPage): Promise<void> {
     return { status, filledTextControl,
       dialog: [...document.querySelectorAll('dialog[open],[role="dialog"],[aria-modal="true"]')].some(visible),
       attachments: attachmentState.removed > 0 || [...document.querySelectorAll('input[type="file"]')].some(e => e.files?.length > 0) || [...document.querySelectorAll('[role="progressbar"]')].some(visible),
-      unpersisted: !location.pathname.includes('/c/') && !!document.querySelector('[data-message-author-role]')
+      unpersisted: !location.pathname.includes('/c/') && !!document.querySelector('[data-message-author-role],[data-chatgpt-search-unit-key]')
     };
   })()`;
   const reply = await request(page.webSocketDebuggerUrl, "Runtime.evaluate", { expression, returnByValue: true }) as {

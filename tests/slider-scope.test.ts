@@ -38,7 +38,9 @@ describe("finding the power slider", () => {
         // case a document-wide lookup gets wrong.
         if (selector === '[role="slider"]') return strayFirst;
         if (selector.includes("composer-intelligence-picker-content")) {
-          return selector.includes("slider") ? pickerSlider : menu;
+          // A descendant query ("<menu> [role=slider]") asks for the slider; the
+          // menu query itself may mention the slider it must contain.
+          return /\s\[role="slider"\]$/.test(selector) ? pickerSlider : menu;
         }
         return null;
       },

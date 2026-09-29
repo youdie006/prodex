@@ -390,13 +390,46 @@ interface ChatGptPageStatus extends ChatGptPageTextState {
 // composer, but KEEP the sidebar/nav - the logged-in signals ("New chat",
 // "Projects", the profile button, the plan hint) live there.
 export const CHATGPT_RUNTIME_BLOCKER_TEXT_EXCLUDED_ANCESTORS =
-  '[data-message-author-role],script,style,noscript,[aria-hidden="true"],div[role="textbox"],textarea,[contenteditable="true"]';
+  '[data-message-author-role],[data-chatgpt-search-unit-key],script,style,noscript,[aria-hidden="true"],div[role="textbox"],textarea,[contenteditable="true"]';
 // Text scanned for PAGE BLOCKERS (captcha/usage-limit/cloudflare/...) also
 // excludes the sidebar/nav: a past-chat title like "usage limit reset" or
 // "verify human" in the history list must not be matched as a live blocker.
 export const CHATGPT_BLOCKER_SCAN_EXCLUDED_ANCESTORS =
-  `${'[data-message-author-role],script,style,noscript,[aria-hidden="true"],div[role="textbox"],textarea,[contenteditable="true"]'},nav,aside,[role="navigation"]`;
-export const CHATGPT_COMPOSER_CANDIDATE_EXCLUDED_ANCESTORS = '[data-message-author-role],script,style,noscript,[aria-hidden="true"]';
+  `${'[data-message-author-role],[data-chatgpt-search-unit-key],script,style,noscript,[aria-hidden="true"],div[role="textbox"],textarea,[contenteditable="true"]'},nav,aside,[role="navigation"]`;
+/**
+ * The conversation's messages, whichever markup ChatGPT is rendering.
+ *
+ * Measured 2026-09-29: messages no longer carry data-message-author-role. A
+ * turn is a [data-chatgpt-search-unit-key] whose value ends in ":user" or
+ * ":assistant", the answer text sits in [data-chatgpt-selection-message-id],
+ * and the user's text in [data-user-message-bubble]. prodex counted zero
+ * messages on a page holding a prompt and its answer, so a send that had
+ * posted and been answered timed out as "acceptance unconfirmed" - a Pro reply
+ * sat in the thread for ten minutes while prodex waited for it. The model slug
+ * attribute went with it; where it is absent the model is simply not known.
+ */
+const CHATGPT_MESSAGE_NODES_JS = `
+    const chatMessageNodes = () => {
+      const legacy = [...document.querySelectorAll('[data-message-author-role]')];
+      if (legacy.length > 0) {
+        return legacy.map((node) => ({ role: node.getAttribute('data-message-author-role'), node, textNode: node }));
+      }
+      const units = [...document.querySelectorAll('[data-chatgpt-search-unit-key]')];
+      return units
+        .filter((unit) => !units.some((other) => other !== unit && unit.contains(other)))
+        .map((unit) => {
+          const key = unit.getAttribute('data-chatgpt-search-unit-key') || '';
+          const role = /:assistant$/.test(key) ? 'assistant' : /:user$/.test(key) ? 'user' : null;
+          const textNode =
+            role === 'assistant'
+              ? unit.querySelector('[data-chatgpt-selection-message-id]') || unit
+              : unit.querySelector('[data-user-message-bubble]') || unit;
+          return { role, node: unit, textNode };
+        })
+        .filter((message) => message.role);
+    };`;
+
+export const CHATGPT_COMPOSER_CANDIDATE_EXCLUDED_ANCESTORS = '[data-message-author-role],[data-chatgpt-search-unit-key],script,style,noscript,[aria-hidden="true"]';
 export const PRODEX_ACTIVE_COMPOSER_ATTRIBUTE = "data-prodex-active-composer";
 
 export interface DevtoolsPage {
@@ -2136,11 +2169,11 @@ const MENU_SETTLE_TIMEOUT_MS = 5_000;
 const PROJECT_NAVIGATION_TIMEOUT_MS = 8_000;
 
 export function menuOpenExpression(): string {
-  return `Boolean(document.querySelector('[data-testid="composer-intelligence-picker-content"]'))`;
+  return `Boolean(document.querySelector('[data-testid="composer-intelligence-picker-content"],[role="menu"]:has([role="slider"])'))`;
 }
 
 export function menuClosedExpression(): string {
-  return `!document.querySelector('[data-testid="composer-intelligence-picker-content"]')`;
+  return `!document.querySelector('[data-testid="composer-intelligence-picker-content"],[role="menu"]:has([role="slider"])')`;
 }
 
 function toLabelCandidates(label: string | readonly string[]): string[] {
@@ -2281,7 +2314,7 @@ export function powerSliderStateExpression(): string {
     // Scoped to the picker, with a document-wide fallback for pickers that
     // predate the testid. Asking the whole document first meant any other
     // slider on the page became the one that got read and driven.
-    const menu = document.querySelector('[data-testid="composer-intelligence-picker-content"]');
+    const menu = document.querySelector('[data-testid="composer-intelligence-picker-content"],[role="menu"]:has([role="slider"])');
     const slider = (menu && menu.querySelector('[role="slider"]')) || (menu ? null : document.querySelector('[role="slider"]'));
     const lines = menu ? (menu.innerText || "").split(String.fromCharCode(10)).map((l) => l.trim()).filter(Boolean) : [];
     if (!slider) return { ok: false, reason: "power slider not found", lines };
@@ -2311,7 +2344,7 @@ export function activeMenuItemExpression(): string {
   return `(() => {
     const a = document.activeElement;
     if (!a) return null;
-    const menu = document.querySelector('[data-testid="composer-intelligence-picker-content"]');
+    const menu = document.querySelector('[data-testid="composer-intelligence-picker-content"],[role="menu"]:has([role="slider"])');
     if (menu && !menu.contains(a)) return null;
     const label = ((a.innerText || a.textContent || "").trim().split(String.fromCharCode(10))[0] || "").trim();
     return { role: a.getAttribute("role"), label };
@@ -2548,17 +2581,23 @@ export function composerProjectBinding(input: {
   return "unknown";
 }
 
+// The picker menu used to carry data-testid="composer-intelligence-picker-content".
+// Measured 2026-09-29: ChatGPT dropped that testid; the picker is now a plain
+// Radix role="menu" still holding the effort slider and the model radios, so
+// every lookup below found nothing and a send died on "model menu did not open"
+// with the menu open on screen. Each lookup accepts the old testid or a menu
+// that contains the slider - the one thing that makes it this picker.
 export function powerSliderPresentExpression(): string {
-  return `Boolean(document.querySelector('[data-testid="composer-intelligence-picker-content"] [role="slider"]'))`;
+  return `Boolean(document.querySelector('[data-testid="composer-intelligence-picker-content"] [role="slider"],[role="menu"] [role="slider"]'))`;
 }
 
 export function pickerClosedExpression(): string {
-  return `!document.querySelector('[data-testid="composer-intelligence-picker-content"]')`;
+  return `!document.querySelector('[data-testid="composer-intelligence-picker-content"],[role="menu"]:has([role="slider"])')`;
 }
 
 export function focusPickerMenuExpression(): string {
   return `(() => {
-    const menu = document.querySelector('[data-testid="composer-intelligence-picker-content"]');
+    const menu = document.querySelector('[data-testid="composer-intelligence-picker-content"],[role="menu"]:has([role="slider"])');
     if (!menu) return { ok: false, reason: "picker menu not open" };
     // Leave the focus the menu gave itself. It opens on the checked model row,
     // and ArrowDown from there walks the model list. Focusing the first item
@@ -2578,7 +2617,7 @@ export function focusPowerSliderExpression(): string {
     // Scoped to the picker, with a document-wide fallback for pickers that
     // predate the testid. Asking the whole document first meant any other
     // slider on the page became the one that got read and driven.
-    const menu = document.querySelector('[data-testid="composer-intelligence-picker-content"]');
+    const menu = document.querySelector('[data-testid="composer-intelligence-picker-content"],[role="menu"]:has([role="slider"])');
     const slider = (menu && menu.querySelector('[role="slider"]')) || (menu ? null : document.querySelector('[role="slider"]'));
     if (!slider) return { ok: false, reason: "power slider not found" };
     slider.focus();
@@ -2605,7 +2644,7 @@ export function modelButtonRectExpression(): string {
 
 export function menuItemRectExpression(label: string | readonly string[]): string {
   return `(() => {${CLICK_POINT_SNIPPET}
-    const m = document.querySelector('[data-testid="composer-intelligence-picker-content"]');
+    const m = document.querySelector('[data-testid="composer-intelligence-picker-content"],[role="menu"]:has([role="slider"])');
     if (!m) return { ok: false, reason: "reasoning/model menu did not open" };
     const items = [...m.querySelectorAll('[role="menuitemradio"],[role="menuitem"]')];
     const it = items.find(${menuLabelMatchPredicate(label)});
@@ -2636,7 +2675,7 @@ const PRO_RADIO_FINDER_SNIPPET = `
 
 export function proRadioRectExpression(): string {
   return `(() => {${CLICK_POINT_SNIPPET}${PRO_RADIO_FINDER_SNIPPET}
-    const m = document.querySelector('[data-testid="composer-intelligence-picker-content"]');
+    const m = document.querySelector('[data-testid="composer-intelligence-picker-content"],[role="menu"]:has([role="slider"])');
     if (!m) return { ok: false, reason: "reasoning/model menu did not open" };
     const proRadio = findProRadio(m);
     if (!proRadio) return { ok: false, reason: "Pro option not found in the model menu" };
@@ -2688,54 +2727,125 @@ export function matchProjectOptionName(ariaLabels: readonly string[], wanted: st
   return -1;
 }
 
-export function projectItemRectExpression(name: string): string {
-  return `(() => {${CLICK_POINT_SNIPPET}
-    // Korean: "<name> 프로젝트 옵션 열기"; English: "Open project options for <name>".
+/**
+ * The sidebar's project rows, read the way the current ChatGPT renders them.
+ *
+ * Measured 2026-09-29: ChatGPT replaced the per-row "Open project options for
+ * <name>" button, which every project lookup in prodex keyed on, with
+ * "Project actions for <name>", and made the row itself a disclosure that
+ * expands in place instead of navigating. The row now carries its name and id
+ * as attributes (`data-app-action-sidebar-project-label`, `-id`), which is a
+ * sturdier key than parsing a button label. Every --project send reported
+ * "project not found in sidebar (0 projects visible)" with the sidebar open
+ * and nine projects on screen.
+ *
+ * Falls back to the older option-button labels, so the previous UI still
+ * resolves.
+ */
+const SIDEBAR_PROJECT_ROWS_SNIPPET = `
+    const legacyProjectName = (b) => (b.getAttribute("aria-label") || "").replace(/^open project options for /i, "").replace(/\\s*프로젝트 옵션 열기$/, "").trim();
+    const sidebarProjects = () => {
+      const rows = [...document.querySelectorAll("[data-app-action-sidebar-project-row]")]
+        .map((row) => ({
+          name: (row.getAttribute("data-app-action-sidebar-project-label") || "").trim(),
+          id: (row.getAttribute("data-app-action-sidebar-project-id") || "").trim(),
+          row,
+          current: true
+        }))
+        .filter((entry) => entry.name);
+      if (rows.length > 0) return rows;
+      return [...document.querySelectorAll('[aria-label*="프로젝트 옵션"],[aria-label*="project options" i]')]
+        .map((button) => ({
+          name: legacyProjectName(button),
+          id: "",
+          row: button.closest('a,[role="link"],li') || button.parentElement,
+          current: false
+        }))
+        .filter((entry) => entry.name);
+    };`;
+
+/**
+ * Where to rest the pointer so a sidebar project row shows its controls.
+ *
+ * The row's "New chat in <name>" button is only revealed while the row is
+ * hovered: measured, the button itself reports opacity 1 while its container
+ * sits at opacity 0, and the point prodex clicked resolved to the section
+ * behind it. A manual test passed only because the pointer was already on the
+ * row; a real send, arriving with the pointer elsewhere, clicked the section
+ * and reported "did not navigate the visible tab".
+ */
+export function sidebarProjectRowPointExpression(name: string): string {
+  return `(() => {${SIDEBAR_PROJECT_ROWS_SNIPPET}
     const wanted = ${JSON.stringify(name)};
-    // Extract the project name from the aria-label wrapper, then match by
-    // EQUALITY (mirror of matchProjectOptionName). A bare .includes() let
-    // "Codex" select "Codex Review" (substring) and silently sent the prompt
-    // into the wrong project.
-    const projName = (b) => (b.getAttribute("aria-label") || "").replace(/^open project options for /i, "").replace(/\\s*프로젝트 옵션 열기$/, "").trim();
-    const optionButtons = [...document.querySelectorAll('[aria-label*="프로젝트 옵션"],[aria-label*="project options" i]')];
-    let opt = null;
-    const exact = optionButtons.filter((b) => projName(b) === wanted);
-    if (exact.length === 1) opt = exact[0];
+    const projects = sidebarProjects().filter((p) => p.current);
+    const exact = projects.filter((p) => p.name === wanted);
+    const matches = exact.length > 0 ? exact : projects.filter((p) => p.name.toLowerCase() === wanted.toLowerCase());
+    if (matches.length !== 1) return { ok: false };
+    const r = matches[0].row.getBoundingClientRect();
+    if (r.width < 1 || r.height < 1) return { ok: false };
+    return { ok: true, x: Math.round(r.x + Math.min(r.width / 3, 60)), y: Math.round(r.y + r.height / 2) };
+  })()`;
+}
+
+/** Hover a project row so its hover-only controls can be clicked. A no-op on the older sidebar. */
+async function revealSidebarProjectControls(cdp: CdpConnection, name: string): Promise<void> {
+  const point = await cdp.evaluate<{ ok: boolean; x?: number; y?: number }>(sidebarProjectRowPointExpression(name));
+  if (!point?.ok || point.x === undefined || point.y === undefined) return;
+  await cdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: point.x, y: point.y });
+  await sleep(400);
+}
+
+export function projectItemRectExpression(name: string): string {
+  return `(() => {${CLICK_POINT_SNIPPET}${SIDEBAR_PROJECT_ROWS_SNIPPET}
+    const wanted = ${JSON.stringify(name)};
+    // Match by EQUALITY, exact first and then case-insensitive, and refuse on
+    // ambiguity: a substring match once let "Codex" select "Codex Review" and
+    // post into a project nobody named.
+    const projects = sidebarProjects();
+    const exact = projects.filter((p) => p.name === wanted);
+    let hit = null;
+    if (exact.length === 1) hit = exact[0];
     else if (exact.length > 1) return { ok: false, reason: "project name matches multiple sidebar projects; rename one to disambiguate" };
     else {
-      // Case-insensitive fallback: sidebar names are user-typed ("Codex") and
-      // an agent asking for "codex" should still resolve when unambiguous.
-      // Ambiguity fails loudly rather than guessing.
-      const ci = optionButtons.filter((b) => projName(b).toLowerCase() === wanted.toLowerCase());
-      if (ci.length === 1) opt = ci[0];
+      const ci = projects.filter((p) => p.name.toLowerCase() === wanted.toLowerCase());
+      if (ci.length === 1) hit = ci[0];
       else if (ci.length > 1) return { ok: false, reason: "project name matches multiple sidebar projects case-insensitively; use the exact name" };
     }
-    let target = opt ? (opt.closest('a,[role="link"],li') || opt.parentElement) : null;
-    if (!target) {
-      // The fallback for a sidebar whose option buttons this cannot read. It
-      // used to take the first row CONTAINING the name, which is the substring
-      // match the exact comparison above exists to prevent: asking for "Codex"
-      // took "Codex Review" and sent the prompt into a project nobody named.
-      // A row's first line is its name; anything else here is a guess, and a
-      // guess about which project to post into is the failure being fixed.
+    let visible = projects.length;
+    if (!hit && projects.length === 0) {
+      // The legacy fallback for a sidebar whose option buttons cannot be read:
+      // a row's first line is its name, compared by equality.
       const icons = [...document.querySelectorAll('[data-testid="project-folder-icon"]')];
       const rowName = (row) => ((row.innerText || row.textContent || "").split("\\n").map((line) => line.trim()).find((line) => line.length > 0) || "");
       const rows = icons.map((ic) => ic.closest('a,li,[role="link"]') || ic.parentElement?.parentElement).filter(Boolean);
+      visible = rows.length;
       const named = rows.filter((row) => rowName(row).toLowerCase() === wanted.toLowerCase());
       if (named.length > 1) return { ok: false, reason: "project name matches multiple sidebar projects; rename one to disambiguate" };
-      if (named.length === 1) target = named[0];
+      if (named.length === 1) hit = { name: wanted, id: "", row: named[0], current: false };
     }
-    if (!target) {
-      return { ok: false, reason: "project not found in sidebar (" + optionButtons.length + " projects visible; names are matched exactly first, then case-insensitively - check the exact sidebar spelling)" };
+    if (!hit) {
+      if (visible === 0) {
+        return { ok: false, reason: "no sidebar projects could be read (0 projects visible) - the sidebar is not rendered or ChatGPT changed how it lists projects" };
+      }
+      return { ok: false, reason: "project not found in sidebar (" + visible + " projects visible; names are matched exactly first, then case-insensitively - check the exact sidebar spelling)" };
     }
-    // 2026-07 ChatGPT update: the project row (li) is no longer a link - the
-    // navigation affordance is a dedicated "Open project home" button inside
-    // the row (verified live: clicking the row does nothing, clicking the home
-    // button navigates to /g/g-p-...). Prefer it; fall back to the row click
-    // for the old UI.
-    const home = target.querySelector('[aria-label*="project home" i],[aria-label*="프로젝트 홈"]');
+    if (hit.current) {
+      // Clicking the row now only expands it. Its "New chat in <name>" button
+      // is what opens the project, on a fresh chat inside it - measured: it
+      // lands on /g/<id>/project with the composer labelled for that project.
+      const label = "New chat in " + hit.name;
+      const koLabel = hit.name + "에서 새 채팅";
+      const buttons = [...document.querySelectorAll("button[aria-label]")];
+      const enter =
+        buttons.find((b) => hit.row.contains(b) && (b.getAttribute("aria-label") === label || b.getAttribute("aria-label") === koLabel)) ||
+        buttons.find((b) => b.getAttribute("aria-label") === label || b.getAttribute("aria-label") === koLabel);
+      if (!enter) return { ok: false, reason: "project row found but it has no new-chat control to open the project" };
+      return clickPoint(enter);
+    }
+    // Older UI: a dedicated "Open project home" button inside the row, else the row.
+    const home = hit.row.querySelector('[aria-label*="project home" i],[aria-label*="프로젝트 홈"]');
     if (home) return clickPoint(home);
-    return clickPoint(target, 18);
+    return clickPoint(hit.row, 18);
   })()`;
 }
 
@@ -3396,7 +3506,7 @@ async function selectModelReasoning(
 export function newProjectButtonRectExpression(): string {
   return `(() => {${CLICK_POINT_SNIPPET}
     const el =
-      document.querySelector('button[aria-label="새 프로젝트"],button[aria-label="New project"]') ||
+      document.querySelector('button[aria-label="새 프로젝트"],button[aria-label="New project"],button[aria-label="Add new project"]') ||
       [...document.querySelectorAll('button,[role="button"]')].find((b) =>
         /새 프로젝트|new project/i.test(((b.textContent || "") + (b.getAttribute("aria-label") || "")).trim())
       );
@@ -3584,6 +3694,7 @@ async function navigateToExistingProject(cdp: CdpConnection, project: string): P
       `ChatGPT project not found in sidebar: ${project}${detail} List the visible names with \`prodex pro browser projects\`.`
     );
   }
+  await revealSidebarProjectControls(cdp, project);
   await verifiedClickWithRetry(cdp, () => cdp.evaluate<RectHit>(projectItemRectExpression(project)), `project ${project}`);
   const navigated = await waitForExpressionTrue(
     cdp,
@@ -3719,6 +3830,7 @@ async function selectProject(
     // project home - and then the same sidebar navigation over again.
     try {
       await openFreshChatGptHome(cdp);
+      await revealSidebarProjectControls(cdp, wanted);
       await verifiedClickWithRetry(
         cdp,
         () => cdp.evaluate<RectHit>(projectItemRectExpression(wanted)),
@@ -4279,9 +4391,9 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
     // inserts a newline) fall back to clicking the send button, re-reading
     // FRESH coordinates each attempt. Safe against double-submit: once the
     // prompt posts the composer clears and no send button is found.
-    const promptPostedExpression = `(() => {
-      const last = [...document.querySelectorAll('[data-message-author-role="user"]')].at(-1);
-      return Boolean(last && (last.innerText || "").includes(${JSON.stringify(`[prodex-request:${requestId}]`)}));
+    const promptPostedExpression = `(() => {${CHATGPT_MESSAGE_NODES_JS}
+      const last = chatMessageNodes().filter((message) => message.role === "user").at(-1);
+      return Boolean(last && (last.textNode.innerText || "").includes(${JSON.stringify(`[prodex-request:${requestId}]`)}));
     })()`;
     // A dispatch can reach Chrome even if its acknowledgement is lost.
     submissionAttempted = true;
@@ -4523,7 +4635,7 @@ export interface ListChatGptModelOptionsResult {
 
 export function modelMenuOptionsExpression(): string {
   return `(() => {
-    const m = document.querySelector('[data-testid="composer-intelligence-picker-content"]');
+    const m = document.querySelector('[data-testid="composer-intelligence-picker-content"],[role="menu"]:has([role="slider"])');
     if (!m) return [];
     // Radios are models, and so are the submenu rows an earlier picker kept them
     // behind. What is NOT a model is the power slider's own rows - its track,
@@ -4558,11 +4670,8 @@ export function modelMenuOptionsExpression(): string {
 // Sidebar project names, extracted from the per-row options-button aria-labels
 // (English "Open project options for <name>", Korean "<name> 프로젝트 옵션 열기").
 export function sidebarProjectNamesExpression(): string {
-  return `(() => {
-    const names = [...document.querySelectorAll('[aria-label*="프로젝트 옵션"],[aria-label*="project options" i]')]
-      .map((b) => (b.getAttribute("aria-label") || "").replace(/^open project options for /i, "").replace(/\\s*프로젝트 옵션 열기$/, "").trim())
-      .filter(Boolean);
-    return [...new Set(names)];
+  return `(() => {${SIDEBAR_PROJECT_ROWS_SNIPPET}
+    return [...new Set(sidebarProjects().map((p) => p.name))];
   })()`;
 }
 
@@ -5437,9 +5546,10 @@ export function statusExpression(): string {
       .filter((el) => !el.closest(runtimeExcludedTextSelector))
       .map((el) => (el.innerText || el.getAttribute("aria-label") || el.getAttribute("data-testid") || "").trim())
       .filter(Boolean);
-    const messages = [...document.querySelectorAll('[data-message-author-role]')].map((node) => ({
-      role: node.getAttribute('data-message-author-role'),
-      text: node.innerText || ""
+    ${CHATGPT_MESSAGE_NODES_JS}
+    const messages = chatMessageNodes().map((message) => ({
+      role: message.role,
+      text: message.textNode.innerText || ""
     }));
     const assistant = messages.filter((message) => message.role === "assistant").at(-1);
     const answer = assistant?.text || "";
@@ -6411,16 +6521,17 @@ export function answerExpression(): string {
       return parts.join(String.fromCharCode(10));
     };
     const lines = text.split(String.fromCharCode(10)).map((line) => line.trim()).filter(Boolean);
-    const messages = [...document.querySelectorAll('[data-message-author-role]')].map((node) => {
-      // ChatGPT tags each message with the model that produced it, on the
-      // message node or an ancestor depending on the build. This is the only
-      // ground truth for "did the Pro selection actually take".
+    ${CHATGPT_MESSAGE_NODES_JS}
+    const messages = chatMessageNodes().map(({ role, node, textNode }) => {
+      // ChatGPT tagged each message with the model that produced it, on the
+      // message node or an ancestor depending on the build. The current markup
+      // carries no such tag, so the model is unknown there, not guessed.
       let modelSlug = node.getAttribute('data-message-model-slug') || undefined;
       if (!modelSlug && typeof node.closest === "function") {
         const tagged = node.closest('[data-message-model-slug]');
         if (tagged) modelSlug = tagged.getAttribute('data-message-model-slug') || undefined;
       }
-      return { role: node.getAttribute('data-message-author-role'), text: node.innerText || "", modelSlug };
+      return { role, text: textNode.innerText || "", modelSlug };
     });
     const assistantMessages = messages.filter((message) => message.role === "assistant");
     const userMessages = messages.filter((message) => message.role === "user");
