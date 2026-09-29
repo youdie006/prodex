@@ -16,6 +16,19 @@ Release target: `v0.40.13` on `main`. The GitHub Release records the resolved co
 
 The release adds a guarded, opt-in transition and more accurate blocker reporting. It does not claim that headless Pro consultation is verified on either deployment target or that authentication can be retained indefinitely.
 
+## 0.40.20 Release Record
+
+Release commit `b8f8004` on `main` (cut after PR #9, merge `b134eae`); tag `v0.40.20`. `publish.yml` run 36522237267: the first attempt failed on macOS 15 Intel, where `tests/cli.test.ts` "uses an explicit --cwd target for doctor checks" exceeded its 30 s timeout on the slowest runner (full suite 9.5 min there; the same code had passed that runner in PR #9's CI, and no earlier failed CI run showed this test). Nothing was published by that attempt. Re-running the failed job passed all six platforms, then npm publish with SLSA v1 provenance and the GitHub Release (2026-09-29 05:18 UTC).
+
+What it restores: project consults, and every consult on a machine with a pinned default project, after the ChatGPT redesign measured on 2026-09-29 (sidebar project rows, the hover-only "New chat in" control, the model picker, message markup). Verified live on the shared browser before release: a named-project send and a pinned-default Codex + Pro send both answered inside the requested project.
+
+Installation on 2026-09-29, global npm, each verified with `prodex --version` = 0.40.20:
+
+- WSL, M3, Mac mini: installed. Running services were not restarted: 3 stdio MCP servers on WSL and 4 on M3 keep older code until their clients reconnect; the Mac mini had none.
+- M4: not reachable (hostname does not resolve); not updated.
+
+Browser container, same day. The Claude Code MCP entry on WSL goes through `prodex-browser-browser-1`, which builds from `feat/headless-browser-compatibility`, not from npm. That branch had already adapted to the same redesign on its own (not yet merged to `main`), so the image was rebuilt from its CI-passing tip `b5eac7d` as-is - not merged with `main`, because the two parallel implementations conflict in 17 places in `src/chatgpt-browser.ts` and a hand-made hybrid would be unverified. New image `sha256:7b3e53b2fb7f`; it reports 0.40.18, the version in that branch's `package.json`. Verified: no consult in flight before the swap; container healthy with the profile volume kept; MCP handshake through `scripts/container-client.mjs`; `pro browser login --wait` found the session READY; a project consult inside the container answered in the requested project with the destination verified. The two implementations still have to be reconciled when that branch is merged.
+
 ## 0.40.19 Release Record
 
 Release commit `8650136` on `main` (cut after PR #8, merge `b5a223f`); tag `v0.40.19`. Published by `publish.yml` run 36510352704: all six native verification jobs passed (Ubuntu Node 20/22/24, macOS 15 arm64 and Intel, Windows Server 2025 / Node 22), then npm publish with SLSA v1 provenance, then the GitHub Release (2026-09-29 02:17 UTC). Before tagging, PR #8 passed the same six jobs and `npm run release:verify` passed locally on the release commit after a build (a fresh checkout without `dist` fails two package-bin cases, because `release:verify` runs tests before building).
