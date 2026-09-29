@@ -16,6 +16,27 @@ Release target: `v0.40.13` on `main`. The GitHub Release records the resolved co
 
 The release adds a guarded, opt-in transition and more accurate blocker reporting. It does not claim that headless Pro consultation is verified on either deployment target or that authentication can be retained indefinitely.
 
+## 0.40.2 - 0.40.7 Release Record
+
+Recorded 2026-09-29, after the fact. These versions went around the tag-and-CI path, so none of them has a git tag, a GitHub Release or npm provenance; this section is their durable record. The commit for each published version was matched to the npm publish time and cross-checked by downloading the published package and finding that version's fixes in its `dist`.
+
+**Channel.** Built with `prodex release pack` (normalized tarball) and published by hand with `npm publish <tarball>` from WSL, because a source-tree publish is refused on the WSL mount's file modes. That route bypasses `publish.yml`, so there is no provenance attestation (0.40.1 and 0.40.8 have one; 0.40.2 - 0.40.6 do not), no tag and no Release. Tags were not backfilled: pushing a `v*` tag runs `publish.yml`, which would re-verify old code and then fail at `npm publish` because the version already exists.
+
+| Version | Commit | npm publish (UTC) | Verification before publish | Live check |
+|---|---|---|---|---|
+| 0.40.2 | `003d4d7` | 2026-09-09 17:39 | vitest 1126 pass; `release:verify` ok | Defective: installed from the registry on 2026-09-10 and sent into a real project - refused `project_not_bound`. Every project send fails in this version (see CHANGELOG). |
+| 0.40.3 | `6f36b47` | 2026-09-10 07:27 | vitest 1184 pass; `release:verify` ok | Registry package sent into an existing project, across projects, and with `--project-new`; `destination.verified: true` on the receipt. |
+| 0.40.4 | `2a84bc5` | 2026-09-11 00:21 | vitest 1198 pass; `release:verify` ok | `--continue` with the tab deliberately moved elsewhere, over CLI and over MCP `pro_consult` (`continue_thread`). |
+| 0.40.5 | `a9c629d` | 2026-09-14 00:43 | vitest 1248 pass; `release:verify` ok; tarball `publish --dry-run` ok | create-image and web-search sends; back-to-back sends queued on the lock 3/3. |
+| 0.40.6 | `4550cad` | 2026-09-14 01:52 | vitest 1259 pass; `release:verify` ok; tarball `publish --dry-run` ok | Dedicated browser killed twice; `--auto-login` relaunched it in about 3 s and the receipt carried `browser_recovered`. |
+| 0.40.7 | `678a02e` (tag only) | not published | `publish.yml` run 34816390439 failed at Release verification; logs no longer retrievable | Superseded by 0.40.8. |
+
+**Installation.** Global npm installs, verified with `prodex --version` on each host after install:
+
+- 0.40.3, 0.40.4, 0.40.5, 0.40.6: WSL, M3 and the Mac mini, each upgraded on its publish day (the Mac mini came from 0.37.0 at 0.40.3). M4 was unreachable over SSH every time and was never updated.
+- Running services are separate from the install. After 0.40.3 and 0.40.4 the long-lived stdio MCP servers (13 on WSL, 8 on M3) kept the old code. A freshly spawned server reported `serverInfo.version` 0.40.4 and completed a `continue_thread` consult. On 2026-09-14, before 0.40.5, every prodex MCP server was stopped with SIGTERM (20 on WSL, 7 on M3) with no consult in flight; the servers the clients respawned came up on 0.40.4, the install at that moment, and needed another reconnect after the 0.40.5 and 0.40.6 installs.
+- State on 2026-09-29: WSL 0.40.18, M3 0.40.18, Mac mini still 0.40.6 (not upgraded since), M4 unreachable (its hostname no longer resolves).
+
 ## Publishing
 
 Publishing to npm runs entirely in CI with **no long-lived token** — auth is npm [trusted publishing](https://docs.npmjs.com/trusted-publishers) (OIDC), so nothing needs to store or paste an `NPM_TOKEN`, and every release carries a verifiable `--provenance` attestation.
