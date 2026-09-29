@@ -1411,61 +1411,57 @@ describe("pro browser ask persistence", () => {
     expect(text).not.toContain("prodex pro browser ask");
   });
 
-  it("prints actual target-url retry commands for targeted browser ask blockers", async () => {
-    const scenarios = [
-      {
-        code: "target_url_mismatch",
-        message: "ChatGPT tab is not at the confirmed target URL.",
-        targetUrl: "https://chatgpt.com/c/target",
-        next_step: "Open https://chatgpt.com/c/target in the visible browser and retry. Current: https://chatgpt.com/c/current",
-        expected:
-          "Open https://chatgpt.com/c/target in the visible browser and run `SOURCE_COMMAND`. Current: https://chatgpt.com/c/current"
-      },
-      {
-        code: "target_tab_missing",
-        message: "No open ChatGPT tab matches the confirmed target URL.",
-        targetUrl: "https://chatgpt.com/c/missing",
-        next_step: "Open https://chatgpt.com/c/missing in the dedicated browser and retry.",
-        expected: "Open https://chatgpt.com/c/missing in the dedicated browser and run `SOURCE_COMMAND`."
-      }
-    ];
+  it.each([
+    {
+      code: "target_url_mismatch",
+      message: "ChatGPT tab is not at the confirmed target URL.",
+      targetUrl: "https://chatgpt.com/c/target",
+      next_step: "Open https://chatgpt.com/c/target in the visible browser and retry. Current: https://chatgpt.com/c/current",
+      expected:
+        "Open https://chatgpt.com/c/target in the visible browser and run `SOURCE_COMMAND`. Current: https://chatgpt.com/c/current"
+    },
+    {
+      code: "target_tab_missing",
+      message: "No open ChatGPT tab matches the confirmed target URL.",
+      targetUrl: "https://chatgpt.com/c/missing",
+      next_step: "Open https://chatgpt.com/c/missing in the dedicated browser and retry.",
+      expected: "Open https://chatgpt.com/c/missing in the dedicated browser and run `SOURCE_COMMAND`."
+    }
+  ])("prints actual target-url retry commands for $code blockers", async (scenario) => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-send-"));
+    const sourceCli = path.join(cwd, "dist", "cli.js");
+    await mkdir(path.dirname(sourceCli), { recursive: true });
+    await writeFile(sourceCli, "#!/usr/bin/env node\n", "utf8");
+    const blocker = {
+      code: scenario.code,
+      message: scenario.message,
+      retryable: true,
+      next_step: scenario.next_step
+    };
+    sendChatGptPromptMock.mockRejectedValueOnce(Object.assign(new Error(`${blocker.message} Next: ${blocker.next_step}`), { blocker }));
 
-    for (const scenario of scenarios) {
-      const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-send-"));
-      const sourceCli = path.join(cwd, "dist", "cli.js");
-      await mkdir(path.dirname(sourceCli), { recursive: true });
-      await writeFile(sourceCli, "#!/usr/bin/env node\n", "utf8");
-      const blocker = {
-        code: scenario.code,
-        message: scenario.message,
-        retryable: true,
-        next_step: scenario.next_step
-      };
-      sendChatGptPromptMock.mockRejectedValueOnce(Object.assign(new Error(`${blocker.message} Next: ${blocker.next_step}`), { blocker }));
-
-      let thrown: Error | undefined;
-      try {
-        await runCli(["pro", "browser", "ask", "--source-cli", sourceCli, "--target-url", scenario.targetUrl, "--confirm-target", "Review this"], {
-          cwd,
-          stdout: () => {},
-          stderr: () => {}
-        });
-      } catch (error) {
-        thrown = error as Error;
-      }
-      const command = `cd ${shellQuote(cwd)} && node ${shellQuote(sourceCli)} pro browser ask --source-cli ${shellQuote(sourceCli)} --target-url ${shellQuote(scenario.targetUrl)} --confirm-target "prompt"`;
-      const expected = scenario.expected.replace("SOURCE_COMMAND", command);
-      expect(thrown?.message).toContain(expected);
-
-      const out: string[] = [];
-      await runCli(["pro", "latest", "--source-cli", sourceCli], {
+    let thrown: Error | undefined;
+    try {
+      await runCli(["pro", "browser", "ask", "--source-cli", sourceCli, "--target-url", scenario.targetUrl, "--confirm-target", "Review this"], {
         cwd,
-        stdout: (line) => out.push(line),
+        stdout: () => {},
         stderr: () => {}
       });
-
-      expect(out.join("\n")).toContain(`- next_step: ${expected}`);
+    } catch (error) {
+      thrown = error as Error;
     }
+    const command = `cd ${shellQuote(cwd)} && node ${shellQuote(sourceCli)} pro browser ask --source-cli ${shellQuote(sourceCli)} --target-url ${shellQuote(scenario.targetUrl)} --confirm-target "prompt"`;
+    const expected = scenario.expected.replace("SOURCE_COMMAND", command);
+    expect(thrown?.message).toContain(expected);
+
+    const out: string[] = [];
+    await runCli(["pro", "latest", "--source-cli", sourceCli], {
+      cwd,
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+
+    expect(out.join("\n")).toContain(`- next_step: ${expected}`);
   });
 
   it("stores successful browser answers as a receipt-backed artifact before result finalization", async () => {

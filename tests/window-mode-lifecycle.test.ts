@@ -8,6 +8,7 @@ const minimizeChatGptWindowMock = vi.hoisted(() => vi.fn());
 const openChatGptBrowserMock = vi.hoisted(() => vi.fn());
 const readLastBrowserLoginLaunchMock = vi.hoisted(() => vi.fn());
 const recordBrowserLoginLaunchMock = vi.hoisted(() => vi.fn(async () => undefined));
+const getDedicatedBrowserHeadlessModeMock = vi.hoisted(() => vi.fn(() => true));
 
 vi.mock("../src/chatgpt-browser.js", async () => {
   const actual = await vi.importActual<typeof import("../src/chatgpt-browser.js")>("../src/chatgpt-browser.js");
@@ -21,6 +22,10 @@ vi.mock("../src/chatgpt-browser.js", async () => {
     readLastBrowserLoginLaunch: readLastBrowserLoginLaunchMock,
     recordBrowserLoginLaunch: recordBrowserLoginLaunchMock
   };
+});
+vi.mock("../src/browser-handoff.js", async () => {
+  const actual = await vi.importActual<typeof import("../src/browser-handoff.js")>("../src/browser-handoff.js");
+  return { ...actual, getDedicatedBrowserHeadlessMode: getDedicatedBrowserHeadlessModeMock };
 });
 
 const { resolveBrowserWindowMode } = await import("../src/chatgpt-browser.js");

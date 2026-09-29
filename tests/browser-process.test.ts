@@ -10,6 +10,7 @@ import {
   BrowserProcessInspectionError,
   assertLaunchedBrowserMainProcess,
   findMatchingBrowserProcesses,
+  findOwnedBrowserCleanupProcesses,
   inspectBrowserProcesses,
   parseWindowsCimProcessJson,
   type BrowserProcessInfo
@@ -39,6 +40,25 @@ function windowsProcesses(): BrowserProcessInfo[] {
 }
 
 describe("browser process inspection", () => {
+  it("revalidates cleanup ownership and selects recorded children even after the main exits", () => {
+    const processes = windowsProcesses();
+    const input = { platform: "win32" as const, port: 19333, profileDir: windowsProfile, launchedProcessId: 4100, knownProcessIds: new Set([4100, 4101]) };
+    expect(findOwnedBrowserCleanupProcesses(processes, input).map(p => p.processId)).toEqual([4100, 4101]);
+    expect(findOwnedBrowserCleanupProcesses(processes.slice(1), input).map(p => p.processId)).toEqual([4101]);
+    expect(findOwnedBrowserCleanupProcesses([
+      { ...processes[0], commandLine: processes[0].commandLine.replace(windowsProfile, `${windowsProfile}-other`) },
+      { ...processes[1], executablePath: "C:\\Other\\node.exe" }
+    ], input)).toEqual([]);
+    expect(findOwnedBrowserCleanupProcesses([{ ...processes[0], commandLine: processes[0].commandLine.replace("19333", "19334") }], input)).toEqual([]);
+  });
+
+  it("never signals a successor browser or a previously unobserved child", () => {
+    const processes = windowsProcesses();
+    const input = { platform: "win32" as const, port: 19333, profileDir: windowsProfile, launchedProcessId: 4100, knownProcessIds: new Set([4100, 4101]) };
+    expect(findOwnedBrowserCleanupProcesses([{ ...processes[0], processId: 4200 }, processes[1]], input)).toEqual([]);
+    expect(findOwnedBrowserCleanupProcesses([{ ...processes[1], processId: 4201 }], input)).toEqual([]);
+  });
+
   it("matches a quoted Windows Program Files browser and ignores a non-browser command mentioning it", () => {
     expect(findMatchingBrowserProcesses(windowsProcesses(), {
       platform: "win32",

@@ -4,6 +4,286 @@ Open source does not mean every operating system, architecture, filesystem, or
 browser version has been tested. This record distinguishes configured CI jobs,
 completed checks, installed versions, and live account-dependent behavior.
 
+## Headless Compatibility Candidate (2026-09-16)
+
+Branch: `feat/headless-browser-compatibility`, based on `33bf9fe`.
+Package version remains `0.40.18`; these changes are unreleased. A staged
+candidate or a passing browser fixture is not an installed service update.
+
+The new optional `pro browser check --runtime` reports local CDP metadata and
+actual process mode separately from saved preferences. The account-free browser
+smoke now verifies DOM/input/file-selection capabilities and
+same-profile restart persistence using only a synthetic loopback-origin marker.
+It does not inspect or copy ChatGPT authentication data.
+
+### Account-Dependent Observations
+
+- WSL's existing browser reported login/composer signals and
+  `response_in_progress`. It was left untouched; no verification prompt was
+  submitted into another session's active conversation. Runtime evidence:
+  Chrome `144.0.7559.132`, CDP `1.3`, actual `headed`, saved `virtual-display`.
+- Physical M3's existing browser was actually headless and returned
+  `cloudflare_check`, with no composer. Runtime evidence: Chrome
+  `152.0.7977.84`, CDP `1.3`, actual/saved `headless`. No page reload, login,
+  profile migration, visible fallback, or protection bypass was attempted.
+- Consequently, this candidate has not demonstrated a new authenticated
+  pure-headless Pro answer or continuation on either account target.
+
+### Adoption Decision
+
+The examined [Camoufox gateway](https://github.com/Draivix/chatgpt-gateway/tree/e9b3f6a4e984409d5bd09f0d0eb1544c0c366e31/camoufox-gateway)
+uses a Python/Firefox control stack, not ProDex's Chromium CDP implementation.
+Its persistent daemon/profile ideas do not justify replacing ProDex's existing
+task storage, send serialization, and exact-thread continuation. Its README
+marks macOS untested; no cross-platform Pro success is inferred from it.
+No upstream source code, stealth configuration, password/IMAP login automation,
+or authentication material was adopted. An ordinary second browser driver
+would require separate implementation and live acceptance evidence, not simply
+setting `PRODEX_CHROME` to a Firefox executable.
+
+### Verification Results
+
+- PASS: 39 runtime/product-check regressions and TypeScript typecheck. New CLI
+  flag tests first failed with `Unknown option ... --runtime`, then passed.
+- PASS: native Windows and M3 candidate `check --runtime --help` without tmux
+  or browser side effects. Windows used temporary Node `22.22.0` x64, verified
+  against the distribution SHA-256; M3 used its existing Node `22.22.3` ARM.
+- FAIL: direct release metadata check on the Windows-mounted source tree found
+  unexpected executable modes on non-bin files. The existing normalized
+  `release:pack` path passed its unchanged strict metadata check and produced
+  a candidate tarball. At that point, uncommitted changes correctly blocked
+  publication guidance; no publication was attempted.
+- PASS: the final reviewed Linux-filesystem snapshot passed all 117 test files:
+  1,667 passed, zero failed, three platform exclusions. Source/test/script bytes
+  were compared with the working tree. Command:
+  `node node_modules/vitest/vitest.mjs run --maxWorkers=4 --reporter=json --outputFile=/tmp/prodex-headless-vitest-reviewed.json`.
+  Typecheck and build also passed. The final canonical-temp-path adjustment was
+  subsequently verified by the native browser smokes.
+- FAIL: the Windows-mounted source run passed 1,662 tests but had three CLI
+  startup/stdio-connection timeouts and three platform exclusions. The three
+  timeouts persisted in a focused rerun. Identical source on the Linux
+  filesystem passed; mounted-source startup performance is not claimed fixed.
+  No timeout or security assertion was relaxed to obtain the passing result.
+- FAIL (verification setup): the first Linux snapshot omitted `.github`, causing
+  seven workflow-file checks to fail with `ENOENT`. Copying the unchanged
+  workflows and rerunning the full suite resolved these setup errors.
+- Independent review led to cleanup ownership hardening: each recorded PID must
+  still match its browser/profile before receiving a signal, successor browsers
+  are refused, and recorded orphan children can be cleaned up. Both new
+  regressions failed before implementation, then passed. Pre-spawn launcher
+  failures were reviewed; no concrete unhandled post-spawn throw was found.
+
+### Completed Native Browser Checks
+
+All rows used ordinary Chromium-family browsers, fresh temporary profiles and
+loopback-only fixture pages. Every pass includes actual headless process proof,
+Runtime enable/evaluation, DOM control, keyboard and mouse input, synthetic file
+selection, a graceful browser restart preserving the local marker, and confirmed
+browser/server cleanup. No row tests ChatGPT or a logged-in account.
+
+| Target | Browser product | CDP | Result |
+| --- | --- | --- | --- |
+| WSL Linux x64, Node 22.22.0 | Chrome/144.0.7559.132 | 1.3 | PASS |
+| Physical M3 macOS ARM, Node 22.22.3 | Chrome/152.0.7977.84 | 1.3 | PASS |
+| Native Windows x64, temporary Node 22.22.0 | Chrome/153.0.8010.36 | 1.3 | PASS |
+| Native Windows x64, temporary Node 22.22.0 | Edg/153.0.4234.32 | 1.3 | PASS |
+
+Commands: `npm run smoke:browser` on WSL; the same
+`node scripts/browser-launch-smoke.mjs` on native Windows/M3, with an explicit
+`PRODEX_CHROME` path only for Edge. The copied M3 smoke/helper and runtime module
+SHA-256 hashes matched the local tested files. Candidate package smoke also
+passed installed CLI, HTTP MCP and stdio MCP, storage/write/artifact integrity,
+doctor, and credential-isolated publication dry-run checks. None of these
+temporary installations replaced the global CLI or a client-managed MCP.
+
+One intermediate Windows Chrome rerun stopped when CIM returned incomplete
+process identity during a bounded recheck. Cleanup completed. A bounded rerun
+and the final canonical-profile Chrome/Edge runs passed with unchanged strict
+identity requirements; the intermediate failure is not discarded. Native
+browser capability tests are separate from full Windows/macOS unit-suite CI.
+
+No release tag was created and no npm package or global installation was
+updated. The PR records the pushed source commit and native CI result separately
+from these local checks. Existing MCP clients and account browsers were not
+restarted. The Chromium engine was retained; no Firefox/Camoufox adapter was
+installed or advertised as supported.
+
+### WSL Source Dependencies
+
+Follow-up on 2026-09-16, unchanged runtime source `970a74f`: the mounted-source
+startup failure was reproduced with
+`timeout --kill-after=3s 15s node prodex.mjs --version` (exit 124 after 15.07s).
+`findmnt` identified the dependency directory as a Windows `9p` mount, while
+the Linux home directory was `ext4`. Identical compiled files in the earlier
+Linux-filesystem snapshot started in about one second. Direct MCP SDK imports
+on the mount also exceeded their bound; this was dependency-loading overhead,
+not a broken stdio protocol or incorrect `--cwd` handling.
+
+The local repair keeps the checkout under `/mnt/d` and installs the unchanged
+lockfile into a fresh directory under `$HOME/.cache/prodex/source-deps/`.
+The checkout's `node_modules` is now a symlink to that Linux installation.
+The original dependency tree and manifests were retained in a sibling backup
+directory outside the checkout. Lockfile SHA-256 before/after:
+`54b5a93764e6f4e40a2ea66f3f4126afb32d2a1c7b72f7a2c997cdde931ab703`.
+Installed source package version remains `0.40.18`, using Node `22.22.0`.
+No global CLI, account profile, browser process or client-managed MCP was
+replaced or restarted.
+
+The same version command then passed in 5.02s; `node dist/cli.js --version`
+passed in 3.52s. All four focused package-bin/explicit-cwd stdio checks passed
+on the original mounted checkout, including the three previously failing
+cases. The stdio case completed in 4.79s. Existing subprocess/test deadlines
+were unchanged. Full follow-up verification is recorded on PR #7.
+
+The first full run after relocation passed 1,666 tests with one failure and
+three platform exclusions. All original startup failures passed; the remaining
+failure was an HTTP test fixture that emitted synthetic `SIGTERM` after 50ms,
+before slow startup had registered its shutdown listener. The fixture now waits
+for the listening/readiness output before signaling and awaits teardown in
+`finally`. No production shutdown logic or deadline was changed. This first
+failed run is retained separately from the subsequent verification results.
+
+Final verification from the original mounted checkout:
+
+- PASS: `npm test -- --reporter=json --outputFile=/tmp/prodex-mounted-ext4-deps-final.json`
+  completed all 117 files: 1,667 passed, zero failed, three platform exclusions,
+  about 185s. Default worker settings and all existing deadlines were retained.
+- PASS: `npm run typecheck`, `npm run build`, and `npm run smoke:package`.
+  The package check covered installed CLI, HTTP/stdio MCP, task/result storage,
+  write and artifact integrity, doctor and credential-isolated publication
+  dry runs. It did not publish or replace a global installation.
+- PASS: `git check-ignore -v --no-index node_modules` after correcting the
+  ignore rule; before correction the symlink was untracked and not ignored.
+- WARN: fresh `npm ci` reported an unapproved esbuild postinstall script.
+  No script-approval policy was changed; the installed optional platform binary
+  was sufficient for the subsequent passing tests, typecheck and build.
+
+Runtime sources, build scripts and dependency manifests remain unchanged from
+`970a74f`; this follow-up changes the development setup records, dependency
+ignore rule and one test fixture. The PR records its own pushed commit and
+subsequent CI separately from the previously completed six-platform matrix.
+
+For a similar WSL setup:
+
+1. Prefer placing the whole development checkout under the Linux home directory.
+   Use the split arrangement only when Windows-mounted source files are needed.
+2. Create a persistent, project-specific directory on Linux, copy only
+   `package.json` and `package-lock.json` there, and run
+   `npm ci --prefix <linux-dependency-directory>`. Do not copy credentials,
+   `.bridge`, or browser profiles into a dependency cache.
+3. After stopping source-development commands that use that dependency tree,
+   retain the existing `node_modules` as a backup outside the checkout and
+   symlink the new directory's `node_modules` into the checkout. Inspect any
+   existing link before replacing it. Do not commit a machine-specific link.
+4. Run `npm run build` and the tests from the original checkout. After lockfile
+   changes, update the two cached manifests and rerun `npm ci` at the cache
+   prefix. A plain `npm ci` in the mounted checkout can replace the link and
+   reintroduce mounted dependencies.
+
+This is a WSL development arrangement, not a portable dependency bundle. Native
+Windows needs its own dependency installation, as do other operating systems
+and architectures. Keep the cache until the source checkout no longer uses it;
+the link target is inspectable with `readlink node_modules`.
+
+The M3 follow-up separately confirmed one actual headless, non-incognito Chrome
+process using the same saved profile, and exactly one ChatGPT root tab with a
+human-verification title. The product check still returned `cloudflare_check`.
+Neither incorrect target selection nor a replacement profile explains that
+observed blocker. No navigation, visible login, authentication reset, protective
+check bypass, or Pro prompt was performed. Dependency placement on WSL does not
+remove that external account-access requirement.
+
+## Login Redirect Window Regression (2026-09-16)
+
+Follow-up to `a16e723` on `feat/headless-browser-compatibility`; package version
+remains `0.40.18` and the fix is unreleased.
+
+During the user's manual visible recovery on M3, read-only CDP target metadata
+showed three Google authentication pages. One subsequently moved through
+OpenAI authentication and returned to ChatGPT. A separate Chrome account/profile
+connection popup was also present. The same dedicated browser process and saved
+profile remained in use; this was not a new profile or proof that saved
+authentication had been deleted. No provider page content, authentication URL
+parameters, cookies or tokens were inspected.
+
+The login wait treated every poll with no `chatgpt.com` target as permission to
+open another tab. Authentication redirects therefore looked like missing tabs.
+The fix recognizes the observed authentication hosts as a pending manual step,
+never selects them for ChatGPT page control, and bounds a login wait to at most
+one initial tab-opening attempt. Once a reachable non-missing page state has
+been observed, the wait does not replace that authentication flow. Opening
+failures remain visible but no longer cause repeated automatic openings.
+
+After the user completed sign-in, a read-only product check reported
+`logged_in=true` and `composer=true` on the ChatGPT root page. Actual browser
+mode was still headed, with `resume_headless=true` saved for a later launch.
+This is not proof of a completed headless handoff or a verified Pro answer.
+The SSH-home product check exited 1 for missing local bridge/config/receipt
+state, separately from its successful ChatGPT readiness result.
+
+No account browser or client-managed MCP was restarted by this investigation,
+and no visible window, authentication reset, or Pro prompt was initiated.
+Source fixes and their deployment status are recorded separately from the
+user's successful sign-in.
+
+Verification:
+
+- Expected regression failures before implementation: the login-wait suite
+  failed four repeat-opening assertions; the auth-redirect suite failed five
+  classifier/status/no-extra-tab assertions. A later wording refinement also
+  failed its two assertions before being applied.
+- PASS: focused browser/login/handoff checks (228 tests), followed by
+  `npm test -- --reporter=json --outputFile=/tmp/prodex-auth-redirect-final.json`:
+  118 files, 1,687 passed, zero failed, three platform exclusions, about 99s.
+  The 18 auth-redirect checks include exact-origin filtering, provider-content
+  isolation, explicit-target safety, and headed/headless login waits.
+- PASS: `npm run typecheck`, `npm run build`, `git diff --check`, and
+  `npm run smoke:package` (installed CLI, HTTP/stdio MCP, storage/write/artifact
+  checks and credential-isolated publication dry runs; no publication).
+- Native OS CI, package installation and any headless handoff are separate
+  verification steps; the unit results do not establish account access.
+
+### Candidate Installation
+
+Runtime source commit: `5aa19f69387478aebf873dd3681ed14af4dcbc22`.
+`npm run release:pack -- --pack-destination <temporary-directory>` produced
+the normalized candidate `youdie006-prodex-0.40.18.tgz`, SHA-256
+`2b8088a130b751d45d692aba27b6f2f8d0b916cc89300ccc2e1d433968ec9455`.
+Publication guidance remained blocked by the user's unrelated untracked file;
+that file was retained. No release tag or npm publication was performed.
+
+Both WSL Node 22.22.0 x64 and physical M3 Node 22.22.3 ARM installed this same
+tarball using `npm install --global --ignore-scripts --no-audit --no-fund`.
+The installed package version remains `0.40.18`, a development build identified
+by the runtime commit above, not a new public release. Previous program files
+were backed up outside the repository before installation; no account profile
+was copied, replaced or inspected. M3's first npm-path probe failed because
+non-interactive SSH lacked Homebrew in PATH; the explicit Homebrew PATH probe
+and installation succeeded.
+
+Fresh processes on both targets passed the exact-auth-host guards and the
+compiled login-wait checks: one opening from an initially missing tab, zero
+openings after an observed authentication state. The installed runtime hashes
+matched the tested build:
+
+| Runtime file | SHA-256 |
+| --- | --- |
+| `dist/cli-pro.js` | `df33a7d05c73375fc7fa40b53c5fa86929949a187ccbcc9a3a0ec0fba5e69e41` |
+| `dist/chatgpt-browser.js` | `d47d4cce3e990bdac729081a910b3562e6fe786d60d3b27fae6fe0b987c12897` |
+
+Fresh non-tmux stdio MCP processes on WSL and M3 each initialized as version
+`0.40.18` and listed 20 tools including `pro_consult`. Both verification
+processes exited and their temporary workspaces were removed. Existing
+client-managed MCP processes were not restarted or claimed to have reloaded
+the installed update.
+
+After installation, M3 retained the same owned headed browser process/profile,
+the same ChatGPT root target, `logged_in=true`, `composer=true` and no ChatGPT
+page blocker. The separate Chrome account/profile popup and two leftover
+provider login targets remained. They were not closed or accepted automatically.
+No headless handoff or Pro request was attempted during this fix; the user must
+resolve the separate Chrome prompt before a guarded transition is considered.
+
 ## 0.40.18 verification
 
 Branch: `fix/cross-platform-verification`.

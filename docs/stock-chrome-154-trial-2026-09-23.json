@@ -1,0 +1,698 @@
+{
+  "schema_version": 1,
+  "date": "2026-09-23",
+  "source_commit": "618b3faed0ee533f11f60d62f4c4a62234fc131d",
+  "scope": {
+    "runtime": "Linux x64 on WSL and Linux ARM64 in M3 Colima",
+    "browser": "Chrome/154.0.8037.57",
+    "official_product_docs_used": false,
+    "production_changed": false,
+    "login_attempts": 0,
+    "prompts_sent": 0,
+    "public_navigation_commands": 2,
+    "public_retries": 0,
+    "pro_acceptance": false,
+    "performance_benchmark": false,
+    "identical_viewport_claimed": false
+  },
+  "candidate_metadata": {
+    "timestamp": "2026-09-22T23:18:23.201Z",
+    "github_blob": "e4147f675d79321e4e0b1e3a7ed8b7a3141a31e9",
+    "channel": "Stable",
+    "version": "154.0.8037.57",
+    "revision": "1689415"
+  },
+  "artifacts": {
+    "wsl": {
+      "architecture": "x64",
+      "image": "sha256:e3e3b7c886e1f37c08c97956604977f3d41d132f080eaaf01513e023ae37e7b9",
+      "archive_url": "https://storage.googleapis.com/chrome-for-testing-public/154.0.8037.57/linux64/chrome-linux64.zip",
+      "archive_sha256": "ceee2972074d441ea7c4ba8bcc0eaab77e7e87680f6653d73d3065851fe10302",
+      "executable_sha256": "e528b77a8b250c48a5bbd7aeeabbc2813940c0a2fe39b1b11fbaf1f01fb04f18",
+      "files": 301,
+      "tree_sha256": "81b521c05f7779d90505c99f24cc7ad4bb50e8a84c6a486b0fb81d5ff5eed4b2"
+    },
+    "m3": {
+      "architecture": "arm64",
+      "image": "sha256:7741e053af2b9336b458049b31ba3a5f004a3034bae0fba42f9223a7d1ece5e9",
+      "archive_url": "https://storage.googleapis.com/chrome-for-testing-public/154.0.8037.57/linux-arm64/chrome-linux-arm64.zip",
+      "archive_sha256": "da83171e552650df34272a9c51f62182bae88d467d1ac19c92dd97917dfa0bca",
+      "executable_sha256": "6a27f994cf8916471f61695e217824168167c506b595d2f1249540026d98aaa2",
+      "files": 303,
+      "tree_sha256": "0e4326854265090051cfae0461c715832dbf95b91d899a7c7e0fab0f265b4b5d"
+    },
+    "common": {
+      "scripts_files": 19,
+      "scripts_tree_sha256": "6d950af0d94992964d4507cf57b2526f0c433d4dcc8ccbaf1609259afb0f0dfc",
+      "dist_files": 40,
+      "dist_tree_sha256": "838170882bdd6e399f00c99e965cb0ea5cac18518d30aee25b0954764f8c6645",
+      "sandbox_probe_sha256": "8b06e83b13a1882f88ab6d36ea7e7a32f1833565a884cae2d5a44d7bcb639fa6",
+      "seccomp_sha256": "beb51d732279a0f8a3a3d23827e0920c28a646dbd6ea23777f0fa8b74c33d34c",
+      "source_image_equality": true
+    }
+  },
+  "constraints": {
+    "read_only": true,
+    "uid": 1000,
+    "cap_drop": "ALL",
+    "no_new_privileges": true,
+    "cpus": 2,
+    "memory_gib": 2,
+    "shm_gib": 1,
+    "pids_limit": 256,
+    "home_tmpfs_mib": 256,
+    "tmp_tmpfs_mib": 256,
+    "profile_volumes": 0,
+    "published_ports": 0,
+    "offline_network": "none",
+    "public_network": "bridge",
+    "headless_display_environment": "unset",
+    "headed_display": "xvfb 1440x900x24, no tcp",
+    "ordinary_launch_no_sandbox_disable": true
+  },
+  "trials": [
+    {
+      "kind": "offline",
+      "target": "wsl",
+      "mode": "headless",
+      "exit_code": 0,
+      "cleanup": true,
+      "graceful_close": true,
+      "evidence": {
+        "browser": "Chrome/154.0.8037.57",
+        "protocol": "1.3",
+        "platform": "linux",
+        "arch": "x64",
+        "headless_process": true,
+        "runtime_enable": true,
+        "runtime_evaluate": true,
+        "dom": true,
+        "keyboard": true,
+        "mouse": true,
+        "file_attachment": true,
+        "profile_restart": "synthetic_marker"
+      },
+      "local_navigation": [
+        {
+          "schemaVersion": 1,
+          "outcome": "response",
+          "phase": "complete",
+          "failedPhase": null,
+          "elapsedMs": 474,
+          "navigationCommands": 1,
+          "diagnostics": {
+            "httpStatus": 200,
+            "correlation": "confirmed",
+            "responses": [
+              {
+                "atMs": 165.05210100000022,
+                "status": 302,
+                "kind": "redirect",
+                "contentType": null,
+                "challenge": false
+              },
+              {
+                "atMs": 290.6834680000002,
+                "status": 200,
+                "kind": "response",
+                "contentType": "text/html",
+                "challenge": false
+              }
+            ],
+            "transportFailure": null,
+            "truncated": false,
+            "documentLoaded": true
+          },
+          "error": null
+        },
+        {
+          "schemaVersion": 1,
+          "outcome": "http_error",
+          "phase": "complete",
+          "failedPhase": null,
+          "elapsedMs": 29,
+          "navigationCommands": 1,
+          "diagnostics": {
+            "httpStatus": 403,
+            "correlation": "confirmed",
+            "responses": [
+              {
+                "atMs": 18.94425000000001,
+                "status": 403,
+                "kind": "response",
+                "contentType": "text/html",
+                "challenge": true
+              }
+            ],
+            "transportFailure": null,
+            "truncated": false,
+            "documentLoaded": false
+          },
+          "error": null
+        }
+      ],
+      "public_navigations": 0
+    },
+    {
+      "kind": "offline",
+      "target": "wsl",
+      "mode": "headed_xvfb",
+      "exit_code": 0,
+      "cleanup": true,
+      "graceful_close": true,
+      "evidence": {
+        "browser": "Chrome/154.0.8037.57",
+        "protocol": "1.3",
+        "platform": "linux",
+        "arch": "x64",
+        "headed_process": true,
+        "runtime_enable": true,
+        "runtime_evaluate": true,
+        "dom": true,
+        "keyboard": true,
+        "mouse": true,
+        "file_attachment": true,
+        "profile_restart": "synthetic_marker"
+      },
+      "local_navigation": [
+        {
+          "schemaVersion": 1,
+          "outcome": "response",
+          "phase": "complete",
+          "failedPhase": null,
+          "elapsedMs": 302,
+          "navigationCommands": 1,
+          "diagnostics": {
+            "httpStatus": 200,
+            "correlation": "confirmed",
+            "responses": [
+              {
+                "atMs": 98.36091099999999,
+                "status": 302,
+                "kind": "redirect",
+                "contentType": null,
+                "challenge": false
+              },
+              {
+                "atMs": 140.01600099999996,
+                "status": 200,
+                "kind": "response",
+                "contentType": "text/html",
+                "challenge": false
+              }
+            ],
+            "transportFailure": null,
+            "truncated": false,
+            "documentLoaded": true
+          },
+          "error": null
+        },
+        {
+          "schemaVersion": 1,
+          "outcome": "http_error",
+          "phase": "complete",
+          "failedPhase": null,
+          "elapsedMs": 82,
+          "navigationCommands": 1,
+          "diagnostics": {
+            "httpStatus": 403,
+            "correlation": "confirmed",
+            "responses": [
+              {
+                "atMs": 72.84781199999998,
+                "status": 403,
+                "kind": "response",
+                "contentType": "text/html",
+                "challenge": true
+              }
+            ],
+            "transportFailure": null,
+            "truncated": false,
+            "documentLoaded": false
+          },
+          "error": null
+        }
+      ],
+      "public_navigations": 0
+    },
+    {
+      "kind": "offline",
+      "target": "m3",
+      "mode": "headless",
+      "exit_code": 0,
+      "cleanup": true,
+      "graceful_close": true,
+      "evidence": {
+        "browser": "Chrome/154.0.8037.57",
+        "protocol": "1.3",
+        "platform": "linux",
+        "arch": "arm64",
+        "headless_process": true,
+        "runtime_enable": true,
+        "runtime_evaluate": true,
+        "dom": true,
+        "keyboard": true,
+        "mouse": true,
+        "file_attachment": true,
+        "profile_restart": "synthetic_marker"
+      },
+      "local_navigation": [
+        {
+          "schemaVersion": 1,
+          "outcome": "response",
+          "phase": "complete",
+          "failedPhase": null,
+          "elapsedMs": 48,
+          "navigationCommands": 1,
+          "diagnostics": {
+            "httpStatus": 200,
+            "correlation": "confirmed",
+            "responses": [
+              {
+                "atMs": 9.564904999999953,
+                "status": 302,
+                "kind": "redirect",
+                "contentType": null,
+                "challenge": false
+              },
+              {
+                "atMs": 11.07382599999994,
+                "status": 200,
+                "kind": "response",
+                "contentType": "text/html",
+                "challenge": false
+              }
+            ],
+            "transportFailure": null,
+            "truncated": false,
+            "documentLoaded": true
+          },
+          "error": null
+        },
+        {
+          "schemaVersion": 1,
+          "outcome": "http_error",
+          "phase": "complete",
+          "failedPhase": null,
+          "elapsedMs": 7,
+          "navigationCommands": 1,
+          "diagnostics": {
+            "httpStatus": 403,
+            "correlation": "confirmed",
+            "responses": [
+              {
+                "atMs": 4.287266999999929,
+                "status": 403,
+                "kind": "response",
+                "contentType": "text/html",
+                "challenge": true
+              }
+            ],
+            "transportFailure": null,
+            "truncated": false,
+            "documentLoaded": false
+          },
+          "error": null
+        }
+      ],
+      "public_navigations": 0
+    },
+    {
+      "kind": "offline",
+      "target": "m3",
+      "mode": "headed_xvfb",
+      "exit_code": 0,
+      "cleanup": true,
+      "graceful_close": true,
+      "evidence": {
+        "browser": "Chrome/154.0.8037.57",
+        "protocol": "1.3",
+        "platform": "linux",
+        "arch": "arm64",
+        "headed_process": true,
+        "runtime_enable": true,
+        "runtime_evaluate": true,
+        "dom": true,
+        "keyboard": true,
+        "mouse": true,
+        "file_attachment": true,
+        "profile_restart": "synthetic_marker"
+      },
+      "local_navigation": [
+        {
+          "schemaVersion": 1,
+          "outcome": "response",
+          "phase": "complete",
+          "failedPhase": null,
+          "elapsedMs": 119,
+          "navigationCommands": 1,
+          "diagnostics": {
+            "httpStatus": 200,
+            "correlation": "confirmed",
+            "responses": [
+              {
+                "atMs": 14.243701999999985,
+                "status": 302,
+                "kind": "redirect",
+                "contentType": null,
+                "challenge": false
+              },
+              {
+                "atMs": 20.91545199999996,
+                "status": 200,
+                "kind": "response",
+                "contentType": "text/html",
+                "challenge": false
+              }
+            ],
+            "transportFailure": null,
+            "truncated": false,
+            "documentLoaded": true
+          },
+          "error": null
+        },
+        {
+          "schemaVersion": 1,
+          "outcome": "http_error",
+          "phase": "complete",
+          "failedPhase": null,
+          "elapsedMs": 27,
+          "navigationCommands": 1,
+          "diagnostics": {
+            "httpStatus": 403,
+            "correlation": "confirmed",
+            "responses": [
+              {
+                "atMs": 9.810903000000053,
+                "status": 403,
+                "kind": "response",
+                "contentType": "text/html",
+                "challenge": true
+              }
+            ],
+            "transportFailure": null,
+            "truncated": false,
+            "documentLoaded": false
+          },
+          "error": null
+        }
+      ],
+      "public_navigations": 0
+    },
+    {
+      "kind": "public",
+      "target": "wsl",
+      "mode": "headless",
+      "exit_code": 1,
+      "cleanup": true,
+      "graceful_close": true,
+      "evidence": {
+        "browser": "Chrome/154.0.8037.57",
+        "protocol": "1.3",
+        "platform": "linux",
+        "arch": "x64",
+        "headless_process": true,
+        "runtime_enable": true,
+        "runtime_evaluate": true,
+        "dom": true,
+        "keyboard": true,
+        "mouse": true,
+        "file_attachment": true,
+        "profile_restart": "synthetic_marker"
+      },
+      "local_navigation": [
+        {
+          "schemaVersion": 1,
+          "outcome": "response",
+          "phase": "complete",
+          "failedPhase": null,
+          "elapsedMs": 85,
+          "navigationCommands": 1,
+          "diagnostics": {
+            "httpStatus": 200,
+            "correlation": "confirmed",
+            "responses": [
+              {
+                "atMs": 6.343145999999933,
+                "status": 302,
+                "kind": "redirect",
+                "contentType": null,
+                "challenge": false
+              },
+              {
+                "atMs": 8.69050100000004,
+                "status": 200,
+                "kind": "response",
+                "contentType": "text/html",
+                "challenge": false
+              }
+            ],
+            "transportFailure": null,
+            "truncated": false,
+            "documentLoaded": true
+          },
+          "error": null
+        },
+        {
+          "schemaVersion": 1,
+          "outcome": "http_error",
+          "phase": "complete",
+          "failedPhase": null,
+          "elapsedMs": 15,
+          "navigationCommands": 1,
+          "diagnostics": {
+            "httpStatus": 403,
+            "correlation": "confirmed",
+            "responses": [
+              {
+                "atMs": 8.32904899999994,
+                "status": 403,
+                "kind": "response",
+                "contentType": "text/html",
+                "challenge": true
+              }
+            ],
+            "transportFailure": null,
+            "truncated": false,
+            "documentLoaded": false
+          },
+          "error": null
+        }
+      ],
+      "public_navigation": {
+        "schemaVersion": 1,
+        "outcome": "http_error",
+        "phase": "complete",
+        "failedPhase": null,
+        "elapsedMs": 81,
+        "navigationCommands": 1,
+        "diagnostics": {
+          "httpStatus": 403,
+          "correlation": "confirmed",
+          "responses": [
+            {
+              "atMs": 62.81700300000011,
+              "status": 307,
+              "kind": "redirect",
+              "contentType": null,
+              "challenge": false
+            },
+            {
+              "atMs": 73.75689599999987,
+              "status": 403,
+              "kind": "response",
+              "contentType": "text/html",
+              "challenge": true
+            }
+          ],
+          "transportFailure": null,
+          "truncated": false,
+          "documentLoaded": false
+        },
+        "error": null
+      }
+    },
+    {
+      "kind": "public",
+      "target": "m3",
+      "mode": "headless",
+      "exit_code": 1,
+      "cleanup": true,
+      "graceful_close": true,
+      "evidence": {
+        "browser": "Chrome/154.0.8037.57",
+        "protocol": "1.3",
+        "platform": "linux",
+        "arch": "arm64",
+        "headless_process": true,
+        "runtime_enable": true,
+        "runtime_evaluate": true,
+        "dom": true,
+        "keyboard": true,
+        "mouse": true,
+        "file_attachment": true,
+        "profile_restart": "synthetic_marker"
+      },
+      "local_navigation": [
+        {
+          "schemaVersion": 1,
+          "outcome": "response",
+          "phase": "complete",
+          "failedPhase": null,
+          "elapsedMs": 60,
+          "navigationCommands": 1,
+          "diagnostics": {
+            "httpStatus": 200,
+            "correlation": "confirmed",
+            "responses": [
+              {
+                "atMs": 6.86893299999997,
+                "status": 302,
+                "kind": "redirect",
+                "contentType": null,
+                "challenge": false
+              },
+              {
+                "atMs": 10.597670999999991,
+                "status": 200,
+                "kind": "response",
+                "contentType": "text/html",
+                "challenge": false
+              }
+            ],
+            "transportFailure": null,
+            "truncated": false,
+            "documentLoaded": true
+          },
+          "error": null
+        },
+        {
+          "schemaVersion": 1,
+          "outcome": "http_error",
+          "phase": "complete",
+          "failedPhase": null,
+          "elapsedMs": 13,
+          "navigationCommands": 1,
+          "diagnostics": {
+            "httpStatus": 403,
+            "correlation": "confirmed",
+            "responses": [
+              {
+                "atMs": 5.836583000000019,
+                "status": 403,
+                "kind": "response",
+                "contentType": "text/html",
+                "challenge": true
+              }
+            ],
+            "transportFailure": null,
+            "truncated": false,
+            "documentLoaded": false
+          },
+          "error": null
+        }
+      ],
+      "public_navigation": {
+        "schemaVersion": 1,
+        "outcome": "http_error",
+        "phase": "complete",
+        "failedPhase": null,
+        "elapsedMs": 58,
+        "navigationCommands": 1,
+        "diagnostics": {
+          "httpStatus": 403,
+          "correlation": "confirmed",
+          "responses": [
+            {
+              "atMs": 30.883391999999958,
+              "status": 307,
+              "kind": "redirect",
+              "contentType": null,
+              "challenge": false
+            },
+            {
+              "atMs": 48.44250099999999,
+              "status": 403,
+              "kind": "response",
+              "contentType": "text/html",
+              "challenge": true
+            }
+          ],
+          "transportFailure": null,
+          "truncated": false,
+          "documentLoaded": false
+        },
+        "error": null
+      }
+    }
+  ],
+  "sandbox_checks": [
+    {
+      "target": "wsl",
+      "exit_code": 0,
+      "mode": "headless",
+      "browser": "Chrome/154.0.8037.57",
+      "arch": "x64",
+      "sandbox": "namespace+seccomp",
+      "public_navigations": 0,
+      "prompts_sent": 0,
+      "browser_closed": true
+    },
+    {
+      "target": "wsl",
+      "exit_code": 0,
+      "mode": "virtual",
+      "browser": "Chrome/154.0.8037.57",
+      "arch": "x64",
+      "sandbox": "namespace+seccomp",
+      "public_navigations": 0,
+      "prompts_sent": 0,
+      "browser_closed": true
+    },
+    {
+      "target": "m3",
+      "exit_code": 0,
+      "mode": "headless",
+      "browser": "Chrome/154.0.8037.57",
+      "arch": "arm64",
+      "sandbox": "namespace+seccomp",
+      "public_navigations": 0,
+      "prompts_sent": 0,
+      "browser_closed": true
+    },
+    {
+      "target": "m3",
+      "exit_code": 0,
+      "mode": "virtual",
+      "browser": "Chrome/154.0.8037.57",
+      "arch": "arm64",
+      "sandbox": "namespace+seccomp",
+      "public_navigations": 0,
+      "prompts_sent": 0,
+      "browser_closed": true
+    }
+  ],
+  "installed_after": {
+    "wsl": {
+      "version": "0.40.18",
+      "image": "sha256:1f5cf6a36323635c2f03bd3b011f89f9e5223cc955f10737bd187de7e89cfd18",
+      "started_at": "2026-09-17T04:36:34.956128153Z",
+      "restart_count": 0,
+      "headed": true,
+      "ready": true,
+      "healthy": true,
+      "blocker": null
+    },
+    "m3": {
+      "version": "0.40.18",
+      "image": "sha256:73de64cca2889500e7683dd10e269cbf05f8997e6830d09641e44047cee5d6ac",
+      "started_at": "2026-09-17T03:11:22.942538376Z",
+      "restart_count": 0,
+      "headed": true,
+      "ready": true,
+      "healthy": true,
+      "blocker": null
+    }
+  },
+  "disposition": "not_promoted; anonymous pure-headless access blocked; preserve verified virtual-display service"
+}

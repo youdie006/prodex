@@ -1,0 +1,13 @@
+**
+!package.json
+!package-lock.json
+!tsconfig.json
+!prodex.mjs
+!LICENSE
+!src/
+!src/**
+!scripts/
+!scripts/*.mjs
+!containers/
+!containers/browser/
+!containers/browser/**

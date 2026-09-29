@@ -165,7 +165,9 @@ prodex tunnel url --cwd /absolute/path/to/your/repo --public-url "https://your-t
 
 ## Available Tools
 
-The HTTP server exposes the same tool catalog as stdio MCP:
+The HTTP server exposes the shared bridge/repo tool catalog below. The browser
+tools `pro_consult` and `pro_recover` are local-stdio-only and are never exposed
+by this HTTP server:
 
 - `bridge_create_task`
 - `bridge_list_tasks`

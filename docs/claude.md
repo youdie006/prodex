@@ -115,6 +115,38 @@ Generic bridge result/session/task tools redact ChatGPT thread metadata, includi
 
 No shell, public tunnel, direct ungated write, or direct ungated staging tools are exposed through the Claude stdio MCP server; the only browser-facing tools are the explicit `pro_consult` consult and the read-only `pro_recover` described above.
 
+## Connection Troubleshooting
+
+Check the actual `prodex` entry in your client's MCP configuration first:
+
+- A `command`/`args` stdio entry starts a local process. The container-client
+  variant forwards that connection through Docker stdio. Neither uses the
+  optional HTTP `server_url` in `.bridge/config.local.json`.
+- An HTTP entry depends on its configured URL and the HTTP service listening
+  there. The [HTTP server](http-mcp.md) exposes bridge/repo tools, not
+  `pro_consult` or `pro_recover`. Do not move or stop another service merely
+  because it owns the optional HTTP port when the failed client uses stdio.
+- `pro browser check` reporting `config: ok` means the bridge configuration
+  loaded; it does not establish HTTP availability or an attached MCP connection.
+  Run it with the same `--cwd` as the failing command so its defaults match.
+- A fresh MCP initialization and tool-list check verifies that new connection,
+  not an existing client's cached failure or that a Pro answer can be generated.
+  If only that client remains disconnected, reconnect its ProDex MCP connection
+  where supported, without restarting the browser or requesting login again.
+  A host package update does not update a container's package or reload an
+  already-running MCP process.
+- With configured selectors, `browser_send_lock_busy` means another operation
+  owns the browser. The check exits nonzero with readiness unverified; it is
+  not a login failure. Do not repeatedly retry or interfere with the active task.
+
+Persisted consult selection fields and blocker text intentionally replace
+project names with `<project>`. This placeholder does not prove that the browser
+received that literal argument. Original names cannot be reconstructed from
+those redacted records; use the effective local defaults and original local
+command/error when diagnosing selection, without publishing private names.
+
+## Same-Task Dialogue
+
 For natural same-task dialogue, Claude should reuse the returned `continuation`
 arguments with the next prompt, answer Pro's clarifying questions only with known
 facts, and stop once sufficient or repetitive. `followup_budget` reports the

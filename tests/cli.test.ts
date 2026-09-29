@@ -2421,7 +2421,7 @@ describe("runCli", () => {
       "prodex pro browser login [--cwd /absolute/path/to/repo] [--dry-run] [--source-cli /absolute/path/to/dist/cli.js] [--profile-dir path] [--port 9333] [--url https://chatgpt.com/...] [--launch-timeout-ms 5000] [--wait|--no-wait] [--headed|--headless|--minimized|--virtual-display] [--wait-timeout-ms 300000] [--background] [--recover-visible]  # preview/open browser login"
     );
     expect(text).toContain(
-      "prodex pro browser check [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 1500]"
+      "prodex pro browser check [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 15000]"
     );
     expect(text).toContain(
       "prodex pro browser smoke [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 90000]"
@@ -5050,7 +5050,7 @@ describe("runCli", () => {
     expect(out.join("\n")).not.toContain("Opened ChatGPT browser");
   });
 
-  it("rejects fake Chrome-compatible commands found on PATH", async () => {
+  it("rejects an explicitly selected fake Chrome-compatible command on PATH", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     const binDir = await mkdtemp(path.join(tmpdir(), "prodex-fake-browser-"));
     const out: string[] = [];
@@ -5062,15 +5062,17 @@ describe("runCli", () => {
       await chmod(fake, 0o755);
     }
     process.env.PATH = `${binDir}${path.delimiter}${previousPath ?? ""}`;
-    delete process.env.PRODEX_CHROME;
+    // Pin the fake PATH command so native install-path fallbacks cannot launch.
+    process.env.PRODEX_CHROME = "google-chrome";
+    mockRefusedBrowserConnection();
     try {
       await expect(
-        runCli(["pro", "browser", "login", "--port", "9"], {
+        runCli(["pro", "browser", "login", "--profile-dir", path.join(cwd, "profile"), "--port", "9"], {
           cwd,
           stdout: (line) => out.push(line),
           stderr: () => {}
         })
-      ).rejects.toThrow(/Chrome|Chromium/i);
+      ).rejects.toThrow(/PRODEX_CHROME.*(?:Chrome\/Chromium-compatible|not found)/i);
     } finally {
       if (previousPath === undefined) delete process.env.PATH;
       else process.env.PATH = previousPath;
@@ -5503,19 +5505,38 @@ describe("runCli", () => {
       stderr: () => {}
     });
     const out: string[] = [];
+    let markServerReady!: () => void;
+    const serverReady = new Promise<void>((resolve) => {
+      markServerReady = resolve;
+    });
 
     const start = runCli(["start", "--cwd", targetCwd], {
       cwd: launcherCwd,
-      stdout: (line) => out.push(line),
+      stdout: (line) => {
+        out.push(line);
+        if (line.startsWith("prodex HTTP MCP listening on ")) markServerReady();
+      },
       stderr: () => {}
     });
-    const stop = setTimeout(() => process.emit("SIGTERM"), 50);
 
-    await expect(start).resolves.toBe(0);
-    clearTimeout(stop);
-    expect(out.join("\n")).toContain(`http://127.0.0.1:${port}/mcp?prodex_token=***`);
-    expect(out.join("\n")).toContain("prodex_token=***");
-    expect(out.join("\n")).not.toContain("super-secret-token");
+    try {
+      // Wait for startup instead of racing mounted-workspace I/O with a fixed timer.
+      await Promise.race([
+        serverReady,
+        start.then(() => {
+          throw new Error("HTTP MCP start completed before reporting readiness");
+        })
+      ]);
+      process.emit("SIGTERM");
+
+      await expect(start).resolves.toBe(0);
+      expect(out.join("\n")).toContain(`http://127.0.0.1:${port}/mcp?prodex_token=***`);
+      expect(out.join("\n")).toContain("prodex_token=***");
+      expect(out.join("\n")).not.toContain("super-secret-token");
+    } finally {
+      process.emit("SIGTERM");
+      await start.catch(() => undefined);
+    }
   });
 
   it("uses an explicit --cwd target for doctor checks", async () => {

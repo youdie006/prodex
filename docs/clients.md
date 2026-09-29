@@ -15,6 +15,13 @@ args:    ["mcp"]
 
 For a source checkout, use `command: node`, `args: ["/absolute/path/to/prodex/dist/cli.js", "mcp"]`.
 
+For the opt-in container browser, use the [container checkout helper](container-browser.md#everyday-checkout-helper)
+instead of either host command above. It selects an existing Docker context and
+keeps the receipt bus inside that container. Host file paths are not available
+there; provide only authorized text in the consult prompt. Changing client
+configuration does not reconnect an already-attached MCP process or sign in a
+separate machine's browser.
+
 Install the `prodex` binary with `npm install -g @youdie006/prodex` (note the scope — the unscoped `prodex` on npm is a different, unrelated package; do not install it), or build from source (see the README).
 
 The same operating rules apply to every client: manual-first, explicit `pro browser ...`
@@ -121,18 +128,19 @@ in ChatGPT. Recover a timed-out ordinary answer with both the returned `thread` 
 `request_id`; recovery without a request ID is retained for old records but is marked
 unverified.
 
-Approval gate (verified on Codex 0.142.5): Codex asks for per-call approval
-before invoking prodex MCP tools. In interactive `codex` sessions you simply
-approve the prompt. In non-interactive `codex exec`, the approval cannot be
-asked and auto-resolves to cancel - every prodex call fails instantly with
-"user cancelled MCP tool call" before reaching prodex, and neither
-`--full-auto` nor `approval_policy=never` clears that specific gate. For
-unattended runs you must either approve the tools once in an interactive
-session first, or explicitly run
-`codex exec --dangerously-bypass-approvals-and-sandbox ...` and accept what
-that flag disables. Verified end to end: a Codex-initiated `pro_consult`
-reached the live browser and returned the expected answer with a ledger
-receipt.
+Codex's MCP approval gate is separate from ProDex readiness. In an interactive
+session, approve the authorized call through the client's prompt. On Codex
+0.154.0, an isolated `codex exec` with `approval_policy="never"` refused the call
+before reaching ProDex. That is not a browser failure or a reason to log in again.
+
+For the user-authorized [container continuation check](container-browser.md#fresh-codex-continuation),
+a fresh ephemeral client retained the read-only sandbox, exposed only
+`pro_consult`, and used `approval_policy="on-request"` with
+`approvals_reviewer="auto_review"`. Its reviewed call returned a request-verified
+Pro answer. These were invocation-only settings, not a permanent approval
+bypass. Automated review can still deny a request; do not retry a denied call
+or weaken policy automatically. Older Codex versions may lack this approval
+reviewer; use their supported interactive approval instead.
 
 ## Cursor
 

@@ -2,6 +2,7 @@ import { existsSync, realpathSync, statSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { BrowserProcessInspectionError } from "./browser-process.js";
+import { getBrowserRuntimeInfo } from "./browser-runtime.js";
 import { buildDryRunBundle } from "./bundle.js";
 import {
   type BrowserWindowMode,
@@ -16,6 +17,7 @@ import {
   defaultChatGptProfileDir,
   formatDurationMs,
   getChatGptBrowserStatus,
+  inspectConfiguredBrowserSelectors,
   formatModelMenuOption,
   listChatGptModelOptions,
   deleteChatGptConversation,
@@ -392,9 +394,13 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
         // ambiguous_chatgpt_tabs). Reuse the running instance instead.
         const alreadyRunning = (await getChatGptBrowserStatus({ port })).reachable;
         if (alreadyRunning) windowMode = resolveBrowserWindowMode(windowModeOptions);
-        if (background && alreadyRunning) {
+        let verifiedRunningHeadless: boolean | undefined;
+        if (alreadyRunning && (background || windowMode.headless)) {
           const { getDedicatedBrowserHeadlessMode } = await import("./browser-handoff.js");
-          windowMode = { headless: getDedicatedBrowserHeadlessMode({ port, profileDir: profileDir ?? defaultChatGptProfileDir() }), virtualDisplay: false, minimized: false };
+          verifiedRunningHeadless = getDedicatedBrowserHeadlessMode({ port, profileDir: profileDir ?? defaultChatGptProfileDir() });
+          if (background) {
+            windowMode = { headless: verifiedRunningHeadless, virtualDisplay: false, minimized: false };
+          }
         }
         const headless = windowMode.headless;
         const wantsVirtualDisplay = windowMode.virtualDisplay;
@@ -421,7 +427,7 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
           // One Chrome profile cannot serve a headed and a headless instance at
           // once, and reusing the running one would silently ignore the
           // requested mode. Say so instead of pretending the switch took.
-          const runningHeadless = background ? headless : savedLaunchForPort ? savedLaunchForPort.headless === true : undefined;
+          const runningHeadless = verifiedRunningHeadless ?? (savedLaunchForPort ? savedLaunchForPort.headless === true : undefined);
           if (runningHeadless !== undefined && runningHeadless !== headless) {
             throw new Error(
               `A ${runningHeadless ? "headless" : "headed"} ChatGPT browser is already running on port ${port}, but ${headless ? "headless" : "headed"} was requested. Close the existing browser yourself, then rerun; prodex will not end it.`
@@ -430,13 +436,17 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
           // Same for the display: a browser already on your desktop cannot be
           // moved onto a virtual display by reusing it, and silently reusing
           // it would leave the window exactly where the user asked it not to be.
-          const runningVirtual = savedLaunchForPort ? savedLaunchForPort.virtual_display !== undefined : undefined;
+          const runningVirtual = verifiedRunningHeadless === true
+            ? false
+            : savedLaunchForPort
+              ? savedLaunchForPort.virtual_display !== undefined
+              : undefined;
           if (runningVirtual !== undefined && runningVirtual !== wantsVirtualDisplay) {
             throw new Error(
               `A ChatGPT browser is already running on port ${port} on ${runningVirtual ? "a virtual display" : "your desktop"}, but ${wantsVirtualDisplay ? "a virtual display" : "your desktop"} was requested. Close the existing browser yourself, then rerun; prodex will not end it.`
             );
           }
-          if (savedLaunchForPort?.minimized === true && !windowMode.minimized) {
+          if (verifiedRunningHeadless !== true && savedLaunchForPort?.minimized === true && !windowMode.minimized) {
             throw new Error(
               `A minimized ChatGPT browser is already running on port ${port}, but a visible headed browser was requested. Close the existing browser yourself, then rerun with --headed; prodex will not end it or pretend the minimized window was restored.`
             );
@@ -480,6 +490,12 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
             });
         if (!alreadyRunning) {
           await assertBrowserLaunchStayedAlive(opened as ChatGptBrowserLaunch, launchTimeoutMs);
+        }
+        if (headless && verifiedRunningHeadless === undefined) {
+          const { getDedicatedBrowserHeadlessMode } = await import("./browser-handoff.js");
+          if (!getDedicatedBrowserHeadlessMode({ port: opened.port, profileDir: opened.profileDir })) {
+            throw new Error("The browser is not actually headless; headless login was not recorded.");
+          }
         }
         // Remember this launch so ask auto-recovery reuses the same profile
         // AND the same window mode.
@@ -547,12 +563,19 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
           // the first consult fail with a confusing not-logged-in blocker.
           const headlessWaitMs = readPositiveIntegerFlag(browserArgs, "--wait-timeout-ms") ?? 30_000;
           const visibleRecoveryCommand = formatVisibleAuthRecoveryCommand(sourceCli, { ...commandOptions, profileDir: opened.profileDir, port: opened.port });
+          const verifyHeadlessReady = async () => {
+            const { getDedicatedBrowserHeadlessMode } = await import("./browser-handoff.js");
+            if (!getDedicatedBrowserHeadlessMode({ port: opened.port, profileDir: opened.profileDir })) {
+              throw new Error("The browser is not actually headless; headless readiness was not confirmed.");
+            }
+          };
           const headlessReady = await waitForChatGptLoginReady(io.stderr, {
             port: opened.port,
             timeoutMs: headlessWaitMs,
             windowMode,
             headedLoginCommand: formatHeadedBrowserLoginCommand(sourceCli, commandOptions),
-            headlessRecoveryCommand: visibleRecoveryCommand
+            headlessRecoveryCommand: visibleRecoveryCommand,
+            beforeReady: verifyHeadlessReady
           });
           if (!headlessReady) {
             // A challenge is not evidence of a lost login. Report the observed
@@ -571,8 +594,6 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
             return 1;
           }
           if (background) {
-            const { getDedicatedBrowserHeadlessMode } = await import("./browser-handoff.js");
-            if (!getDedicatedBrowserHeadlessMode({ port: opened.port, profileDir: opened.profileDir })) throw new Error("The browser is not actually headless; background readiness was not confirmed.");
             io.stdout("background: READY - the saved login works headless. Later consults reuse this mode.");
           }
           io.stdout("headless: signed-in session confirmed - consults will run with no visible window.");
@@ -640,8 +661,8 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
         return runCliFn(["chatgpt", browserSubcommand, ...browserArgs], io);
       }
       if (browserSubcommand === "check") {
-        if (printProBrowserHelpIfRequested(browserArgs, "pro browser check", io, { valueFlags: ["--cwd", "--port", "--timeout-ms", "--source-cli"] })) return 0;
-        assertOnlyOptions(browserArgs, "pro browser check", ["--cwd", "--port", "--timeout-ms", "--source-cli"]);
+        if (printProBrowserHelpIfRequested(browserArgs, "pro browser check", io, { valueFlags: ["--cwd", "--port", "--timeout-ms", "--source-cli"], booleanFlags: ["--runtime"] })) return 0;
+        assertOnlyOptions(browserArgs, "pro browser check", ["--cwd", "--port", "--timeout-ms", "--source-cli"], ["--runtime"]);
         const targetCwd = resolveCwdFlag(io.cwd, browserArgs);
         readPortFlag(browserArgs, "--port");
         readPositiveIntegerFlag(browserArgs, "--timeout-ms");
@@ -2618,6 +2639,8 @@ export async function waitForChatGptLoginReady(
     verifiedHeadedHandoff?: boolean;
     headedLoginCommand?: string;
     headlessRecoveryCommand?: string;
+    /** Verify caller-specific runtime evidence before announcing readiness. */
+    beforeReady?: () => void | Promise<void>;
   },
   deps: LoginWaitDeps = {}
 ): Promise<boolean> {
@@ -2638,34 +2661,34 @@ export async function waitForChatGptLoginReady(
   );
   let lastState = "";
   let lastStatus: Awaited<ReturnType<typeof getChatGptBrowserStatus>> | undefined;
-  let openMissingTabAttempts = 0;
+  let mayOpenMissingTab = true;
   while (now() - startedAt < timeoutMs) {
     const status = await statusFn({ port: options.port, timeoutMs: 1_500 });
     lastStatus = status;
-    // A running Chrome with no chatgpt.com tab leaves the user nothing to log
-    // into, so prodex opens one. Keep trying while the tab is still missing:
-    // one silent attempt that fails looks exactly like no attempt, which is how
-    // a real machine sat for a minute reporting the missing tab and ended
-    // not-ready with nothing to go on.
+    // A login tab can leave chatgpt.com during authentication. Never replace an
+    // observed login flow, or repeat an opening whose tab may be redirecting.
     if (status.reachable && status.blocker?.code === "chatgpt_page_missing") {
-      const attempt = openMissingTabAttempts + 1;
-      openMissingTabAttempts = attempt;
-      stderr(
-        attempt === 1
-          ? "login: the running Chrome had no ChatGPT tab - opening a ChatGPT tab in it..."
-          : `login: still no ChatGPT tab - opening one again (attempt ${attempt})...`
-      );
-      const opened = await openTabFn(options.port);
-      if (opened === false) {
-        stderr(
-          hasInteractiveWindow
-            ? "login: could not open a ChatGPT tab through the debug port; open https://chatgpt.com/ in that browser."
-            : `login: could not open a ChatGPT tab through the debug port. ${manualInspection}`
-        );
+      if (mayOpenMissingTab) {
+        mayOpenMissingTab = false;
+        stderr("login: the running Chrome had no ChatGPT tab - opening a ChatGPT tab in it...");
+        const opened = await openTabFn(options.port);
+        if (opened === false) {
+          stderr(
+            hasInteractiveWindow
+              ? "login: could not open a ChatGPT tab through the debug port; open https://chatgpt.com/ in that browser."
+              : `login: could not open a ChatGPT tab through the debug port. ${manualInspection}`
+          );
+        }
+      }
+      const state = "login: waiting for an existing tab to return to ChatGPT. No additional tabs will be opened automatically.";
+      if (state !== lastState) {
+        stderr(state);
+        lastState = state;
       }
       await sleepFn(pollMs);
       continue;
     }
+    if (status.reachable) mayOpenMissingTab = false;
     const blocker = status.blocker;
     const blockerNextStep = blocker?.next_step ? ` Next: ${blocker.next_step}` : "";
     if (!hasInteractiveWindow && blocker && needsVisibleAuthRecovery(blocker.code)) {
@@ -2698,6 +2721,7 @@ export async function waitForChatGptLoginReady(
               : "login: login looks active, but no prompt composer is ready; waiting for a usable chat..."
             : "";
     if (state === "") {
+      await options.beforeReady?.();
       stderr(`login: READY - logged-in ChatGPT tab with composer detected (${Math.round((now() - startedAt) / 1000)}s).`);
       return true;
     }
@@ -3565,19 +3589,97 @@ export async function printProductCheck(store: BridgeStore, io: CliIO, args: str
     }
   }
 
-  // Echo the saved send defaults next to the live model hints so users can
-  // see what an ask will actually apply without opening the config file.
+  // Resolve the exact same effective defaults as a browser send. A failed
+  // defaults read is selection state we cannot prove, not "no defaults".
+  let savedDefaults: Awaited<ReturnType<typeof loadBrowserDefaults>>;
+  let browserDefaultsLoadError: unknown;
   try {
-    const savedDefaults = await loadBrowserDefaults(configCwd);
+    savedDefaults = await loadBrowserDefaults(configCwd);
     if (savedDefaults) io.stdout(`browser_defaults: ${formatBrowserDefaults(savedDefaults)}`);
-  } catch {
-    // config unreadable: already reported by the config line above
+  } catch (error) {
+    browserDefaultsLoadError = error;
+    io.stdout(
+      `browser_defaults: unavailable - ${firstLine(sourceAwareSetupMessage(errorMessage(error), sourceCli, { cwd: setupHintCwd }))}`
+    );
   }
+
+  const configuredSelection = savedDefaults
+    ? {
+        ...(savedDefaults.model !== undefined ? { model: savedDefaults.model } : {}),
+        ...(savedDefaults.pro_mode !== undefined ? { proMode: savedDefaults.pro_mode } : {}),
+        ...(savedDefaults.effort !== undefined ? { effort: savedDefaults.effort } : {}),
+        ...(savedDefaults.project !== undefined ? { project: savedDefaults.project } : {})
+      }
+    : {};
+  const configuredFields = (["model", "proMode", "effort", "project"] as const).filter(
+    (field) => configuredSelection[field] !== undefined
+  );
+  const fieldLabel: Record<(typeof configuredFields)[number], string> = {
+    model: "model",
+    proMode: "pro-mode",
+    effort: "effort",
+    project: "project"
+  };
+  type SelectorField = (typeof configuredFields)[number];
+  type NormalizedSelectorCheck = {
+    state: "VERIFIED" | "MISSING" | "UNVERIFIED";
+    requested: string;
+    observed?: string[];
+    reason?: string;
+  };
+  const safeSelectorText = (value: string): string => value.replace(/\s+/g, " ").trim();
+  const formatSelectorCheck = (field: SelectorField, check: NormalizedSelectorCheck): string => {
+    const details = [
+      `requested=${safeSelectorText(check.requested)}`,
+      ...(check.observed && check.observed.length > 0
+        ? [`observed=${check.observed.map(safeSelectorText).join("|")}`]
+        : []),
+      ...(check.reason ? [`reason=${safeSelectorText(check.reason)}`] : [])
+    ];
+    return `${fieldLabel[field]}=${check.state}(${details.join(",")})`;
+  };
+  const unverifiedConfiguredChecks = (reason: string): Partial<Record<SelectorField, NormalizedSelectorCheck>> =>
+    Object.fromEntries(
+      configuredFields.map((field) => [
+        field,
+        { state: "UNVERIFIED", requested: configuredSelection[field] as string, reason }
+      ])
+    );
+  const configuredSelectorsVerified = (
+    checks: Partial<Record<SelectorField, NormalizedSelectorCheck>>,
+    modelMenu: "OPENED" | "UNVERIFIED" | undefined
+  ): boolean =>
+    configuredFields.every((field) => checks[field]?.state === "VERIFIED") &&
+    (!configuredFields.some((field) => field !== "project") || modelMenu === "OPENED");
+  const printConfiguredSelectorSummary = (
+    checks: Partial<Record<SelectorField, NormalizedSelectorCheck>>,
+    input: { modelMenu?: "OPENED" | "UNVERIFIED"; reason?: string }
+  ): void => {
+    const fields = configuredFields.map((field) => formatSelectorCheck(field, checks[field] as NormalizedSelectorCheck));
+    const readiness = configuredSelectorsVerified(checks, input.modelMenu) ? "VERIFIED" : "UNVERIFIED";
+    io.stdout(
+      [
+        `browser_selectors: readiness=${readiness}`,
+        "scope=configured-selection",
+        `model-menu=${input.modelMenu ?? "UNVERIFIED"}`,
+        ...fields,
+        ...(input.reason ? [`reason=${safeSelectorText(input.reason)}`] : [])
+      ].join(" ")
+    );
+  };
 
   // Parse flags OUTSIDE the probe guard: an invalid --port / PRODEX_CDP_PORT /
   // --timeout-ms is a usage or config error, not a browser-check failure.
   const checkPort = resolveCdpPort(readPortFlag(args, "--port"));
-  const checkTimeoutMs = readPositiveIntegerFlag(args, "--timeout-ms") ?? 1500;
+  const explicitCheckTimeoutMs = readPositiveIntegerFlag(args, "--timeout-ms");
+  const checkTimeoutMs = explicitCheckTimeoutMs ?? 1500;
+  const selectorTimeoutMs = explicitCheckTimeoutMs ?? 15_000;
+  if (args.includes("--runtime")) {
+    const runtime = await getBrowserRuntimeInfo({
+      port: checkPort, timeoutMs: checkTimeoutMs, savedLaunch: await readLastBrowserLoginLaunch()
+    });
+    io.stdout(`browser_runtime: ${JSON.stringify(runtime)}`);
+  }
   const browserCommandOptions = {
     cwd: setupHintCwd,
     port: checkPort !== DEFAULT_CDP_PORT ? checkPort : undefined
@@ -3598,6 +3700,8 @@ export async function printProductCheck(store: BridgeStore, io: CliIO, args: str
     if (failedNext) io.stdout(`next: ${failedNext}`);
   }
   let chatgptReady = false;
+  let baseIdleReady = false;
+  let responseInProgress = false;
   if (browserStatus) {
   const visibilityBlocker = chatGptVisibilityBlocker(browserStatus.visibilityState, browserStatus.url);
   if (!browserStatus.reachable) {
@@ -3630,7 +3734,7 @@ export async function printProductCheck(store: BridgeStore, io: CliIO, args: str
     // failure, observed across several repos).
     io.stdout(`chatgpt: busy ${browserStatus.blocker.code} - ${browserStatus.blocker.message}`);
     io.stdout("next: No action needed - a send queues behind it automatically (--busy-wait-ms 0 fails fast instead).");
-    chatgptReady = true;
+    responseInProgress = true;
   } else if (browserStatus.blocker) {
     const visibilityText =
       browserStatus.blocker.code === "tab_not_visible" ? ` visibility=${browserStatus.visibilityState ?? "unknown"}` : "";
@@ -3642,8 +3746,7 @@ export async function printProductCheck(store: BridgeStore, io: CliIO, args: str
     const nextStep = productCheckBrowserNextStep(visibilityBlocker.next_step, sourceCli, browserCommandOptions);
     if (nextStep) io.stdout(`next: ${nextStep}`);
   } else if (browserStatus.loggedInLikely && browserStatus.hasComposer) {
-    io.stdout(`chatgpt: ok logged_in=true composer=true${browserStatus.url ? ` url=${browserStatus.url}` : ""}`);
-    chatgptReady = true;
+    baseIdleReady = true;
   } else {
     io.stdout(`chatgpt: blocked logged_in=${browserStatus.loggedInLikely} composer=${browserStatus.hasComposer}`);
     const nextStep = productCheckBrowserNextStep(browserReadinessNextStep(browserStatus), sourceCli, browserCommandOptions);
@@ -3651,6 +3754,91 @@ export async function printProductCheck(store: BridgeStore, io: CliIO, args: str
   }
   const modelHints = formatBrowserModelHints(browserStatus.modelHints);
   if (modelHints) io.stdout(`model_hints: ${modelHints}`);
+  }
+
+  if (browserDefaultsLoadError !== undefined) {
+    io.stdout("browser_selectors: readiness=UNVERIFIED scope=defaults-unavailable reason=browser_defaults_load_failed");
+    if (baseIdleReady) {
+      io.stdout(
+        `chatgpt: unverified logged_in=true composer=true${browserStatus?.url ? ` url=${browserStatus.url}` : ""} scope=defaults-unavailable`
+      );
+    }
+  } else if (configuredFields.length === 0) {
+    io.stdout("browser_selectors: readiness=SKIPPED scope=session-only reason=none_configured");
+    if (baseIdleReady) {
+      io.stdout(
+        `chatgpt: ok logged_in=true composer=true${browserStatus?.url ? ` url=${browserStatus.url}` : ""} scope=session-only`
+      );
+      chatgptReady = true;
+    } else if (responseInProgress) {
+      chatgptReady = true;
+    }
+  } else if (!baseIdleReady) {
+    const reason = responseInProgress ? "response_in_progress" : browserStatus ? "base_not_ready" : "base_check_failed";
+    printConfiguredSelectorSummary(unverifiedConfiguredChecks(reason), { reason });
+  } else {
+    let rawSelectorProbe: Awaited<ReturnType<typeof inspectConfiguredBrowserSelectors>> | undefined;
+    let probeStarted = false;
+    let probeFailureReason: string | undefined;
+    try {
+      rawSelectorProbe = await withBrowserSendLock(0, () => {}, async () => {
+        probeStarted = true;
+        return inspectConfiguredBrowserSelectors({
+          port: checkPort,
+          timeoutMs: selectorTimeoutMs,
+          selection: configuredSelection
+        });
+      });
+      if (!probeStarted) probeFailureReason = "browser_send_lock_busy";
+      else if (!rawSelectorProbe || typeof rawSelectorProbe !== "object") probeFailureReason = "empty_probe_result";
+    } catch (error) {
+      probeFailureReason = probeStarted ? `selector_probe_failed:${firstLine(errorMessage(error))}` : "browser_send_lock_busy";
+    }
+
+    if (probeFailureReason) {
+      printConfiguredSelectorSummary(unverifiedConfiguredChecks(probeFailureReason), { reason: probeFailureReason });
+      io.stdout(
+        `chatgpt: unverified logged_in=true composer=true${browserStatus?.url ? ` url=${browserStatus.url}` : ""} scope=configured-selection`
+      );
+    } else {
+      const normalizedChecks: Partial<Record<SelectorField, NormalizedSelectorCheck>> = {};
+      for (const field of configuredFields) {
+        const requested = configuredSelection[field] as string;
+        const candidate = rawSelectorProbe?.[field];
+        if (!candidate || typeof candidate !== "object") {
+          normalizedChecks[field] = { state: "UNVERIFIED", requested, reason: "missing_probe_result" };
+          continue;
+        }
+        if (candidate.requested !== requested) {
+          normalizedChecks[field] = { state: "UNVERIFIED", requested, reason: "probe_request_mismatch" };
+          continue;
+        }
+        if (!(["VERIFIED", "MISSING", "UNVERIFIED"] as const).includes(candidate.state)) {
+          normalizedChecks[field] = { state: "UNVERIFIED", requested, reason: "invalid_probe_result" };
+          continue;
+        }
+        normalizedChecks[field] = {
+          state: candidate.state,
+          requested,
+          ...(Array.isArray(candidate.observed)
+            ? { observed: candidate.observed.filter((value): value is string => typeof value === "string") }
+            : {}),
+          ...(typeof candidate.reason === "string" ? { reason: candidate.reason } : {})
+        };
+      }
+      printConfiguredSelectorSummary(normalizedChecks, { modelMenu: rawSelectorProbe?.modelMenu });
+      const selectorsVerified = configuredSelectorsVerified(normalizedChecks, rawSelectorProbe?.modelMenu);
+      if (selectorsVerified) {
+        io.stdout(
+          `chatgpt: ok logged_in=true composer=true${browserStatus?.url ? ` url=${browserStatus.url}` : ""} scope=configured-selection`
+        );
+        chatgptReady = true;
+      } else {
+        io.stdout(
+          `chatgpt: unverified logged_in=true composer=true${browserStatus?.url ? ` url=${browserStatus.url}` : ""} scope=configured-selection`
+        );
+      }
+    }
   }
 
   if (bridgeReady) {

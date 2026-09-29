@@ -97,11 +97,133 @@ function shellQuotedForTest(value: string): string {
 afterEach(() => { vi.unstubAllEnvs(); });
 
 describe("one-time background login", () => {
+  it("refuses a headed reuse when --headless has no saved launch identity", async () => {
+    readLaunch.mockResolvedValue(undefined);
+    actualHeadless.mockReset().mockReturnValue(false);
+
+    await expect(run(["--headless", "--wait-timeout-ms", "100"])).rejects.toThrow(/headed.*headless|not actually headless/i);
+
+    expect(actualHeadless).toHaveBeenCalledWith({ port: 9333, profileDir: expect.any(String) });
+    expect(open).not.toHaveBeenCalled();
+    expect(record).not.toHaveBeenCalled();
+    expect(close).not.toHaveBeenCalled();
+    expect(closeBlockedHeadless).not.toHaveBeenCalled();
+    expect(out.join("\n")).not.toContain("Headless ChatGPT browser");
+  });
+
+  it("refuses a headed reuse when stale metadata labels it headless", async () => {
+    readLaunch.mockResolvedValue({ ...saved, headless: true });
+    actualHeadless.mockReset().mockReturnValue(false);
+
+    await expect(run(["--headless", "--wait-timeout-ms", "100"])).rejects.toThrow(/headed.*headless|not actually headless/i);
+
+    expect(actualHeadless).toHaveBeenCalledWith({ port: 9333, profileDir: saved.profile_dir });
+    expect(open).not.toHaveBeenCalled();
+    expect(record).not.toHaveBeenCalled();
+    expect(close).not.toHaveBeenCalled();
+    expect(closeBlockedHeadless).not.toHaveBeenCalled();
+    expect(out.join("\n")).not.toContain("Headless ChatGPT browser");
+  });
+
+  it("refuses an unverified reused headless identity without changing the browser or launch record", async () => {
+    readLaunch.mockResolvedValue({ ...saved, headless: true });
+    actualHeadless.mockReset().mockImplementation(() => { throw new Error("dedicated browser identity is unknown"); });
+
+    await expect(run(["--headless", "--wait-timeout-ms", "100"])).rejects.toThrow(/identity is unknown/i);
+
+    expect(open).not.toHaveBeenCalled();
+    expect(record).not.toHaveBeenCalled();
+    expect(close).not.toHaveBeenCalled();
+    expect(closeBlockedHeadless).not.toHaveBeenCalled();
+    expect(out.join("\n")).not.toContain("Headless ChatGPT browser");
+  });
+
+  it("reuses a genuinely headless browser after checking its exact saved identity", async () => {
+    readLaunch.mockResolvedValue({ ...saved, headless: true });
+    actualHeadless.mockReset().mockReturnValue(true);
+
+    expect(await run(["--headless", "--wait-timeout-ms", "100"])).toBe(0);
+
+    expect(actualHeadless).toHaveBeenCalledTimes(2);
+    expect(actualHeadless).toHaveBeenNthCalledWith(1, { port: 9333, profileDir: saved.profile_dir });
+    expect(actualHeadless).toHaveBeenNthCalledWith(2, { port: 9333, profileDir: saved.profile_dir });
+    expect(open).not.toHaveBeenCalled();
+    expect(out.join("\n")).toContain("headless: signed-in session confirmed");
+  });
+
+  it("trusts a verified headless process over stale headed metadata", async () => {
+    readLaunch.mockResolvedValue({ ...saved, headless: false, minimized: true, virtual_display: 77 });
+    actualHeadless.mockReset().mockReturnValue(true);
+
+    expect(await run(["--headless", "--wait-timeout-ms", "100"])).toBe(0);
+
+    expect(actualHeadless).toHaveBeenCalledTimes(2);
+    expect(open).not.toHaveBeenCalled();
+    expect(close).not.toHaveBeenCalled();
+    expect(closeBlockedHeadless).not.toHaveBeenCalled();
+    expect(record).toHaveBeenCalledWith({
+      profile_dir: saved.profile_dir,
+      port: 9333,
+      headless: true,
+      minimized: false
+    });
+    expect(out.join("\n")).toContain("headless: signed-in session confirmed");
+  });
+
+  it("refuses a new launch when the browser wrapper ignores the headless flag", async () => {
+    readLaunch.mockResolvedValue({ ...saved, headless: true });
+    status.mockReset().mockResolvedValueOnce({ ...ready, reachable: false }).mockResolvedValue(ready);
+    actualHeadless.mockReset().mockReturnValue(false);
+
+    await expect(run(["--headless", "--wait-timeout-ms", "100"])).rejects.toThrow(/not actually headless/i);
+
+    expect(open).toHaveBeenCalledTimes(1);
+    expect(record).not.toHaveBeenCalled();
+    expect(close).not.toHaveBeenCalled();
+    expect(closeBlockedHeadless).not.toHaveBeenCalled();
+    expect(out.join("\n")).not.toContain("Headless ChatGPT browser");
+  });
+
+  it("does not report READY after a verified headless browser is replaced by a headed process", async () => {
+    readLaunch.mockResolvedValue({ ...saved, headless: true });
+    actualHeadless.mockReset().mockReturnValueOnce(true).mockReturnValue(false);
+
+    await expect(run(["--headless", "--wait-timeout-ms", "100"])).rejects.toThrow(/not actually headless/i);
+
+    expect(actualHeadless).toHaveBeenCalledTimes(2);
+    expect(open).not.toHaveBeenCalled();
+    expect(out.join("\n")).not.toContain("headless: signed-in session confirmed");
+    expect(errors.join("\n")).not.toContain("login: READY");
+    expect(record).toHaveBeenCalledTimes(1);
+    expect(record.mock.invocationCallOrder[0]).toBeLessThan(actualHeadless.mock.invocationCallOrder[1]);
+  });
+
+  it("preserves a verified new launch identity if the later readiness probe fails", async () => {
+    readLaunch.mockResolvedValue(undefined);
+    actualHeadless.mockReset().mockReturnValue(true);
+    status.mockReset()
+      .mockResolvedValueOnce({ ...ready, reachable: false })
+      .mockResolvedValueOnce(ready)
+      .mockRejectedValue(new Error("readiness control connection lost"));
+
+    await expect(run(["--headless", "--profile-dir", saved.profile_dir, "--wait-timeout-ms", "100"]))
+      .rejects.toThrow("readiness control connection lost");
+
+    expect(record).toHaveBeenCalledWith({ ...saved, headless: true });
+    expect(actualHeadless.mock.invocationCallOrder[0]).toBeLessThan(record.mock.invocationCallOrder[0]);
+    expect(errors.join("\n")).not.toContain("login: READY");
+    expect(out.join("\n")).not.toContain("headless: signed-in session confirmed");
+    expect(close).not.toHaveBeenCalled();
+    expect(closeBlockedHeadless).not.toHaveBeenCalled();
+  });
+
   it.each([undefined, "usage_limit", "composer_not_ready"])("does not suggest auth recovery after an unsupported headless failure %s", async (code) => {
     readLaunch.mockResolvedValue({ ...saved, headless: true });
+    actualHeadless.mockReset().mockReturnValue(true);
     status.mockResolvedValue({ ...ready, hasComposer: false,
       ...(code ? { blocker: { code, message: code, retryable: false, next_step: "Inspect the reported state." } } : {}) });
     expect(await run(["--headless", "--wait-timeout-ms", "1"])).toBe(1);
+    expect(record).toHaveBeenCalledWith({ ...saved, headless: true });
     expect(out.filter((line) => line.startsWith("headless:")).join("\n") + errors.join("\n")).not.toContain("--recover-visible");
     expect(closeBlockedHeadless).not.toHaveBeenCalled();
     expect(open).not.toHaveBeenCalled();

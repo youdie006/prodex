@@ -8,6 +8,7 @@ export const TOP_LEVEL_COMMANDS = [
   "version",
   "ask",
   "init",
+  "login",
   "setup",
   "start",
   "status",

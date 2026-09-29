@@ -1,6 +1,6 @@
 import { createServer, type Server } from "node:http";
-import type { AddressInfo } from "node:net";
-import { afterEach, describe, expect, it } from "vitest";
+import net, { type AddressInfo } from "node:net";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { fetchTimedOut, getChatGptBrowserStatus, statusMeansBrowserDead } from "../src/chatgpt-browser.js";
 
@@ -15,6 +15,7 @@ describe("telling a slow browser from a dead one", () => {
   afterEach(async () => {
     if (server) await new Promise<void>((resolve) => server!.close(() => resolve()));
     server = undefined;
+    vi.restoreAllMocks();
   });
 
   it("recognises a fetch that timed out rather than one that was refused", () => {
@@ -66,17 +67,21 @@ describe("telling a slow browser from a dead one", () => {
     expect(status.blocker?.next_step).not.toContain("login");
   });
 
-  it("does not mistake a tiny timeout on a closed port for a busy browser", async () => {
-    // With a 10ms budget the timer fires before the refusal reports back, so
-    // the fetch error says "timeout" about a port nothing listens on. The TCP
-    // check underneath is what keeps that from reading as "running but busy".
-    server = createServer();
-    await new Promise<void>((resolve) => server!.listen(0, "127.0.0.1", resolve));
-    const port = (server.address() as AddressInfo).port;
-    await new Promise<void>((resolve) => server!.close(() => resolve()));
-    server = undefined;
-    const status = await getChatGptBrowserStatus({ port, timeoutMs: 10 });
-    expect(status.blocker?.code).toBe("browser_unreachable");
+  it.each([
+    ["ECONNREFUSED", "browser_unreachable", true],
+    ["ETIMEDOUT", "browser_control_unavailable", false]
+  ] as const)("uses TCP %s evidence after a tiny fetch timeout", async (code, blocker, dead) => {
+    // A closed local port is not guaranteed to refuse before the TCP deadline
+    // under load. Inject each outcome; the real-socket check remains above.
+    vi.spyOn(globalThis, "fetch").mockRejectedValue(new DOMException("Fetch timed out", "TimeoutError"));
+    vi.spyOn(net, "createConnection").mockImplementation(() => {
+      const socket = new net.Socket();
+      queueMicrotask(() => socket.destroy(Object.assign(new Error(code), { code })));
+      return socket;
+    });
+    const status = await getChatGptBrowserStatus({ port: 19333, timeoutMs: 10 });
+    expect(status.blocker?.code).toBe(blocker);
+    expect(statusMeansBrowserDead(status)).toBe(dead);
   });
 
   it("only counts a refused connection as evidence of death", () => {
