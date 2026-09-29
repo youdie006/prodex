@@ -16,6 +16,16 @@ Release target: `v0.40.13` on `main`. The GitHub Release records the resolved co
 
 The release adds a guarded, opt-in transition and more accurate blocker reporting. It does not claim that headless Pro consultation is verified on either deployment target or that authentication can be retained indefinitely.
 
+## 0.40.19 Release Record
+
+Release commit `8650136` on `main` (cut after PR #8, merge `b5a223f`); tag `v0.40.19`. Published by `publish.yml` run 36510352704: all six native verification jobs passed (Ubuntu Node 20/22/24, macOS 15 arm64 and Intel, Windows Server 2025 / Node 22), then npm publish with SLSA v1 provenance, then the GitHub Release (2026-09-29 02:17 UTC). Before tagging, PR #8 passed the same six jobs and `npm run release:verify` passed locally on the release commit after a build (a fresh checkout without `dist` fails two package-bin cases, because `release:verify` runs tests before building).
+
+Installation on 2026-09-29, global npm, each verified with `prodex --version` = 0.40.19:
+
+- WSL, M3, Mac mini: installed. Running services were not restarted: 3 stdio MCP servers on WSL and 4 on M3 keep the code they started with until their clients reconnect; the Mac mini had none.
+- The browser container `prodex-browser-browser-1`, which this machine's Claude Code MCP entry now goes through, runs its own build and still reports 0.40.18; an npm install does not update it. It had exited on 2026-09-28 after Chromium's GPU process kept failing ("GPU process isn't usable") and was restarted with the documented `docker compose ... up -d --no-build browser` before this release.
+- M4: not reachable (hostname does not resolve); not updated.
+
 ## 0.40.2 - 0.40.7 Release Record
 
 Recorded 2026-09-29, after the fact. These versions went around the tag-and-CI path, so none of them has a git tag, a GitHub Release or npm provenance; this section is their durable record. The commit for each published version was matched to the npm publish time and cross-checked by downloading the published package and finding that version's fixes in its `dist`.
