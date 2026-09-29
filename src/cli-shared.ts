@@ -110,10 +110,10 @@ export function sourceAwareBrowserNextStep(nextStep: string | undefined, sourceC
       return `\`cd ${cwdPrefix} && ${formatBrowserAskCommandBody(sourceCli)}${storedArgs ?? ""}\``;
     })
     .replace(/`prodex pro browser login([^`]*)?`/g, (_match, storedArgs: string | undefined) => {
-      return `\`${formatBrowserLoginCommand(sourceCli, browserOptionsWithStoredPort(options, storedArgs))}\``;
+      return `\`${formatBrowserLoginCommand(sourceCli, browserOptionsWithStoredPort(options, storedArgs))}${flagsBesidesPort(storedArgs)}\``;
     })
     .replace(/`prodex pro browser smoke([^`]*)?`/g, (_match, storedArgs: string | undefined) => {
-      return `\`${formatBrowserSmokeCommand(sourceCli, browserOptionsWithStoredPort(options, storedArgs))}\``;
+      return `\`${formatBrowserSmokeCommand(sourceCli, browserOptionsWithStoredPort(options, storedArgs))}${flagsBesidesPort(storedArgs)}\``;
     })
     .replace(/`prodex pro browser ask([^`]*)?`/g, (_match, storedArgs: string | undefined) => {
       return `\`${formatBrowserAskCommandBody(sourceCli)}${storedArgs ?? ""}\``;
@@ -158,6 +158,19 @@ export function isUntrustedResultError(error: unknown): error is Error & { code:
 
 export function formatCommandInCwd(command: string, cwd?: string): string {
   return cwd ? `cd ${shellQuote(cwd)} && ${command}` : command;
+}
+
+/**
+ * The flags of a quoted command other than --port, which the rewrite rebuilds
+ * itself. They used to be dropped: a next step saying "run `prodex pro browser
+ * login --background`" came out as a plain `login`, and "--headed" vanished from
+ * the step that exists to get a window - so following the advice relaunched the
+ * browser in the very mode it was telling the caller to leave.
+ */
+export function flagsBesidesPort(storedArgs: string | undefined): string {
+  if (!storedArgs) return "";
+  const rest = storedArgs.replace(/(?:^|\s)--port\s+\d{1,5}(?=\s|$)/, " ").replace(/\s+/g, " ").trim();
+  return rest ? ` ${rest}` : "";
 }
 
 export function browserOptionsWithStoredPort(options: BrowserCommandOptions, storedArgs?: string): BrowserCommandOptions {
