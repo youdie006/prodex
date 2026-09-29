@@ -36,6 +36,7 @@ Recorded 2026-09-29, after the fact. These versions went around the tag-and-CI p
 - 0.40.3, 0.40.4, 0.40.5, 0.40.6: WSL, M3 and the Mac mini, each upgraded on its publish day (the Mac mini came from 0.37.0 at 0.40.3). M4 was unreachable over SSH every time and was never updated.
 - Running services are separate from the install. After 0.40.3 and 0.40.4 the long-lived stdio MCP servers (13 on WSL, 8 on M3) kept the old code. A freshly spawned server reported `serverInfo.version` 0.40.4 and completed a `continue_thread` consult. On 2026-09-14, before 0.40.5, every prodex MCP server was stopped with SIGTERM (20 on WSL, 7 on M3) with no consult in flight; the servers the clients respawned came up on 0.40.4, the install at that moment, and needed another reconnect after the 0.40.5 and 0.40.6 installs.
 - State on 2026-09-29: WSL 0.40.18, M3 0.40.18, Mac mini still 0.40.6 (not upgraded since), M4 unreachable (its hostname no longer resolves).
+- 2026-09-29: Mac mini upgraded 0.40.6 -> 0.40.18 with `npm i -g @youdie006/prodex@0.40.18`; `prodex --version` reports 0.40.18. No prodex MCP server was running there, so nothing needed a restart; the next one a client starts runs 0.40.18.
 
 ## Publishing
 
