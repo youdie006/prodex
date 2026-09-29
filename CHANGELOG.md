@@ -4,7 +4,7 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 0.40.21
 
 ### Fixed
 - 0.40.20 fixed project sends and broke everything that starts on a fresh chat: a new chat, an attachment, a composer tool and a temporary chat all failed with "model menu did not open". Before the composer renders, the model-trigger lookup fell back to the whole document and took the first menu button with text in it - the sidebar's "Pinned" or "Explore" - so prodex clicked a sidebar menu in the user's session. The trigger is now looked for only inside the rendered composer's form, exact "Select ChatGPT model" control first, and an unrendered composer is waited out instead. The sibling branch had found and fixed the same fall-back on its own.
