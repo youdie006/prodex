@@ -1685,7 +1685,12 @@ export async function runAskProCommand(
           if (recoveryNotes.length > 0) consult = { ...consult, warnings: [...recoveryNotes, ...consult.warnings] };
         }
       } catch (error) {
-        const blocker = sourceAwareBrowserBlocker(browserSendBlockerFromError(error), sourceCli, browserCommandOptions);
+        const blocker = await withManualStepForWindowMode(
+          sourceAwareBrowserBlocker(browserSendBlockerFromError(error), sourceCli, browserCommandOptions),
+          resolveCdpPort(browserPort),
+          sourceCli,
+          browserCommandOptions
+        );
         const message = blocker.next_step ? `${blocker.message} Next: ${blocker.next_step}` : errorMessage(error);
         // The blocker text can quote the requested/default project name (e.g. a
         // "project not found" error). Local stdout/stderr keep it (useful to the
@@ -3389,6 +3394,72 @@ export async function listConsultListEntries(store: BridgeStore, options: { read
   return entries;
 }
 
+/** Blockers whose only remedy is a person acting inside the browser window. */
+const MANUAL_BROWSER_STEP_CODES = new Set(["login_required", "captcha_required", "cloudflare_check"]);
+
+/**
+ * Rewrite a "do it in the visible browser" next step for a browser that has no
+ * window to do it in.
+ *
+ * Measured with a signed-out profile on a virtual display: `pro browser check`
+ * and every send reported `login_required` with "Log in manually in the
+ * visible browser." - on a browser prodex had itself started with no visible
+ * window. The login command already knew the way out (close that browser, log
+ * in through a headed one), but the blocker a send or a check prints did not.
+ * A session that expires under a no-window setup is exactly this case, and the
+ * advice it got could not be followed.
+ *
+ * Only the manual-step codes are rewritten, and only when the saved launch
+ * belongs to the port in use, so a stale record for another browser cannot
+ * change the advice for this one.
+ */
+export function manualBrowserStepForWindowMode<T extends { code: string; next_step?: string }>(
+  blocker: T,
+  launch: { port?: number; headless?: boolean; virtual_display?: number; profile_dir?: string } | undefined,
+  port: number,
+  commands: { headedLogin: string; visibleRecovery: string }
+): T {
+  if (!MANUAL_BROWSER_STEP_CODES.has(blocker.code)) return blocker;
+  if (!launch || launch.port !== port) return blocker;
+  if (launch.headless === true) {
+    return {
+      ...blocker,
+      next_step:
+        `The dedicated browser runs headless, with no window to do this in. Run \`${commands.visibleRecovery}\` ` +
+        "to switch it to a visible window through the guarded path, complete the step there, then retry."
+    };
+  }
+  if (launch.virtual_display !== undefined) {
+    return {
+      ...blocker,
+      next_step:
+        "The dedicated browser runs on a virtual display, with no window to do this in. Close it yourself when no " +
+        `consult is running, then run \`${commands.headedLogin}\` to complete the step in a visible window, and retry.`
+    };
+  }
+  return blocker;
+}
+
+/** The same rewrite, with the saved launch record and the commands resolved for this call. */
+async function withManualStepForWindowMode<T extends { code: string; next_step?: string }>(
+  blocker: T,
+  port: number,
+  sourceCli: string | undefined,
+  commandOptions: BrowserCommandOptions
+): Promise<T> {
+  if (!MANUAL_BROWSER_STEP_CODES.has(blocker.code)) return blocker;
+  const launch = await readLastBrowserLoginLaunch().catch(() => undefined);
+  const options = {
+    ...commandOptions,
+    port,
+    ...(launch?.profile_dir ? { profileDir: launch.profile_dir } : {})
+  };
+  return manualBrowserStepForWindowMode(blocker, launch, port, {
+    headedLogin: formatHeadedBrowserLoginCommand(sourceCli, options),
+    visibleRecovery: formatVisibleAuthRecoveryCommand(sourceCli, options)
+  });
+}
+
 function formatHeadedBrowserLoginCommand(sourceCli?: string, options: BrowserCommandOptions = {}): string {
   return `${formatBrowserLoginCommand(sourceCli, options)} --headed`;
 }
@@ -3635,7 +3706,13 @@ export async function printProductCheck(store: BridgeStore, io: CliIO, args: str
     const visibilityText =
       browserStatus.blocker.code === "tab_not_visible" ? ` visibility=${browserStatus.visibilityState ?? "unknown"}` : "";
     io.stdout(`chatgpt: blocked ${browserStatus.blocker.code}${visibilityText} - ${browserStatus.blocker.message}`);
-    const nextStep = productCheckBrowserNextStep(browserStatus.blocker.next_step, sourceCli, browserCommandOptions);
+    const modeAware = await withManualStepForWindowMode(browserStatus.blocker, checkPort, sourceCli, browserCommandOptions);
+    // A rewritten step already carries fully formed commands; running it back
+    // through the product-check rewrite would only re-derive them.
+    const nextStep =
+      modeAware === browserStatus.blocker
+        ? productCheckBrowserNextStep(browserStatus.blocker.next_step, sourceCli, browserCommandOptions)
+        : modeAware.next_step;
     if (nextStep) io.stdout(`next: ${nextStep}`);
   } else if (visibilityBlocker) {
     io.stdout(`chatgpt: blocked ${visibilityBlocker.code} visibility=${browserStatus.visibilityState ?? "unknown"} - ${visibilityBlocker.message}`);
