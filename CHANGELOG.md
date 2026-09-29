@@ -4,7 +4,7 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 0.40.19
 
 ### Fixed
 - An expired login on a browser with no window was answered with advice that could not be followed. Measured with a signed-out profile on a virtual display, the state an expired session leaves behind: `pro browser check` and every send, with or without `--auto-login`, reported `login_required` and said "Log in manually in the visible browser" - of a browser prodex had started with no window at all. The send itself behaved correctly (it stopped in about ten seconds, sent nothing, did not relaunch or loop, and recorded the blocker). The next step for `login_required`, `captcha_required` and `cloudflare_check` now depends on how the dedicated browser was launched, when the saved launch belongs to the port in use: a virtual-display browser is sent to close it and run `pro browser login --headed` for its own profile and port; a headless one to the guarded `--headed --recover-visible` switch. A headed browser keeps the original advice.
