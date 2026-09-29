@@ -42,7 +42,7 @@ export function pageShapeExpression(): string {
   return `(() => {
     const vis = (el) => !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
     const box = (el) => { const r = el.getBoundingClientRect(); return { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) }; };
-    const menu = document.querySelector('[data-testid="composer-intelligence-picker-content"]');
+    const menu = document.querySelector('[data-testid="composer-intelligence-picker-content"],[role="menu"]:has([role="slider"])');
     const describe = (el) => ({
       role: el.getAttribute("role"),
       testid: el.getAttribute("data-testid"),

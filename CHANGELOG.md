@@ -4,6 +4,17 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Fixed
+- Every project consult, and every consult on a machine with a pinned default project, failed after a ChatGPT redesign measured on 2026-09-29. Four things changed at once, and prodex read each of them wrong:
+  - The sidebar's per-project "Open project options for <name>" button became "Project actions for <name>", so prodex found "0 projects visible" with nine on screen. It now reads each row's name and id from the row's own attributes, which also fixed `pro browser projects` listing one project of nine.
+  - Clicking a project row now expands it instead of opening it. prodex enters through the row's "New chat in <name>" control, which is only revealed while the row is hovered, so it rests the pointer on the row first.
+  - The model picker lost its test id, so a send died on "model menu did not open" with the menu open on screen. The picker is recognized as the menu that holds the effort slider.
+  - Messages lost `data-message-author-role`, so prodex counted zero messages on a page holding a prompt and its answer: a posted, answered send timed out as "acceptance unconfirmed", a Pro reply sat in the thread for ten minutes unread, and nothing was resent. Turns are read from the new per-turn markup. The new markup carries no model tag, so `pro_verified` is now reported as unknown rather than guessed.
+  The older markup is still read wherever it appears.
+- "0 projects visible" was reported as a project name that does not exist and must not be retried. A sidebar with no readable projects is its own blocker now, `sidebar_projects_unreadable`, retryable, and tells the caller how to tell a missing name from an unreadable sidebar.
+
 ## 0.40.19
 
 ### Fixed

@@ -3046,6 +3046,22 @@ export function browserSendBlockerFromError(error: unknown): { code: string; mes
         "same thing in the prompt."
     };
   }
+  // Zero projects on screen is not a missing name; it is a sidebar prodex could
+  // not read. Measured 2026-09-29: ChatGPT renamed the row controls, every
+  // project send said "0 projects visible" with nine projects on screen, and
+  // calling that "not found, do not retry" sent the caller away from the one
+  // thing worth doing - checking the browser and retrying once it reads again.
+  if (/ChatGPT project not found in sidebar/.test(message) && /no sidebar projects could be read|\(0 projects visible/.test(message)) {
+    return {
+      code: "sidebar_projects_unreadable",
+      message,
+      retryable: true,
+      next_step:
+        "Nothing was sent. prodex could not read any project in the sidebar - it may not have rendered yet, or ChatGPT " +
+        "changed how it lists projects. Run `prodex pro browser projects`: if it lists none while the sidebar shows " +
+        "them, update prodex; otherwise retry."
+    };
+  }
   if (/ChatGPT project not found in sidebar/.test(message)) {
     return {
       code: "project_not_found",

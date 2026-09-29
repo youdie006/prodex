@@ -102,6 +102,17 @@ export function projectsWithIdsExpression(): string {
   return `(() => {
   const out = [];
   const seen = new Set();
+  // Current sidebar rows carry the project's name and id as attributes; only
+  // the open project still renders a /project link, so reading links alone
+  // listed one project of nine (measured 2026-09-29).
+  for (const row of document.querySelectorAll("[data-app-action-sidebar-project-row]")) {
+    if (out.length >= 100) break;
+    const rawId = (row.getAttribute("data-app-action-sidebar-project-id") || "").trim().toLowerCase();
+    const name = (row.getAttribute("data-app-action-sidebar-project-label") || "").replace(/\\s+/g, " ").trim().slice(0, 200);
+    if (!/^g-p-[0-9a-f]{1,128}$/.test(rawId) || !name || seen.has(rawId)) continue;
+    seen.add(rawId);
+    out.push({ id: rawId, name });
+  }
   for (const anchor of document.querySelectorAll("a[href]")) {
     if (out.length >= 100) break;
     if (typeof anchor.getClientRects !== "function" || anchor.getClientRects().length === 0) continue;

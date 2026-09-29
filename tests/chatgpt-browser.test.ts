@@ -2285,8 +2285,8 @@ Show more`;
     expect(expr).toContain("clickPoint(home)");
     // Exact name match by EQUALITY (not substring), with a case-insensitive
     // unique fallback and a loud ambiguity error.
-    expect(expr).toContain("projName(b) === wanted");
-    expect(expr).toContain("projName(b).toLowerCase() === wanted.toLowerCase()");
+    expect(expr).toContain("p.name === wanted");
+    expect(expr).toContain("p.name.toLowerCase() === wanted.toLowerCase()");
     expect(expr).toContain("matches multiple sidebar projects");
   });
 
@@ -2485,7 +2485,7 @@ function installFakeChatGptSendCdp(threadUrl: string, states: ReturnType<typeof 
       return { ok: true, actualText: insertedPrompt };
     }
     if (expression.includes(").ok === true")) return true;
-    if (expression.includes(`document.querySelectorAll('[data-message-author-role="user"]')`)) return true;
+    if (expression.includes('chatMessageNodes().filter((message) => message.role === "user")')) return true;
     if (expression.includes("location.assign(")) return undefined;
     return undefined;
   };
