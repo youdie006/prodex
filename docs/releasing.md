@@ -16,6 +16,22 @@ Release target: `v0.40.13` on `main`. The GitHub Release records the resolved co
 
 The release adds a guarded, opt-in transition and more accurate blocker reporting. It does not claim that headless Pro consultation is verified on either deployment target or that authentication can be retained indefinitely.
 
+## Browser Container Rebuild 2026-09-30
+
+Not an npm release; the container `prodex-browser-browser-1` builds from `feat/headless-browser-compatibility`, so this section records its state.
+
+A live check of the container build of `b5eac7d` (2026-09-30) found: web search and temporary chats answered; fresh-chat sends failed intermittently with `fresh_chat_not_ready`; `--attach` failed on the upload budget; a create-image send timed out after 6 min 40 s; and streaming was never detected (15 of 15 samples reported idle while ChatGPT showed its Stop button), because the branch's `CHATGPT_STREAMING_SELECTOR` does not match the redesigned composer's plain `aria-label="Stop"` button.
+
+**Rebuild.** Image `sha256:45951848a88b`, built from `b5eac7d` plus one uncommitted line: `CHATGPT_STREAMING_SELECTOR` gained `form button[aria-label="Stop"]` and `form button[aria-label="중지"]`, the same selectors `main` shipped in 0.40.21. Nothing was pushed to that branch; the change lives only in the image. Verified: the selector is present in `/app/dist/chatgpt-browser.js`; container healthy with the profile volume kept; `pro browser login --wait` found the session READY; a fresh-chat send answered in 20 s while a 1 s sampler read the page as generating on all 9 samples during which the Stop button was visible (task `task_20260930_014256`).
+
+**Interrupted consult.** The swap at about 01:37 UTC interrupted a consult that another session had started over MCP at 01:34:31 (`task_20260930_013431`, left `claimed` with no thread), and dropped every client's MCP connection to the container; clients have to reconnect with `/mcp`. The pre-swap check only looked for `pro browser ask` processes and missed MCP consults. Before swapping the container again, check whether the send lock's holder process is alive, not the process names. Whether ChatGPT accepted that prompt was never recorded, so it must not be resent blindly.
+
+**Still open on the branch, not fixed in this image.**
+
+- Fresh-chat flake: the new-chat page took 5.2, 5.2, 5.6 and 8.5 s to become ready in four timed runs inside the container, while `waitForFreshChatGptPage` allows 8 s. The fix is a longer budget.
+- `--attach` and create-image failures: `main` 0.40.21 has fixes for both.
+- These belong to the branch owner and have to be reconciled when the branch merges with `main`.
+
 ## 0.40.21 Release Record
 
 Release commit `936b009` on `main` (cut after PR #10, merge `5e74ba2`); tag `v0.40.21`. `publish.yml` run 36538816944 passed all six platforms on the first attempt, then npm publish with SLSA v1 provenance and the GitHub Release (2026-09-29 08:08 UTC).
