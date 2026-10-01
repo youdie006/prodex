@@ -5766,7 +5766,23 @@ export function attachmentStateExpression(fileNames: string[]): string {
       .map((el) => (el.getAttribute("aria-label") || el.getAttribute("title") || el.getAttribute("alt") || ""))
       .join(String.fromCharCode(10));
     const haystack = text + String.fromCharCode(10) + labels;
-    const present = names.filter((name) => haystack.includes(name));
+    // Uploading a name that was used before makes ChatGPT show it as
+    // "stem(3).ext", so that spelling counts as the same file.
+    const shownAsRenamed = (name) => {
+      const dot = name.lastIndexOf(".");
+      const stem = dot > 0 ? name.slice(0, dot) : name;
+      const ext = dot > 0 ? name.slice(dot) : "";
+      let from = 0;
+      while ((from = haystack.indexOf(stem + "(", from)) !== -1) {
+        let i = from + stem.length + 1;
+        const digitsStart = i;
+        while (i < haystack.length && haystack[i] >= "0" && haystack[i] <= "9") i += 1;
+        if (i > digitsStart && haystack.startsWith(")" + ext, i)) return true;
+        from += 1;
+      }
+      return false;
+    };
+    const present = names.filter((name) => haystack.includes(name) || shownAsRenamed(name));
     const attachedFiles = [...document.querySelectorAll('input[type="file"]')]
       .reduce((total, el) => total + (el.files ? el.files.length : 0), 0);
     // A visible progressbar means a file is still going up; sending now would
