@@ -1167,6 +1167,22 @@ async function navigateIdleChatGptPage(page: DevtoolsPage, url: string): Promise
  * navigation cannot leave the old thread's state in place. A false result
  * must not be used as permission to send into stale content.
  */
+// Measured 5.2-8.5 s for the new-chat page to settle (2026-09-30).
+const FRESH_CHAT_TIMEOUT_MS = 15_000;
+
+/** Poll until the document marked before a navigation has been replaced and the new one has a composer. */
+async function waitForReloadedDocument(page: DevtoolsPage, deadline: number): Promise<boolean> {
+  while (Date.now() < deadline) {
+    try {
+      if (await evaluateOnPage<boolean>(page, reloadedDocumentReadyExpression()) === true) return true;
+    } catch (error) {
+      if (!/execution context|cannot find context|Runtime\.evaluate failed/i.test(String(error))) throw error;
+    }
+    await sleep(300);
+  }
+  return false;
+}
+
 async function waitForFreshChatGptPage(page: DevtoolsPage, timeoutMs: number): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -4270,8 +4286,18 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
     // caller timed out and released the process lock. Project homes supply
     // their own fresh composer and must not pass through the root first.
     const freshUrl = options.temporary ? "https://chatgpt.com/?temporary-chat=true" : "https://chatgpt.com/";
+    // A tab already on the root is an empty chat before the navigation
+    // commits, so the fresh-chat check passed on the page being left and the
+    // send then typed or attached into a document that was replaced under it
+    // (measured: "composer has no file input" on every attach from the root).
+    // The mark proves the page in hand is the one the navigation produced.
+    await evaluateOnPage(page, markDocumentForReloadExpression());
     await navigateIdleChatGptPage(page, freshUrl);
-    if (!await waitForFreshChatGptPage(page, 8_000)) {
+    const freshDeadline = Date.now() + FRESH_CHAT_TIMEOUT_MS;
+    if (
+      !await waitForReloadedDocument(page, freshDeadline) ||
+      !await waitForFreshChatGptPage(page, Math.max(0, freshDeadline - Date.now()))
+    ) {
       throw new ChatGptBrowserBlockerError({
         code: "fresh_chat_not_ready",
         message: "The new-chat page did not become an empty conversation. Nothing was sent.",

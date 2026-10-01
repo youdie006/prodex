@@ -428,6 +428,39 @@ Show more`;
     expect(evaluations.some((expression) => expression.includes("actualText: raw.slice"))).toBe(false);
   });
 
+  it("waits for the new-chat navigation to replace the page before using it", async () => {
+    // Measured on 0.40.22: with the tab already on the root, the old empty page
+    // passed the fresh-chat check, then the navigation replaced it under an
+    // attachment and the send failed with "no file input".
+    vi.useFakeTimers();
+    const root = "https://chatgpt.com/";
+    const fresh = { ...fakeAnswerState(root, "", false), assistantMessageCount: 0, userMessageCount: 0 };
+    const evaluations = installFakeChatGptSendCdp(root, [fresh, fresh, fakeAnswerState(root, "done", false)], {}, { commitsAfterPolls: 3 });
+    const send = sendChatGptPrompt({ port: 19338, prompt: "answer this", newChat: true, timeoutMs: 5_000 });
+    void send.catch(() => undefined);
+    await vi.advanceTimersByTimeAsync(30_000);
+    const marked = evaluations.findIndex((expression) => expression.includes("__prodexReloadMark") && expression.includes("= true; return true"));
+    const navigated = evaluations.findIndex((expression) => expression.includes("location.assign("));
+    const replaced = evaluations.findIndex((expression, index) => index > navigated && expression.includes("__prodexReloadMark") && !expression.includes("= true"));
+    const typed = evaluations.findIndex((expression) => expression.includes("actualText: raw.slice"));
+    expect(marked).toBeGreaterThanOrEqual(0);
+    expect(marked).toBeLessThan(navigated);
+    expect(replaced).toBeGreaterThan(navigated);
+    expect(typed).toBeGreaterThan(replaced);
+  });
+
+  it("does not send when the new-chat navigation never replaces the page", async () => {
+    vi.useFakeTimers();
+    const root = "https://chatgpt.com/";
+    const fresh = { ...fakeAnswerState(root, "", false), assistantMessageCount: 0, userMessageCount: 0 };
+    const evaluations = installFakeChatGptSendCdp(root, [fresh], {}, { commitsAfterPolls: Number.POSITIVE_INFINITY });
+    const send = sendChatGptPrompt({ port: 19338, prompt: "answer this", newChat: true, timeoutMs: 1000 });
+    const rejection = expect(send).rejects.toMatchObject({ blocker: { code: "fresh_chat_not_ready" } });
+    await vi.advanceTimersByTimeAsync(40_000);
+    await rejection;
+    expect(evaluations.some((expression) => expression.includes("actualText: raw.slice"))).toBe(false);
+  });
+
   it("rechecks the empty destination after selection before typing into a fresh chat", async () => {
     vi.useFakeTimers();
     const root = "https://chatgpt.com/";
@@ -2445,14 +2478,38 @@ function installFakeChatGptCdp(states: ReturnType<typeof fakeAnswerState>[], sta
   return evaluations;
 }
 
-function installFakeChatGptSendCdp(threadUrl: string, states: ReturnType<typeof fakeAnswerState>[], statusOverride: Record<string, unknown> = {}): string[] {
+function installFakeChatGptSendCdp(
+  threadUrl: string,
+  states: ReturnType<typeof fakeAnswerState>[],
+  statusOverride: Record<string, unknown> = {},
+  // How many reload-mark polls the old document survives after a navigation
+  // starts; Infinity models a navigation that never commits.
+  navigation: { commitsAfterPolls?: number } = {}
+): string[] {
   const evaluations: string[] = [];
   let answerIndex = 0;
   let insertedPrompt = "";
+  let reloadMarked = false;
+  let pollsUntilCommit = 0;
   FakeCdpWebSocket.evaluate = (expression) => {
     evaluations.push(expression);
     if (expression === "document.visibilityState") return "visible";
-    if (expression.includes("location.assign(")) return true;
+    if (expression.includes("__prodexReloadMark") && expression.includes("= true; return true")) {
+      reloadMarked = true;
+      return true;
+    }
+    if (expression.includes("location.assign(")) {
+      pollsUntilCommit = navigation.commitsAfterPolls ?? 0;
+      if (pollsUntilCommit === 0) reloadMarked = false;
+      return true;
+    }
+    if (expression.includes("__prodexReloadMark")) {
+      if (reloadMarked && pollsUntilCommit > 0) {
+        pollsUntilCommit -= 1;
+        if (pollsUntilCommit === 0) reloadMarked = false;
+      }
+      return !reloadMarked;
+    }
     if (expression.includes("const surfaces = buttons.map")) {
       return { surfaces: [{ label: "Chat", checked: true }] };
     }
