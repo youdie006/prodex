@@ -4,7 +4,7 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 0.40.22
 
 ### Fixed
 - Attaching a file whose name had been uploaded before failed every time after the first, with "did not finish accepting <file> within the upload budget". ChatGPT shows a repeated upload as "name(3).txt", and prodex only looked for the original name, so it waited out the two-minute budget and sent nothing. The renamed spelling now counts as the same file. Measured live in the browser container: the same file attached twice in a row, both answered.
