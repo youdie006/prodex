@@ -16,6 +16,29 @@ Release target: `v0.40.13` on `main`. The GitHub Release records the resolved co
 
 The release adds a guarded, opt-in transition and more accurate blocker reporting. It does not claim that headless Pro consultation is verified on either deployment target or that authentication can be retained indefinitely.
 
+## 0.40.23 Release Record
+
+Release commit `1c905e3` on `main` (cut after PR #13, merge `92c26ce`); tag `v0.40.23`.
+
+**Publishing**
+- `publish.yml` run 36824322576 passed all six platforms on the first attempt, then npm publish with SLSA v1 provenance and the GitHub Release (2026-10-01 06:43 UTC).
+- PR #13's own CI had needed one rerun on Windows for an unrelated 30 s timeout in `tests/cli.test.ts` ("uses an explicit --cwd target for local HTTP MCP start").
+- `npm run release:verify` passed on the release commit after a build.
+
+**What it fixes**
+- `--new-chat` sends from a tab already on a new chat now wait for the new page, so attachments no longer fail with "composer has no file input".
+
+**Installation on 2026-10-01**
+- Global npm, each verified with `prodex --version` = 0.40.23.
+- WSL, M3, Mac mini: installed. Running services were not restarted: 9 stdio MCP servers on WSL and 7 on M3 keep older code until their clients reconnect. The Mac mini had none running.
+- M4: not reachable (hostname does not resolve); not updated.
+- The browser container is unchanged by this release. It runs its own branch build with its own new-chat wait.
+
+**Live check after install**
+- Run from WSL through the installed 0.40.23 against the shared browser.
+- The same file attached twice with `--new-chat`: both answered. The installed 0.40.22 had failed this three times.
+- A plain new chat answered.
+
 ## 0.40.22 Release Record
 
 Release commit `a5f9596` on `main` (cut after PR #12, merge `563f381`); tag `v0.40.22`.
