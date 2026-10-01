@@ -16,6 +16,29 @@ Release target: `v0.40.13` on `main`. The GitHub Release records the resolved co
 
 The release adds a guarded, opt-in transition and more accurate blocker reporting. It does not claim that headless Pro consultation is verified on either deployment target or that authentication can be retained indefinitely.
 
+## 0.40.22 Release Record
+
+Release commit `a5f9596` on `main` (cut after PR #12, merge `563f381`); tag `v0.40.22`.
+
+**Publishing**
+- `publish.yml` run 36817391329 failed on its first attempt on macOS 15 Intel and Windows Server 2025. The failures were 30 s test timeouts in `tests/store.test.ts` (both runners) and `tests/followup-budget.test.ts` (Windows). Neither test touches the change, and PR #12 had passed all six platforms.
+- Nothing was published by that attempt.
+- Re-running the failed jobs passed all six platforms. npm publish with SLSA v1 provenance and the GitHub Release followed (2026-10-01 05:31 UTC).
+- Before tagging, `npm run release:verify` passed on the release commit after a build.
+
+**What it fixes**
+- Repeat attachments: ChatGPT shows a re-uploaded name as `name(3).txt`.
+
+**Installation on 2026-10-01**
+- Global npm, each verified with `prodex --version` = 0.40.22.
+- WSL, M3, Mac mini: installed. Running services were not restarted: 6 stdio MCP servers on WSL and 7 on M3 keep older code until their clients reconnect. The Mac mini had none running.
+- M4: not reachable (hostname does not resolve); not updated.
+- The browser container builds from its own branch. It received the same fix in its 2026-10-01 rebuild; an npm install does not update it.
+
+**Live check after install**
+- A `--new-chat --attach` send from WSL through the installed 0.40.22 failed three times with "composer has no file input". This is a separate defect in the new-chat wait, fixed in the next change.
+- With that fix built from source, the same file attached twice answered both times. That also exercises the 0.40.22 renamed-upload fix on the host browser.
+
 ## Browser Container Rebuild 2026-10-01
 
 The container image was rebuilt again from `feat/headless-browser-compatibility` `b5eac7d` with uncommitted patches. None of them is pushed to that branch; they still have to be reconciled when that branch merges with `main`.
