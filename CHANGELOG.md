@@ -4,7 +4,7 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 0.40.23
 
 ### Fixed
 - `--new-chat` with `--attach` failed every time the tab was already on a new chat, with "The ChatGPT composer has no file input to attach to", and nothing was sent. prodex checked for an empty chat right after starting the navigation, so the page being left - already empty - passed the check, and the attachment went into a page that was being replaced (measured: the page reloaded 1.9 s in and its file input came back at 4.5 s). prodex now marks the page before navigating and waits for the new page, up to 15 s instead of 8 s. Verified live on the shared browser: the same file attached twice in a row and a plain new chat all answered.
