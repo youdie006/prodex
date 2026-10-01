@@ -16,6 +16,30 @@ Release target: `v0.40.13` on `main`. The GitHub Release records the resolved co
 
 The release adds a guarded, opt-in transition and more accurate blocker reporting. It does not claim that headless Pro consultation is verified on either deployment target or that authentication can be retained indefinitely.
 
+## Browser Container Rebuild 2026-10-01
+
+The container image was rebuilt again from `feat/headless-browser-compatibility` `b5eac7d` with uncommitted patches. None of them is pushed to that branch; they still have to be reconciled when that branch merges with `main`.
+
+**Patches**
+- The streaming selector from 2026-09-30.
+- The new-chat wait raised from 8 s to 15 s.
+- The non-text (image) answer detection from 0.40.21, adapted to the branch's message reader.
+- The renamed-upload attachment fix from this change.
+
+**Image and checks**
+- Image `sha256:d2880fda5ab9`.
+- Full suite 1989 passed on the patched tree.
+- Each container swap was gated on the send lock being free (lock file absent, or its holder pid dead). The 2026-09-30 check only looked at process names.
+
+**Verified live in the container after the swap**
+- Three fresh-chat sends in a row answered, 35-36 s each; this flow failed about one send in three before the patch.
+- A create-image send returned the non-text note in 49 s, where it had timed out after 6 min 40 s.
+- The same file attached twice in a row answered `plum-7` both times. Before the fix, the second upload, shown by ChatGPT as `attach-probe(3).txt`, waited out the upload budget.
+- An MCP `initialize` through `scripts/container-client.mjs` answered (server reports 0.40.18, the branch's version).
+
+**Impact on clients**
+- Clients connected to the container's MCP have to reconnect after each swap.
+
 ## Browser Container Rebuild 2026-09-30
 
 Not an npm release; the container `prodex-browser-browser-1` builds from `feat/headless-browser-compatibility`, so this section records its state.
