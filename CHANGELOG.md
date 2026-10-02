@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Fixed
+- Attaching a file in an existing conversation (`--continue --attach`, `--continue-task`, `--target-url`) waited out the two-minute upload budget and sent nothing. A conversation page renders a second form without the prompt editor, earlier in the page and with its own file inputs, and prodex put the file into that one. It now uses the file input inside the form that holds the prompt editor. Verified live: an attachment on a continued thread and one on a new chat both answered.
+
 ## 0.40.23
 
 ### Fixed

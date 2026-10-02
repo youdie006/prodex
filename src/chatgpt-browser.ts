@@ -5775,6 +5775,19 @@ export function composerFileInputSelector(): string {
 }
 
 /**
+ * Lookup order for the attachment input. A conversation page also renders a
+ * second form without the prompt editor, earlier in the document and with its
+ * own file inputs (measured 2026-10-02); files set there never reach the
+ * composer. The editor's own form is tried first, the bare selector last.
+ */
+export function composerFileInputSelectors(): string[] {
+  return [
+    `form:has(#prompt-textarea,[contenteditable="true"]) ${composerFileInputSelector()}`,
+    composerFileInputSelector()
+  ];
+}
+
+/**
  * Which of the expected attachments the composer shows, and whether one is
  * still uploading.
  *
@@ -5874,8 +5887,12 @@ export async function attachFilesToComposer(
   const document = await cdp.send("DOM.getDocument", { depth: -1, pierce: true });
   const rootNodeId = (document.result as { root?: { nodeId?: number } } | undefined)?.root?.nodeId;
   if (rootNodeId === undefined) throw new Error("Could not read the ChatGPT page DOM to attach files.");
-  const input = await cdp.send("DOM.querySelector", { nodeId: rootNodeId, selector: composerFileInputSelector() });
-  const inputNodeId = (input.result as { nodeId?: number } | undefined)?.nodeId;
+  let inputNodeId: number | undefined;
+  for (const selector of composerFileInputSelectors()) {
+    const input = await cdp.send("DOM.querySelector", { nodeId: rootNodeId, selector });
+    inputNodeId = (input.result as { nodeId?: number } | undefined)?.nodeId || undefined;
+    if (inputNodeId) break;
+  }
   if (!inputNodeId) {
     throw new Error(
       "The ChatGPT composer has no file input to attach to. Open a normal chat (not a shared or read-only view) and retry."

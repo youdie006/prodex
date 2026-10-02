@@ -46,6 +46,7 @@ import {
   COMPOSER_INSERT_CHUNK_CHARS,
   insertComposerTextInPageExpression,
   composerFileInputSelector,
+  composerFileInputSelectors,
   modelButtonAlreadyShows,
   attachmentStateExpression,
   attachmentPresenceExpression,
@@ -1313,6 +1314,18 @@ Show more`;
     expect(selector).toContain("file");
     expect(selector).toMatch(/not\(\[accept\*?=?"?image/i);
     expect(general.accept).toBe("");
+  });
+
+  it("looks for the file input inside the form that holds the prompt editor first", () => {
+    // Measured live on a conversation page: a second form without the editor
+    // carries its own three file inputs earlier in the document, so the first
+    // general input was not the composer's and every attachment there waited
+    // out the upload budget.
+    const [scoped, fallback] = composerFileInputSelectors();
+    expect(scoped).toMatch(/^form:has\(/);
+    expect(scoped).toContain("#prompt-textarea");
+    expect(scoped).toContain('input[type="file"]:not([accept*="image"])');
+    expect(fallback).toBe(composerFileInputSelector());
   });
 
   it("reports which attachments the composer has accepted and whether one is still uploading", () => {
