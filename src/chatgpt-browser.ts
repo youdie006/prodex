@@ -2446,6 +2446,10 @@ export function chatGptThreadReadyExpression(conversationId: string): string {
     const current = new URL(location.href);
     const match = /\\/c\\/([0-9a-f-]{16,})\\/?$/i.exec(current.pathname);
     if (current.origin !== "https://chatgpt.com" || match?.[1].toLowerCase() !== ${JSON.stringify(conversationId.toLowerCase())}) return false;
+    // A thread document that is still loading already has its URL and the
+    // server-rendered editor, but no file inputs or messages yet (measured:
+    // 0.6 s after navigating, complete at 6.7 s).
+    if (document.readyState !== "complete") return false;
     return Boolean(findChatGptComposerCandidate());
   })()`;
 }

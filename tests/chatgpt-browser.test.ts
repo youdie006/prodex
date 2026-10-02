@@ -348,6 +348,20 @@ Show more`;
     expect(evaluateBrowserStatusExpression(chatGptThreadReadyExpression("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"), doc, { href })).toBe(ready);
   });
 
+  it("does not call a conversation ready while its document is still loading", () => {
+    // Measured live: 0.6 s after navigating to another thread the new document
+    // already had the URL and the server-rendered editor, but no file inputs
+    // and no messages yet; an attachment then failed with "no file input".
+    const editor = new FakeTextArea();
+    editor.parentElement = new FakeElement("FORM");
+    const doc = new FakeDocument([editor], []);
+    const href = "https://chatgpt.com/c/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+    doc.readyState = "loading";
+    expect(evaluateBrowserStatusExpression(chatGptThreadReadyExpression("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"), doc, { href })).toBe(false);
+    doc.readyState = "complete";
+    expect(evaluateBrowserStatusExpression(chatGptThreadReadyExpression("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"), doc, { href })).toBe(true);
+  });
+
   it("refuses a moved conversation without navigating over another session", async () => {
     vi.useFakeTimers();
     const thread = "https://chatgpt.com/c/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
@@ -2738,6 +2752,7 @@ class FakeDocument {
   readonly body = new FakeElement("body");
   title = "ChatGPT";
   visibilityState = "visible";
+  readyState = "complete";
   menuItems: FakeElement[] = [];
   dialogs: FakeElement[] = [];
   messages: FakeElement[] = [];
