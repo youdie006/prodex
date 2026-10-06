@@ -16,6 +16,33 @@ Release target: `v0.40.13` on `main`. The GitHub Release records the resolved co
 
 The release adds a guarded, opt-in transition and more accurate blocker reporting. It does not claim that headless Pro consultation is verified on either deployment target or that authentication can be retained indefinitely.
 
+## 0.40.25 Release Record
+
+Release commit `3c66da3` on `main` (cut after PR #15, merge `9bd908c`); tag `v0.40.25`.
+
+**Publishing**
+- `publish.yml` run 37394019059 passed all six platforms on the first attempt, then npm publish with SLSA v1 provenance and the GitHub Release (2026-10-06 00:48 UTC).
+- `npm run release:verify` passed on the release commit after a build.
+
+**What it fixes**
+- A send into an existing conversation from a tab on another one now waits for that page to finish loading.
+
+**Installation on 2026-10-06**
+- Global npm, each verified with `prodex --version` = 0.40.25.
+- WSL, M3, Mac mini: installed. Running services were not restarted: 19 stdio MCP servers on WSL and 7 on M3 keep older code until their clients reconnect. The Mac mini had none running.
+- M4: not reachable (hostname does not resolve); not updated.
+- The browser container already carries the same fix (2026-10-02 rebuild, see 0.40.24). An MCP consult through it answered on 2026-10-06 after the client reconnected.
+
+**Live check after install (installed 0.40.25, shared WSL browser)**
+- The tab was first moved to a new chat.
+- `--continue --attach` answered, with a baseline of 5 earlier user messages.
+- `--new-chat --attach` answered.
+- A plain `--continue` recalled the word set at the start of the thread.
+
+**Real use since 0.40.24 (2026-10-02 to 2026-10-06)**
+- `prodex pro blockers`: 3 of 18 host consults were blocked, all three the probes that reproduced the bugs fixed in 0.40.24 and 0.40.25.
+- 0 of 5 container consults were blocked.
+
 ## 0.40.24 Release Record
 
 Release commit `e927eee` on `main` (cut after PR #14, merge `393f720`); tag `v0.40.24`.
