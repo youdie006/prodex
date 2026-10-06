@@ -4,7 +4,7 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 0.40.26
 
 ### Fixed
 - Every `--project` send was refused with "The fresh-chat destination changed to an existing conversation before typing". ChatGPT now keeps a previously opened conversation mounted but hidden, and prodex counted its messages on the new project chat. Messages that are not rendered no longer count.
