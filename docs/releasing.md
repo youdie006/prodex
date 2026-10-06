@@ -16,6 +16,32 @@ Release target: `v0.40.13` on `main`. The GitHub Release records the resolved co
 
 The release adds a guarded, opt-in transition and more accurate blocker reporting. It does not claim that headless Pro consultation is verified on either deployment target or that authentication can be retained indefinitely.
 
+## 0.40.24 Release Record
+
+Release commit `e927eee` on `main` (cut after PR #14, merge `393f720`); tag `v0.40.24`.
+
+**Publishing**
+- `publish.yml` run 36975443077 passed all six platforms on the first attempt, then npm publish with SLSA v1 provenance and the GitHub Release (2026-10-02 07:10 UTC).
+- `npm run release:verify` passed on the release commit after a build.
+
+**What it fixes**
+- Attachments into an existing conversation used a second form on the page that has no prompt editor.
+
+**Installation on 2026-10-02**
+- Global npm, each verified with `prodex --version` = 0.40.24.
+- WSL, M3, Mac mini: installed. Running services were not restarted: 5 stdio MCP servers on WSL and 7 on M3 keep older code until their clients reconnect. The Mac mini had none running.
+- M4: not reachable (hostname does not resolve); not updated.
+
+**Live check after install (installed 0.40.24, shared WSL browser)**
+- `--new-chat --attach` answered.
+- `--continue --attach` failed with "composer has no file input" when the tab started on another conversation. When the tab was already on the target thread it had passed.
+- Cause: the conversation page was used before it finished loading. Fixed in the next change.
+
+**Browser container, same day**
+- Image `sha256:2a2091354d90`, rebuilt from `b5eac7d` with the earlier uncommitted patches plus two more: the composer-form file input lookup and the loaded-document requirement for thread readiness.
+- Full suite 1989 passed on the patched tree. The swap was gated on the send lock being free.
+- Verified in the container: `--continue --attach` from another thread answered, and so did `--new-chat --attach`.
+
 ## 0.40.23 Release Record
 
 Release commit `1c905e3` on `main` (cut after PR #13, merge `92c26ce`); tag `v0.40.23`.
