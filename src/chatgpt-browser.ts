@@ -2180,6 +2180,13 @@ async function waitForExpressionTrue(cdp: CdpConnection, expression: string, tim
 const MENU_OPEN_TIMEOUT_MS = 5_000;
 const MENU_SETTLE_TIMEOUT_MS = 5_000;
 const PROJECT_NAVIGATION_TIMEOUT_MS = 8_000;
+/**
+ * How long the composer's own controls (model selector, tools button, file
+ * input) may take to appear after the editor. Measured over 8 s for the model
+ * selector on back-to-back sends with the host at load average 24-44
+ * (2026-10-06). It is only a ceiling: a rendered control returns at once.
+ */
+const COMPOSER_RENDER_TIMEOUT_MS = 30_000;
 
 function pickerMenuExpressionHelpers(): string {
   return `
@@ -3359,7 +3366,9 @@ async function selectModelReasoning(
   // the same kind of render already allow six to eight.
   let button: RectHit = { ok: false };
   if (!alreadyOpen) {
-    const buttonDeadline = Date.now() + PROJECT_NAVIGATION_TIMEOUT_MS;
+    // Over 8 s on back-to-back sends with the host at load average 24-44
+    // (2026-10-06): a real consult was refused here as composer_not_ready.
+    const buttonDeadline = Date.now() + COMPOSER_RENDER_TIMEOUT_MS;
     for (;;) {
       button = await cdp.evaluate<RectHit>(modelButtonRectExpression());
       if (button.ok && button.x !== undefined && button.y !== undefined) break;
@@ -6084,7 +6093,6 @@ export function composerFileInputSelector(): string {
   return 'input[type="file"]:not([accept*="image"])';
 }
 
-const COMPOSER_FILE_INPUT_TIMEOUT_MS = 15_000;
 const COMPOSER_TOOLS_MENU_ATTEMPTS = 3;
 
 export const PRODEX_ATTACH_INPUT_ATTRIBUTE = "data-prodex-attach-input";
@@ -6218,7 +6226,7 @@ export async function attachFilesToComposer(
   // inputs at 5.1 s). Wait for the visible composer's input itself, before the
   // chip check and before reading the DOM tree.
   const waitForComposerFileInput = async (): Promise<boolean> => {
-    const inputDeadline = Date.now() + COMPOSER_FILE_INPUT_TIMEOUT_MS;
+    const inputDeadline = Date.now() + COMPOSER_RENDER_TIMEOUT_MS;
     for (;;) {
       try {
         if (await cdp.evaluate<boolean>(markComposerFileInputExpression()) === true) return true;
@@ -6472,7 +6480,7 @@ export async function enableComposerTools(cdp: CdpConnection, labels: readonly s
     // controls (measured 2026-10-06): wait for the button, and click it again
     // when a click that came too early opened no menu.
     let button = await cdp.evaluate<RectHit>(composerToolsButtonRectExpression());
-    const buttonDeadline = Date.now() + COMPOSER_FILE_INPUT_TIMEOUT_MS;
+    const buttonDeadline = Date.now() + COMPOSER_RENDER_TIMEOUT_MS;
     while ((!button.ok || button.x === undefined || button.y === undefined) && Date.now() < buttonDeadline) {
       await sleep(500);
       button = await cdp.evaluate<RectHit>(composerToolsButtonRectExpression());
