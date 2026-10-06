@@ -526,7 +526,7 @@ Show more`;
     const evaluations = installFakeChatGptSendCdp(thread, [fakeAnswerState(thread, "old answer", false)]);
     const send = sendChatGptPrompt({ port: 19338, prompt: "answer this", newChat: true, timeoutMs: 1000 });
     const rejection = expect(send).rejects.toMatchObject({ blocker: { code: "fresh_chat_not_ready" } });
-    await vi.advanceTimersByTimeAsync(25_000);
+    await vi.advanceTimersByTimeAsync(40_000);
     await rejection;
     expect(evaluations.some((expression) => expression.includes("actualText: raw.slice"))).toBe(false);
   });
@@ -3178,6 +3178,7 @@ class FakeDocument {
   readonly body = new FakeElement("body");
   title = "ChatGPT";
   visibilityState = "visible";
+  readyState = "complete";
   menuItems: FakeElement[] = [];
   dialogs: FakeElement[] = [];
   messages: FakeElement[] = [];

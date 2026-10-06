@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Unreleased
 
 ### Fixed
+- Browser container patches from 2026-09-30 to 2026-10-06, measured live in this container, each first shipped on `main` (0.40.21-0.40.27):
+  - The composer's plain "Stop" button counts as streaming. Before, a pause mid-answer could end the wait and return a truncated answer.
+  - The new-chat wait is 30 s instead of 8 s. Measured 5.2-8.5 s idle, and over 15 s with the host under heavy load.
+  - An image answer settles as a non-text note instead of timing out after 6 min 40 s.
+  - Attachments:
+    - Uploads that ChatGPT renamed (`name(3).txt`, and since 2026-10 `name(20261006-012426).txt`) are recognized.
+    - The file goes into the visible composer's form, not a hidden form earlier on the page.
+    - The send waits for the file input to exist.
+  - A conversation page is used only after it finished loading.
+  - Hidden, still-mounted conversations no longer count as messages, which refused every project send.
+  - Leftover attachment chips are detected again under their new "Remove <name>" label.
+  - Composer tools are awaited and clicked again when the first click opened no menu.
+  - Source pills in answers become markdown links or `[label]`.
+  - Recovery waits for the thread's turns before checking the request.
 - Fresh new-chat consults wait for a newly loaded, usable composer before model selection. Model lookup accepts only the exact current or legacy trigger inside one rendered composer, preventing an incomplete editor from redirecting clicks to the sidebar's `Explore` menu. Ambiguous, hidden and disabled triggers fail closed; an already-open model menu remains usable. The WSL/M3 containers and WSL host CLI now contain the correction; both container consults returned request-verified answers without re-login, while absent response-model metadata remains explicitly unverified. See the [incident](docs/fresh-chat-selector-incident-2026-09-27.md) and [deployment record](docs/selector-ready-deployment-2026-09-27.md).
 - The initial September 27 WSL container replacement removed the stale parser that mistook conversation text for a CAPTCHA demand and added the current composer-tools trigger. The saved login volume and security settings were retained. Installed browser readiness, Web search activation/removal, and a fresh configured MCP connection with a read-only tool call were verified without re-login or prompt submission. The original reporting Claude session also confirmed a successful read-only tool call after the user reconnected ProDex through `/mcp`. See that [deployment record](docs/container-adapter-deployment-2026-09-27.md) for exact hashes, diagnostic failures, rollback and reconnect limits; M3 was unchanged at that stage and was updated in the later deployment above.
 - Composer tools now recognize the measured `Add files and more` button when ChatGPT omits the old plus-button test ID. Lookup stays within one visible composer, rejects ambiguous/hidden/disabled controls, and strictly verifies the trigger's hit target before initial or retry clicks. The updated WSL host installation passed a live no-send Web search activation and restoration check. The [tools incident record](docs/composer-tools-incident-2026-09-26.md) also separates a reproduced stale-container transcript/captcha false positive from genuine human-verification requirements; its pending WSL container replacement was subsequently completed on September 27.

@@ -355,6 +355,8 @@ interface ChatGptAnswerState {
   awaitingResponseChoice?: boolean;
   assistantMessageCount: number;
   userMessageCount: number;
+  /** A generated image follows the last user turn and no assistant turn does. */
+  nonTextAnswer?: boolean;
   /** The user turn immediately preceding the candidate answer. */
   lastUserText?: string;
   /** ChatGPT's own tag for the model that produced the last answer. */
@@ -438,7 +440,7 @@ const CHATGPT_GENERATING_CONTROL_PATTERN = /\bstop\s+(?:generating|responding|re
 // miss on an icon-only/relabeled control - a miss would let a mid-stream pause
 // be accepted as the final answer, silently truncating it.
 export const CHATGPT_STREAMING_SELECTOR =
-  '[data-testid="stop-button"],[data-message-author-role="assistant"][aria-busy="true"],[data-message-author-role="assistant"] [aria-busy="true"]';
+  '[data-testid="stop-button"],form button[aria-label="Stop"],form button[aria-label="중지"],[data-message-author-role="assistant"][aria-busy="true"],[data-message-author-role="assistant"] [aria-busy="true"]';
 
 export function defaultChatGptProfileDir(): string {
   return path.join(os.homedir(), ".local", "share", "prodex", "chrome-chatgpt-pro");
@@ -2448,6 +2450,10 @@ export function chatGptThreadReadyExpression(conversationId: string): string {
     const current = new URL(location.href);
     const match = /\\/c\\/([0-9a-f-]{16,})\\/?$/i.exec(current.pathname);
     if (current.origin !== "https://chatgpt.com" || match?.[1].toLowerCase() !== ${JSON.stringify(conversationId.toLowerCase())}) return false;
+    // A thread document that is still loading already has its URL and the
+    // server-rendered editor, but no file inputs or messages yet (measured:
+    // 0.6 s after navigating, complete at 6.7 s).
+    if (document.readyState !== "complete") return false;
     return Boolean(findChatGptComposerCandidate());
   })()`;
 }
@@ -3989,6 +3995,14 @@ export async function recoverChatGptAnswerFromThread(
         lastAnswer = "";
         continue;
       }
+      // A thread that is still loading already has the target URL but no
+      // turns (measured 2026-10-06), and judging the request on it refused a
+      // recovery of the very request it was asked for.
+      if (state.userMessageCount === 0) {
+        stableRuns = 0;
+        lastAnswer = "";
+        continue;
+      }
       if (options.requestId && !chatGptRequestMarkerMatches(state.lastUserText ?? "", options.requestId)) {
         throw new ChatGptBrowserBlockerError({
           code: "request_mismatch",
@@ -4258,7 +4272,11 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
     const freshUrl = options.temporary ? "https://chatgpt.com/?temporary-chat=true" : "https://chatgpt.com/";
     await evaluateOnPage(page, markDocumentForReloadExpression());
     await navigateIdleChatGptPage(page, freshUrl);
-    if (!await waitForFreshChatGptPage(page, 8_000)) {
+    // Measured 5.2-8.5 s for the new-chat page to settle inside the browser
+    // container (2026-09-30), so 8 s failed about one send in three; with the
+    // host under heavy load (load average 28-32 on 8 cores, 2026-10-06) back-
+    // to-back sends overran 15 s too. It is only a ceiling.
+    if (!await waitForFreshChatGptPage(page, 30_000)) {
       throw new ChatGptBrowserBlockerError({
         code: "fresh_chat_not_ready",
         message: "The new-chat page did not become an empty conversation. Nothing was sent.",
@@ -4533,6 +4551,8 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
     : undefined;
   let consecutiveReadFailures = 0;
   let answerSettled = false;
+  let nonTextPolls = 0;
+  let nonTextSettled = false;
   const answerIsStable = createChatGptAnswerStabilityTracker();
   while (Date.now() - started < timeoutMs) {
     await sleep(1000);
@@ -4579,6 +4599,18 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
     const runtimeBlocker = chatGptBlockerFromAnswerState(finalState);
     if (runtimeBlocker) throw new ChatGptBrowserBlockerError(submittedRequestBlocker(runtimeBlocker, requestId, pinnedThreadUrl));
     emitProgress("waiting", finalState.generating ? "generating" : "stabilizing");
+    // A turn that answered with an image leaves no assistant message, so the
+    // count below never moves and the send waited out its whole budget and
+    // reported a timeout. Two quiet polls in a row settle it.
+    if (finalState.nonTextAnswer && !finalState.generating && finalState.userMessageCount > beforeSubmit.userMessageCount) {
+      nonTextPolls += 1;
+      if (nonTextPolls >= 2) {
+        nonTextSettled = true;
+        break;
+      }
+      continue;
+    }
+    nonTextPolls = 0;
     if (!hasFreshChatGptAnswer(beforeSubmit.assistantMessageCount, finalState)) continue;
     // A "fresh" answer must also be stable: ChatGPT can momentarily look done
     // mid-stream, and the streaming caret renders as a literal trailing
@@ -4590,6 +4622,19 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
     }
   }
   const completed = finalState;
+  if (nonTextSettled && completed) {
+    emitProgress("answered", "non-text");
+    return {
+      url: pinnedThreadUrl ?? completed.url,
+      title: completed.title,
+      answer: CHATGPT_NON_TEXT_ANSWER_NOTE,
+      modelHints: completed.modelHints,
+      ...(boundProjectId ? { boundProjectId } : {}),
+      requestId,
+      requestVerified: true,
+      warnings: withDialogNote([...sendWarnings]).filter((warning): warning is string => Boolean(warning))
+    };
+  }
   if (answerSettled && completed && hasFreshChatGptAnswer(beforeSubmit.assistantMessageCount, completed)) {
     emitProgress("answered");
     return {
@@ -5746,10 +5791,44 @@ async function connectCdp(webSocketUrl: string, timeoutMs?: number): Promise<{
 export const CHATGPT_THINKING_PLACEHOLDER_JS =
   `ansLines.length <= 1 && (/^(생각\\s*중|thinking)$/i.test(ansStripped) || /^thought (for|about)\\b.*$/i.test(ansStripped) || /\\d+\\s*s\\s*동안\\s*생각함$/.test(ansStripped) || /(^|\\s)(생각\\s*중|thinking)$/i.test(ansStripped))`;
 
+/**
+ * A message's text with its source pills spelled out.
+ *
+ * Measured 2026-10-06: ChatGPT renders each source as an inline pill
+ * ([data-chatgpt-copy-reference]) and innerText puts its label on a line of
+ * its own, so a page-read answer came back as "walnut-9" plus a line
+ * "cont-att", or ended in a bare "blog.rust-lang.org" that read as part of
+ * the answer. A web source becomes " [label](url)", as the transcript reader
+ * writes it; a file source has no link and becomes " [label]". The label is
+ * looked for on its own line first, so the same words earlier in the prose
+ * are left alone.
+ */
+export const CHATGPT_RENDERED_MESSAGE_TEXT_JS = `
+    const renderedMessageText = (root) => {
+      let text = root.innerText || "";
+      const newline = String.fromCharCode(10);
+      const isSpace = (ch) => ch === " " || ch === newline || ch === String.fromCharCode(9) || ch === String.fromCharCode(13);
+      let cursor = 0;
+      for (const pill of [...root.querySelectorAll('[data-chatgpt-copy-reference]')]) {
+        const label = (pill.innerText || "").trim();
+        if (!label) continue;
+        const onOwnLine = text.indexOf(newline + label, cursor);
+        const at = onOwnLine >= 0 ? onOwnLine + 1 : text.indexOf(label, cursor);
+        if (at < 0) continue;
+        let start = at;
+        while (start > cursor && isSpace(text[start - 1])) start -= 1;
+        const link = pill.querySelector('a[href^="http"]');
+        const rendered = link ? " [" + label + "](" + link.getAttribute("href") + ")" : " [" + label + "]";
+        text = text.slice(0, start) + rendered + text.slice(at + label.length);
+        cursor = start + rendered.length;
+      }
+      return text;
+    };`;
+
 function chatGptTranscriptExpressionHelpers(): string {
   const transcriptMessageSelector = JSON.stringify(CHATGPT_TRANSCRIPT_MESSAGE_SELECTOR);
   const userMessageBubbleSelector = JSON.stringify(CHATGPT_USER_MESSAGE_BUBBLE_SELECTOR);
-  return `
+  return `${CHATGPT_RENDERED_MESSAGE_TEXT_JS}
     const transcriptMessageSelector = ${transcriptMessageSelector};
     const userMessageBubbleSelector = ${userMessageBubbleSelector};
     const fallbackMessageKeyPattern = /^fallback-turn-(\\d+):(\\d+):(user|assistant)$/;
@@ -5780,7 +5859,7 @@ function chatGptTranscriptExpressionHelpers(): string {
         const tagged = node.closest('[data-message-model-slug]');
         if (tagged) modelSlug = tagged.getAttribute('data-message-model-slug') || undefined;
       }
-      let messageText = node.innerText || "";
+      let messageText = renderedMessageText(node);
       if (source === "fallback" && role === "assistant") {
         const directChildren = Array.from(node.children || []);
         const heading = directChildren[0];
@@ -5789,7 +5868,7 @@ function chatGptTranscriptExpressionHelpers(): string {
         const measuredAssistantShape = directChildren.length === 2 &&
           heading?.tagName?.toLowerCase() === "h4" && headingClasses.includes("sr-only") &&
           body?.tagName?.toLowerCase() === "div";
-        if (measuredAssistantShape) messageText = body.innerText || "";
+        if (measuredAssistantShape) messageText = renderedMessageText(body);
       }
       return { source, role, turn, position, text: messageText, modelSlug };
     };
@@ -5801,8 +5880,14 @@ function chatGptTranscriptExpressionHelpers(): string {
       if (message.getAttribute('data-message-author-role') !== null) return true;
       return fallbackMessageKeyPattern.test(message.getAttribute('data-content-search-unit-key') || "");
     };
+    // ChatGPT keeps a previously opened conversation mounted but hidden
+    // (measured 2026-10-06: two turns without a box on a project home), and
+    // counting them made a fresh chat look like an existing conversation.
+    // A display:contents node has no box of its own, so its children decide.
+    const isRenderedMessageNode = (node) =>
+      node.getClientRects().length > 0 || [...(node.children || [])].some((child) => child.getClientRects().length > 0);
     const collectChatGptTranscriptMessages = () => {
-      const nodes = [...document.querySelectorAll(transcriptMessageSelector)];
+      const nodes = [...document.querySelectorAll(transcriptMessageSelector)].filter(isRenderedMessageNode);
       const fallbackNodes = nodes.filter((node) => fallbackMessageKeyPattern.test(node.getAttribute('data-content-search-unit-key') || ""));
       if (fallbackNodes.length > 0) {
         const legacyMessageNodes = nodes.filter((node) => {
@@ -5999,6 +6084,44 @@ export function composerFileInputSelector(): string {
   return 'input[type="file"]:not([accept*="image"])';
 }
 
+const COMPOSER_FILE_INPUT_TIMEOUT_MS = 15_000;
+const COMPOSER_TOOLS_MENU_ATTEMPTS = 3;
+
+export const PRODEX_ATTACH_INPUT_ATTRIBUTE = "data-prodex-attach-input";
+
+/**
+ * Tags the general file input of the form that holds the VISIBLE composer, so
+ * DOM.querySelector can resolve exactly that node. A project home also keeps
+ * a hidden copy of an earlier page mounted with its own complete composer
+ * form (measured 2026-10-06), and a structural selector cannot tell the two
+ * apart. Returns false when no visible composer form carries a general input.
+ */
+export function markComposerFileInputExpression(): string {
+  const attribute = JSON.stringify(PRODEX_ATTACH_INPUT_ATTRIBUTE);
+  return `(() => {${composerExpressionHelpers()}
+    document.querySelectorAll('[' + ${attribute} + ']').forEach((node) => node.removeAttribute(${attribute}));
+    const editor = findChatGptComposerCandidate();
+    const form = editor && editor.closest('form');
+    const input = form && form.querySelector(${JSON.stringify(composerFileInputSelector())});
+    if (!input) return false;
+    input.setAttribute(${attribute}, "1");
+    return true;
+  })()`;
+}
+
+/**
+ * Lookup order for the attachment input. A conversation page also renders a
+ * second form without the prompt editor, earlier in the document and with its
+ * own file inputs (measured 2026-10-02); files set there never reach the
+ * composer. The editor's own form is tried first, the bare selector last.
+ */
+export function composerFileInputSelectors(): string[] {
+  return [
+    `form:has(#prompt-textarea,[contenteditable="true"]) ${composerFileInputSelector()}`,
+    composerFileInputSelector()
+  ];
+}
+
 /**
  * Which of the expected attachments the composer shows, and whether one is
  * still uploading.
@@ -6017,7 +6140,23 @@ export function attachmentStateExpression(fileNames: string[]): string {
       .map((el) => (el.getAttribute("aria-label") || el.getAttribute("title") || el.getAttribute("alt") || ""))
       .join(String.fromCharCode(10));
     const haystack = text + String.fromCharCode(10) + labels;
-    const present = names.filter((name) => haystack.includes(name));
+    // Uploading a name that was used before makes ChatGPT show it as
+    // "stem(3).ext", so that spelling counts as the same file.
+    const shownAsRenamed = (name) => {
+      const dot = name.lastIndexOf(".");
+      const stem = dot > 0 ? name.slice(0, dot) : name;
+      const ext = dot > 0 ? name.slice(dot) : "";
+      let from = 0;
+      while ((from = haystack.indexOf(stem + "(", from)) !== -1) {
+        let i = from + stem.length + 1;
+        const digitsStart = i;
+        while (i < haystack.length && ((haystack[i] >= "0" && haystack[i] <= "9") || (i > digitsStart && haystack[i] === "-"))) i += 1;
+        if (i > digitsStart && haystack.startsWith(")" + ext, i)) return true;
+        from += 1;
+      }
+      return false;
+    };
+    const present = names.filter((name) => haystack.includes(name) || shownAsRenamed(name));
     const attachedFiles = [...document.querySelectorAll('input[type="file"]')]
       .reduce((total, el) => total + (el.files ? el.files.length : 0), 0);
     // A visible progressbar means a file is still going up; sending now would
@@ -6031,9 +6170,14 @@ export function attachmentStateExpression(fileNames: string[]): string {
 /** How many attachments are already sitting in the composer (read-only). */
 export function attachmentPresenceExpression(): string {
   return `(() => {
-    const buttons = [...document.querySelectorAll('button[aria-label]')].filter((b) =>
-      /remove file|파일 제거|첨부 제거/i.test(b.getAttribute("aria-label") || "")
-    );
+    // The chip's remove button was "Remove file 1: name" and became
+    // "Remove name" (measured 2026-10-06); a tool pill's "Remove Search" is
+    // not a file. Chips on a hidden, still-mounted page have no box.
+    const buttons = [...document.querySelectorAll('button[aria-label]')].filter((b) => {
+      const label = b.getAttribute("aria-label") || "";
+      if (!(/remove file|파일 제거|첨부 제거/i.test(label) || /^remove\\s+\\S.*\\.[A-Za-z0-9]{1,8}$/i.test(label))) return false;
+      return b.getClientRects().length > 0;
+    });
     return { ok: true, removed: buttons.length };
   })()`;
 }
@@ -6069,22 +6213,38 @@ export async function attachFilesToComposer(
   // every later attach in that tab silently does nothing. A reload is the only
   // reliable reset, and it costs a few seconds only when there is something to
   // clear.
-  const stale = await cdp.evaluate<{ removed?: number }>(attachmentPresenceExpression());
-  if ((stale?.removed ?? 0) > 0) {
-    await cdp.evaluate("location.reload()");
-    await sleep(6_000);
-    const settleDeadline = Date.now() + 15_000;
+  // "complete" is not "usable": the server-rendered editor is there before
+  // the app attaches its file inputs (measured 2026-10-06: complete at 3.3 s,
+  // inputs at 5.1 s). Wait for the visible composer's input itself, before the
+  // chip check and before reading the DOM tree.
+  const waitForComposerFileInput = async (): Promise<boolean> => {
+    const inputDeadline = Date.now() + COMPOSER_FILE_INPUT_TIMEOUT_MS;
     for (;;) {
-      const ready = await cdp.evaluate<{ ok: boolean }>(composerTextStateExpression());
-      if (ready?.ok || Date.now() >= settleDeadline) break;
+      try {
+        if (await cdp.evaluate<boolean>(markComposerFileInputExpression()) === true) return true;
+      } catch (error) {
+        if (cdpCommandTimedOut(error)) throw error;
+      }
+      if (Date.now() >= inputDeadline) return false;
       await sleep(500);
     }
+  };
+  let marked = await waitForComposerFileInput();
+  const stale = await cdp.evaluate<{ removed?: number }>(attachmentPresenceExpression());
+  if ((stale?.removed ?? 0) > 0) {
+    await reloadAndAwaitComposer(cdp, 20_000);
+    marked = await waitForComposerFileInput();
   }
   const document = await cdp.send("DOM.getDocument", { depth: -1, pierce: true });
   const rootNodeId = (document.result as { root?: { nodeId?: number } } | undefined)?.root?.nodeId;
   if (rootNodeId === undefined) throw new Error("Could not read the ChatGPT page DOM to attach files.");
-  const input = await cdp.send("DOM.querySelector", { nodeId: rootNodeId, selector: composerFileInputSelector() });
-  const inputNodeId = (input.result as { nodeId?: number } | undefined)?.nodeId;
+  const selectors = marked ? [`[${PRODEX_ATTACH_INPUT_ATTRIBUTE}]`, ...composerFileInputSelectors()] : composerFileInputSelectors();
+  let inputNodeId: number | undefined;
+  for (const selector of selectors) {
+    const input = await cdp.send("DOM.querySelector", { nodeId: rootNodeId, selector });
+    inputNodeId = (input.result as { nodeId?: number } | undefined)?.nodeId || undefined;
+    if (inputNodeId) break;
+  }
   if (!inputNodeId) {
     throw new Error(
       "The ChatGPT composer has no file input to attach to. Open a normal chat (not a shared or read-only view) and retry."
@@ -6308,18 +6468,34 @@ export async function enableComposerTools(cdp: CdpConnection, labels: readonly s
       enabled.push(label);
       continue;
     }
-    const button = await cdp.evaluate<RectHit>(composerToolsButtonRectExpression());
+    // The server-rendered editor shows before the app wires the composer's
+    // controls (measured 2026-10-06): wait for the button, and click it again
+    // when a click that came too early opened no menu.
+    let button = await cdp.evaluate<RectHit>(composerToolsButtonRectExpression());
+    const buttonDeadline = Date.now() + COMPOSER_FILE_INPUT_TIMEOUT_MS;
+    while ((!button.ok || button.x === undefined || button.y === undefined) && Date.now() < buttonDeadline) {
+      await sleep(500);
+      button = await cdp.evaluate<RectHit>(composerToolsButtonRectExpression());
+    }
     if (!button.ok || button.x === undefined || button.y === undefined) {
       throw new Error(button.reason ?? "Could not open the ChatGPT composer tools menu");
     }
-    await verifiedClickAt(cdp, button.x, button.y, "composer tools button", true);
     let entry: RectHit = { ok: false };
-    const menuDeadline = Date.now() + 6_000;
-    for (;;) {
-      entry = await cdp.evaluate<RectHit>(composerToolEntryRectExpression(label));
+    for (let attempt = 0; attempt < COMPOSER_TOOLS_MENU_ATTEMPTS; attempt += 1) {
+      if (attempt > 0) {
+        await dispatchEscapeKey(cdp);
+        const again = await cdp.evaluate<RectHit>(composerToolsButtonRectExpression());
+        if (again.ok && again.x !== undefined && again.y !== undefined) button = again;
+      }
+      await verifiedClickAt(cdp, button.x as number, button.y as number, "composer tools button", true);
+      const menuDeadline = Date.now() + 4_000;
+      for (;;) {
+        entry = await cdp.evaluate<RectHit>(composerToolEntryRectExpression(label));
+        if (entry.ok && entry.x !== undefined && entry.y !== undefined) break;
+        if (Date.now() >= menuDeadline) break;
+        await sleep(250);
+      }
       if (entry.ok && entry.x !== undefined && entry.y !== undefined) break;
-      if (Date.now() >= menuDeadline) break;
-      await sleep(250);
     }
     if (!entry.ok || entry.x === undefined || entry.y === undefined) {
       await dispatchEscapeKey(cdp);
@@ -6963,6 +7139,22 @@ export function answerExpression(): string {
       assistantMessageCount: assistantMessages.length,
       userMessageCount: userMessages.length,
       lastUserText: userMessages.at(-1)?.text || "",
+      // An image result is rendered outside every message unit and leaves no
+      // assistant message at all (measured 2026-09-29), so it is reported here
+      // for the waiter to recognize: a generated image that comes after the
+      // last user turn, with no assistant turn after that user turn.
+      nonTextAnswer: (() => {
+        if (!messages.length || messages.at(-1).role !== "user") return false;
+        const userNodes = [...document.querySelectorAll('[data-content-search-unit-key$=":user"],[data-chatgpt-search-unit-key$=":user"],[data-message-author-role="user"]')];
+        const lastUserNode = userNodes.at(-1);
+        if (!lastUserNode) return false;
+        return [...document.querySelectorAll('main img')].some((img) => {
+          const r = img.getBoundingClientRect();
+          if (r.width < 60 || r.height < 60) return false;
+          if (!/^generated image/i.test(img.getAttribute("alt") || "")) return false;
+          return Boolean(lastUserNode.compareDocumentPosition(img) & Node.DOCUMENT_POSITION_FOLLOWING);
+        });
+      })(),
       // ChatGPT tags each assistant message with the model that produced it -
       // the only ground truth for "did the Pro selection actually take".
       modelSlug: assistant ? assistant.modelSlug : undefined,
