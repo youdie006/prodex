@@ -16,6 +16,52 @@ Release target: `v0.40.13` on `main`. The GitHub Release records the resolved co
 
 The release adds a guarded, opt-in transition and more accurate blocker reporting. It does not claim that headless Pro consultation is verified on either deployment target or that authentication can be retained indefinitely.
 
+## 0.40.26 Release Record
+
+Release commit `b413c24` on `main` (cut after PR #16, merge `af5cf20`); tag `v0.40.26`.
+
+**Publishing**
+- `publish.yml` run 37405732176 passed all six platforms on the first attempt, then npm publish with SLSA v1 provenance and the GitHub Release (2026-10-06 03:07 UTC).
+- PR #16's own CI needed one rerun on macOS Intel for an unrelated 30 s timeout in `tests/mcp-consult.test.ts`.
+- `npm run release:verify` passed on the release commit after a build.
+
+**What it fixes**
+- The ChatGPT page measured on 2026-10-06 broke several flows:
+  - Every project send was refused because a hidden, still-mounted conversation was counted.
+  - Attachments did not recognize timestamp-renamed uploads, picked a hidden composer form, and ran before the file input existed.
+  - Leftover chips were no longer detected.
+  - Composer tools were looked up or clicked before they worked.
+- Found by a live matrix against the installed 0.40.25, where `--project` sends, project attachments, new-chat attachments after a repeat upload and `--tool create-image` failed.
+
+**Installation on 2026-10-06**
+- Global npm, each verified with `prodex --version` = 0.40.26.
+- WSL, M3, Mac mini: installed. Running services were not restarted: 11 stdio MCP servers on WSL and 6 on M3 keep older code until their clients reconnect. The Mac mini had none running.
+- M4: not reachable (hostname does not resolve); not updated.
+
+**Live check after install (installed 0.40.26, shared WSL browser)**
+All eight answered:
+- `--project` plain and with `--attach`
+- `--tool create-image`
+- `--new-chat --attach`
+- `--continue --attach`
+- `--tool web-search --attach`
+- `--temporary --attach`
+- plain `--continue`
+
+**Browser container, same day**
+- Before the rebuild, the container build failed the same way: a project send was refused and a new-chat attachment timed out. Its tab then stopped answering CDP.
+- The same fixes were adapted to the branch code, where the transcript reader and the hover-verified tools click differ. The image `sha256:8e5734ee733c` was rebuilt from `b5eac7d` with all patches so far. These are still uncommitted, and nothing was pushed to `feat/headless-browser-compatibility`.
+- Branch suite: 1998 passed. The swap was gated on the send lock being free.
+- Verified in the container, all seven answered:
+  - a project send
+  - a new-chat attachment
+  - an attachment on a continued thread
+  - a project attachment
+  - create-image
+  - web search with an attachment
+  - a temporary chat with an attachment
+- An MCP client reconnect was needed after the swap.
+
 ## 0.40.25 Release Record
 
 Release commit `3c66da3` on `main` (cut after PR #15, merge `9bd908c`); tag `v0.40.25`.
