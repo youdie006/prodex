@@ -438,7 +438,11 @@ export const CHATGPT_RENDERED_MESSAGE_TEXT_JS = `
         while (start > cursor && isSpace(text[start - 1])) start -= 1;
         const link = pill.querySelector('a[href^="http"]');
         const rendered = link ? " [" + label + "](" + link.getAttribute("href") + ")" : " [" + label + "]";
-        text = text.slice(0, start) + rendered + text.slice(at + label.length);
+        let rest = text.slice(at + label.length);
+        // innerText also breaks the line after the pill; punctuation that
+        // continues the sentence belongs back on it.
+        if (rest[0] === newline && ",.;:!?)".includes(rest[1] || newline)) rest = rest.slice(1);
+        text = text.slice(0, start) + rendered + rest;
         cursor = start + rendered.length;
       }
       return text;
@@ -2156,7 +2160,9 @@ async function openChatGptThread(cdp: CdpConnection, url: string): Promise<void>
   // A same-thread follow-up must not discard a ready composer and start a new load.
   if (await cdp.evaluate<boolean>(chatGptThreadReadyExpression(conversationId))) return;
   await cdp.evaluate(`location.assign(${JSON.stringify(url)})`);
-  const deadline = Date.now() + RELOAD_SETTLE_TIMEOUT_MS;
+  // A thread with many turns took 13.9 s to finish loading (2026-10-06), and
+  // readiness waits for a loaded document, so the reload ceiling was too short.
+  const deadline = Date.now() + COMPOSER_RENDER_TIMEOUT_MS;
   while (Date.now() < deadline) {
     await sleep(250);
     try {
@@ -5837,6 +5843,7 @@ export function composerFileInputSelector(): string {
 
 
 const COMPOSER_TOOLS_MENU_ATTEMPTS = 3;
+const LEFTOVER_ATTACHMENT_REMOVE_ATTEMPTS = 5;
 
 export const PRODEX_ATTACH_INPUT_ATTRIBUTE = "data-prodex-attach-input";
 
@@ -5935,6 +5942,23 @@ export function attachmentPresenceExpression(): string {
   })()`;
 }
 
+/**
+ * Where to click to remove one leftover attachment chip: the first rendered
+ * "Remove <file name>" button in a composer form, or { ok: false }.
+ */
+export function leftoverAttachmentRemovePointExpression(): string {
+  return `(() => {
+    const button = [...document.querySelectorAll('form button[aria-label]')].find((b) => {
+      const label = b.getAttribute("aria-label") || "";
+      if (!(/remove file|파일 제거|첨부 제거/i.test(label) || /^remove\\s+\\S.*\\.[A-Za-z0-9]{1,8}$/i.test(label))) return false;
+      return b.getClientRects().length > 0;
+    });
+    if (!button) return { ok: false };
+    const r = button.getBoundingClientRect();
+    return { ok: true, x: r.x + r.width / 2, y: r.y + r.height / 2 };
+  })()`;
+}
+
 export interface AttachmentUploadResult {
   attached: string[];
 }
@@ -5984,12 +6008,32 @@ export async function attachFilesToComposer(
     }
   };
   let marked = await waitForComposerFileInput();
-  const stale = await cdp.evaluate<{ removed?: number }>(attachmentPresenceExpression());
-  if ((stale?.removed ?? 0) > 0) {
-    // A fixed sleep and a composer check could both pass on the document being
-    // left (a reload takes 5-8 s here), and the file then went into a page that
-    // was replaced under it. The marked reload waits for the new document.
-    await reloadAndAwaitComposer(cdp, 20_000);
+  const leftoverCount = async (): Promise<number> =>
+    (await cdp.evaluate<{ removed?: number }>(attachmentPresenceExpression()))?.removed ?? 0;
+  if (await leftoverCount() > 0) {
+    // A leftover chip now survives a reload (measured 2026-10-06), and a send
+    // went out carrying it next to the file it was asked for. Its own remove
+    // button works and later attaches still work, so it is clicked first; the
+    // marked reload stays as a fallback, and a chip that survives both stops
+    // the send rather than riding along.
+    for (let attempt = 0; attempt < LEFTOVER_ATTACHMENT_REMOVE_ATTEMPTS; attempt += 1) {
+      const point = await cdp.evaluate<RectHit>(leftoverAttachmentRemovePointExpression());
+      if (!point?.ok || point.x === undefined || point.y === undefined) break;
+      await dispatchMouseClickAt(cdp, point.x, point.y);
+      await sleep(1_000);
+    }
+    if (await leftoverCount() > 0) {
+      await reloadAndAwaitComposer(cdp, 20_000);
+      await waitForComposerFileInput();
+    }
+    if (await leftoverCount() > 0) {
+      throw new ChatGptBrowserBlockerError({
+        code: "leftover_attachment",
+        message: "The ChatGPT composer still holds an attachment from an earlier send, and it could not be removed. Nothing was sent.",
+        retryable: false,
+        next_step: "Remove the attachment from the composer in the dedicated browser, then retry."
+      });
+    }
     marked = await waitForComposerFileInput();
   }
   const document = await cdp.send("DOM.getDocument", { depth: -1, pierce: true });

@@ -310,6 +310,30 @@ Show more`;
     expect(evaluations.filter((expression) => expression.includes("location.assign("))).toHaveLength(1);
   });
 
+  it("waits for a long thread that takes 14 s to finish loading", async () => {
+    // Measured 2026-10-06: a thread with many turns became ready at 13.9 s,
+    // past the 12 s wait, and --continue was refused as thread_not_ready.
+    vi.useFakeTimers();
+    const thread = "https://chatgpt.com/c/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+    installFakeChatGptSendCdp(thread, [
+      fakeAnswerState(thread, "previous answer", false),
+      { ...fakeAnswerState(thread, "continued answer", false), userMessageCount: 2, assistantMessageCount: 2 }
+    ]);
+    const base = FakeCdpWebSocket.evaluate;
+    let navigatedAt: number | undefined;
+    FakeCdpWebSocket.evaluate = (expression) => {
+      if (expression === chatGptThreadReadyExpression(conversationIdFromThreadUrl(thread)!)) {
+        return navigatedAt !== undefined && Date.now() - navigatedAt >= 14_000;
+      }
+      if (expression.includes("location.assign(")) navigatedAt = Date.now();
+      return base(expression);
+    };
+    const send = sendChatGptPrompt({ port: 19338, prompt: "continue this", targetUrl: thread, navigateToTargetUrl: true, timeoutMs: 10_000 });
+    void send.catch(() => undefined);
+    await vi.advanceTimersByTimeAsync(40_000);
+    await expect(send).resolves.toMatchObject({ answer: "continued answer", requestVerified: true });
+  });
+
   it.each([
     { blocked: false, code: "thread_not_ready" },
     { blocked: true, code: "cloudflare_check" }

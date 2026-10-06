@@ -37,6 +37,16 @@ describe("source pills in a page-read answer", () => {
     );
   });
 
+  it("keeps punctuation that follows a pill on the pill's line", () => {
+    // Measured: "plum-stale [stale-chip]\n, walnut-9 [cont-att]".
+    expect(render("plum-stale \nstale-chip\n, walnut-9 \ncont-att", [pill("stale-chip"), pill("cont-att")])).toBe(
+      "plum-stale [stale-chip], walnut-9 [cont-att]"
+    );
+    expect(render("First point. \nsite.org\n\nNext paragraph.", [pill("site.org", "https://site.org/")])).toBe(
+      "First point. [site.org](https://site.org/)\n\nNext paragraph."
+    );
+  });
+
   it("leaves text without pills untouched", () => {
     expect(render("plain answer\n\nsecond paragraph", [])).toBe("plain answer\n\nsecond paragraph");
   });
