@@ -4,6 +4,18 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Fixed
+- Every `--project` send was refused with "The fresh-chat destination changed to an existing conversation before typing". ChatGPT now keeps a previously opened conversation mounted but hidden, and prodex counted its messages on the new project chat. Messages that are not rendered no longer count.
+- Attachments failed in several ways after ChatGPT changes measured on 2026-10-06. Each failure was either "composer has no file input" or a two-minute upload wait, and nothing was sent:
+  - A repeated upload is now shown as `name(20261006-012426).txt` rather than `name(3).txt`, so prodex did not recognize its own file.
+  - A project page carries a second, hidden composer form ahead of the visible one, and the file went into the hidden one. prodex now attaches to the form of the composer that is on screen.
+  - A freshly loaded page shows its editor a couple of seconds before its file inputs exist. prodex now waits for the input (up to 15 s).
+- A leftover attachment from a failed send is no longer missed. Its remove button changed from "Remove file 1: name" to "Remove name", so prodex stopped seeing it, and it would have gone out with the next prompt. When one is found, prodex waits for the reloaded page instead of a fixed six seconds.
+- `--tool` sends could fail with "composer tools button not found: the composer has not rendered", or with "the composer tools menu has no Create image" while it had one. prodex looked for the tools button, or clicked it, before the page had wired it up. It now waits for the button and clicks it again when no menu opens.
+- Verified live: attachments in a new chat, a continued thread (twice), a project, with web search and in a temporary chat; plain project, new-chat, continue, image, web-search, `--model Pro` and project with `--effort` sends.
+
 ## 0.40.25
 
 ### Fixed

@@ -411,12 +411,18 @@ export const CHATGPT_BLOCKER_SCAN_EXCLUDED_ANCESTORS =
  * attribute went with it; where it is absent the model is simply not known.
  */
 const CHATGPT_MESSAGE_NODES_JS = `
+    // ChatGPT keeps a previously opened conversation mounted but hidden
+    // (measured 2026-10-06: two turns without a box on a project home), and
+    // counting them made a fresh chat look like an existing conversation.
+    // A display:contents node has no box of its own, so its children decide.
+    const isRenderedMessageNode = (node) =>
+      node.getClientRects().length > 0 || [...(node.children || [])].some((child) => child.getClientRects().length > 0);
     const chatMessageNodes = () => {
-      const legacy = [...document.querySelectorAll('[data-message-author-role]')];
+      const legacy = [...document.querySelectorAll('[data-message-author-role]')].filter(isRenderedMessageNode);
       if (legacy.length > 0) {
         return legacy.map((node) => ({ role: node.getAttribute('data-message-author-role'), node, textNode: node }));
       }
-      const units = [...document.querySelectorAll('[data-chatgpt-search-unit-key]')];
+      const units = [...document.querySelectorAll('[data-chatgpt-search-unit-key]')].filter(isRenderedMessageNode);
       return units
         .filter((unit) => !units.some((other) => other !== unit && unit.contains(other)))
         .map((unit) => {
@@ -5778,6 +5784,32 @@ export function composerFileInputSelector(): string {
   return 'input[type="file"]:not([accept*="image"])';
 }
 
+const COMPOSER_FILE_INPUT_TIMEOUT_MS = 15_000;
+const COMPOSER_TOOLS_MENU_ATTEMPTS = 3;
+
+export const PRODEX_ATTACH_INPUT_ATTRIBUTE = "data-prodex-attach-input";
+
+/**
+ * Tags the general file input of the form that holds the VISIBLE composer, so
+ * DOM.querySelector can resolve exactly that node. A project home also keeps
+ * a hidden copy of an earlier page mounted with its own complete composer
+ * form (measured 2026-10-06: two editor forms, the hidden one first), and a
+ * structural selector cannot tell the two apart. Returns false when no
+ * visible composer form carries a general file input.
+ */
+export function markComposerFileInputExpression(): string {
+  const attribute = JSON.stringify(PRODEX_ATTACH_INPUT_ATTRIBUTE);
+  return `(() => {${composerExpressionHelpers()}
+    document.querySelectorAll('[' + ${attribute} + ']').forEach((node) => node.removeAttribute(${attribute}));
+    const editor = findChatGptComposerCandidate();
+    const form = editor && editor.closest('form');
+    const input = form && form.querySelector(${JSON.stringify(composerFileInputSelector())});
+    if (!input) return false;
+    input.setAttribute(${attribute}, "1");
+    return true;
+  })()`;
+}
+
 /**
  * Lookup order for the attachment input. A conversation page also renders a
  * second form without the prompt editor, earlier in the document and with its
@@ -5810,7 +5842,8 @@ export function attachmentStateExpression(fileNames: string[]): string {
       .join(String.fromCharCode(10));
     const haystack = text + String.fromCharCode(10) + labels;
     // Uploading a name that was used before makes ChatGPT show it as
-    // "stem(3).ext", so that spelling counts as the same file.
+    // "stem(3).ext", and since 2026-10 as "stem(20261006-012426).ext", so
+    // either spelling counts as the same file.
     const shownAsRenamed = (name) => {
       const dot = name.lastIndexOf(".");
       const stem = dot > 0 ? name.slice(0, dot) : name;
@@ -5819,7 +5852,7 @@ export function attachmentStateExpression(fileNames: string[]): string {
       while ((from = haystack.indexOf(stem + "(", from)) !== -1) {
         let i = from + stem.length + 1;
         const digitsStart = i;
-        while (i < haystack.length && haystack[i] >= "0" && haystack[i] <= "9") i += 1;
+        while (i < haystack.length && ((haystack[i] >= "0" && haystack[i] <= "9") || (i > digitsStart && haystack[i] === "-"))) i += 1;
         if (i > digitsStart && haystack.startsWith(")" + ext, i)) return true;
         from += 1;
       }
@@ -5839,9 +5872,14 @@ export function attachmentStateExpression(fileNames: string[]): string {
 /** How many attachments are already sitting in the composer (read-only). */
 export function attachmentPresenceExpression(): string {
   return `(() => {
-    const buttons = [...document.querySelectorAll('button[aria-label]')].filter((b) =>
-      /remove file|파일 제거|첨부 제거/i.test(b.getAttribute("aria-label") || "")
-    );
+    // The chip's remove button was "Remove file 1: name" and became
+    // "Remove name" (measured 2026-10-06); a tool pill's "Remove Search" is
+    // not a file. Chips on a hidden, still-mounted page have no box.
+    const buttons = [...document.querySelectorAll('button[aria-label]')].filter((b) => {
+      const label = b.getAttribute("aria-label") || "";
+      if (!(/remove file|파일 제거|첨부 제거/i.test(label) || /^remove\\s+\\S.*\\.[A-Za-z0-9]{1,8}$/i.test(label))) return false;
+      return b.getClientRects().length > 0;
+    });
     return { ok: true, removed: buttons.length };
   })()`;
 }
@@ -5877,22 +5915,38 @@ export async function attachFilesToComposer(
   // every later attach in that tab silently does nothing. A reload is the only
   // reliable reset, and it costs a few seconds only when there is something to
   // clear.
-  const stale = await cdp.evaluate<{ removed?: number }>(attachmentPresenceExpression());
-  if ((stale?.removed ?? 0) > 0) {
-    await cdp.evaluate("location.reload()");
-    await sleep(6_000);
-    const settleDeadline = Date.now() + 15_000;
+  // "complete" is not "usable": the server-rendered editor is there before
+  // the app attaches its file inputs (measured: complete at 3.3 s, inputs at
+  // 5.1 s after a new-chat navigation), and every navigation path reaches
+  // this point in that window sometimes. Wait for the input itself, before
+  // the chip check (chips render with it) and before reading the DOM tree.
+  const waitForComposerFileInput = async (): Promise<boolean> => {
+    const inputDeadline = Date.now() + COMPOSER_FILE_INPUT_TIMEOUT_MS;
     for (;;) {
-      const ready = await cdp.evaluate<{ ok: boolean }>(composerTextStateExpression());
-      if (ready?.ok || Date.now() >= settleDeadline) break;
+      try {
+        if (await cdp.evaluate<boolean>(markComposerFileInputExpression()) === true) return true;
+      } catch (error) {
+        if (cdpCommandTimedOut(error)) throw error;
+      }
+      if (Date.now() >= inputDeadline) return false;
       await sleep(500);
     }
+  };
+  let marked = await waitForComposerFileInput();
+  const stale = await cdp.evaluate<{ removed?: number }>(attachmentPresenceExpression());
+  if ((stale?.removed ?? 0) > 0) {
+    // A fixed sleep and a composer check could both pass on the document being
+    // left (a reload takes 5-8 s here), and the file then went into a page that
+    // was replaced under it. The marked reload waits for the new document.
+    await reloadAndAwaitComposer(cdp, 20_000);
+    marked = await waitForComposerFileInput();
   }
   const document = await cdp.send("DOM.getDocument", { depth: -1, pierce: true });
   const rootNodeId = (document.result as { root?: { nodeId?: number } } | undefined)?.root?.nodeId;
   if (rootNodeId === undefined) throw new Error("Could not read the ChatGPT page DOM to attach files.");
+  const selectors = marked ? [`[${PRODEX_ATTACH_INPUT_ATTRIBUTE}]`, ...composerFileInputSelectors()] : composerFileInputSelectors();
   let inputNodeId: number | undefined;
-  for (const selector of composerFileInputSelectors()) {
+  for (const selector of selectors) {
     const input = await cdp.send("DOM.querySelector", { nodeId: rootNodeId, selector });
     inputNodeId = (input.result as { nodeId?: number } | undefined)?.nodeId || undefined;
     if (inputNodeId) break;
@@ -6101,18 +6155,37 @@ export async function enableComposerTools(cdp: CdpConnection, labels: readonly s
       enabled.push(label);
       continue;
     }
-    const button = await cdp.evaluate<RectHit>(composerToolsButtonRectExpression());
+    // The server-rendered editor shows before the app attaches the composer's
+    // controls (measured 2026-10-06), so a first miss is usually just early.
+    let button = await cdp.evaluate<RectHit>(composerToolsButtonRectExpression());
+    const buttonDeadline = Date.now() + COMPOSER_FILE_INPUT_TIMEOUT_MS;
+    while ((!button.ok || button.x === undefined || button.y === undefined) && Date.now() < buttonDeadline) {
+      await sleep(500);
+      button = await cdp.evaluate<RectHit>(composerToolsButtonRectExpression());
+    }
     if (!button.ok || button.x === undefined || button.y === undefined) {
       throw new Error(button.reason ?? "Could not open the ChatGPT composer tools menu");
     }
-    await dispatchMouseClickAt(cdp, button.x, button.y);
+    // A click that lands before the app has wired the button opens nothing
+    // (measured 2026-10-06), which looked exactly like a menu without the
+    // tool. The button is clicked again, freshly located, before concluding
+    // the tool is missing.
     let entry: RectHit = { ok: false };
-    const menuDeadline = Date.now() + 6_000;
-    for (;;) {
-      entry = await cdp.evaluate<RectHit>(composerToolEntryRectExpression(label));
+    for (let attempt = 0; attempt < COMPOSER_TOOLS_MENU_ATTEMPTS; attempt += 1) {
+      if (attempt > 0) {
+        await dispatchEscapeKey(cdp);
+        const again = await cdp.evaluate<RectHit>(composerToolsButtonRectExpression());
+        if (again.ok && again.x !== undefined && again.y !== undefined) button = again;
+      }
+      await dispatchMouseClickAt(cdp, button.x as number, button.y as number);
+      const menuDeadline = Date.now() + 4_000;
+      for (;;) {
+        entry = await cdp.evaluate<RectHit>(composerToolEntryRectExpression(label));
+        if (entry.ok && entry.x !== undefined && entry.y !== undefined) break;
+        if (Date.now() >= menuDeadline) break;
+        await sleep(250);
+      }
       if (entry.ok && entry.x !== undefined && entry.y !== undefined) break;
-      if (Date.now() >= menuDeadline) break;
-      await sleep(250);
     }
     if (!entry.ok || entry.x === undefined || entry.y === undefined) {
       await dispatchEscapeKey(cdp);
