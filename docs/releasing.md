@@ -16,6 +16,32 @@ Release target: `v0.40.13` on `main`. The GitHub Release records the resolved co
 
 The release adds a guarded, opt-in transition and more accurate blocker reporting. It does not claim that headless Pro consultation is verified on either deployment target or that authentication can be retained indefinitely.
 
+## 0.40.28 Release Record
+
+Release commit `8100c37` on `main` (cut after PR #18, merge `8afda89`); tag `v0.40.28`.
+
+**Publishing**
+- `publish.yml` run 37432329959 passed all six platforms on the first attempt, then npm publish with SLSA v1 provenance and the GitHub Release (2026-10-06 08:11 UTC).
+- PR #18's CI on its docs-only head commit passed macOS Intel only on the third attempt:
+  - The first attempt was an unrelated 30 s timeout in `tests/cli-pro-browser-send.test.ts`.
+  - The second ended with "npm test" failing without naming a test; the output was cut off mid-run.
+  - The code commit before it had passed all six platforms.
+- `npm run release:verify` passed on the release commit after a build.
+
+**What it fixes**
+- On a heavily loaded host, the new-chat page and the composer's controls get 30 s ceilings. Before, back-to-back sends were refused as `composer_not_ready` or `fresh_chat_not_ready` before anything was sent.
+
+**Installation on 2026-10-06**
+- Global npm, each verified with `prodex --version` = 0.40.28.
+- WSL, M3, Mac mini: installed. Running services were not restarted: 11 stdio MCP servers on WSL and 4 on M3 keep older code until their clients reconnect. The Mac mini had none running.
+- M4: not reachable (hostname does not resolve); not updated.
+- The browser container already runs the same ceilings (see the afternoon rebuild).
+
+**Live check after install (installed 0.40.28, shared WSL browser, host load average 5.5)**
+- Three back-to-back `--model Pro --pro-mode` new-chat sends answered.
+- A project send with an attachment answered.
+- A create-image send answered.
+
 ## Browser Container Rebuild 2026-10-06 (afternoon)
 
 **Patches now committed**
