@@ -4,7 +4,7 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 0.40.25
 
 ### Fixed
 - A send into an existing conversation from a tab that was on another one treated the new page as ready while it was still loading. It already had the conversation's URL and the server-rendered editor, but no file inputs and no messages yet. An attachment then failed with "The ChatGPT composer has no file input to attach to", and the answer baseline counted zero earlier messages. prodex now also waits for the page to finish loading (measured: about 6-7 s). Verified live: with the tab moved away first, `--continue --attach` answered twice and counted the thread's earlier messages.
