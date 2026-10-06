@@ -438,7 +438,7 @@ Show more`;
     const evaluations = installFakeChatGptSendCdp(thread, [fakeAnswerState(thread, "old answer", false)]);
     const send = sendChatGptPrompt({ port: 19338, prompt: "answer this", newChat: true, timeoutMs: 1000 });
     const rejection = expect(send).rejects.toMatchObject({ blocker: { code: "fresh_chat_not_ready" } });
-    await vi.advanceTimersByTimeAsync(25_000);
+    await vi.advanceTimersByTimeAsync(40_000);
     await rejection;
     expect(evaluations.some((expression) => expression.includes("actualText: raw.slice"))).toBe(false);
   });
@@ -462,6 +462,44 @@ Show more`;
     expect(marked).toBeLessThan(navigated);
     expect(replaced).toBeGreaterThan(navigated);
     expect(typed).toBeGreaterThan(replaced);
+  });
+
+  it("keeps waiting for a new-chat page that takes 20 s to load on a busy host", async () => {
+    // Measured 2026-10-06 with the host at load average 28-32: back-to-back
+    // sends overran a 15 s ceiling while the page was still on its way.
+    vi.useFakeTimers();
+    const root = "https://chatgpt.com/";
+    const fresh = { ...fakeAnswerState(root, "", false), assistantMessageCount: 0, userMessageCount: 0 };
+    const evaluations = installFakeChatGptSendCdp(root, [fresh, fresh, fakeAnswerState(root, "done", false)], {}, { commitsAfterPolls: 66 });
+    const send = sendChatGptPrompt({ port: 19338, prompt: "answer this", newChat: true, timeoutMs: 5_000 });
+    void send.catch(() => undefined);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(evaluations.some((expression) => expression.includes("actualText: raw.slice"))).toBe(true);
+  });
+
+  it("waits for a model selector that renders 12 s late on a busy host", async () => {
+    // Measured 2026-10-06 at load average 24-44: the third of three
+    // back-to-back Pro sends was refused as composer_not_ready after an 8 s
+    // wait for the model selector.
+    vi.useFakeTimers();
+    const root = "https://chatgpt.com/";
+    const fresh = { ...fakeAnswerState(root, "", false), assistantMessageCount: 0, userMessageCount: 0 };
+    const evaluations = installFakeChatGptSendCdp(root, [fresh, fresh, fakeAnswerState(root, "done", false)]);
+    const base = FakeCdpWebSocket.evaluate;
+    const startedAt = Date.now();
+    FakeCdpWebSocket.evaluate = (expression) => {
+      if (expression === modelButtonRectExpression()) {
+        evaluations.push(expression);
+        return Date.now() - startedAt < 12_000
+          ? { ok: false, reason: "model selector button not found" }
+          : { ok: true, x: 20, y: 20, label: "Pro" };
+      }
+      return base(expression);
+    };
+    const send = sendChatGptPrompt({ port: 19338, prompt: "answer this", newChat: true, model: "Pro", timeoutMs: 5_000 });
+    void send.catch(() => undefined);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(evaluations.some((expression) => expression.includes("actualText: raw.slice"))).toBe(true);
   });
 
   it("does not send when the new-chat navigation never replaces the page", async () => {

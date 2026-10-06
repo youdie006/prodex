@@ -16,6 +16,26 @@ Release target: `v0.40.13` on `main`. The GitHub Release records the resolved co
 
 The release adds a guarded, opt-in transition and more accurate blocker reporting. It does not claim that headless Pro consultation is verified on either deployment target or that authentication can be retained indefinitely.
 
+## Browser Container Rebuild 2026-10-06 (afternoon)
+
+**Patches now committed**
+- The patches the container runs on top of `feat/headless-browser-compatibility` `b5eac7d` are now committed on their own branch, `container/redesign-patches`:
+  - `0c3a9cc`: every patch from 2026-09-30 to 2026-10-06.
+  - `1233603`: the 30 s composer-render ceiling from this change.
+- They had lived only in a scratch worktree.
+- `feat/headless-browser-compatibility` itself is unchanged.
+
+**Image**
+- `sha256:ce0240c0e8a4` was built from `1233603`, and the branch suite passed (2002).
+- The swap was gated on the send lock being free.
+
+**Verified**
+- Three back-to-back `--model Pro --pro-mode` new-chat sends answered (42-50 s each).
+- Before this, a real consult from another session had been refused as `composer_not_ready` (`task_20261006_050125`) under host load average 24-44.
+
+**Host load**
+- The load came from an unrelated container, `apo-neo4j`, which had restarted 57,058 times because it could not resolve its own hostname. The user is handling it.
+
 ## 0.40.27 Release Record
 
 Release commit `f84ce2b` on `main` (cut after PR #17, merge `9dad219`); tag `v0.40.27`.

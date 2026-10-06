@@ -1207,8 +1207,10 @@ async function navigateIdleChatGptPage(page: DevtoolsPage, url: string): Promise
  * navigation cannot leave the old thread's state in place. A false result
  * must not be used as permission to send into stale content.
  */
-// Measured 5.2-8.5 s for the new-chat page to settle (2026-09-30).
-const FRESH_CHAT_TIMEOUT_MS = 15_000;
+// Measured 5.2-8.5 s for the new-chat page to settle (2026-09-30), and over
+// 15 s for back-to-back sends with the host at load average 28-32 on 8 cores
+// (2026-10-06). It is only a ceiling: a ready page returns at once.
+const FRESH_CHAT_TIMEOUT_MS = 30_000;
 
 /** Poll until the document marked before a navigation has been replaced and the new one has a composer. */
 async function waitForReloadedDocument(page: DevtoolsPage, deadline: number): Promise<boolean> {
@@ -2233,6 +2235,13 @@ async function waitForExpressionTrue(cdp: CdpConnection, expression: string, tim
 const MENU_OPEN_TIMEOUT_MS = 5_000;
 const MENU_SETTLE_TIMEOUT_MS = 5_000;
 const PROJECT_NAVIGATION_TIMEOUT_MS = 8_000;
+/**
+ * How long the composer's own controls (model selector, tools button, file
+ * input) may take to appear after the editor. Measured over 8 s for the model
+ * selector on back-to-back sends with the host at load average 24-44
+ * (2026-10-06). It is only a ceiling: a rendered control returns at once.
+ */
+const COMPOSER_RENDER_TIMEOUT_MS = 30_000;
 
 export function menuOpenExpression(): string {
   return `Boolean(document.querySelector('[data-testid="composer-intelligence-picker-content"],[role="menu"]:has([role="slider"])'))`;
@@ -3397,7 +3406,7 @@ async function selectModelReasoning(
   // the same pattern succeeded either side of it. The neighbouring waits for
   // the same kind of render already allow six to eight.
   let button: RectHit = { ok: false };
-  const buttonDeadline = Date.now() + PROJECT_NAVIGATION_TIMEOUT_MS;
+  const buttonDeadline = Date.now() + COMPOSER_RENDER_TIMEOUT_MS;
   for (;;) {
     button = await cdp.evaluate<RectHit>(modelButtonRectExpression());
     if (button.ok && button.x !== undefined && button.y !== undefined) break;
@@ -5826,7 +5835,7 @@ export function composerFileInputSelector(): string {
   return 'input[type="file"]:not([accept*="image"])';
 }
 
-const COMPOSER_FILE_INPUT_TIMEOUT_MS = 15_000;
+
 const COMPOSER_TOOLS_MENU_ATTEMPTS = 3;
 
 export const PRODEX_ATTACH_INPUT_ATTRIBUTE = "data-prodex-attach-input";
@@ -5963,7 +5972,7 @@ export async function attachFilesToComposer(
   // this point in that window sometimes. Wait for the input itself, before
   // the chip check (chips render with it) and before reading the DOM tree.
   const waitForComposerFileInput = async (): Promise<boolean> => {
-    const inputDeadline = Date.now() + COMPOSER_FILE_INPUT_TIMEOUT_MS;
+    const inputDeadline = Date.now() + COMPOSER_RENDER_TIMEOUT_MS;
     for (;;) {
       try {
         if (await cdp.evaluate<boolean>(markComposerFileInputExpression()) === true) return true;
@@ -6200,7 +6209,7 @@ export async function enableComposerTools(cdp: CdpConnection, labels: readonly s
     // The server-rendered editor shows before the app attaches the composer's
     // controls (measured 2026-10-06), so a first miss is usually just early.
     let button = await cdp.evaluate<RectHit>(composerToolsButtonRectExpression());
-    const buttonDeadline = Date.now() + COMPOSER_FILE_INPUT_TIMEOUT_MS;
+    const buttonDeadline = Date.now() + COMPOSER_RENDER_TIMEOUT_MS;
     while ((!button.ok || button.x === undefined || button.y === undefined) && Date.now() < buttonDeadline) {
       await sleep(500);
       button = await cdp.evaluate<RectHit>(composerToolsButtonRectExpression());
