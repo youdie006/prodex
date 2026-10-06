@@ -16,6 +16,38 @@ Release target: `v0.40.13` on `main`. The GitHub Release records the resolved co
 
 The release adds a guarded, opt-in transition and more accurate blocker reporting. It does not claim that headless Pro consultation is verified on either deployment target or that authentication can be retained indefinitely.
 
+## 0.40.27 Release Record
+
+Release commit `f84ce2b` on `main` (cut after PR #17, merge `9dad219`); tag `v0.40.27`.
+
+**Publishing**
+- `publish.yml` run 37419470087 passed all six platforms on the first attempt, then npm publish with SLSA v1 provenance and the GitHub Release (2026-10-06 05:57 UTC).
+- `npm run release:verify` on the release commit passed on its second run. The first failed in package smoke, where the fake DevTools endpoint did not answer within 500 ms while the host load average was about 30 (8 cores).
+
+**What it fixes**
+- Source pills in page-read answers are spelled out as markdown links or `[label]`.
+- Recovery waits for the thread's turns instead of refusing its own request right after navigating.
+
+**Installation on 2026-10-06**
+- Global npm, each verified with `prodex --version` = 0.40.27.
+- WSL, M3, Mac mini: installed. Running services were not restarted: 5 stdio MCP servers on WSL and 4 on M3 keep older code until their clients reconnect. The Mac mini had none running.
+- M4: not reachable (hostname does not resolve); not updated.
+
+**Live check after install (installed 0.40.27, shared WSL browser)**
+- All answered:
+  - a new-chat attachment
+  - a web-search answer, ending in a markdown source link
+  - a project send
+  - `pro browser recover` with the tab on another conversation, which returned the answer
+
+**Browser container, same day**
+- The pill and recovery fixes were adapted to the branch code.
+- A consult from another session (task `task_20261006_050125`, 05:01 UTC) had been refused with `composer_not_ready`. Back-to-back `--model Pro` new-chat sends reproduced a related failure, `fresh_chat_not_ready`: the new-chat page took more than 15 s to settle with the host load average at 28-32. The branch's new-chat ceiling was raised to 30 s. It is only a ceiling.
+- Image `sha256:2b76266ad524`. The earlier interrupted-looking consult `task_20261006_050200` had finished at 05:07, before the swap.
+- The swap was gated on the send lock being free.
+- Two branch tests failed in the pre-build run, and the build script did not stop on test failures, so the image was built and swapped anyway. One test advanced a fake clock 25 s against the new 30 s ceiling; it was fixed. The other was a load-sensitive project-sidebar test, which passed on rerun. After that, the full branch suite passed (2002). The image's runtime code is the code that passed.
+- Verified: three back-to-back `--model Pro --pro-mode` new-chat sends answered (44-50 s each).
+
 ## 0.40.26 Release Record
 
 Release commit `b413c24` on `main` (cut after PR #16, merge `af5cf20`); tag `v0.40.26`.
