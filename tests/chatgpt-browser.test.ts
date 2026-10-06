@@ -2306,6 +2306,16 @@ Show more`;
     expect(state.answer).toBe("final answer");
     expect(state.generating).toBe(false);
 
+    // ChatGPT keeps a previously opened conversation mounted but hidden
+    // (measured 2026-10-06 on a project home: two hidden turns, no box), so a
+    // fresh project chat read as an existing conversation and was refused.
+    const hidden = message("user", "a hidden turn from another page");
+    hidden.offsetHeight = 0;
+    doc.messages = [hidden];
+    const behindHidden = evaluateBrowserStatusExpression<AnswerState>(answerExpression(), doc);
+    expect(behindHidden.userMessageCount).toBe(0);
+    expect(behindHidden.assistantMessageCount).toBe(0);
+
     // An old answer must not be paired with a newly posted question.
     doc.messages = [message("user", "q1"), message("assistant", "old answer"), message("user", "q2")];
     const pending = evaluateBrowserStatusExpression<AnswerState & { lastUserText: string }>(answerExpression(), doc);
