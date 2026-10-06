@@ -4,7 +4,7 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 0.40.28
 
 ### Fixed
 - On a heavily loaded machine, sends sent one after another were refused before anything was sent. One error was "ChatGPT's composer did not finish rendering its model selector", after an 8 s wait. The other was "The new-chat page did not become an empty conversation", after a 15 s wait. Both were measured with the host at load average 24-44 on 8 cores, while the page was still on its way. The new-chat page, the model selector, the tools button and the file input may now take up to 30 s each. These are only ceilings: a ready page continues at once. Verified live under that load: four back-to-back `--model Pro --pro-mode` new-chat sends all answered; before, the third of three failed.
