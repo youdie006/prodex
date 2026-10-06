@@ -4,7 +4,7 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 0.40.27
 
 ### Fixed
 - Answers ended with their sources as loose lines: an answer drawn from an attached file came back as "walnut-9" plus a line "cont-att", and a web-search answer ended with a bare "blog.rust-lang.org". ChatGPT renders each source as an inline pill, and prodex copied its label as text. A web source now comes back as a markdown link (`[blog.rust-lang.org](https://...)`), the same form the transcript reader writes, and a file source as `[cont-att]`.
