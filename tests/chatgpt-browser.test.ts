@@ -741,6 +741,22 @@ Show more`;
     expect(result).toMatchObject({ answer: "correct answer", requestId, requestVerified: true });
   });
 
+  it("waits for the thread's turns to load before judging the request", async () => {
+    // Measured 2026-10-06: right after navigating, the loading thread had the
+    // target URL and no turns yet, and recovery refused its own request as
+    // request_mismatch within a second.
+    vi.useFakeTimers();
+    const target = "https://chatgpt.com/c/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+    const requestId = "b".repeat(32);
+    const loading = { ...fakeAnswerState(target, "", false), userMessageCount: 0, assistantMessageCount: 0, lastUserText: "" };
+    const loaded = { ...fakeAnswerState(target, "the answer", false), lastUserText: `our question\n[prodex-request:${requestId}]` };
+    installFakeChatGptCdp([loading, loading, loaded, loaded]);
+    const recovery = recoverChatGptAnswerFromThread({ targetUrl: target, port: 19334, timeoutMs: 5_000, requestId });
+    void recovery.catch(() => undefined);
+    await vi.advanceTimersByTimeAsync(10_000);
+    await expect(recovery).resolves.toMatchObject({ answer: "the answer", requestId, requestVerified: true });
+  });
+
   it("does not navigate a busy foreign thread during recovery", async () => {
     const target = "https://chatgpt.com/c/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
     const evaluations = installFakeChatGptCdp([fakeAnswerState(target, "answer", false)], { generating: true });

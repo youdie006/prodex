@@ -410,7 +410,41 @@ export const CHATGPT_BLOCKER_SCAN_EXCLUDED_ANCESTORS =
  * sat in the thread for ten minutes while prodex waited for it. The model slug
  * attribute went with it; where it is absent the model is simply not known.
  */
-const CHATGPT_MESSAGE_NODES_JS = `
+/**
+ * A message's text with its source pills spelled out.
+ *
+ * Measured 2026-10-06: ChatGPT renders each source as an inline pill
+ * ([data-chatgpt-copy-reference]) and innerText puts its label on a line of
+ * its own, so a page-read answer came back as "walnut-9" plus a line
+ * "cont-att", or ended in a bare "blog.rust-lang.org" that read as part of
+ * the answer. A web source becomes " [label](url)", as the transcript reader
+ * writes it; a file source has no link and becomes " [label]". The label is
+ * looked for on its own line first, so the same words earlier in the prose
+ * are left alone.
+ */
+export const CHATGPT_RENDERED_MESSAGE_TEXT_JS = `
+    const renderedMessageText = (root) => {
+      let text = root.innerText || "";
+      const newline = String.fromCharCode(10);
+      const isSpace = (ch) => ch === " " || ch === newline || ch === String.fromCharCode(9) || ch === String.fromCharCode(13);
+      let cursor = 0;
+      for (const pill of [...root.querySelectorAll('[data-chatgpt-copy-reference]')]) {
+        const label = (pill.innerText || "").trim();
+        if (!label) continue;
+        const onOwnLine = text.indexOf(newline + label, cursor);
+        const at = onOwnLine >= 0 ? onOwnLine + 1 : text.indexOf(label, cursor);
+        if (at < 0) continue;
+        let start = at;
+        while (start > cursor && isSpace(text[start - 1])) start -= 1;
+        const link = pill.querySelector('a[href^="http"]');
+        const rendered = link ? " [" + label + "](" + link.getAttribute("href") + ")" : " [" + label + "]";
+        text = text.slice(0, start) + rendered + text.slice(at + label.length);
+        cursor = start + rendered.length;
+      }
+      return text;
+    };`;
+
+const CHATGPT_MESSAGE_NODES_JS = `${CHATGPT_RENDERED_MESSAGE_TEXT_JS}
     // ChatGPT keeps a previously opened conversation mounted but hidden
     // (measured 2026-10-06: two turns without a box on a project home), and
     // counting them made a fresh chat look like an existing conversation.
@@ -4029,6 +4063,14 @@ export async function recoverChatGptAnswerFromThread(
         lastAnswer = "";
         continue;
       }
+      // A thread that is still loading already has the target URL but no
+      // turns (measured 2026-10-06), and judging the request on it refused a
+      // recovery of the very request it was asked for.
+      if (state.userMessageCount === 0) {
+        stableRuns = 0;
+        lastAnswer = "";
+        continue;
+      }
       if (options.requestId && !chatGptRequestMarkerMatches(state.lastUserText ?? "", options.requestId)) {
         throw new ChatGptBrowserBlockerError({
           code: "request_mismatch",
@@ -6772,7 +6814,7 @@ export function answerExpression(): string {
         const tagged = node.closest('[data-message-model-slug]');
         if (tagged) modelSlug = tagged.getAttribute('data-message-model-slug') || undefined;
       }
-      return { role, node, text: textNode.innerText || "", modelSlug };
+      return { role, node, text: renderedMessageText(textNode), modelSlug };
     });
     const assistantMessages = messages.filter((message) => message.role === "assistant");
     const userMessages = messages.filter((message) => message.role === "user");
