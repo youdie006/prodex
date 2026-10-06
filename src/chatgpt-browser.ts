@@ -411,7 +411,12 @@ export const CHATGPT_BLOCKER_SCAN_EXCLUDED_ANCESTORS =
  * attribute went with it; where it is absent the model is simply not known.
  */
 /**
- * A message's text with its source pills spelled out.
+ * A message's text with its structure spelled out.
+ *
+ * Measured 2026-10-07: innerText turned a fenced code block into its toolbar
+ * text ("Python", "Run") followed by the code, and a table into tab-separated
+ * lines. A code block ([data-markdown-copy="code-block"]) comes back fenced
+ * with its language, and a table as a markdown table.
  *
  * Measured 2026-10-06: ChatGPT renders each source as an inline pill
  * ([data-chatgpt-copy-reference]) and innerText puts its label on a line of
@@ -426,17 +431,52 @@ export const CHATGPT_RENDERED_MESSAGE_TEXT_JS = `
     const renderedMessageText = (root) => {
       let text = root.innerText || "";
       const newline = String.fromCharCode(10);
+      const fence = String.fromCharCode(96).repeat(3);
       const isSpace = (ch) => ch === " " || ch === newline || ch === String.fromCharCode(9) || ch === String.fromCharCode(13);
+      const trimEnd = (value) => { let end = value.length; while (end > 0 && isSpace(value[end - 1])) end -= 1; return value.slice(0, end); };
       let cursor = 0;
-      for (const pill of [...root.querySelectorAll('[data-chatgpt-copy-reference]')]) {
-        const label = (pill.innerText || "").trim();
+      // Code blocks, tables and source pills, outermost only, in page order.
+      const special = [...root.querySelectorAll('[data-markdown-copy="code-block"],table,[data-chatgpt-copy-reference]')];
+      const outermost = special.filter((node) => !special.some((other) => other !== node && other.contains(node)));
+      for (const node of outermost) {
+        if (node.matches('[data-markdown-copy="code-block"]')) {
+          // innerText carries the toolbar ("Python", "Run") and drops the fence.
+          const shown = trimEnd(node.innerText || "");
+          const at = shown ? text.indexOf(shown, cursor) : -1;
+          if (at < 0) continue;
+          const lines = [...node.querySelectorAll('.cm-line')].map((line) => line.textContent || "");
+          const pre = node.querySelector('pre');
+          const code = lines.length > 0 ? lines.join(newline) : trimEnd(pre ? pre.innerText || "" : "");
+          const editor = node.querySelector('[data-language]');
+          const toolbar = node.querySelector('[data-markdown-copy="exclude"]');
+          const language = ((editor && editor.getAttribute('data-language')) || (toolbar ? (toolbar.innerText || "").split(newline)[0] : "")).trim().toLowerCase();
+          const rendered = fence + language + newline + code + newline + fence;
+          text = text.slice(0, at) + rendered + text.slice(at + shown.length);
+          cursor = at + rendered.length;
+          continue;
+        }
+        if (node.matches('table')) {
+          // innerText separates cells with tabs; a markdown table survives.
+          const shown = trimEnd(node.innerText || "");
+          const at = shown ? text.indexOf(shown, cursor) : -1;
+          if (at < 0) continue;
+          const cell = (value) => (value || "").split(newline).join(" ").trim().split("|").join(String.fromCharCode(92) + "|");
+          const rows = [...node.querySelectorAll('tr')].map((row) => [...row.children].map((child) => cell(child.innerText)));
+          if (rows.length === 0) continue;
+          const line = (cells) => "| " + cells.join(" | ") + " |";
+          const rendered = [line(rows[0]), line(rows[0].map(() => "---")), ...rows.slice(1).map(line)].join(newline);
+          text = text.slice(0, at) + rendered + text.slice(at + shown.length);
+          cursor = at + rendered.length;
+          continue;
+        }
+        const label = (node.innerText || "").trim();
         if (!label) continue;
         const onOwnLine = text.indexOf(newline + label, cursor);
         const at = onOwnLine >= 0 ? onOwnLine + 1 : text.indexOf(label, cursor);
         if (at < 0) continue;
         let start = at;
         while (start > cursor && isSpace(text[start - 1])) start -= 1;
-        const link = pill.querySelector('a[href^="http"]');
+        const link = node.querySelector('a[href^="http"]');
         const rendered = link ? " [" + label + "](" + link.getAttribute("href") + ")" : " [" + label + "]";
         let rest = text.slice(at + label.length);
         // innerText also breaks the line after the pill; punctuation that

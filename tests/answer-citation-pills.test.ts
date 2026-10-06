@@ -9,6 +9,8 @@ import { CHATGPT_RENDERED_MESSAGE_TEXT_JS } from "../src/chatgpt-browser.js";
 function pill(label: string, href?: string) {
   return {
     innerText: label,
+    matches: () => false,
+    contains: () => false,
     querySelector: (selector: string) => (href && selector.includes("href") ? { getAttribute: () => href } : null)
   };
 }
