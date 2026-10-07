@@ -9,8 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - A send with `--attach` could carry an attachment left in the composer by an earlier send. Measured: a message went out with `stale-chip(1).txt` next to the file asked for, and ChatGPT answered from both. prodex cleared leftovers by reloading the page, but ChatGPT now keeps a draft attachment across a reload. Leftovers are now removed with their own remove buttons; the reload remains a fallback. A send whose leftover cannot be removed stops with `leftover_attachment`, and nothing is sent. Verified live: with a leftover chip in the composer, only the requested file went out.
 - `--continue` into a long conversation was refused with "ChatGPT did not finish opening the conversation to continue" before anything was sent. A thread with many turns took 13.9 s to finish loading, past a 12 s wait. Opening a thread may now take up to 30 s.
-- Answers lost their code blocks and tables. A fenced code block came back as its toolbar text ("Python", "Run") followed by the bare code, and a markdown table as tab-separated lines. prodex read the page's visible text. Code blocks now come back fenced with their language, and tables as markdown tables. Verified live: a Python code block, a table, and a web-search answer with a source link and a table all came back as markdown.
-- A source pill followed by punctuation pushed the punctuation onto a new line, e.g. "plum-stale [stale-chip]" then ", walnut-9". The punctuation now stays on the pill's line.
+- Answers lost their markdown. prodex read the page's visible text, which drops it:
+  - Headings lost their `#`, numbered lists their numbers, and bullets their markers.
+  - Bold, italics and inline code went plain, and links lost their URLs.
+  - A fenced code block came back as its toolbar text ("Python", "Run") followed by the bare code.
+  - Tables became tab-separated lines.
+  - Math came back one glyph per line, twice.
+
+  Answers are now written as markdown from the rendered page: headings, numbered (with their start) and nested lists, emphasis, links, inline code, fenced code blocks with their language, tables, blockquotes, and math from its TeX source (`$...$`, `$$...$$`). The transcript API that held the markdown stays unused. Verified live: a formatted answer, a math answer, and a web-search answer with an attachment, a code block and a table all came back as markdown; Korean answers, attachments, projects, `--continue` and images were unchanged.
 
 ## 0.40.28
 

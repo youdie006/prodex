@@ -411,81 +411,171 @@ export const CHATGPT_BLOCKER_SCAN_EXCLUDED_ANCESTORS =
  * attribute went with it; where it is absent the model is simply not known.
  */
 /**
- * A message's text with its structure spelled out.
+ * An assistant message as markdown, read from its rendered DOM.
  *
- * Measured 2026-10-07: innerText turned a fenced code block into its toolbar
- * text ("Python", "Run") followed by the code, and a table into tab-separated
- * lines. A code block ([data-markdown-copy="code-block"]) comes back fenced
- * with its language, and a table as a markdown table.
- *
- * Measured 2026-10-06: ChatGPT renders each source as an inline pill
- * ([data-chatgpt-copy-reference]) and innerText puts its label on a line of
- * its own, so a page-read answer came back as "walnut-9" plus a line
- * "cont-att", or ended in a bare "blog.rust-lang.org" that read as part of
- * the answer. A web source becomes " [label](url)", as the transcript reader
- * writes it; a file source has no link and becomes " [label]". The label is
- * looked for on its own line first, so the same words earlier in the prose
- * are left alone.
+ * innerText drops what markdown carries. Measured 2026-10-06/07: headings lost
+ * their #, numbered lists their numbers, bullets their markers, links their
+ * urls, code blocks their fences (gaining the toolbar's "Python"/"Run"),
+ * tables their structure, KaTeX math came back one glyph per line and twice,
+ * and source pills became loose lines. The transcript API that held the
+ * markdown is not used (internal endpoints were removed on purpose), so the
+ * rendered tree is walked instead: block elements become markdown blocks,
+ * ChatGPT's own copy markers ([data-markdown-copy]) identify code blocks,
+ * inline code and the toolbar to leave out, math is written from
+ * [data-math-source], and a source pill becomes " [label](url)" or
+ * " [label]". When nothing could be read, the page text is returned as is.
  */
 export const CHATGPT_RENDERED_MESSAGE_TEXT_JS = `
     const renderedMessageText = (root) => {
-      let text = root.innerText || "";
-      const newline = String.fromCharCode(10);
-      const fence = String.fromCharCode(96).repeat(3);
-      const isSpace = (ch) => ch === " " || ch === newline || ch === String.fromCharCode(9) || ch === String.fromCharCode(13);
-      const trimEnd = (value) => { let end = value.length; while (end > 0 && isSpace(value[end - 1])) end -= 1; return value.slice(0, end); };
-      let cursor = 0;
-      // Code blocks, tables and source pills, outermost only, in page order.
-      const special = [...root.querySelectorAll('[data-markdown-copy="code-block"],table,[data-chatgpt-copy-reference]')];
-      const outermost = special.filter((node) => !special.some((other) => other !== node && other.contains(node)));
-      for (const node of outermost) {
-        if (node.matches('[data-markdown-copy="code-block"]')) {
-          // innerText carries the toolbar ("Python", "Run") and drops the fence.
-          const shown = trimEnd(node.innerText || "");
-          const at = shown ? text.indexOf(shown, cursor) : -1;
-          if (at < 0) continue;
-          const lines = [...node.querySelectorAll('.cm-line')].map((line) => line.textContent || "");
-          const pre = node.querySelector('pre');
-          const code = lines.length > 0 ? lines.join(newline) : trimEnd(pre ? pre.innerText || "" : "");
-          const editor = node.querySelector('[data-language]');
-          const toolbar = node.querySelector('[data-markdown-copy="exclude"]');
-          const language = ((editor && editor.getAttribute('data-language')) || (toolbar ? (toolbar.innerText || "").split(newline)[0] : "")).trim().toLowerCase();
-          const rendered = fence + language + newline + code + newline + fence;
-          text = text.slice(0, at) + rendered + text.slice(at + shown.length);
-          cursor = at + rendered.length;
-          continue;
+      const NL = String.fromCharCode(10);
+      const BT = String.fromCharCode(96);
+      const isSpaceChar = (ch) => ch === " " || ch === NL || ch === String.fromCharCode(9) || ch === String.fromCharCode(13);
+      const tagOf = (node) => (node.tagName || "").toLowerCase();
+      const attr = (node, name) => (node.getAttribute ? node.getAttribute(name) : null);
+      const hasClass = (node, name) => (" " + (attr(node, "class") || "") + " ").includes(" " + name + " ");
+      const children = (node) => [...(node.childNodes || [])];
+      const findAll = (node, test, out = []) => {
+        for (const child of children(node)) {
+          if (child.nodeType !== 1) continue;
+          if (test(child)) out.push(child);
+          findAll(child, test, out);
         }
-        if (node.matches('table')) {
-          // innerText separates cells with tabs; a markdown table survives.
-          const shown = trimEnd(node.innerText || "");
-          const at = shown ? text.indexOf(shown, cursor) : -1;
-          if (at < 0) continue;
-          const cell = (value) => (value || "").split(newline).join(" ").trim().split("|").join(String.fromCharCode(92) + "|");
-          const rows = [...node.querySelectorAll('tr')].map((row) => [...row.children].map((child) => cell(child.innerText)));
-          if (rows.length === 0) continue;
-          const line = (cells) => "| " + cells.join(" | ") + " |";
-          const rendered = [line(rows[0]), line(rows[0].map(() => "---")), ...rows.slice(1).map(line)].join(newline);
-          text = text.slice(0, at) + rendered + text.slice(at + shown.length);
-          cursor = at + rendered.length;
-          continue;
+        return out;
+      };
+      const collapse = (value) => {
+        let out = "";
+        let space = false;
+        for (const ch of value) {
+          if (isSpaceChar(ch)) { space = true; continue; }
+          if (space) out += " ";
+          space = false;
+          out += ch;
         }
-        const label = (node.innerText || "").trim();
-        if (!label) continue;
-        const onOwnLine = text.indexOf(newline + label, cursor);
-        const at = onOwnLine >= 0 ? onOwnLine + 1 : text.indexOf(label, cursor);
-        if (at < 0) continue;
-        let start = at;
-        while (start > cursor && isSpace(text[start - 1])) start -= 1;
-        const link = node.querySelector('a[href^="http"]');
-        const rendered = link ? " [" + label + "](" + link.getAttribute("href") + ")" : " [" + label + "]";
-        let rest = text.slice(at + label.length);
-        // innerText also breaks the line after the pill; punctuation that
-        // continues the sentence belongs back on it.
-        if (rest[0] === newline && ",.;:!?)".includes(rest[1] || newline)) rest = rest.slice(1);
-        text = text.slice(0, start) + rendered + rest;
-        cursor = start + rendered.length;
-      }
-      return text;
+        return space ? out + " " : out;
+      };
+      const trimEnd = (value) => { let end = value.length; while (end > 0 && isSpaceChar(value[end - 1])) end -= 1; return value.slice(0, end); };
+      const skipped = (node) => {
+        const tag = tagOf(node);
+        return tag === "button" || tag === "svg" || tag === "script" || tag === "style" || tag === "img" ||
+          attr(node, "hidden") !== null || attr(node, "data-markdown-copy") === "exclude";
+      };
+      const isMath = (node) => attr(node, "data-math-source") !== null || hasClass(node, "katex") || hasClass(node, "katex-display");
+      const mathSource = (node) => {
+        const source = attr(node, "data-math-source");
+        if (source !== null) return source;
+        const annotation = findAll(node, (n) => tagOf(n) === "annotation")[0];
+        return annotation ? annotation.textContent || "" : node.textContent || "";
+      };
+      // Inline math carries data-math-display="false" (measured), so the value counts, not its presence.
+      const isDisplayMath = (node) => attr(node, "data-math-display") === "true" || hasClass(node, "katex-display");
+      const isCodeBlock = (node) => attr(node, "data-markdown-copy") === "code-block" || tagOf(node) === "pre";
+      const BLOCK_TAGS = ["p", "div", "section", "article", "figure", "ul", "ol", "li", "table", "blockquote", "pre", "hr", "h1", "h2", "h3", "h4", "h5", "h6"];
+      const isBlock = (node) => node.nodeType === 1 && !skipped(node) &&
+        (BLOCK_TAGS.includes(tagOf(node)) || isCodeBlock(node) || (isMath(node) && isDisplayMath(node)) ||
+          (tagOf(node) === "span" && findAll(node, (n) => BLOCK_TAGS.includes(tagOf(n))).length > 0));
+      const pill = (node) => {
+        const label = collapse(node.textContent || "").trim();
+        if (!label) return "";
+        const link = findAll(node, (n) => tagOf(n) === "a" && (attr(n, "href") || "").startsWith("http"))[0];
+        return link ? "[" + label + "](" + attr(link, "href") + ")" : "[" + label + "]";
+      };
+      const inline = (node) => {
+        let out = "";
+        for (const child of children(node)) {
+          const piece = inlineNode(child);
+          if (!piece) continue;
+          // A source pill sits right after its sentence; keep one space before it.
+          if (child.nodeType === 1 && attr(child, "data-chatgpt-copy-reference") !== null && out && !isSpaceChar(out[out.length - 1])) out += " ";
+          out += piece;
+        }
+        return out;
+      };
+      const inlineNode = (node) => {
+        if (node.nodeType === 3) return collapse(node.textContent || "");
+        if (node.nodeType !== 1 || skipped(node)) return "";
+        const tag = tagOf(node);
+        if (isMath(node)) return isDisplayMath(node) ? "$$" + mathSource(node) + "$$" : "$" + mathSource(node) + "$";
+        if (attr(node, "data-chatgpt-copy-reference") !== null) return pill(node);
+        if (attr(node, "data-markdown-copy") === "inline-code" || tag === "code") return BT + (node.textContent || "") + BT;
+        if (tag === "br") return NL;
+        const inner = inline(node);
+        if (tag === "strong" || tag === "b") return inner.trim() ? "**" + inner.trim() + "**" : "";
+        if (tag === "em" || tag === "i") return inner.trim() ? "*" + inner.trim() + "*" : "";
+        if (tag === "del" || tag === "s") return inner.trim() ? "~~" + inner.trim() + "~~" : "";
+        if (tag === "a") {
+          const href = attr(node, "href") || "";
+          return href.startsWith("http") && inner.trim() ? "[" + inner.trim() + "](" + href + ")" : inner;
+        }
+        return inner;
+      };
+      const codeBlock = (node) => {
+        const lines = findAll(node, (n) => hasClass(n, "cm-line")).map((line) => line.textContent || "");
+        const pre = tagOf(node) === "pre" ? node : findAll(node, (n) => tagOf(n) === "pre")[0];
+        const code = lines.length > 0 ? lines.join(NL) : trimEnd(pre ? pre.textContent || "" : node.textContent || "");
+        const editor = findAll(node, (n) => attr(n, "data-language") !== null)[0];
+        const toolbar = findAll(node, (n) => attr(n, "data-markdown-copy") === "exclude")[0];
+        const label = toolbar ? collapse(findAll(toolbar, (n) => n.nodeType === 1 && tagOf(n) === "div" && children(n).every((c) => c.nodeType === 3)).map((n) => n.textContent || "")[0] || "").trim() : "";
+        const language = ((editor && attr(editor, "data-language")) || label).trim().toLowerCase();
+        return BT + BT + BT + language + NL + code + NL + BT + BT + BT;
+      };
+      const table = (node) => {
+        const cell = (value) => collapse(value).trim().split("|").join(String.fromCharCode(92) + "|");
+        const rows = findAll(node, (n) => tagOf(n) === "tr").map((row) => children(row).filter((c) => c.nodeType === 1).map((c) => cell(inline(c))));
+        if (rows.length === 0) return "";
+        const line = (cells) => "| " + cells.join(" | ") + " |";
+        return [line(rows[0]), line(rows[0].map(() => "---")), ...rows.slice(1).map(line)].join(NL);
+      };
+      const list = (node, depth) => {
+        const ordered = tagOf(node) === "ol";
+        let number = parseInt(attr(node, "start") || "1", 10);
+        if (!Number.isFinite(number)) number = 1;
+        const indent = "   ".repeat(depth);
+        const items = [];
+        for (const item of children(node)) {
+          if (item.nodeType !== 1 || tagOf(item) !== "li") continue;
+          const marker = ordered ? number + "." : "-";
+          number += 1;
+          const words = [];
+          const nested = [];
+          let buffer = "";
+          for (const child of children(item)) {
+            const tag = child.nodeType === 1 ? tagOf(child) : "";
+            if (tag === "ul" || tag === "ol") { nested.push(list(child, depth + 1)); continue; }
+            if (isBlock(child)) { if (buffer.trim()) words.push(buffer.trim()); buffer = ""; const b = block(child, depth + 1); if (b) words.push(b); continue; }
+            buffer += inlineNode(child);
+          }
+          if (buffer.trim()) words.push(buffer.trim());
+          items.push(indent + marker + " " + words.join(" ") + (nested.length ? NL + nested.join(NL) : ""));
+        }
+        return items.join(NL);
+      };
+      const block = (node, depth) => {
+        if (node.nodeType === 3) return collapse(node.textContent || "").trim();
+        if (node.nodeType !== 1 || skipped(node)) return "";
+        const tag = tagOf(node);
+        if (isMath(node)) return isDisplayMath(node) ? "$$" + NL + mathSource(node) + NL + "$$" : "$" + mathSource(node) + "$";
+        if (isCodeBlock(node)) return codeBlock(node);
+        if (tag === "table") return table(node);
+        if (/^h[1-6]$/.test(tag)) return "#".repeat(Number(tag[1])) + " " + inline(node).trim();
+        if (tag === "ul" || tag === "ol") return list(node, depth);
+        if (tag === "hr") return "---";
+        if (tag === "blockquote") return blocks(node, depth).split(NL).map((line) => "> " + line).join(NL);
+        if (tag === "p") return inline(node).trim();
+        return blocks(node, depth);
+      };
+      const blocks = (node, depth) => {
+        const parts = [];
+        let buffer = "";
+        const flush = () => { if (buffer.trim()) parts.push(buffer.trim()); buffer = ""; };
+        for (const child of children(node)) {
+          if (isBlock(child)) { flush(); const b = block(child, depth); if (b) parts.push(b); continue; }
+          buffer += inlineNode(child);
+        }
+        flush();
+        return parts.join(NL + NL);
+      };
+      const markdown = blocks(root, 0).trim();
+      return markdown || root.innerText || "";
     };`;
 
 const CHATGPT_MESSAGE_NODES_JS = `${CHATGPT_RENDERED_MESSAGE_TEXT_JS}
@@ -6907,7 +6997,8 @@ export function answerExpression(): string {
         const tagged = node.closest('[data-message-model-slug]');
         if (tagged) modelSlug = tagged.getAttribute('data-message-model-slug') || undefined;
       }
-      return { role, node, text: renderedMessageText(textNode), modelSlug };
+      // User turns stay as typed: the request marker is matched against them.
+      return { role, node, text: role === "assistant" ? renderedMessageText(textNode) : textNode.innerText || "", modelSlug };
     });
     const assistantMessages = messages.filter((message) => message.role === "assistant");
     const userMessages = messages.filter((message) => message.role === "user");
