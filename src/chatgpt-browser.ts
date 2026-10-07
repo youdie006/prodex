@@ -5417,7 +5417,14 @@ export async function listChatGptModelOptions(
   input.signal?.addEventListener("abort", abandon, { once: true });
   try {
     await cdp.send("Runtime.enable");
-    const button = await cdp.evaluate<RectHit>(modelButtonRectExpression());
+    // Right after a send the composer is still rendering, and a single look
+    // failed with "the composer has no form around it" (measured 2026-10-07).
+    let button = await cdp.evaluate<RectHit>(modelButtonRectExpression());
+    const buttonDeadline = Date.now() + COMPOSER_RENDER_TIMEOUT_MS;
+    while ((!button.ok || button.x === undefined || button.y === undefined) && Date.now() < buttonDeadline && !input.signal?.aborted) {
+      await sleep(300);
+      button = await cdp.evaluate<RectHit>(modelButtonRectExpression());
+    }
     if (!button.ok || button.x === undefined || button.y === undefined) {
       throw new Error(button.reason ?? "Could not open the ChatGPT model selector");
     }

@@ -90,6 +90,8 @@ import {
   composerTextStateExpression,
   answerExpression,
   modelButtonRectExpression,
+  modelMenuOptionsExpression,
+  listChatGptModelOptions,
   menuOpenExpression,
   powerSliderPresentExpression,
   powerSliderStateExpression,
@@ -524,6 +526,31 @@ Show more`;
     void send.catch(() => undefined);
     await vi.advanceTimersByTimeAsync(60_000);
     expect(evaluations.some((expression) => expression.includes("actualText: raw.slice"))).toBe(true);
+  });
+
+  it("lists models from a composer whose selector renders a few seconds late", async () => {
+    // Measured 2026-10-07: right after a send, `pro browser models` failed with
+    // "model selector button not found: the composer has no form around it".
+    vi.useFakeTimers();
+    const root = "https://chatgpt.com/";
+    installFakeChatGptSendCdp(root, [fakeAnswerState(root, "", false)]);
+    const base = FakeCdpWebSocket.evaluate;
+    const startedAt = Date.now();
+    FakeCdpWebSocket.evaluate = (expression) => {
+      if (expression === modelButtonRectExpression()) {
+        return Date.now() - startedAt < 5_000
+          ? { ok: false, reason: "model selector button not found: the composer has no form around it" }
+          : { ok: true, x: 20, y: 20, label: "Latest" };
+      }
+      if (expression.includes("elementFromPoint")) return true;
+      if (expression === menuOpenExpression()) return true;
+      if (expression === modelMenuOptionsExpression()) return [{ label: "Latest", selected: true }];
+      return base(expression);
+    };
+    const listing = listChatGptModelOptions({ port: 19338, walkPowerSlider: false });
+    void listing.catch(() => undefined);
+    await vi.advanceTimersByTimeAsync(40_000);
+    await expect(listing).resolves.toMatchObject({ options: [{ label: "Latest" }] });
   });
 
   it("does not send when the new-chat navigation never replaces the page", async () => {
