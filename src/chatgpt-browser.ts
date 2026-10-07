@@ -4866,7 +4866,9 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
           code: "thread_navigated_away",
           message: "The browser tab was moved to a different ChatGPT conversation while this consult was waiting for its answer.",
           retryable: false,
-          next_step: `Do not resend automatically. After other sessions finish, inspect the original request [prodex-request:${requestId}] in ${pinnedThreadUrl}.`,
+          // The answer keeps coming in that thread and recovers by its request id
+          // once it finishes (verified 2026-10-07), so name the exact command.
+          next_step: `Do not resend automatically. After other sessions finish with the tab, recover this request's answer: \`prodex pro browser recover --target-url ${pinnedThreadUrl} --request-id ${requestId}\`.`,
           thread: pinnedThreadUrl
         } as NonNullable<ChatGptBrowserStatus["blocker"]>);
       }

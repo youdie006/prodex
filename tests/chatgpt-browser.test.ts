@@ -399,7 +399,11 @@ Show more`;
     ]);
 
     const send = sendChatGptPrompt({ port: 19339, prompt: "answer this", targetUrl: thread, timeoutMs: 2_000 });
-    const rejection = expect(send).rejects.toMatchObject({ blocker: { code: "thread_navigated_away", thread } });
+    // The answer is still recoverable once it finishes (verified live), so the
+    // next step names the exact command instead of only "inspect it".
+    const rejection = expect(send).rejects.toMatchObject({
+      blocker: { code: "thread_navigated_away", thread, next_step: expect.stringMatching(/prodex pro browser recover --target-url \S+ --request-id [0-9a-f]{32}/) }
+    });
     await vi.advanceTimersByTimeAsync(10_000);
 
     await rejection;
