@@ -587,6 +587,34 @@ export const CHATGPT_RENDERED_MESSAGE_TEXT_JS = `
       };
       const markdown = blocks(root, 0).trim();
       return markdown || root.innerText || "";
+    };
+    // A sent user turn renders inline code as <code>, dropping its backticks
+    // from innerText (measured 2026-10-07), and the request is matched against
+    // what was typed. Each inline code span gets its backticks back, in page order.
+    const userMessageText = (root) => {
+      let text = root.innerText || "";
+      const tick = String.fromCharCode(96);
+      let cursor = 0;
+      for (const code of [...root.querySelectorAll('code')]) {
+        if (code.closest('pre')) continue;
+        const value = code.textContent || "";
+        // A fenced block in a user turn is one <code> outside any <pre>
+        // (measured); inline code is a single line.
+        if (!value || value.includes(String.fromCharCode(10))) continue;
+        // The span's text can also occur inside a word earlier on ("x" in
+        // "exact"), so only an occurrence on word boundaries counts.
+        const wordChar = (ch) => !!ch && ((ch >= "a" && ch <= "z") || (ch >= "A" && ch <= "Z") || (ch >= "0" && ch <= "9") || ch === "_");
+        let at = text.indexOf(value, cursor);
+        while (at >= 0 && ((wordChar(value[0]) && wordChar(text[at - 1])) || (wordChar(value[value.length - 1]) && wordChar(text[at + value.length])))) {
+          at = text.indexOf(value, at + 1);
+        }
+        if (at < 0) continue;
+        if (text[at - 1] === tick && text[at + value.length] === tick) { cursor = at + value.length + 1; continue; }
+        const rendered = tick + value + tick;
+        text = text.slice(0, at) + rendered + text.slice(at + value.length);
+        cursor = at + rendered.length;
+      }
+      return text;
     };`;
 
 const CHATGPT_MESSAGE_NODES_JS = `${CHATGPT_RENDERED_MESSAGE_TEXT_JS}
@@ -4686,7 +4714,7 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
     // prompt posts the composer clears and no send button is found.
     const promptPostedExpression = `(() => {${CHATGPT_MESSAGE_NODES_JS}
       const last = chatMessageNodes().filter((message) => message.role === "user").at(-1);
-      return Boolean(last && (last.textNode.innerText || "").includes(${JSON.stringify(`[prodex-request:${requestId}]`)}));
+      return Boolean(last && userMessageText(last.textNode).includes(${JSON.stringify(`[prodex-request:${requestId}]`)}));
     })()`;
     // A dispatch can reach Chrome even if its acknowledgement is lost.
     submissionAttempted = true;
@@ -5877,7 +5905,7 @@ export function statusExpression(): string {
     ${CHATGPT_MESSAGE_NODES_JS}
     const messages = chatMessageNodes().map((message) => ({
       role: message.role,
-      text: message.textNode.innerText || ""
+      text: message.role === "assistant" ? renderedMessageText(message.textNode) : userMessageText(message.textNode)
     }));
     const assistant = messages.filter((message) => message.role === "assistant").at(-1);
     const answer = assistant?.text || "";
@@ -6372,7 +6400,11 @@ export function composerTextStateExpression(expectedText?: string, toolLabels: r
     if (!raw) return { ok: false, reason: "Composer stayed empty after text insertion" };
     const expected = ${expectedJson};
     if (expected === null) return { ok: true, actualText: raw.slice(0, 120) };
-    const norm = (s) => s.replace(/\\s+/g, " ").trim();
+    // Whitespace is left out of the comparison altogether: the editor adds line
+    // breaks of its own, around blank lines and inside an autolinked url
+    // ("[link](" then a break then "https://..."), and leftover text still
+    // differs in the characters that are not whitespace.
+    const norm = (s) => s.replace(/\\s+/g, "");
     if (norm(raw) !== norm(expected)) {
       return { ok: false, reason: "Composer text did not match the prompt after insertion (possible leftover text in the composer)", actualText: raw.slice(0, 120) };
     }
@@ -6685,6 +6717,7 @@ export function pickLandedConversation(candidates: LandedConversationCandidate[]
 export function transcriptContainsWholeSentPrompt(userText: string, sentPrompt: string): boolean {
   const normalize = (value: string): string =>
     value
+      .replace(AUTOLINKED_URL_PATTERN, "$1")
       .replace(/\\([\\`*_{}[\]()#+\-.!>~|])/g, "$1")
       .replace(/\s+/g, " ")
       .trim();
@@ -6696,8 +6729,12 @@ export function transcriptContainsWholeSentPrompt(userText: string, sentPrompt: 
 
 const NORMALIZED_PROMPT_MATCH_CHARS = 120;
 
+// The composer can autolink a url before the send, storing "[url](url)" in
+// place of the bare url (measured 2026-10-07, under load).
+const AUTOLINKED_URL_PATTERN = /\[(https?:\/\/[^\]\s]+)\]\(\1\)/g;
+
 function normalizeChatGptPromptText(value: string): string {
-  const unescaped = value.replace(/\\([\\`*_{}[\]()#+\-.!>~|])/g, "$1");
+  const unescaped = value.replace(AUTOLINKED_URL_PATTERN, "$1").replace(/\\([\\`*_{}[\]()#+\-.!>~|])/g, "$1");
   const renderedFences = unescaped.replace(
     /(^|\r?\n)```text[ \t]*\r?\n([\s\S]*?)\r?\n```(?=\r?\n|$)/g,
     "$1text\n$2"
@@ -7016,7 +7053,7 @@ export function answerExpression(): string {
         if (tagged) modelSlug = tagged.getAttribute('data-message-model-slug') || undefined;
       }
       // User turns stay as typed: the request marker is matched against them.
-      return { role, node, text: role === "assistant" ? renderedMessageText(textNode) : textNode.innerText || "", modelSlug };
+      return { role, node, text: role === "assistant" ? renderedMessageText(textNode) : userMessageText(textNode), modelSlug };
     });
     const assistantMessages = messages.filter((message) => message.role === "assistant");
     const userMessages = messages.filter((message) => message.role === "user");

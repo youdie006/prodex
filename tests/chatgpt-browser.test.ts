@@ -2253,6 +2253,16 @@ Show more`;
     );
     expect(clean.ok).toBe(true);
 
+    // Autolinking: the editor turned a pasted url into a link node, which put a
+    // line break inside "[link](https://...)" (measured 2026-10-07, about half
+    // of --file sends with a markdown link were refused before sending).
+    const linkPrompt = "see [link](https://example.com) now";
+    const autolinked = evaluateBrowserExpression<{ ok: boolean }>(
+      composerTextStateExpression(linkPrompt),
+      globals(makeDoc("see [link](\nhttps://example.com) now"))
+    );
+    expect(autolinked.ok).toBe(true);
+
     // Contaminated: a failed clear left stale text prepended - must be rejected
     // so a wrong prompt is never sent.
     const dirty = evaluateBrowserExpression<{ ok: boolean; reason?: string }>(
