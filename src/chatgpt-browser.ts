@@ -617,6 +617,34 @@ export const CHATGPT_RENDERED_MESSAGE_TEXT_JS = `
       return text;
     };`;
 
+/**
+ * Lines that say which model or effort the composer is on, for the hints a
+ * consult reports and saves.
+ *
+ * They were every line of the whole page matching /GPT|Pro|.../i, so the saved
+ * answer of every consult listed sidebar project names, conversation titles
+ * and the request marker (measured 2026-10-07: 179 saved answers in one test
+ * repo carried a project name). They now come only from the model selector
+ * and the visible composer form, matched on word boundaries.
+ */
+export const CHATGPT_MODEL_HINTS_JS = `
+    const modelHintLines = () => {
+      const sources = [];
+      const trigger = document.querySelector('button[aria-label="Select ChatGPT model"],[data-testid="model-switcher-dropdown-button"]');
+      // The trigger's text names the model; its aria-label only names the control.
+      if (trigger) sources.push(trigger.innerText || "");
+      for (const form of [...document.querySelectorAll("form")]) {
+        if (form.getClientRects().length > 0) sources.push(form.innerText || "");
+      }
+      const modelish = /\\b(?:ChatGPT|GPT(?:-[\\w.]+)?|Pro|Plus|Thinking|Instant|Extra High|High|Medium|Auto|Latest)\\b/i;
+      const seen = [];
+      for (const line of sources.join(String.fromCharCode(10)).split(String.fromCharCode(10))) {
+        const trimmed = line.trim();
+        if (trimmed && trimmed.length <= 80 && modelish.test(trimmed) && !seen.includes(trimmed)) seen.push(trimmed);
+      }
+      return seen.slice(0, 30);
+    };`;
+
 const CHATGPT_MESSAGE_NODES_JS = `${CHATGPT_RENDERED_MESSAGE_TEXT_JS}
     // ChatGPT keeps a previously opened conversation mounted but hidden
     // (measured 2026-10-06: two turns without a box on a project home), and
@@ -5871,7 +5899,7 @@ export function statusExpression(): string {
   const responseChoiceSelector = JSON.stringify(CHATGPT_RESPONSE_CHOICE_SELECTOR);
   const generatingControlPattern = JSON.stringify(CHATGPT_GENERATING_CONTROL_PATTERN.source);
   const generatingControlFlags = JSON.stringify(CHATGPT_GENERATING_CONTROL_PATTERN.flags);
-  return `(() => {
+  return `(() => {${CHATGPT_MODEL_HINTS_JS}
     ${composerExpressionHelpers()}
     const text = document.body?.innerText || "";
     const runtimeExcludedTextSelector = ${excludedTextSelector};
@@ -5924,7 +5952,7 @@ export function statusExpression(): string {
       hasComposer,
       generating: placeholder || Boolean(document.querySelector(${streamingSelector})) || visibleButtonLabels.some((label) => generatingControlPattern.test(label)),
       awaitingResponseChoice: Boolean(document.querySelector(${responseChoiceSelector})),
-      modelHints: lines.filter((line) => /GPT|Pro|Thinking|ChatGPT|Extra High|Auto/i.test(line)).slice(0, 30),
+      modelHints: modelHintLines(),
       openDialogText: (([...document.querySelectorAll('[role="dialog"]')].find((d) => d.offsetWidth || d.offsetHeight || d.getClientRects().length)?.innerText) || "").trim().slice(0, 200)
     };
   })()`;
@@ -7019,7 +7047,7 @@ export function answerExpression(): string {
   const responseChoiceSelector = JSON.stringify(CHATGPT_RESPONSE_CHOICE_SELECTOR);
   const generatingControlPattern = JSON.stringify(CHATGPT_GENERATING_CONTROL_PATTERN.source);
   const generatingControlFlags = JSON.stringify(CHATGPT_GENERATING_CONTROL_PATTERN.flags);
-  return `(() => {
+  return `(() => {${CHATGPT_MODEL_HINTS_JS}
     const text = document.body?.innerText || "";
     const excludedTextSelector = ${excludedTextSelector};
     const blockerScanExcludedSelector = ${blockerScanExcludedSelector};
@@ -7109,7 +7137,7 @@ export function answerExpression(): string {
       // ChatGPT tags each assistant message with the model that produced it -
       // the only ground truth for "did the Pro selection actually take".
       modelSlug: assistant ? assistant.modelSlug : undefined,
-      modelHints: lines.filter((line) => /GPT|Pro|Thinking|ChatGPT|Extra High|Auto/i.test(line)).slice(0, 30)
+      modelHints: modelHintLines()
     };
   })()`;
 }
