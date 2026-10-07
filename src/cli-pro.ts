@@ -3401,17 +3401,19 @@ async function listConsultRecordsNewestFirst(
 
 export async function listConsultListEntries(store: BridgeStore, options: { readOnly?: boolean } = { readOnly: true }): Promise<ConsultListEntry[]> {
   const records = await listConsultRecordsNewestFirst(store, options);
+  // One pass over the receipts for the whole list (see getFinalizedResultsReadOnly).
+  const finalized = await store.getFinalizedResultsReadOnly(records.map((record) => record.result.task_id));
   const entries: ConsultListEntry[] = [];
   for (const record of records) {
-    try {
-      entries.push({ kind: "trusted", consult: { ...record, result: await store.getFinalizedResultReadOnly(record.result.task_id) } });
-    } catch (error) {
-      if (isUntrustedResultError(error)) {
-        entries.push({ kind: "untrusted", task: record.task, result: record.result, error });
+    const outcome = finalized.get(record.result.task_id);
+    if (outcome instanceof Error || !outcome) {
+      if (isUntrustedResultError(outcome)) {
+        entries.push({ kind: "untrusted", task: record.task, result: record.result, error: outcome });
         continue;
       }
-      throw error;
+      throw outcome ?? new Error(`No finalized result was read for ${record.result.task_id}`);
     }
+    entries.push({ kind: "trusted", consult: { ...record, result: outcome as Awaited<ReturnType<BridgeStore["getFinalizedResultReadOnly"]>> } });
   }
   return entries;
 }
