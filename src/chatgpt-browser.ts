@@ -454,8 +454,10 @@ export const CHATGPT_RENDERED_MESSAGE_TEXT_JS = `
         return space ? out + " " : out;
       };
       const trimEnd = (value) => { let end = value.length; while (end > 0 && isSpaceChar(value[end - 1])) end -= 1; return value.slice(0, end); };
+      const isCheckbox = (node) => attr(node, "role") === "checkbox" || (tagOf(node) === "input" && attr(node, "type") === "checkbox");
       const skipped = (node) => {
         const tag = tagOf(node);
+        if (isCheckbox(node)) return false;
         return tag === "button" || tag === "svg" || tag === "script" || tag === "style" || tag === "img" ||
           attr(node, "hidden") !== null || attr(node, "data-markdown-copy") === "exclude";
       };
@@ -494,6 +496,8 @@ export const CHATGPT_RENDERED_MESSAGE_TEXT_JS = `
         if (node.nodeType === 3) return collapse(node.textContent || "");
         if (node.nodeType !== 1 || skipped(node)) return "";
         const tag = tagOf(node);
+        // A task list item's box (measured: button[role=checkbox][aria-checked]).
+        if (isCheckbox(node)) return (attr(node, "aria-checked") === "true" || attr(node, "checked") !== null ? "[x]" : "[ ]") + " ";
         if (isMath(node)) return isDisplayMath(node) ? "$$" + mathSource(node) + "$$" : "$" + mathSource(node) + "$";
         if (attr(node, "data-chatgpt-copy-reference") !== null) return pill(node);
         if (attr(node, "data-markdown-copy") === "inline-code" || tag === "code") return BT + (node.textContent || "") + BT;

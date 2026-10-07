@@ -52,6 +52,17 @@ describe("page-read answers as markdown", () => {
     );
   });
 
+  it("keeps a task list's checkboxes", () => {
+    // Measured 2026-10-07: a checkbox is a button[role=checkbox] with
+    // aria-checked, and leaving buttons out dropped every [x] and [ ].
+    const box = (checked: boolean) =>
+      el("div", { "data-markdown-copy": "contents" }, [el("button", { role: "checkbox", "aria-checked": String(checked) }, [])]);
+    const root = el("div", {}, [
+      el("ul", {}, [el("li", {}, [box(true), el("span", {}, ["Completed task"])]), el("li", {}, [box(false), el("span", {}, ["Pending task"])])])
+    ]);
+    expect(render(root)).toBe("- [x] Completed task\n- [ ] Pending task");
+  });
+
   it("indents a nested list and honours an ordered list's start", () => {
     const root = el("div", {}, [
       el("ol", { start: "3" }, [el("li", {}, ["Third", el("ul", {}, [el("li", {}, ["detail"])])]), el("li", {}, ["Fourth"])])

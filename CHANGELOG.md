@@ -26,7 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Tables became tab-separated lines.
   - Math came back one glyph per line, twice.
 
-  Answers are now written as markdown from the rendered page: headings, numbered (with their start) and nested lists, emphasis, links, inline code, fenced code blocks with their language, tables, blockquotes, and math from its TeX source (`$...$`, `$$...$$`). The transcript API that held the markdown stays unused. Verified live: a formatted answer, a math answer, and a web-search answer with an attachment, a code block and a table all came back as markdown; Korean answers, attachments, projects, `--continue` and images were unchanged.
+  Answers are now written as markdown from the rendered page, including task list boxes (`- [x]`, `- [ ]`): headings, numbered (with their start) and nested lists, emphasis, links, inline code, fenced code blocks with their language, tables, blockquotes, and math from its TeX source (`$...$`, `$$...$$`). The transcript API that held the markdown stays unused. Verified live: a formatted answer, a math answer, and a web-search answer with an attachment, a code block and a table all came back as markdown; Korean answers, attachments, projects, `--continue` and images were unchanged.
 
 ## 0.40.28
 
