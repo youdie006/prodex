@@ -509,9 +509,20 @@ export const CHATGPT_RENDERED_MESSAGE_TEXT_JS = `
         return inner;
       };
       const codeBlock = (node) => {
+        // CodeMirror renders only the lines in view: a 150-line block came back
+        // with 36 (measured 2026-10-07). Its editor holds the whole document.
+        const editorContent = findAll(node, (n) => hasClass(n, "cm-content"))[0];
+        let fullCode = null;
+        try {
+          const view = editorContent && ((editorContent.cmTile && editorContent.cmTile.view) || (editorContent.cmView && editorContent.cmView.view));
+          const doc = view && view.state && view.state.doc;
+          if (doc && typeof doc.toString === "function") fullCode = String(doc.toString());
+        } catch (error) {
+          fullCode = null;
+        }
         const lines = findAll(node, (n) => hasClass(n, "cm-line")).map((line) => line.textContent || "");
         const pre = tagOf(node) === "pre" ? node : findAll(node, (n) => tagOf(n) === "pre")[0];
-        const code = lines.length > 0 ? lines.join(NL) : trimEnd(pre ? pre.textContent || "" : node.textContent || "");
+        const code = fullCode !== null ? trimEnd(fullCode) : lines.length > 0 ? lines.join(NL) : trimEnd(pre ? pre.textContent || "" : node.textContent || "");
         const editor = findAll(node, (n) => attr(n, "data-language") !== null)[0];
         const toolbar = findAll(node, (n) => attr(n, "data-markdown-copy") === "exclude")[0];
         const label = toolbar ? collapse(findAll(toolbar, (n) => n.nodeType === 1 && tagOf(n) === "div" && children(n).every((c) => c.nodeType === 3)).map((n) => n.textContent || "")[0] || "").trim() : "";

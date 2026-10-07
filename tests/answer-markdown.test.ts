@@ -82,6 +82,19 @@ describe("page-read answers as markdown", () => {
     expect(render(root)).toBe("Here it is.\n\n```python\ndef add(a, b):\n    return a + b\n```\n\nCalling `add(2, 3)` returns 5.");
   });
 
+  it("reads a long code block from its editor, not just the lines on screen", () => {
+    // Measured 2026-10-07: a 150-line code block came back with 36 lines -
+    // CodeMirror renders only the lines in view - and nothing said so.
+    const full = Array.from({ length: 150 }, (_, i) => `print(${i + 1})`).join("\n");
+    const content = el("div", { class: "cm-content", "data-language": "python" }, [
+      el("div", { class: "cm-line" }, ["print(1)"]),
+      el("div", { class: "cm-line" }, ["print(2)"])
+    ]) as FakeNode & { cmTile?: unknown };
+    content.cmTile = { view: { state: { doc: { toString: () => full } } } };
+    const root = el("div", {}, [el("div", { "data-markdown-copy": "code-block" }, [content])]);
+    expect(render(root)).toBe("```python\n" + full + "\n```");
+  });
+
   it("writes a table as markdown with pipes escaped", () => {
     const row = (tag: string, cells: string[]) => el("tr", {}, cells.map((cell) => el(tag, {}, [cell])));
     const root = el("div", {}, [el("table", {}, [el("thead", {}, [row("th", ["fruit", "color"])]), el("tbody", {}, [row("td", ["apple", "red"]), row("td", ["a|b", "green"])])])]);
