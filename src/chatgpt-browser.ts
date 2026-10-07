@@ -3208,6 +3208,21 @@ const POWER_SLIDER_SWALLOWED_PRESS_RETRIES = 6;
  * Anything else (a menu that would not open, a click that would not land) is a
  * real failure and stays one, so a genuine break is not buried under a warning.
  */
+/**
+ * The models to name in a model_not_applied warning: the model rows as
+ * `pro browser models` reads them (a submenu row by its value), else whatever
+ * the menu lookup saw. The lookup's list also carries the effort slider's row,
+ * which put "Medium" among the models (measured 2026-10-07).
+ */
+export function offeredModelLabels(options: readonly ChatGptModelOption[] | undefined, fallback?: readonly string[]): string[] | undefined {
+  // A submenu row is named by its value; a radio row's second line is a note
+  // ("Leaving on October 14"), so it is named by its label.
+  const labels = (options ?? [])
+    .map((option) => (option.kind === "submenu" ? option.value || option.label : option.label))
+    .filter((label) => label.length > 0);
+  return labels.length > 0 ? [...new Set(labels)] : fallback ? [...fallback] : undefined;
+}
+
 export function modelSelectionUnavailableWarning(
   requested: string,
   reason: string,
@@ -3359,7 +3374,13 @@ async function selectPickerModel(cdp: CdpConnection, requested: string, warnings
   if (await selectPickerModelByKeyboard(cdp, [requested])) return;
   const hit = await cdp.evaluate<RectHit>(menuItemRectExpression(requested));
   if (!hit.ok || hit.x === undefined || hit.y === undefined) {
-    const unavailable = modelSelectionUnavailableWarning(requested, hit.reason ?? "", hit.available);
+    let models: ChatGptModelOption[] | undefined;
+    try {
+      models = await cdp.evaluate<ChatGptModelOption[]>(modelMenuOptionsExpression());
+    } catch (error) {
+      if (cdpCommandTimedOut(error)) throw error;
+    }
+    const unavailable = modelSelectionUnavailableWarning(requested, hit.reason ?? "", offeredModelLabels(models, hit.available));
     if (unavailable) {
       warnings.push(unavailable);
       return;
