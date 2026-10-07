@@ -2937,7 +2937,10 @@ export function browserSendBlockerFromError(error: unknown): { code: string; mes
     return {
       code: "send_timeout",
       message,
-      retryable: true,
+      // A marked request in a thread was posted: resending puts the question in
+      // a second conversation, which next_step already says not to do. The
+      // flag said the opposite (measured 2026-10-07).
+      retryable: !(thread && requestId),
       ...(thread ? { thread } : {}),
       next_step:
         thread && requestId
