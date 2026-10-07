@@ -2,7 +2,7 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { fetchTimedOut, getChatGptBrowserStatus, statusMeansBrowserDead } from "../src/chatgpt-browser.js";
+import { fetchTimedOut, getChatGptBrowserStatus, statusMeansBrowserDead, portAccepts } from "../src/chatgpt-browser.js";
 
 // The page lookup mapped every failure to "No Chrome DevTools endpoint is
 // reachable", a timeout included. A timeout is a browser that is busy - a
@@ -70,13 +70,23 @@ describe("telling a slow browser from a dead one", () => {
     // With a 10ms budget the timer fires before the refusal reports back, so
     // the fetch error says "timeout" about a port nothing listens on. The TCP
     // check underneath is what keeps that from reading as "running but busy".
-    server = createServer();
-    await new Promise<void>((resolve) => server!.listen(0, "127.0.0.1", resolve));
-    const port = (server.address() as AddressInfo).port;
-    await new Promise<void>((resolve) => server!.close(() => resolve()));
-    server = undefined;
-    const status = await getChatGptBrowserStatus({ port, timeoutMs: 10 });
-    expect(status.blocker?.code).toBe("browser_unreachable");
+    // In a full parallel run another test can take the freed ephemeral port
+    // before the probe; the probe then sees "accepted" and this failed as
+    // browser_slow (measured 2026-10-07, three times under load, never alone).
+    // A port someone else took is retried with a fresh one; the classification
+    // itself is checked only on a port that is still closed.
+    let code: string | undefined;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      server = createServer();
+      await new Promise<void>((resolve) => server!.listen(0, "127.0.0.1", resolve));
+      const port = (server.address() as AddressInfo).port;
+      await new Promise<void>((resolve) => server!.close(() => resolve()));
+      server = undefined;
+      const status = await getChatGptBrowserStatus({ port, timeoutMs: 10 });
+      code = status.blocker?.code;
+      if (code !== "browser_slow" || (await portAccepts(port)) !== "accepted") break;
+    }
+    expect(code).toBe("browser_unreachable");
   });
 
   it("only counts a refused connection as evidence of death", () => {
