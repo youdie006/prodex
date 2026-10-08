@@ -1,3 +1,4 @@
+import { readlinkSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import path from "node:path";
 
@@ -67,9 +68,40 @@ function defaultProcessListRunner(
 }
 
 /** Read process identity without passing a port, profile, or other user data to a shell. */
+function defaultNetworkNamespaceReader(pid: number | "self"): string | undefined {
+  try {
+    return readlinkSync(`/proc/${pid}/ns/net`);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Drop processes that live in another network namespace than this one.
+ *
+ * A browser container's Chromium shows up in the host's process list, runs as
+ * the same uid, and passes --remote-debugging-port=9333 too, but that port is
+ * the container's own. Counting it as ours made `pro browser reset` on the host
+ * offer to end the container's browser (measured 2026-10-08: 12 processes, all
+ * of them the container's), and a second claimant on "our" port fails a
+ * port-only search outright. A namespace that cannot be read keeps the process.
+ */
+export function inOwnNetworkNamespace(
+  processes: BrowserProcessInfo[],
+  readNetworkNamespace: (pid: number | "self") => string | undefined = defaultNetworkNamespaceReader
+): BrowserProcessInfo[] {
+  const own = readNetworkNamespace("self");
+  if (!own) return processes;
+  return processes.filter((processInfo) => {
+    const theirs = readNetworkNamespace(processInfo.processId);
+    return theirs === undefined || theirs === own;
+  });
+}
+
 export function inspectBrowserProcesses(options: {
   platform?: NodeJS.Platform;
   run?: ProcessListRunner;
+  readNetworkNamespace?: (pid: number | "self") => string | undefined;
 } = {}): BrowserProcessInfo[] {
   const platform = options.platform ?? process.platform;
   const run = options.run ?? defaultProcessListRunner;
@@ -85,7 +117,9 @@ export function inspectBrowserProcesses(options: {
   if (listed.error || listed.status !== 0 || stdout === undefined) {
     throw new BrowserProcessInspectionError("Could not inspect browser processes.");
   }
-  return platform === "win32" ? parseWindowsCimProcessJson(stdout) : parsePosixProcessList(stdout);
+  if (platform === "win32") return parseWindowsCimProcessJson(stdout);
+  const processes = parsePosixProcessList(stdout);
+  return platform === "linux" ? inOwnNetworkNamespace(processes, options.readNetworkNamespace) : processes;
 }
 
 export function parseWindowsCimProcessJson(raw: string): BrowserProcessInfo[] {

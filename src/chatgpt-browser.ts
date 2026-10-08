@@ -8,7 +8,7 @@ import WsWebSocket from "ws";
 
 import { captureBrowserDiagnostics, diagnosticsEnabled, diagnosticsNote } from "./browser-diagnostics.js";
 import { withCrossProcessFileLock, writeVerifiedUtf8File } from "./safe-file.js";
-import { findBrowserProcessesByPort, findMatchingBrowserProcesses, inspectBrowserProcesses, parsePosixProcessList } from "./browser-process.js";
+import { findBrowserProcessesByPort, findMatchingBrowserProcesses, inOwnNetworkNamespace, inspectBrowserProcesses, parsePosixProcessList } from "./browser-process.js";
 import os from "node:os";
 
 import {
@@ -5183,7 +5183,7 @@ export function resolveConversationToDelete(
  * The port cannot tell a dead browser from an absent one; the process list can.
  */
 export function findLaunchedBrowserProcesses(psOutput: string, input: { port: number; profileDir: string }): number[] {
-  return findBrowserProcessesByPort(parsePosixProcessList(psOutput), {
+  return findBrowserProcessesByPort(inOwnNetworkNamespace(parsePosixProcessList(psOutput)), {
     platform: "linux",
     port: input.port,
     fallbackProfileDir: input.profileDir
