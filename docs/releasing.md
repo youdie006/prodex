@@ -16,6 +16,42 @@ Release target: `v0.40.13` on `main`. The GitHub Release records the resolved co
 
 The release adds a guarded, opt-in transition and more accurate blocker reporting. It does not claim that headless Pro consultation is verified on either deployment target or that authentication can be retained indefinitely.
 
+## 0.40.29 Release Record
+
+Release commit `220d609` on `main` (cut after PR #19, merge `d0a7793`); tag `v0.40.29`.
+
+**Publishing**
+- `publish.yml` run 37717711177 passed all six platforms on the first attempt, then npm publish with SLSA v1 provenance (job log: `+ @youdie006/prodex@0.40.29` at 02:48:10 UTC) and the GitHub Release (2026-10-08 02:48 UTC).
+- The registry served the new version about four minutes after the publish step.
+- `npm run release:verify` passed on the release commit after a build.
+
+**What it fixes**
+- The CHANGELOG lists the full set: fixes found by a live feature hunt from 2026-10-06 to 2026-10-08.
+- Also checked against ChatGPT's new build, which changed `html[data-build]` from `8089c0e4...` to `36d7890c...`. The core selectors still held. Code blocks moved from CodeMirror to plain `<pre><code>`, a `data-markdown-copy="blank-lines"` marker appeared, and a thread keeps its tool token in the composer. All three were exercised live and are handled.
+
+**Installation on 2026-10-08**
+- Global npm, each verified with `prodex --version` = 0.40.29.
+- WSL, M3, Mac mini: installed. M3 and the Mac mini first reinstalled 0.40.28 from a stale registry view, and needed `--prefer-online`.
+- Running services were not restarted: 7 stdio MCP servers on WSL and 10 on M3 keep older code until their clients reconnect. The Mac mini had none running.
+- M4: not reachable (hostname does not resolve); not updated.
+- The browser container still runs `container/redesign-patches` `1233603` (image `sha256:ce0240c0e8a4`), and does not have this release's fixes.
+
+**Browser incidents on 2026-10-08, during the hunt**
+- **Host tab crash:** the host browser's ChatGPT tab renderer crashed. `pro browser check` reported `browser_tab_crashed`, and the next send reloaded the tab once and answered.
+- **Both browsers stopped at 00:31 UTC:** the host browser stopped entirely, and the browser container exited after its Chromium logged "GPU process exited unexpectedly: exit_code=15" three times and "GPU process isn't usable. Goodbye." The cause was not established.
+- **Recovery:** the container was restarted with `up -d --no-build browser` and found the session READY. The host profile came back logged out; the user logged in through `--headed`, and the browser was relaunched on its virtual display.
+- **Related defect found and fixed in this release:** host-side prodex counted the container's Chromium as its own browser. With the host browser down, `pro browser reset` offered to end 12 container processes. It was previewed only, and nothing was ended. Whether that path caused the 00:31 stop is not established: the host's automatic recovery matches by its recorded profile, which excludes the container.
+
+**Live check after install (installed 0.40.29, shared WSL browser, new ChatGPT build)**
+- Answered:
+  - new-chat attach
+  - project attach
+  - `--continue`
+  - markdown `--file`
+  - a formatted answer, with heading, numbered list and fenced code
+  - create-image
+- `pro list` took 2.5 s on a repo with 260 consults; it had taken 238 s before this release.
+
 ## 0.40.28 Release Record
 
 Release commit `8100c37` on `main` (cut after PR #18, merge `8afda89`); tag `v0.40.28`.
