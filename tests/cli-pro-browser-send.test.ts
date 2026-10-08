@@ -150,10 +150,13 @@ describe("pro browser ask persistence", () => {
       stderr: () => {}
     });
 
+    // In a fresh chat: measured 2026-10-08, the smoke prompt landed in the
+    // conversation that happened to be open, and the daily watchdog runs it.
     expect(sendChatGptPromptMock).toHaveBeenCalledWith({
       port: 65530,
       prompt: "This is a one-time prodex smoke test. Reply exactly: PRODEX_PRO_SMOKE_OK",
       timeoutMs: 123,
+      newChat: true,
       onProgress: expect.any(Function)
     });
     expect(JSON.parse(out.join("\n"))).toEqual(
@@ -623,6 +626,7 @@ describe("pro browser ask persistence", () => {
       port: 65534,
       prompt: "This is a one-time prodex smoke test. Reply exactly: PRODEX_PRO_SMOKE_OK",
       timeoutMs: 10,
+      newChat: true,
       onProgress: expect.any(Function)
     });
     await expect(readdir(path.join(launcherCwd, ".bridge"))).rejects.toThrow();

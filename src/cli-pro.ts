@@ -150,7 +150,9 @@ export async function runChatgptCommand(rest: string[], io: CliIO): Promise<numb
       const targetStore = new BridgeStore(targetCwd);
       const sourceCli = resolveOptionalFileFlag(io.cwd, chatgptArgs, "--source-cli");
       const port = resolveCdpPort(readPortFlag(chatgptArgs, "--port"));
-      const timeoutMs = readPositiveIntegerFlag(chatgptArgs, "--timeout-ms") ?? 90000;
+      // 5 minutes: the smoke runs on whatever effort the picker holds, and on a
+      // high one the 90 s it had timed out (six watchdog reports on issue #4).
+      const timeoutMs = readPositiveIntegerFlag(chatgptArgs, "--timeout-ms") ?? 300000;
       const commandOptions = {
         ...(readFlag(chatgptArgs, "--cwd") ? { cwd: targetCwd } : {}),
         ...(readFlag(chatgptArgs, "--port") ? { port } : {})
@@ -204,6 +206,10 @@ export async function runChatgptCommand(rest: string[], io: CliIO): Promise<numb
             port,
             prompt: smokePrompt,
             timeoutMs,
+            // A fresh chat: without it the smoke prompt landed in whatever
+            // conversation was open (measured 2026-10-08), which the daily
+            // watchdog would do to someone's thread.
+            newChat: true,
             onProgress: createBrowserSendProgressPrinter(io.stderr)
           })
         );
@@ -3962,3 +3968,4 @@ export function orphanConsultResultError(taskId: string): Error {
 export function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
+

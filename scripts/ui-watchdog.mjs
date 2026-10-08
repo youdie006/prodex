@@ -12,14 +12,35 @@
 // a picker that looked right and could not be driven.
 
 import { execFile } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
 const run = promisify(execFile);
 const cli = process.env.PRODEX_CLI ?? "prodex";
 const cwd = process.env.PRODEX_WATCHDOG_CWD ?? process.cwd();
 const shouldFile = process.argv.includes("--file-issue");
+// --canary: run the read-only page canary first and do the round trip only
+// when the page changed or broke, so the check can run hourly without sending
+// a prompt every hour.
+const canaryFirst = process.argv.includes("--canary");
+const canaryScript = fileURLToPath(new URL("./page-canary.mjs", import.meta.url));
 
 async function main() {
+  if (canaryFirst) {
+    let exitCode = 0;
+    let summary = "";
+    try {
+      const { stdout } = await run(process.execPath, [canaryScript], { timeout: 2 * 60_000 });
+      summary = stdout.trim().split(/\r?\n/).join(" | ");
+    } catch (error) {
+      exitCode = typeof error?.code === "number" ? error.code : 1;
+      summary = typeof error?.stdout === "string" ? error.stdout.trim().split(/\r?\n/).join(" | ") : firstLine(error);
+    }
+    console.log(`ui_watchdog_canary exit=${exitCode} ${summary}`);
+    // 0 is ok or skipped; 3 changed and 2 broken go on to the round trip,
+    // which decides whether prodex still works on this page.
+    if (exitCode === 0) return 0;
+  }
   const started = Date.now();
   try {
     await run(cli, ["pro", "browser", "smoke", "--cwd", cwd], { timeout: 15 * 60_000, maxBuffer: 20 * 1024 * 1024 });
@@ -27,6 +48,12 @@ async function main() {
     return 0;
   } catch (error) {
     const detail = firstLine(error);
+    // Another session holding the browser is not a broken UI; it filed
+    // issue #20 as one. Try again next run.
+    if (/Another prodex browser send is in progress/.test(detail)) {
+      console.log(`ui_watchdog=skipped detail=${detail}`);
+      return 0;
+    }
     console.log(`ui_watchdog=broken detail=${detail}`);
     if (!shouldFile) {
       console.log("Nothing was filed. Pass --file-issue to open (or add to) an issue about it.");
