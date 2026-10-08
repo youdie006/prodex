@@ -16,6 +16,29 @@ Release target: `v0.40.13` on `main`. The GitHub Release records the resolved co
 
 The release adds a guarded, opt-in transition and more accurate blocker reporting. It does not claim that headless Pro consultation is verified on either deployment target or that authentication can be retained indefinitely.
 
+## 0.40.30 Release Record
+
+Release commit `e566efc` on `main` (cut after PR #22, merge `c0964f2`, plus the docs commit `09e80bc`); tag `v0.40.30`.
+
+**Publishing**
+- `publish.yml` run 37798469373 passed all six platforms on the first attempt, then npm publish with SLSA v1 provenance and the GitHub Release (2026-10-08 15:32 UTC).
+- `npm run release:verify` passed on the release commit after a build.
+
+**What it fixes**
+- `pro browser smoke` always uses a fresh chat instead of whatever conversation was open.
+- Its default budget is 5 minutes instead of 90 s.
+- The page canary and the watchdog changes from the same PR are maintainer tooling and are not in the package. See Maintainer Watchdog.
+
+**Installation on 2026-10-09**
+- Global npm with `--prefer-online`, each verified with `prodex --version` = 0.40.30.
+- WSL, M3, Mac mini: installed. Running services were not restarted: 21 stdio MCP servers on WSL and 10 on M3 keep older code until their clients reconnect. The Mac mini had none running.
+- M4: not reachable (hostname does not resolve); not updated.
+
+**Live check after install (installed 0.40.30, shared WSL browser)**
+- With the tab on an existing conversation, `pro browser smoke` answered `PRODEX_PRO_SMOKE_OK` in a new conversation, not the open one.
+- A new-chat attachment answered.
+- The hourly watchdog had already logged `canary: ok` runs for build `4c511f80`.
+
 ## Maintainer Watchdog
 
 On the maintainer's WSL machine, cron runs the UI watchdog every hour (since 2026-10-08):
