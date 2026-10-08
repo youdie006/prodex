@@ -4,7 +4,7 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 0.40.30
 
 ### Fixed
 - `pro browser smoke` sent its test prompt into whatever conversation was open in the browser. Measured: it landed in an existing thread. It now always uses a fresh chat.
