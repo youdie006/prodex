@@ -8,7 +8,7 @@ import WsWebSocket from "ws";
 
 import { captureBrowserDiagnostics, diagnosticsEnabled, diagnosticsNote } from "./browser-diagnostics.js";
 import { withCrossProcessFileLock, writeVerifiedUtf8File } from "./safe-file.js";
-import { findBrowserProcessesByPort, findMatchingBrowserProcesses, inspectBrowserProcesses, parsePosixProcessList } from "./browser-process.js";
+import { findBrowserProcessesByPort, findMatchingBrowserProcesses, inOwnNetworkNamespace, inspectBrowserProcesses, parsePosixProcessList } from "./browser-process.js";
 import os from "node:os";
 
 import {
@@ -411,37 +411,242 @@ export const CHATGPT_BLOCKER_SCAN_EXCLUDED_ANCESTORS =
  * attribute went with it; where it is absent the model is simply not known.
  */
 /**
- * A message's text with its source pills spelled out.
+ * An assistant message as markdown, read from its rendered DOM.
  *
- * Measured 2026-10-06: ChatGPT renders each source as an inline pill
- * ([data-chatgpt-copy-reference]) and innerText puts its label on a line of
- * its own, so a page-read answer came back as "walnut-9" plus a line
- * "cont-att", or ended in a bare "blog.rust-lang.org" that read as part of
- * the answer. A web source becomes " [label](url)", as the transcript reader
- * writes it; a file source has no link and becomes " [label]". The label is
- * looked for on its own line first, so the same words earlier in the prose
- * are left alone.
+ * innerText drops what markdown carries. Measured 2026-10-06/07: headings lost
+ * their #, numbered lists their numbers, bullets their markers, links their
+ * urls, code blocks their fences (gaining the toolbar's "Python"/"Run"),
+ * tables their structure, KaTeX math came back one glyph per line and twice,
+ * and source pills became loose lines. The transcript API that held the
+ * markdown is not used (internal endpoints were removed on purpose), so the
+ * rendered tree is walked instead: block elements become markdown blocks,
+ * ChatGPT's own copy markers ([data-markdown-copy]) identify code blocks,
+ * inline code and the toolbar to leave out, math is written from
+ * [data-math-source], and a source pill becomes " [label](url)" or
+ * " [label]". When nothing could be read, the page text is returned as is.
  */
 export const CHATGPT_RENDERED_MESSAGE_TEXT_JS = `
     const renderedMessageText = (root) => {
+      const NL = String.fromCharCode(10);
+      const BT = String.fromCharCode(96);
+      const isSpaceChar = (ch) => ch === " " || ch === NL || ch === String.fromCharCode(9) || ch === String.fromCharCode(13);
+      const tagOf = (node) => (node.tagName || "").toLowerCase();
+      const attr = (node, name) => (node.getAttribute ? node.getAttribute(name) : null);
+      const hasClass = (node, name) => (" " + (attr(node, "class") || "") + " ").includes(" " + name + " ");
+      const children = (node) => [...(node.childNodes || [])];
+      const findAll = (node, test, out = []) => {
+        for (const child of children(node)) {
+          if (child.nodeType !== 1) continue;
+          if (test(child)) out.push(child);
+          findAll(child, test, out);
+        }
+        return out;
+      };
+      const collapse = (value) => {
+        let out = "";
+        let space = false;
+        for (const ch of value) {
+          if (isSpaceChar(ch)) { space = true; continue; }
+          if (space) out += " ";
+          space = false;
+          out += ch;
+        }
+        return space ? out + " " : out;
+      };
+      const trimEnd = (value) => { let end = value.length; while (end > 0 && isSpaceChar(value[end - 1])) end -= 1; return value.slice(0, end); };
+      const isCheckbox = (node) => attr(node, "role") === "checkbox" || (tagOf(node) === "input" && attr(node, "type") === "checkbox");
+      const skipped = (node) => {
+        const tag = tagOf(node);
+        if (isCheckbox(node)) return false;
+        return tag === "button" || tag === "svg" || tag === "script" || tag === "style" || tag === "img" ||
+          attr(node, "hidden") !== null || attr(node, "data-markdown-copy") === "exclude";
+      };
+      const isMath = (node) => attr(node, "data-math-source") !== null || hasClass(node, "katex") || hasClass(node, "katex-display");
+      const mathSource = (node) => {
+        const source = attr(node, "data-math-source");
+        if (source !== null) return source;
+        const annotation = findAll(node, (n) => tagOf(n) === "annotation")[0];
+        return annotation ? annotation.textContent || "" : node.textContent || "";
+      };
+      // Inline math carries data-math-display="false" (measured), so the value counts, not its presence.
+      const isDisplayMath = (node) => attr(node, "data-math-display") === "true" || hasClass(node, "katex-display");
+      const isCodeBlock = (node) => attr(node, "data-markdown-copy") === "code-block" || tagOf(node) === "pre";
+      const BLOCK_TAGS = ["p", "div", "section", "article", "figure", "ul", "ol", "li", "table", "blockquote", "pre", "hr", "h1", "h2", "h3", "h4", "h5", "h6"];
+      const isBlock = (node) => node.nodeType === 1 && !skipped(node) &&
+        (BLOCK_TAGS.includes(tagOf(node)) || isCodeBlock(node) || (isMath(node) && isDisplayMath(node)) ||
+          (tagOf(node) === "span" && findAll(node, (n) => BLOCK_TAGS.includes(tagOf(n))).length > 0));
+      const pill = (node) => {
+        const label = collapse(node.textContent || "").trim();
+        if (!label) return "";
+        const link = findAll(node, (n) => tagOf(n) === "a" && (attr(n, "href") || "").startsWith("http"))[0];
+        return link ? "[" + label + "](" + attr(link, "href") + ")" : "[" + label + "]";
+      };
+      const inline = (node) => {
+        let out = "";
+        for (const child of children(node)) {
+          const piece = inlineNode(child);
+          if (!piece) continue;
+          // A source pill sits right after its sentence; keep one space before it.
+          if (child.nodeType === 1 && attr(child, "data-chatgpt-copy-reference") !== null && out && !isSpaceChar(out[out.length - 1])) out += " ";
+          out += piece;
+        }
+        return out;
+      };
+      const inlineNode = (node) => {
+        if (node.nodeType === 3) return collapse(node.textContent || "");
+        if (node.nodeType !== 1 || skipped(node)) return "";
+        const tag = tagOf(node);
+        // A task list item's box (measured: button[role=checkbox][aria-checked]).
+        if (isCheckbox(node)) return (attr(node, "aria-checked") === "true" || attr(node, "checked") !== null ? "[x]" : "[ ]") + " ";
+        if (isMath(node)) return isDisplayMath(node) ? "$$" + mathSource(node) + "$$" : "$" + mathSource(node) + "$";
+        if (attr(node, "data-chatgpt-copy-reference") !== null) return pill(node);
+        if (attr(node, "data-markdown-copy") === "inline-code" || tag === "code") return BT + (node.textContent || "") + BT;
+        if (tag === "br") return NL;
+        const inner = inline(node);
+        if (tag === "strong" || tag === "b") return inner.trim() ? "**" + inner.trim() + "**" : "";
+        if (tag === "em" || tag === "i") return inner.trim() ? "*" + inner.trim() + "*" : "";
+        if (tag === "del" || tag === "s") return inner.trim() ? "~~" + inner.trim() + "~~" : "";
+        if (tag === "a") {
+          const href = attr(node, "href") || "";
+          return href.startsWith("http") && inner.trim() ? "[" + inner.trim() + "](" + href + ")" : inner;
+        }
+        return inner;
+      };
+      const codeBlock = (node) => {
+        // CodeMirror renders only the lines in view: a 150-line block came back
+        // with 36 (measured 2026-10-07). Its editor holds the whole document.
+        const editorContent = findAll(node, (n) => hasClass(n, "cm-content"))[0];
+        let fullCode = null;
+        try {
+          const view = editorContent && ((editorContent.cmTile && editorContent.cmTile.view) || (editorContent.cmView && editorContent.cmView.view));
+          const doc = view && view.state && view.state.doc;
+          if (doc && typeof doc.toString === "function") fullCode = String(doc.toString());
+        } catch (error) {
+          fullCode = null;
+        }
+        const lines = findAll(node, (n) => hasClass(n, "cm-line")).map((line) => line.textContent || "");
+        const pre = tagOf(node) === "pre" ? node : findAll(node, (n) => tagOf(n) === "pre")[0];
+        const code = fullCode !== null ? trimEnd(fullCode) : lines.length > 0 ? lines.join(NL) : trimEnd(pre ? pre.textContent || "" : node.textContent || "");
+        const editor = findAll(node, (n) => attr(n, "data-language") !== null)[0];
+        const toolbar = findAll(node, (n) => attr(n, "data-markdown-copy") === "exclude")[0];
+        const label = toolbar ? collapse(findAll(toolbar, (n) => n.nodeType === 1 && tagOf(n) === "div" && children(n).every((c) => c.nodeType === 3)).map((n) => n.textContent || "")[0] || "").trim() : "";
+        const language = ((editor && attr(editor, "data-language")) || label).trim().toLowerCase();
+        return BT + BT + BT + language + NL + code + NL + BT + BT + BT;
+      };
+      const table = (node) => {
+        const cell = (value) => collapse(value).trim().split("|").join(String.fromCharCode(92) + "|");
+        const rows = findAll(node, (n) => tagOf(n) === "tr").map((row) => children(row).filter((c) => c.nodeType === 1).map((c) => cell(inline(c))));
+        if (rows.length === 0) return "";
+        const line = (cells) => "| " + cells.join(" | ") + " |";
+        return [line(rows[0]), line(rows[0].map(() => "---")), ...rows.slice(1).map(line)].join(NL);
+      };
+      const list = (node, depth) => {
+        const ordered = tagOf(node) === "ol";
+        let number = parseInt(attr(node, "start") || "1", 10);
+        if (!Number.isFinite(number)) number = 1;
+        const indent = "   ".repeat(depth);
+        const items = [];
+        for (const item of children(node)) {
+          if (item.nodeType !== 1 || tagOf(item) !== "li") continue;
+          const marker = ordered ? number + "." : "-";
+          number += 1;
+          const words = [];
+          const nested = [];
+          let buffer = "";
+          for (const child of children(item)) {
+            const tag = child.nodeType === 1 ? tagOf(child) : "";
+            if (tag === "ul" || tag === "ol") { nested.push(list(child, depth + 1)); continue; }
+            if (isBlock(child)) { if (buffer.trim()) words.push(buffer.trim()); buffer = ""; const b = block(child, depth + 1); if (b) words.push(b); continue; }
+            buffer += inlineNode(child);
+          }
+          if (buffer.trim()) words.push(buffer.trim());
+          items.push(indent + marker + " " + words.join(" ") + (nested.length ? NL + nested.join(NL) : ""));
+        }
+        return items.join(NL);
+      };
+      const block = (node, depth) => {
+        if (node.nodeType === 3) return collapse(node.textContent || "").trim();
+        if (node.nodeType !== 1 || skipped(node)) return "";
+        const tag = tagOf(node);
+        if (isMath(node)) return isDisplayMath(node) ? "$$" + NL + mathSource(node) + NL + "$$" : "$" + mathSource(node) + "$";
+        if (isCodeBlock(node)) return codeBlock(node);
+        if (tag === "table") return table(node);
+        if (/^h[1-6]$/.test(tag)) return "#".repeat(Number(tag[1])) + " " + inline(node).trim();
+        if (tag === "ul" || tag === "ol") return list(node, depth);
+        if (tag === "hr") return "---";
+        if (tag === "blockquote") return blocks(node, depth).split(NL).map((line) => "> " + line).join(NL);
+        if (tag === "p") return inline(node).trim();
+        return blocks(node, depth);
+      };
+      const blocks = (node, depth) => {
+        const parts = [];
+        let buffer = "";
+        const flush = () => { if (buffer.trim()) parts.push(buffer.trim()); buffer = ""; };
+        for (const child of children(node)) {
+          if (isBlock(child)) { flush(); const b = block(child, depth); if (b) parts.push(b); continue; }
+          buffer += inlineNode(child);
+        }
+        flush();
+        return parts.join(NL + NL);
+      };
+      const markdown = blocks(root, 0).trim();
+      return markdown || root.innerText || "";
+    };
+    // A sent user turn renders inline code as <code>, dropping its backticks
+    // from innerText (measured 2026-10-07), and the request is matched against
+    // what was typed. Each inline code span gets its backticks back, in page order.
+    const userMessageText = (root) => {
       let text = root.innerText || "";
-      const newline = String.fromCharCode(10);
-      const isSpace = (ch) => ch === " " || ch === newline || ch === String.fromCharCode(9) || ch === String.fromCharCode(13);
+      const tick = String.fromCharCode(96);
       let cursor = 0;
-      for (const pill of [...root.querySelectorAll('[data-chatgpt-copy-reference]')]) {
-        const label = (pill.innerText || "").trim();
-        if (!label) continue;
-        const onOwnLine = text.indexOf(newline + label, cursor);
-        const at = onOwnLine >= 0 ? onOwnLine + 1 : text.indexOf(label, cursor);
+      for (const code of [...root.querySelectorAll('code')]) {
+        if (code.closest('pre')) continue;
+        const value = code.textContent || "";
+        // A fenced block in a user turn is one <code> outside any <pre>
+        // (measured); inline code is a single line.
+        if (!value || value.includes(String.fromCharCode(10))) continue;
+        // The span's text can also occur inside a word earlier on ("x" in
+        // "exact"), so only an occurrence on word boundaries counts.
+        const wordChar = (ch) => !!ch && ((ch >= "a" && ch <= "z") || (ch >= "A" && ch <= "Z") || (ch >= "0" && ch <= "9") || ch === "_");
+        let at = text.indexOf(value, cursor);
+        while (at >= 0 && ((wordChar(value[0]) && wordChar(text[at - 1])) || (wordChar(value[value.length - 1]) && wordChar(text[at + value.length])))) {
+          at = text.indexOf(value, at + 1);
+        }
         if (at < 0) continue;
-        let start = at;
-        while (start > cursor && isSpace(text[start - 1])) start -= 1;
-        const link = pill.querySelector('a[href^="http"]');
-        const rendered = link ? " [" + label + "](" + link.getAttribute("href") + ")" : " [" + label + "]";
-        text = text.slice(0, start) + rendered + text.slice(at + label.length);
-        cursor = start + rendered.length;
+        if (text[at - 1] === tick && text[at + value.length] === tick) { cursor = at + value.length + 1; continue; }
+        const rendered = tick + value + tick;
+        text = text.slice(0, at) + rendered + text.slice(at + value.length);
+        cursor = at + rendered.length;
       }
       return text;
+    };`;
+
+/**
+ * Lines that say which model or effort the composer is on, for the hints a
+ * consult reports and saves.
+ *
+ * They were every line of the whole page matching /GPT|Pro|.../i, so the saved
+ * answer of every consult listed sidebar project names, conversation titles
+ * and the request marker (measured 2026-10-07: 179 saved answers in one test
+ * repo carried a project name). They now come only from the model selector
+ * and the visible composer form, matched on word boundaries.
+ */
+export const CHATGPT_MODEL_HINTS_JS = `
+    const modelHintLines = () => {
+      const sources = [];
+      const trigger = document.querySelector('button[aria-label="Select ChatGPT model"],[data-testid="model-switcher-dropdown-button"]');
+      // The trigger's text names the model; its aria-label only names the control.
+      if (trigger) sources.push(trigger.innerText || "");
+      for (const form of [...document.querySelectorAll("form")]) {
+        if (form.getClientRects().length > 0) sources.push(form.innerText || "");
+      }
+      const modelish = /\\b(?:ChatGPT|GPT(?:-[\\w.]+)?|Pro|Plus|Thinking|Instant|Extra High|High|Medium|Auto|Latest)\\b/i;
+      const seen = [];
+      for (const line of sources.join(String.fromCharCode(10)).split(String.fromCharCode(10))) {
+        const trimmed = line.trim();
+        if (trimmed && trimmed.length <= 80 && modelish.test(trimmed) && !seen.includes(trimmed)) seen.push(trimmed);
+      }
+      return seen.slice(0, 30);
     };`;
 
 const CHATGPT_MESSAGE_NODES_JS = `${CHATGPT_RENDERED_MESSAGE_TEXT_JS}
@@ -2156,7 +2361,9 @@ async function openChatGptThread(cdp: CdpConnection, url: string): Promise<void>
   // A same-thread follow-up must not discard a ready composer and start a new load.
   if (await cdp.evaluate<boolean>(chatGptThreadReadyExpression(conversationId))) return;
   await cdp.evaluate(`location.assign(${JSON.stringify(url)})`);
-  const deadline = Date.now() + RELOAD_SETTLE_TIMEOUT_MS;
+  // A thread with many turns took 13.9 s to finish loading (2026-10-06), and
+  // readiness waits for a loaded document, so the reload ceiling was too short.
+  const deadline = Date.now() + COMPOSER_RENDER_TIMEOUT_MS;
   while (Date.now() < deadline) {
     await sleep(250);
     try {
@@ -3001,6 +3208,21 @@ const POWER_SLIDER_SWALLOWED_PRESS_RETRIES = 6;
  * Anything else (a menu that would not open, a click that would not land) is a
  * real failure and stays one, so a genuine break is not buried under a warning.
  */
+/**
+ * The models to name in a model_not_applied warning: the model rows as
+ * `pro browser models` reads them (a submenu row by its value), else whatever
+ * the menu lookup saw. The lookup's list also carries the effort slider's row,
+ * which put "Medium" among the models (measured 2026-10-07).
+ */
+export function offeredModelLabels(options: readonly ChatGptModelOption[] | undefined, fallback?: readonly string[]): string[] | undefined {
+  // A submenu row is named by its value; a radio row's second line is a note
+  // ("Leaving on October 14"), so it is named by its label.
+  const labels = (options ?? [])
+    .map((option) => (option.kind === "submenu" ? option.value || option.label : option.label))
+    .filter((label) => label.length > 0);
+  return labels.length > 0 ? [...new Set(labels)] : fallback ? [...fallback] : undefined;
+}
+
 export function modelSelectionUnavailableWarning(
   requested: string,
   reason: string,
@@ -3152,7 +3374,13 @@ async function selectPickerModel(cdp: CdpConnection, requested: string, warnings
   if (await selectPickerModelByKeyboard(cdp, [requested])) return;
   const hit = await cdp.evaluate<RectHit>(menuItemRectExpression(requested));
   if (!hit.ok || hit.x === undefined || hit.y === undefined) {
-    const unavailable = modelSelectionUnavailableWarning(requested, hit.reason ?? "", hit.available);
+    let models: ChatGptModelOption[] | undefined;
+    try {
+      models = await cdp.evaluate<ChatGptModelOption[]>(modelMenuOptionsExpression());
+    } catch (error) {
+      if (cdpCommandTimedOut(error)) throw error;
+    }
+    const unavailable = modelSelectionUnavailableWarning(requested, hit.reason ?? "", offeredModelLabels(models, hit.available));
     if (unavailable) {
       warnings.push(unavailable);
       return;
@@ -4539,7 +4767,7 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
     // prompt posts the composer clears and no send button is found.
     const promptPostedExpression = `(() => {${CHATGPT_MESSAGE_NODES_JS}
       const last = chatMessageNodes().filter((message) => message.role === "user").at(-1);
-      return Boolean(last && (last.textNode.innerText || "").includes(${JSON.stringify(`[prodex-request:${requestId}]`)}));
+      return Boolean(last && userMessageText(last.textNode).includes(${JSON.stringify(`[prodex-request:${requestId}]`)}));
     })()`;
     // A dispatch can reach Chrome even if its acknowledgement is lost.
     submissionAttempted = true;
@@ -4659,7 +4887,9 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
           code: "thread_navigated_away",
           message: "The browser tab was moved to a different ChatGPT conversation while this consult was waiting for its answer.",
           retryable: false,
-          next_step: `Do not resend automatically. After other sessions finish, inspect the original request [prodex-request:${requestId}] in ${pinnedThreadUrl}.`,
+          // The answer keeps coming in that thread and recovers by its request id
+          // once it finishes (verified 2026-10-07), so name the exact command.
+          next_step: `Do not resend automatically. After other sessions finish with the tab, recover this request's answer: \`prodex pro browser recover --target-url ${pinnedThreadUrl} --request-id ${requestId}\`.`,
           thread: pinnedThreadUrl
         } as NonNullable<ChatGptBrowserStatus["blocker"]>);
       }
@@ -4953,7 +5183,7 @@ export function resolveConversationToDelete(
  * The port cannot tell a dead browser from an absent one; the process list can.
  */
 export function findLaunchedBrowserProcesses(psOutput: string, input: { port: number; profileDir: string }): number[] {
-  return findBrowserProcessesByPort(parsePosixProcessList(psOutput), {
+  return findBrowserProcessesByPort(inOwnNetworkNamespace(parsePosixProcessList(psOutput)), {
     platform: "linux",
     port: input.port,
     fallbackProfileDir: input.profileDir
@@ -5270,7 +5500,14 @@ export async function listChatGptModelOptions(
   input.signal?.addEventListener("abort", abandon, { once: true });
   try {
     await cdp.send("Runtime.enable");
-    const button = await cdp.evaluate<RectHit>(modelButtonRectExpression());
+    // Right after a send the composer is still rendering, and a single look
+    // failed with "the composer has no form around it" (measured 2026-10-07).
+    let button = await cdp.evaluate<RectHit>(modelButtonRectExpression());
+    const buttonDeadline = Date.now() + COMPOSER_RENDER_TIMEOUT_MS;
+    while ((!button.ok || button.x === undefined || button.y === undefined) && Date.now() < buttonDeadline && !input.signal?.aborted) {
+      await sleep(300);
+      button = await cdp.evaluate<RectHit>(modelButtonRectExpression());
+    }
     if (!button.ok || button.x === undefined || button.y === undefined) {
       throw new Error(button.reason ?? "Could not open the ChatGPT model selector");
     }
@@ -5689,7 +5926,7 @@ export function statusExpression(): string {
   const responseChoiceSelector = JSON.stringify(CHATGPT_RESPONSE_CHOICE_SELECTOR);
   const generatingControlPattern = JSON.stringify(CHATGPT_GENERATING_CONTROL_PATTERN.source);
   const generatingControlFlags = JSON.stringify(CHATGPT_GENERATING_CONTROL_PATTERN.flags);
-  return `(() => {
+  return `(() => {${CHATGPT_MODEL_HINTS_JS}
     ${composerExpressionHelpers()}
     const text = document.body?.innerText || "";
     const runtimeExcludedTextSelector = ${excludedTextSelector};
@@ -5723,7 +5960,7 @@ export function statusExpression(): string {
     ${CHATGPT_MESSAGE_NODES_JS}
     const messages = chatMessageNodes().map((message) => ({
       role: message.role,
-      text: message.textNode.innerText || ""
+      text: message.role === "assistant" ? renderedMessageText(message.textNode) : userMessageText(message.textNode)
     }));
     const assistant = messages.filter((message) => message.role === "assistant").at(-1);
     const answer = assistant?.text || "";
@@ -5742,7 +5979,7 @@ export function statusExpression(): string {
       hasComposer,
       generating: placeholder || Boolean(document.querySelector(${streamingSelector})) || visibleButtonLabels.some((label) => generatingControlPattern.test(label)),
       awaitingResponseChoice: Boolean(document.querySelector(${responseChoiceSelector})),
-      modelHints: lines.filter((line) => /GPT|Pro|Thinking|ChatGPT|Extra High|Auto/i.test(line)).slice(0, 30),
+      modelHints: modelHintLines(),
       openDialogText: (([...document.querySelectorAll('[role="dialog"]')].find((d) => d.offsetWidth || d.offsetHeight || d.getClientRects().length)?.innerText) || "").trim().slice(0, 200)
     };
   })()`;
@@ -5837,6 +6074,7 @@ export function composerFileInputSelector(): string {
 
 
 const COMPOSER_TOOLS_MENU_ATTEMPTS = 3;
+const LEFTOVER_ATTACHMENT_REMOVE_ATTEMPTS = 5;
 
 export const PRODEX_ATTACH_INPUT_ATTRIBUTE = "data-prodex-attach-input";
 
@@ -5935,6 +6173,23 @@ export function attachmentPresenceExpression(): string {
   })()`;
 }
 
+/**
+ * Where to click to remove one leftover attachment chip: the first rendered
+ * "Remove <file name>" button in a composer form, or { ok: false }.
+ */
+export function leftoverAttachmentRemovePointExpression(): string {
+  return `(() => {
+    const button = [...document.querySelectorAll('form button[aria-label]')].find((b) => {
+      const label = b.getAttribute("aria-label") || "";
+      if (!(/remove file|파일 제거|첨부 제거/i.test(label) || /^remove\\s+\\S.*\\.[A-Za-z0-9]{1,8}$/i.test(label))) return false;
+      return b.getClientRects().length > 0;
+    });
+    if (!button) return { ok: false };
+    const r = button.getBoundingClientRect();
+    return { ok: true, x: r.x + r.width / 2, y: r.y + r.height / 2 };
+  })()`;
+}
+
 export interface AttachmentUploadResult {
   attached: string[];
 }
@@ -5984,12 +6239,32 @@ export async function attachFilesToComposer(
     }
   };
   let marked = await waitForComposerFileInput();
-  const stale = await cdp.evaluate<{ removed?: number }>(attachmentPresenceExpression());
-  if ((stale?.removed ?? 0) > 0) {
-    // A fixed sleep and a composer check could both pass on the document being
-    // left (a reload takes 5-8 s here), and the file then went into a page that
-    // was replaced under it. The marked reload waits for the new document.
-    await reloadAndAwaitComposer(cdp, 20_000);
+  const leftoverCount = async (): Promise<number> =>
+    (await cdp.evaluate<{ removed?: number }>(attachmentPresenceExpression()))?.removed ?? 0;
+  if (await leftoverCount() > 0) {
+    // A leftover chip now survives a reload (measured 2026-10-06), and a send
+    // went out carrying it next to the file it was asked for. Its own remove
+    // button works and later attaches still work, so it is clicked first; the
+    // marked reload stays as a fallback, and a chip that survives both stops
+    // the send rather than riding along.
+    for (let attempt = 0; attempt < LEFTOVER_ATTACHMENT_REMOVE_ATTEMPTS; attempt += 1) {
+      const point = await cdp.evaluate<RectHit>(leftoverAttachmentRemovePointExpression());
+      if (!point?.ok || point.x === undefined || point.y === undefined) break;
+      await dispatchMouseClickAt(cdp, point.x, point.y);
+      await sleep(1_000);
+    }
+    if (await leftoverCount() > 0) {
+      await reloadAndAwaitComposer(cdp, 20_000);
+      await waitForComposerFileInput();
+    }
+    if (await leftoverCount() > 0) {
+      throw new ChatGptBrowserBlockerError({
+        code: "leftover_attachment",
+        message: "The ChatGPT composer still holds an attachment from an earlier send, and it could not be removed. Nothing was sent.",
+        retryable: false,
+        next_step: "Remove the attachment from the composer in the dedicated browser, then retry."
+      });
+    }
     marked = await waitForComposerFileInput();
   }
   const document = await cdp.send("DOM.getDocument", { depth: -1, pierce: true });
@@ -6180,7 +6455,11 @@ export function composerTextStateExpression(expectedText?: string, toolLabels: r
     if (!raw) return { ok: false, reason: "Composer stayed empty after text insertion" };
     const expected = ${expectedJson};
     if (expected === null) return { ok: true, actualText: raw.slice(0, 120) };
-    const norm = (s) => s.replace(/\\s+/g, " ").trim();
+    // Whitespace is left out of the comparison altogether: the editor adds line
+    // breaks of its own, around blank lines and inside an autolinked url
+    // ("[link](" then a break then "https://..."), and leftover text still
+    // differs in the characters that are not whitespace.
+    const norm = (s) => s.replace(/\\s+/g, "");
     if (norm(raw) !== norm(expected)) {
       return { ok: false, reason: "Composer text did not match the prompt after insertion (possible leftover text in the composer)", actualText: raw.slice(0, 120) };
     }
@@ -6493,6 +6772,7 @@ export function pickLandedConversation(candidates: LandedConversationCandidate[]
 export function transcriptContainsWholeSentPrompt(userText: string, sentPrompt: string): boolean {
   const normalize = (value: string): string =>
     value
+      .replace(AUTOLINKED_URL_PATTERN, "$1")
       .replace(/\\([\\`*_{}[\]()#+\-.!>~|])/g, "$1")
       .replace(/\s+/g, " ")
       .trim();
@@ -6504,8 +6784,12 @@ export function transcriptContainsWholeSentPrompt(userText: string, sentPrompt: 
 
 const NORMALIZED_PROMPT_MATCH_CHARS = 120;
 
+// The composer can autolink a url before the send, storing "[url](url)" in
+// place of the bare url (measured 2026-10-07, under load).
+const AUTOLINKED_URL_PATTERN = /\[(https?:\/\/[^\]\s]+)\]\(\1\)/g;
+
 function normalizeChatGptPromptText(value: string): string {
-  const unescaped = value.replace(/\\([\\`*_{}[\]()#+\-.!>~|])/g, "$1");
+  const unescaped = value.replace(AUTOLINKED_URL_PATTERN, "$1").replace(/\\([\\`*_{}[\]()#+\-.!>~|])/g, "$1");
   const renderedFences = unescaped.replace(
     /(^|\r?\n)```text[ \t]*\r?\n([\s\S]*?)\r?\n```(?=\r?\n|$)/g,
     "$1text\n$2"
@@ -6790,7 +7074,7 @@ export function answerExpression(): string {
   const responseChoiceSelector = JSON.stringify(CHATGPT_RESPONSE_CHOICE_SELECTOR);
   const generatingControlPattern = JSON.stringify(CHATGPT_GENERATING_CONTROL_PATTERN.source);
   const generatingControlFlags = JSON.stringify(CHATGPT_GENERATING_CONTROL_PATTERN.flags);
-  return `(() => {
+  return `(() => {${CHATGPT_MODEL_HINTS_JS}
     const text = document.body?.innerText || "";
     const excludedTextSelector = ${excludedTextSelector};
     const blockerScanExcludedSelector = ${blockerScanExcludedSelector};
@@ -6823,7 +7107,8 @@ export function answerExpression(): string {
         const tagged = node.closest('[data-message-model-slug]');
         if (tagged) modelSlug = tagged.getAttribute('data-message-model-slug') || undefined;
       }
-      return { role, node, text: renderedMessageText(textNode), modelSlug };
+      // User turns stay as typed: the request marker is matched against them.
+      return { role, node, text: role === "assistant" ? renderedMessageText(textNode) : userMessageText(textNode), modelSlug };
     });
     const assistantMessages = messages.filter((message) => message.role === "assistant");
     const userMessages = messages.filter((message) => message.role === "user");
@@ -6879,7 +7164,7 @@ export function answerExpression(): string {
       // ChatGPT tags each assistant message with the model that produced it -
       // the only ground truth for "did the Pro selection actually take".
       modelSlug: assistant ? assistant.modelSlug : undefined,
-      modelHints: lines.filter((line) => /GPT|Pro|Thinking|ChatGPT|Extra High|Auto/i.test(line)).slice(0, 30)
+      modelHints: modelHintLines()
     };
   })()`;
 }

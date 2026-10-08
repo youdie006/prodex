@@ -2937,7 +2937,10 @@ export function browserSendBlockerFromError(error: unknown): { code: string; mes
     return {
       code: "send_timeout",
       message,
-      retryable: true,
+      // A marked request in a thread was posted: resending puts the question in
+      // a second conversation, which next_step already says not to do. The
+      // flag said the opposite (measured 2026-10-07).
+      retryable: !(thread && requestId),
       ...(thread ? { thread } : {}),
       next_step:
         thread && requestId
@@ -3232,8 +3235,11 @@ export function formatProAnswer(consult: ConsultRecord, sourceCli?: string, opti
 
 export function formatProConsultArtifact(consult: Awaited<ReturnType<typeof sendChatGptPrompt>>): string {
   const lines = [`# ChatGPT Pro Consult`, "", `Thread: ${consult.url}`, `Title: ${consult.title}`, ""];
-  if (consult.modelHints.length > 0) {
-    lines.push("Model hints:", ...consult.modelHints.map((hint) => `- ${hint}`), "");
+  // Filtered again on the way to disk: a saved answer must not carry page text
+  // such as sidebar project names or the request marker.
+  const savedHints = consult.modelHints.filter((hint) => MODEL_HINT_PATTERN.test(hint) && hint.length <= 80 && !hint.includes("prodex-request:"));
+  if (savedHints.length > 0) {
+    lines.push("Model hints:", ...savedHints.map((hint) => `- ${hint}`), "");
   }
   if (consult.warnings.length > 0) {
     lines.push("Warnings:", ...consult.warnings.map((warning) => `- ${warning}`), "");
@@ -3395,17 +3401,19 @@ async function listConsultRecordsNewestFirst(
 
 export async function listConsultListEntries(store: BridgeStore, options: { readOnly?: boolean } = { readOnly: true }): Promise<ConsultListEntry[]> {
   const records = await listConsultRecordsNewestFirst(store, options);
+  // One pass over the receipts for the whole list (see getFinalizedResultsReadOnly).
+  const finalized = await store.getFinalizedResultsReadOnly(records.map((record) => record.result.task_id));
   const entries: ConsultListEntry[] = [];
   for (const record of records) {
-    try {
-      entries.push({ kind: "trusted", consult: { ...record, result: await store.getFinalizedResultReadOnly(record.result.task_id) } });
-    } catch (error) {
-      if (isUntrustedResultError(error)) {
-        entries.push({ kind: "untrusted", task: record.task, result: record.result, error });
+    const outcome = finalized.get(record.result.task_id);
+    if (outcome instanceof Error || !outcome) {
+      if (isUntrustedResultError(outcome)) {
+        entries.push({ kind: "untrusted", task: record.task, result: record.result, error: outcome });
         continue;
       }
-      throw error;
+      throw outcome ?? new Error(`No finalized result was read for ${record.result.task_id}`);
     }
+    entries.push({ kind: "trusted", consult: { ...record, result: outcome as Awaited<ReturnType<BridgeStore["getFinalizedResultReadOnly"]>> } });
   }
   return entries;
 }
@@ -3841,9 +3849,10 @@ export function formatBrowserEarlyExit(exit: Awaited<ReturnType<ChatGptBrowserLa
   return exit.error ?? `exit code ${exit.code ?? "null"}${exit.signal ? ` signal ${exit.signal}` : ""}`;
 }
 
+const MODEL_HINT_PATTERN = /\b(?:ChatGPT|GPT(?:-[\w.]+)?|Pro|Plus|Team|Enterprise|Thinking|Instant|Extra High|High|Medium|Auto|Latest)\b/i;
+
 export function formatBrowserModelHints(modelHints: string[]): string | undefined {
-  const modelish = /\b(?:ChatGPT|GPT(?:-[\w.]+)?|Pro|Plus|Team|Enterprise|Thinking|Extra High|Auto)\b/i;
-  const hints = [...new Set(modelHints.map((hint) => hint.trim()).filter((hint) => modelish.test(hint)))]
+  const hints = [...new Set(modelHints.map((hint) => hint.trim()).filter((hint) => MODEL_HINT_PATTERN.test(hint)))]
     .map((hint) => (hint.length > 80 ? `${hint.slice(0, 77)}...` : hint))
     .slice(0, 6);
   return hints.length > 0 ? hints.join(" | ") : undefined;

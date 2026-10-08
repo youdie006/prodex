@@ -447,6 +447,39 @@ export class BridgeStore {
     return result;
   }
 
+  /**
+   * getFinalizedResultReadOnly for many tasks, reading the receipts once.
+   *
+   * Each single call reads every receipt to find its task's completion
+   * receipt, so listing N consults read the receipt directory N times: 238 s
+   * for 260 consults and 969 receipts (measured 2026-10-07). The checks are
+   * the same; a task that fails them maps to its error instead of a result.
+   */
+  async getFinalizedResultsReadOnly(taskIds: readonly string[]): Promise<Map<string, Result | unknown>> {
+    const ready = await this.hasReadyStorageDirReadOnly("receipts");
+    const byTask = new Map<string, Receipt[]>();
+    if (ready) {
+      for (const receipt of await this.readAll("receipts", parseReceiptRecord, { cleanupTempHardLinks: false })) {
+        if (receipt.kind !== "task_completed" || !receipt.task_id) continue;
+        const list = byTask.get(receipt.task_id) ?? [];
+        list.push(receipt);
+        byTask.set(receipt.task_id, list);
+      }
+    }
+    const results = new Map<string, Result | unknown>();
+    for (const taskId of taskIds) {
+      try {
+        const result = await this.getResultReadOnly(taskId);
+        if (!ready) throw untrustedResultError(this.root, taskId, "has no trusted task_completed receipt");
+        await this.assertReceiptsTrustCompletion(taskId, result, byTask.get(taskId) ?? []);
+        results.set(taskId, result);
+      } catch (error) {
+        results.set(taskId, error);
+      }
+    }
+    return results;
+  }
+
   async resealResult(taskId: string): Promise<ResealResultOutput> {
     const task = await this.getTask(taskId);
     if (task.status !== "done" && task.status !== "blocked") {

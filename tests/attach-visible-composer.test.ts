@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { attachFilesToComposer, markComposerFileInputExpression, PRODEX_ATTACH_INPUT_ATTRIBUTE } from "../src/chatgpt-browser.js";
+import {
+  attachFilesToComposer,
+  leftoverAttachmentRemovePointExpression,
+  markComposerFileInputExpression,
+  PRODEX_ATTACH_INPUT_ATTRIBUTE
+} from "../src/chatgpt-browser.js";
 
 // A project home keeps a hidden copy of an earlier page mounted, with its own
 // complete composer form ahead of the visible one (measured 2026-10-06). A
@@ -71,6 +76,69 @@ describe("attaching while the composer is still hydrating", () => {
       await expect(attaching).resolves.toEqual({ attached: ["probe.txt"] });
       expect(markPolls).toBe(3);
       expect(queried[0]).toBe(`[${PRODEX_ATTACH_INPUT_ATTRIBUTE}]`);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("clearing an attachment a failed send left in the composer", () => {
+  // Measured 2026-10-06: a leftover chip survives a reload now, and a send
+  // with --attach went out carrying it ("stale-chip(1).txt" plus the file
+  // asked for). Its remove button works and later attaches still work.
+  function fakeComposer(options: { removable: boolean }) {
+    let chips = 1;
+    let reloads = 0;
+    let removeClicks = 0;
+    const queried: string[] = [];
+    const cdp = {
+      send: async (method: string, params: { selector?: string; type?: string; x?: number } = {}) => {
+        if (method === "DOM.getDocument") return { result: { root: { nodeId: 1 } } };
+        if (method === "DOM.querySelector") {
+          queried.push(params.selector ?? "");
+          return { result: { nodeId: params.selector?.includes(PRODEX_ATTACH_INPUT_ATTRIBUTE) ? 7 : 0 } };
+        }
+        if (method === "Page.reload") reloads += 1;
+        if (method === "Input.dispatchMouseEvent" && params.type === "mousePressed" && params.x === 33) {
+          removeClicks += 1;
+          if (options.removable) chips = 0;
+        }
+        return { result: {} };
+      },
+      evaluate: async (expression: string) => {
+        if (expression.includes(PRODEX_ATTACH_INPUT_ATTRIBUTE) && expression.includes("setAttribute")) return true;
+        if (expression === leftoverAttachmentRemovePointExpression()) return chips > 0 ? { ok: true, x: 33, y: 44 } : { ok: false };
+        if (expression.includes("removed:")) return { ok: true, removed: chips };
+        if (expression.includes("__prodexReloadMark")) return true;
+        return { ok: true, present: ["probe.txt"], uploading: false };
+      }
+    };
+    return { cdp, stats: () => ({ chips, reloads, removeClicks, queried }) };
+  }
+
+  it("removes the leftover chip with its own button before attaching", async () => {
+    vi.useFakeTimers();
+    try {
+      const { cdp, stats } = fakeComposer({ removable: true });
+      const attaching = attachFilesToComposer(cdp as never, ["/tmp/probe.txt"], { timeoutMs: 5_000 });
+      await vi.advanceTimersByTimeAsync(60_000);
+      await expect(attaching).resolves.toEqual({ attached: ["probe.txt"] });
+      expect(stats().removeClicks).toBe(1);
+      expect(stats().chips).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("refuses to attach when the leftover chip cannot be cleared", async () => {
+    vi.useFakeTimers();
+    try {
+      const { cdp, stats } = fakeComposer({ removable: false });
+      const attaching = attachFilesToComposer(cdp as never, ["/tmp/probe.txt"], { timeoutMs: 5_000 });
+      const rejection = expect(attaching).rejects.toMatchObject({ blocker: { code: "leftover_attachment" } });
+      await vi.advanceTimersByTimeAsync(120_000);
+      await rejection;
+      expect(stats().queried).toEqual([]);
     } finally {
       vi.useRealTimers();
     }

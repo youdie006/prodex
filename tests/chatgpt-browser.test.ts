@@ -90,6 +90,8 @@ import {
   composerTextStateExpression,
   answerExpression,
   modelButtonRectExpression,
+  modelMenuOptionsExpression,
+  listChatGptModelOptions,
   menuOpenExpression,
   powerSliderPresentExpression,
   powerSliderStateExpression,
@@ -310,6 +312,30 @@ Show more`;
     expect(evaluations.filter((expression) => expression.includes("location.assign("))).toHaveLength(1);
   });
 
+  it("waits for a long thread that takes 14 s to finish loading", async () => {
+    // Measured 2026-10-06: a thread with many turns became ready at 13.9 s,
+    // past the 12 s wait, and --continue was refused as thread_not_ready.
+    vi.useFakeTimers();
+    const thread = "https://chatgpt.com/c/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+    installFakeChatGptSendCdp(thread, [
+      fakeAnswerState(thread, "previous answer", false),
+      { ...fakeAnswerState(thread, "continued answer", false), userMessageCount: 2, assistantMessageCount: 2 }
+    ]);
+    const base = FakeCdpWebSocket.evaluate;
+    let navigatedAt: number | undefined;
+    FakeCdpWebSocket.evaluate = (expression) => {
+      if (expression === chatGptThreadReadyExpression(conversationIdFromThreadUrl(thread)!)) {
+        return navigatedAt !== undefined && Date.now() - navigatedAt >= 14_000;
+      }
+      if (expression.includes("location.assign(")) navigatedAt = Date.now();
+      return base(expression);
+    };
+    const send = sendChatGptPrompt({ port: 19338, prompt: "continue this", targetUrl: thread, navigateToTargetUrl: true, timeoutMs: 10_000 });
+    void send.catch(() => undefined);
+    await vi.advanceTimersByTimeAsync(40_000);
+    await expect(send).resolves.toMatchObject({ answer: "continued answer", requestVerified: true });
+  });
+
   it.each([
     { blocked: false, code: "thread_not_ready" },
     { blocked: true, code: "cloudflare_check" }
@@ -373,7 +399,11 @@ Show more`;
     ]);
 
     const send = sendChatGptPrompt({ port: 19339, prompt: "answer this", targetUrl: thread, timeoutMs: 2_000 });
-    const rejection = expect(send).rejects.toMatchObject({ blocker: { code: "thread_navigated_away", thread } });
+    // The answer is still recoverable once it finishes (verified live), so the
+    // next step names the exact command instead of only "inspect it".
+    const rejection = expect(send).rejects.toMatchObject({
+      blocker: { code: "thread_navigated_away", thread, next_step: expect.stringMatching(/prodex pro browser recover --target-url \S+ --request-id [0-9a-f]{32}/) }
+    });
     await vi.advanceTimersByTimeAsync(10_000);
 
     await rejection;
@@ -500,6 +530,31 @@ Show more`;
     void send.catch(() => undefined);
     await vi.advanceTimersByTimeAsync(60_000);
     expect(evaluations.some((expression) => expression.includes("actualText: raw.slice"))).toBe(true);
+  });
+
+  it("lists models from a composer whose selector renders a few seconds late", async () => {
+    // Measured 2026-10-07: right after a send, `pro browser models` failed with
+    // "model selector button not found: the composer has no form around it".
+    vi.useFakeTimers();
+    const root = "https://chatgpt.com/";
+    installFakeChatGptSendCdp(root, [fakeAnswerState(root, "", false)]);
+    const base = FakeCdpWebSocket.evaluate;
+    const startedAt = Date.now();
+    FakeCdpWebSocket.evaluate = (expression) => {
+      if (expression === modelButtonRectExpression()) {
+        return Date.now() - startedAt < 5_000
+          ? { ok: false, reason: "model selector button not found: the composer has no form around it" }
+          : { ok: true, x: 20, y: 20, label: "Latest" };
+      }
+      if (expression.includes("elementFromPoint")) return true;
+      if (expression === menuOpenExpression()) return true;
+      if (expression === modelMenuOptionsExpression()) return [{ label: "Latest", selected: true }];
+      return base(expression);
+    };
+    const listing = listChatGptModelOptions({ port: 19338, walkPowerSlider: false });
+    void listing.catch(() => undefined);
+    await vi.advanceTimersByTimeAsync(40_000);
+    await expect(listing).resolves.toMatchObject({ options: [{ label: "Latest" }] });
   });
 
   it("does not send when the new-chat navigation never replaces the page", async () => {
@@ -2201,6 +2256,16 @@ Show more`;
       globals(makeDoc("Review this repo\n\nfor security holes"))
     );
     expect(clean.ok).toBe(true);
+
+    // Autolinking: the editor turned a pasted url into a link node, which put a
+    // line break inside "[link](https://...)" (measured 2026-10-07, about half
+    // of --file sends with a markdown link were refused before sending).
+    const linkPrompt = "see [link](https://example.com) now";
+    const autolinked = evaluateBrowserExpression<{ ok: boolean }>(
+      composerTextStateExpression(linkPrompt),
+      globals(makeDoc("see [link](\nhttps://example.com) now"))
+    );
+    expect(autolinked.ok).toBe(true);
 
     // Contaminated: a failed clear left stale text prepended - must be rejected
     // so a wrong prompt is never sent.

@@ -4,6 +4,35 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Fixed
+- A send with `--attach` could carry an attachment left in the composer by an earlier send. Measured: a message went out with `stale-chip(1).txt` next to the file asked for, and ChatGPT answered from both. prodex cleared leftovers by reloading the page, but ChatGPT now keeps a draft attachment across a reload. Leftovers are now removed with their own remove buttons; the reload remains a fallback. A send whose leftover cannot be removed stops with `leftover_attachment`, and nothing is sent. Verified live: with a leftover chip in the composer, only the requested file went out.
+- `--continue` into a long conversation was refused with "ChatGPT did not finish opening the conversation to continue" before anything was sent. A thread with many turns took 13.9 s to finish loading, past a 12 s wait. Opening a thread may now take up to 30 s.
+- On a Linux host that also runs the browser container, host-side prodex could take the container's Chromium for its own browser. The container's processes appear in the host's process list, run as the same user, and also pass `--remote-debugging-port=9333`, but that port is the container's own. With the host browser down, `pro browser reset` offered to end 12 processes, all of them the container's; with `--confirm` it would have stopped the container browser. A port-only search could also fail outright once both browsers were up. On Linux, prodex now ignores browser processes in another network namespace. Verified live: the same preview now says there is nothing to reset, and the container kept running.
+- `prodex pro list` took 238 seconds in a repo with 260 consults and 969 receipts. Every consult re-read the whole receipt directory to find its own completion receipt. The list now reads the receipts once for all consults and applies the same checks: 4 seconds, with output identical entry for entry to the old command's.
+- The `model_not_applied` warning for a model the picker does not offer listed the effort slider's row as a model ("It offers: Medium, Latest, ..."). Once fixed, it would have shown a model row's note ("Leaving on October 14") in place of the model's name. It now lists the model rows the way `pro browser models` reads them.
+- `prodex setup` told users to print the server URL with `prodex status --show-token --url-only`, but setup's default token never expires, and that command refuses a non-expiring token. Following the printed advice always failed. For a non-expiring token, setup now names the command that works (`--unsafe-show-non-expiring-token`, local only), or says to rerun setup with `--token-ttl-hours`.
+- When the tab was moved to another conversation while a consult waited, prodex correctly stopped (`thread_navigated_away`), but only said to "inspect" the thread. The answer keeps coming in that thread and can be recovered by its request id. The next step now gives the exact `prodex pro browser recover --target-url ... --request-id ...` command. Verified live: the tab was moved mid-answer, and the named command returned the whole answer.
+- A send that posted and then ran out of time was recorded as `send_timeout` with `retryable: true`, while its own next step said "Do not resend automatically". An MCP client or agent that trusts the flag would ask the same question again in a second conversation. A timeout whose request landed in a thread is now `retryable: false`; the recover command it names still applies. Verified live: a 25 s Pro send timed out with the recover command, and that command later returned the whole 634-word answer.
+- Every saved answer listed page text as "Model hints": sidebar project names, conversation titles, menu labels and the request marker. In one test repo, 179 saved answers carried a project name. The hints were every line on the whole page that loosely matched GPT/Pro/Auto. They now come only from the model selector and the visible composer, matched on word boundaries, and are filtered again before an answer is saved. Verified live: a project send and a Pro send saved only `Pro`.
+- Prompts with inline code, or with a markdown link, could be sent and then have their answer thrown away as "The visible user turn does not match this prodex request". Two causes:
+  - ChatGPT shows inline code in the sent turn without its backticks, so a prompt containing ``$HOME `x` `` read back as `$HOME x`. Every prompt with inline code was refused.
+  - The composer sometimes autolinked a url before sending, storing `[link]\([https://example.com](https://example.com))` for `[link](https://example.com)`. This was measured on --file sends under load, two in six.
+
+  The sent turn is now read back with its inline code backticked, and the comparison undoes an autolinked url. It stays exact otherwise.
+- --file sends with a markdown link were refused before sending, about half the time, with "Composer text did not match the prompt after insertion". The composer had put a line break inside the autolinked url. The pre-send check now ignores whitespace altogether; leftover text still differs in other characters.
+- `pro browser models` run right after a send failed with "model selector button not found: the composer has no form around it". It looked for the model selector once, while the composer was still rendering. It now waits for the selector, up to 30 s. Verified live: the listing worked right after a send, twice.
+- A long code block in an answer came back cut short, with nothing to say so. Measured: a 150-line block returned 36 lines, because ChatGPT's code editor (CodeMirror) only renders the lines in view. The code is now read from the editor's own document, with the rendered lines as a fallback. Verified live: all 150 lines came back.
+- Answers lost their markdown. prodex read the page's visible text, which drops it:
+  - Headings lost their `#`, numbered lists their numbers, and bullets their markers.
+  - Bold, italics and inline code went plain, and links lost their URLs.
+  - A fenced code block came back as its toolbar text ("Python", "Run") followed by the bare code.
+  - Tables became tab-separated lines.
+  - Math came back one glyph per line, twice.
+
+  Answers are now written as markdown from the rendered page, including task list boxes (`- [x]`, `- [ ]`): headings, numbered (with their start) and nested lists, emphasis, links, inline code, fenced code blocks with their language, tables, blockquotes, and math from its TeX source (`$...$`, `$$...$$`). The transcript API that held the markdown stays unused. Verified live: a formatted answer, a math answer, and a web-search answer with an attachment, a code block and a table all came back as markdown; Korean answers, attachments, projects, `--continue` and images were unchanged.
+
 ## 0.40.28
 
 ### Fixed
