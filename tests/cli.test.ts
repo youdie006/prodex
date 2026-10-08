@@ -105,7 +105,7 @@ describe("runCli", () => {
       {
         args: ["pro", "browser", "chek"],
         expected:
-          "Unknown pro browser subcommand: chek. Did you mean `prodex pro browser check`? Expected one of: login, ask, smoke, check, models, projects, project-delete, chats, chat-delete, reset, recover. Run `prodex pro browser --help`."
+          "Unknown pro browser subcommand: chek. Did you mean `prodex pro browser check`? Expected one of: login, ask, smoke, check, canary, models, projects, project-delete, chats, chat-delete, reset, recover. Run `prodex pro browser --help`."
       },
       {
         args: ["tasks", "wat"],
@@ -2424,7 +2424,7 @@ describe("runCli", () => {
       "prodex pro browser check [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 1500]"
     );
     expect(text).toContain(
-      "prodex pro browser smoke [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 90000]"
+      "prodex pro browser smoke [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 300000]"
     );
     expect(text).toContain(
       'prodex pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--session-key id] [--port 9333] [--timeout-ms 300000] [--busy-wait-ms 600000] [--target-url url --confirm-target] [--new-chat] [--continue | --continue-task task_id] [--temporary] [--allow-model-fallback] [--stdin] [--json] [--auto-login|--no-auto-login] [--file path] [--attach path] [--tool deep-research|web-search|create-image] [--model Pro] [--pro-mode 기본|확장] [--effort 즉시|중간|높음|"매우 높음"|Max|Ultra|Pro] [--project "name" | --project-new "name"] "prompt"  # explicit visible-browser send'
@@ -4405,7 +4405,7 @@ describe("runCli", () => {
         stderr: () => {}
       })
     ).rejects.toThrow(
-      "Unknown pro browser subcommand: verify. Expected one of: login, ask, smoke, check, models, projects, project-delete, chats, chat-delete, reset, recover. Run `prodex pro browser --help`."
+      "Unknown pro browser subcommand: verify. Expected one of: login, ask, smoke, check, canary, models, projects, project-delete, chats, chat-delete, reset, recover. Run `prodex pro browser --help`."
     );
   });
 
