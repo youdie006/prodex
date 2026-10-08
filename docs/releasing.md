@@ -16,6 +16,36 @@ Release target: `v0.40.13` on `main`. The GitHub Release records the resolved co
 
 The release adds a guarded, opt-in transition and more accurate blocker reporting. It does not claim that headless Pro consultation is verified on either deployment target or that authentication can be retained indefinitely.
 
+## Maintainer Watchdog
+
+On the maintainer's WSL machine, cron runs the UI watchdog every hour (since 2026-10-08):
+
+```
+17 * * * * PATH=<node bin>:/usr/bin:/bin PRODEX_CLI=~/.local/share/prodex-maint/prodex PRODEX_WATCHDOG_CWD=/mnt/d/MyProject/gptprouse <node> ~/.local/share/prodex-maint/repo/scripts/ui-watchdog.mjs --canary --file-issue >> ~/.local/state/prodex-watchdog.log 2>&1
+```
+
+**What each run does**
+- It runs `scripts/page-canary.mjs`, which only reads the page:
+  - It records ChatGPT's build id and whether each control prodex relies on is present.
+  - It compares with `~/.local/share/prodex/page-canary.json`.
+  - It skips while a consult holds the send lock.
+- Only when the canary reports changed (3) or broken (2) does the watchdog run `pro browser smoke` (a fresh chat, 5-minute budget). If that fails, it files or extends a GitHub issue by blocker code.
+- A busy browser is logged as skipped and never filed.
+
+**Where it runs from**
+- `~/.local/share/prodex-maint/repo` is a clone of `main`, built with `npm ci && npm run build`.
+- `~/.local/share/prodex-maint/prodex` runs its `dist/cli.js`, so the round trip uses current `main` rather than whatever version is installed.
+
+**Updating it**
+- After merging watchdog or smoke changes, run `git -C ~/.local/share/prodex-maint/repo pull --ff-only && (cd ~/.local/share/prodex-maint/repo && npm ci && npm run build)`.
+
+**What it replaced**
+- A daily 09:23 round trip run from the main checkout:
+  - It sent its prompt into whatever conversation was open.
+  - It timed out at 90 s on high efforts (issue #4).
+  - It filed a busy browser as broken (issue #20, closed as a false positive).
+- The crontab before the change is saved at `~/.local/state/prodex-maint/crontab.backup-20261008`.
+
 ## 0.40.29 Release Record
 
 Release commit `220d609` on `main` (cut after PR #19, merge `d0a7793`); tag `v0.40.29`.
