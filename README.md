@@ -253,7 +253,6 @@ prodex pro report-issue              # a GitHub issue drafted from the blocked c
 prodex pro report-issue --confirm    # files it through gh; the prompt and the answer never travel
 PRODEX_BROWSER_DIAGNOSTICS=1 prodex ask "..."   # leaves a screenshot and a page-shape snapshot in .bridge/diagnostics/
 node scripts/ui-watchdog.mjs         # a real round trip that says ok or broken; --file-issue reports it
-prodex pro browser canary            # read-only: did ChatGPT's page change under prodex? exit 0 ok/skipped, 3 changed, 2 broken
 node scripts/ui-watchdog.mjs --canary  # canary first, round trip only when the page changed; cheap enough to run hourly
 ```
 

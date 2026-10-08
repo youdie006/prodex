@@ -6,14 +6,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
-### Added
-- `prodex pro browser canary`: a read-only check of the ChatGPT page that is already open. It records the page's build id and whether the controls prodex relies on are there (composer, model selector, tools button, file input, sidebar project rows and their controls, and the turns of a conversation), and compares with the previous run. It never navigates, types or sends; it skips while a consult holds the browser. It writes counts and booleans only, never prompts, answers, titles or project names, to `~/.local/share/prodex/page-canary.json`. Exit codes for a scheduler: 0 ok or skipped, 3 changed, 2 broken. On 2026-10-08 ChatGPT shipped two builds within hours; the second (4c511f80) still passed every check.
-- `scripts/ui-watchdog.mjs --canary` runs the canary first and does the round trip only when the page changed or broke, so the watchdog can run hourly without sending a prompt every hour.
-
 ### Fixed
-- `pro browser smoke`, which the daily watchdog runs, sent its test prompt into whatever conversation was open in the browser. Measured: it landed in an existing thread. It now always uses a fresh chat.
-- The smoke's 90-second budget timed out when the picker sat on a high effort; issue #4 collected six such reports. The default is now 5 minutes. The smoke does not change the user's effort setting.
-- The watchdog reported another session holding the browser as a broken UI and filed issue #20 for it. It now logs that as skipped.
+- `pro browser smoke` sent its test prompt into whatever conversation was open in the browser. Measured: it landed in an existing thread. It now always uses a fresh chat.
+- Its 90-second budget timed out when the picker sat on a high effort. The default is now 5 minutes, and the smoke does not change the effort setting.
 
 ## 0.40.29
 

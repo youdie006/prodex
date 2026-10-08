@@ -12,6 +12,7 @@
 // a picker that looked right and could not be driven.
 
 import { execFile } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
 const run = promisify(execFile);
@@ -22,13 +23,14 @@ const shouldFile = process.argv.includes("--file-issue");
 // when the page changed or broke, so the check can run hourly without sending
 // a prompt every hour.
 const canaryFirst = process.argv.includes("--canary");
+const canaryScript = fileURLToPath(new URL("./page-canary.mjs", import.meta.url));
 
 async function main() {
   if (canaryFirst) {
     let exitCode = 0;
     let summary = "";
     try {
-      const { stdout } = await run(cli, ["pro", "browser", "canary"], { timeout: 2 * 60_000 });
+      const { stdout } = await run(process.execPath, [canaryScript], { timeout: 2 * 60_000 });
       summary = stdout.trim().split(/\r?\n/).join(" | ");
     } catch (error) {
       exitCode = typeof error?.code === "number" ? error.code : 1;

@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import { judgePageCanary, PAGE_CANARY_EXPRESSION, type PageCanaryFacts } from "../src/page-canary.js";
+import { judgePageCanary, PAGE_CANARY_EXPRESSION } from "../scripts/page-canary.mjs";
+
+type PageCanaryFacts = Parameters<typeof judgePageCanary>[0];
 
 // The shape measured on ChatGPT build 36d7890c on 2026-10-08, on a
 // conversation page with nine sidebar projects.

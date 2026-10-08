@@ -26,7 +26,6 @@ Ask / consult commands:
   prodex pro browser check [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 1500]
   prodex pro browser smoke [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 300000]
   prodex pro browser models [--source-cli /absolute/path/to/dist/cli.js] [--port 9333] [--timeout-ms 15000]  # read-only list of model menu options
-  prodex pro browser canary [--port 9333] [--timeout-ms 10000] [--state-file path] [--json]  # read-only check that the ChatGPT page still has what prodex relies on; exit 0 ok/skipped, 3 changed, 2 broken
   prodex pro browser projects [--source-cli /absolute/path/to/dist/cli.js] [--port 9333] [--timeout-ms 15000]  # read-only list of sidebar project names (for --project)
   prodex pro browser recover [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] --target-url <thread-url> [--request-id 32hex] [--timeout-ms 60000]  # recover a finished answer from a timed-out request
   prodex pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--session-key id] [--port 9333] [--timeout-ms 300000] [--busy-wait-ms 600000] [--target-url url --confirm-target] [--new-chat] [--continue | --continue-task task_id] [--temporary] [--allow-model-fallback] [--stdin] [--json] [--auto-login|--no-auto-login] [--file path] [--attach path] [--tool deep-research|web-search|create-image] [--model Pro] [--pro-mode 기본|확장] [--effort 즉시|중간|높음|"매우 높음"|Max|Ultra|Pro] [--project "name" | --project-new "name"] "prompt"  # explicit visible-browser send
@@ -173,7 +172,6 @@ Commands:
   prodex pro browser check [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]
   prodex pro browser smoke [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]
   prodex pro browser models [--source-cli /absolute/path/to/dist/cli.js]
-  prodex pro browser canary [--port 9333] [--state-file path] [--json]
   prodex pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--session-key id] [--target-url url --confirm-target] [--new-chat] [--continue | --continue-task task_id] [--temporary] [--allow-model-fallback] [--stdin] [--json] [--auto-login|--no-auto-login] [--file path] [--attach path] [--tool deep-research|web-search|create-image] [--model Pro] [--pro-mode 기본|확장] [--effort 즉시|중간|높음|"매우 높음"|Max|Ultra|Pro] [--project "name" | --project-new "name"] "prompt"
   prodex pro latest [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--json]
   prodex pro blockers [--cwd /absolute/path/to/repo] [--since 7d] [--limit 10] [--json]  # what actually blocks consults, ranked, across every bridge root on this machine

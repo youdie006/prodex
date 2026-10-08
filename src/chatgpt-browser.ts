@@ -5615,21 +5615,6 @@ export function statusMeansBrowserDead(status: { reachable: boolean; blocker?: {
   return !status.reachable && status.blocker?.code === "browser_unreachable";
 }
 
-/**
- * Evaluate one read-only expression on the ChatGPT tab, for checks that only
- * look (the page canary). Throws the page's blocker when there is no usable tab.
- */
-export async function evaluateOnChatGptPage<T>(expression: string, options: { port?: number; timeoutMs?: number } = {}): Promise<T> {
-  const port = resolveCdpPort(options.port);
-  const found = await findChatGptPage(port, options.timeoutMs ?? 5_000);
-  if (!found.ok || !found.page) {
-    throw new ChatGptBrowserBlockerError(
-      found.blocker ?? { code: "chatgpt_page_missing", message: "No ChatGPT tab is open in the dedicated browser.", retryable: true }
-    );
-  }
-  return evaluateOnPage<T>(found.page, expression, { timeoutMs: options.timeoutMs ?? 10_000 });
-}
-
 async function findChatGptPage(
   port: number,
   timeoutMs: number,

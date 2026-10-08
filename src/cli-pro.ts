@@ -1,6 +1,5 @@
 import { existsSync, realpathSync, statSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
 import { BrowserProcessInspectionError } from "./browser-process.js";
 import { buildDryRunBundle } from "./bundle.js";
@@ -45,10 +44,8 @@ import {
   namesPro,
   sendWarningsFromError,
   destinationVerification,
-  chatGptProjectIdFromUrl,
-  evaluateOnChatGptPage
+  chatGptProjectIdFromUrl
 } from "./chatgpt-browser.js";
-import { judgePageCanary, PAGE_CANARY_EXPRESSION, type PageCanaryFacts, type PageCanaryVerdict } from "./page-canary.js";
 import {
   ASK_PRO_BOOLEAN_FLAGS,
   ASK_PRO_PREVIEW_VALUE_FLAGS,
@@ -648,11 +645,6 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
         if (printProBrowserHelpIfRequested(browserArgs, "pro browser smoke", io, { valueFlags: ["--cwd", "--port", "--timeout-ms", "--source-cli"] })) return 0;
         return runCliFn(["chatgpt", browserSubcommand, ...browserArgs], io);
       }
-      if (browserSubcommand === "canary") {
-        if (printProBrowserHelpIfRequested(browserArgs, "pro browser canary", io, { valueFlags: ["--port", "--timeout-ms", "--state-file"] })) return 0;
-        assertOnlyOptions(browserArgs, "pro browser canary", ["--port", "--timeout-ms", "--state-file"], ["--json"]);
-        return runPageCanaryCommand(io, browserArgs);
-      }
       if (browserSubcommand === "check") {
         if (printProBrowserHelpIfRequested(browserArgs, "pro browser check", io, { valueFlags: ["--cwd", "--port", "--timeout-ms", "--source-cli"] })) return 0;
         assertOnlyOptions(browserArgs, "pro browser check", ["--cwd", "--port", "--timeout-ms", "--source-cli"]);
@@ -991,7 +983,6 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
         "ask",
         "smoke",
         "check",
-        "canary",
         "models",
         "projects",
         "project-delete",
@@ -3978,74 +3969,3 @@ export function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-interface PageCanaryState {
-  last?: { at: string; facts: PageCanaryFacts; verdict: PageCanaryVerdict };
-  history: Array<{ at: string; build: string | null; status: PageCanaryVerdict["status"] | "skipped"; detail?: string }>;
-  /** Every data-markdown-copy kind seen on any run, so a new one stands out. */
-  knownMarkers?: string[];
-}
-
-/** Exit codes for schedulers: 0 ok or skipped, 3 changed, 2 broken. */
-const PAGE_CANARY_EXIT = { ok: 0, skipped: 0, changed: 3, broken: 2 } as const;
-
-/**
- * `prodex pro browser canary`: read the open ChatGPT page, judge it, and keep
- * the result next to the profile so the next run can compare. It takes the
- * send lock without waiting, so it never reads a page a consult is using, and
- * a browser that is busy, closed or not on ChatGPT is a skip rather than a
- * page change.
- */
-async function runPageCanaryCommand(io: CliIO, browserArgs: string[]): Promise<number> {
-  const port = readPortFlag(browserArgs, "--port");
-  const timeoutMs = readPositiveIntegerFlag(browserArgs, "--timeout-ms");
-  const statePath = readFlag(browserArgs, "--state-file") ?? path.join(os.homedir(), ".local", "share", "prodex", "page-canary.json");
-  const json = browserArgs.includes("--json");
-  let state: PageCanaryState = { history: [] };
-  try {
-    const parsed = JSON.parse(await readFile(statePath, "utf8")) as PageCanaryState;
-    if (parsed && Array.isArray(parsed.history)) state = parsed;
-  } catch {
-    // First run, or an unreadable state file: start over.
-  }
-  const at = new Date().toISOString();
-  const save = async (): Promise<void> => {
-    state.history = state.history.slice(-19);
-    await mkdir(path.dirname(statePath), { recursive: true });
-    await writeFile(statePath, `${JSON.stringify(state, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
-  };
-  let facts: PageCanaryFacts;
-  try {
-    facts = await withBrowserSendLock(0, () => {}, () =>
-      evaluateOnChatGptPage<PageCanaryFacts>(PAGE_CANARY_EXPRESSION, {
-        ...(port !== undefined ? { port } : {}),
-        ...(timeoutMs !== undefined ? { timeoutMs } : {})
-      })
-    );
-  } catch (error) {
-    const blocker = error instanceof ChatGptBrowserBlockerError ? error.blocker : undefined;
-    const reason = /Another prodex browser send is in progress/.test(errorMessage(error))
-      ? "a consult is using the browser"
-      : blocker
-        ? `the browser is not available (${blocker.code})`
-        : `the page could not be read (${errorMessage(error)})`;
-    state.history.push({ at, build: state.last?.facts.build ?? null, status: "skipped", detail: reason });
-    await save();
-    if (json) io.stdout(JSON.stringify({ status: "skipped", reason }, null, 2));
-    else io.stdout(`canary: skipped - ${reason}; nothing was judged.`);
-    return PAGE_CANARY_EXIT.skipped;
-  }
-  const verdict = judgePageCanary(facts, state.last?.facts, state.knownMarkers);
-  state.knownMarkers = [...new Set([...(state.knownMarkers ?? []), ...facts.markdown.copyKinds])].sort();
-  state.last = { at, facts, verdict };
-  state.history.push({ at, build: facts.build, status: verdict.status, ...(verdict.failures.length > 0 ? { detail: verdict.failures.map((f) => f.check).join(", ") } : {}) });
-  await save();
-  if (json) {
-    io.stdout(JSON.stringify({ status: verdict.status, build: facts.build, page: facts.pageKind, failures: verdict.failures, changes: verdict.changes }, null, 2));
-  } else {
-    io.stdout(`canary: ${verdict.status} build=${facts.build ?? "unknown"} page=${facts.pageKind}`);
-    for (const change of verdict.changes) io.stdout(`changed: ${change.check} - ${change.detail}`);
-    for (const failure of verdict.failures) io.stdout(`broken: ${failure.check} - ${failure.detail}`);
-    if (verdict.status === "broken") io.stdout("next: Run a live check before the next release (see docs/releasing.md); prodex may fail on this page.");
-  }
-  return PAGE_CANARY_EXIT[verdict.status];
-}

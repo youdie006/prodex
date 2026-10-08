@@ -179,32 +179,6 @@ prodex pro browser models
 - ChatGPT keeps two surfaces, Chat and Work, with different pickers; Work's ladder has no Pro. A send puts the browser back on Chat first and notes it on the receipt, so a browser that drifted onto Work does not quietly send on the wrong picker.
 - `--project "name"` enters an existing sidebar project before sending. `--project-new "name"` creates a new project (sidebar 새 프로젝트 popover, committed with Enter) and sends inside it. Neither can be combined with `--target-url` (the project step would navigate away from the confirmed tab), and `--project-new` never comes from saved defaults - creating a project is always an explicit per-ask choice.
 
-### Page canary
-
-ChatGPT ships new builds without notice, and a redesign shows up in prodex as failed consults. `prodex pro browser canary` reads the ChatGPT page that is already open in the dedicated browser. It records the page's build id and checks the controls prodex relies on:
-
-- the composer, with its model selector, tools button and general file input
-- the sidebar project rows, with their label and id, and their "New chat in" and "Project actions for" controls
-- on a conversation page, the user and assistant turns
-
-It never navigates, types or sends. It takes the send lock without waiting, so it never reads a page a consult is using. A busy, closed or non-ChatGPT browser counts as a skip.
-
-```bash
-prodex pro browser canary            # canary: ok build=4c511f80... page=conversation
-prodex pro browser canary --json
-```
-
-Results are kept in `~/.local/share/prodex/page-canary.json` (mode 0600; counts and booleans only, never prompts, answers, titles or project names), and each run is compared with the last.
-
-| Status | Exit code | Meaning |
-|---|---|---|
-| `ok` | 0 | Every check held. |
-| `skipped` | 0 | The browser was busy, closed or not on ChatGPT. |
-| `changed` | 3 | The checks held, but the build id or the set of markdown markers is new. Run a live check before relying on it. |
-| `broken` | 2 | A control prodex needs is missing. |
-
-The exit code is meant for a scheduler, for example a cron entry that runs it hourly and notifies on 2 or 3.
-
 Selection is guarded: prodex refuses to click a control that is covered or out of view, waits for the menu to actually open instead of sleeping a fixed delay, and treats a menu that stays open after a pick as a failed selection. If any step fails, it backs out with Escape and reports a blocker instead of sending with the wrong model. An applied selection stays active in your ChatGPT session after the send.
 
 Persist defaults so you can omit these flags on routine asks; a per-ask flag always overrides the saved default. View saved defaults with `prodex status`, clear one with the matching `--clear-*` flag, or answer a short wizard instead of remembering flags:
