@@ -4,7 +4,7 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 0.40.29
 
 ### Fixed
 - A send with `--attach` could carry an attachment left in the composer by an earlier send. Measured: a message went out with `stale-chip(1).txt` next to the file asked for, and ChatGPT answered from both. prodex cleared leftovers by reloading the page, but ChatGPT now keeps a draft attachment across a reload. Leftovers are now removed with their own remove buttons; the reload remains a fallback. A send whose leftover cannot be removed stops with `leftover_attachment`, and nothing is sent. Verified live: with a leftover chip in the composer, only the requested file went out.
