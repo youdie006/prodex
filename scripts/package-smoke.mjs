@@ -129,7 +129,7 @@ try {
   );
   assertIncludes(
     help.stdout,
-    "prodex pro browser smoke [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 90000]",
+    "prodex pro browser smoke [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo] [--port 9333] [--timeout-ms 300000]",
     "installed help output"
   );
   assertIncludes(
