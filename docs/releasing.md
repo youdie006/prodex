@@ -85,6 +85,7 @@ On the maintainer's WSL machine, cron runs the UI watchdog every hour (since 202
   - It records ChatGPT's build id and whether each control prodex relies on is present.
   - It compares with `~/.local/share/prodex/page-canary.json`.
   - It skips while a consult holds the send lock.
+  - A broken read is read again up to twice, 10 s apart, and counts only if it stays broken. Right after a browser restart on 2026-10-10 the first read found no model selector because the composer had not rendered yet.
 - Only when the canary reports changed (3) or broken (2) does the watchdog run `pro browser smoke` (a fresh chat, 5-minute budget). If that fails, it files or extends a GitHub issue by blocker code.
 - A busy browser is logged as skipped and never filed.
 
