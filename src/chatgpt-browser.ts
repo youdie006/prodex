@@ -6808,8 +6808,22 @@ function chatGptRequestMarkerMatches(userText: string, requestId: string): boole
 
 /** Full prompt and per-send identity; wrappers may contain tool/file labels. */
 export function chatGptRequestMatchesUserTurn(userText: string, sentPrompt: string, requestId: string): boolean {
-  return chatGptRequestMarkerMatches(userText, requestId) &&
-    normalizeChatGptPromptText(userText).includes(normalizeChatGptPromptText(sentPrompt));
+  if (!chatGptRequestMarkerMatches(userText, requestId)) return false;
+  if (normalizeChatGptPromptText(userText).includes(normalizeChatGptPromptText(sentPrompt))) return true;
+  // The container's ChatGPT renders a sent turn as markdown since 2026-10-10:
+  // a --file prompt's fence lines disappear and the inner fences shift, so
+  // every such send posted and was then refused. Fence lines carry no request
+  // text; everything else, punctuation and inline backticks included, must
+  // still match in order.
+  return withoutFenceLines(userText).includes(withoutFenceLines(sentPrompt));
+}
+
+function withoutFenceLines(value: string): string {
+  return value
+    .replace(AUTOLINKED_URL_PATTERN, "$1")
+    .replace(/\\([\\`*_{}[\]()#+\-.!>~|])/g, "$1")
+    .replace(/^[ \t]*```[\w-]*[ \t]*$/gm, "")
+    .replace(/\s+/g, "");
 }
 
 /**
