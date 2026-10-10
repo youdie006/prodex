@@ -16,6 +16,23 @@ Release target: `v0.40.13` on `main`. The GitHub Release records the resolved co
 
 The release adds a guarded, opt-in transition and more accurate blocker reporting. It does not claim that headless Pro consultation is verified on either deployment target or that authentication can be retained indefinitely.
 
+## Browser Incident 2026-10-10: earlyoom
+
+**What happened**
+- The host's dedicated browser (port 9333) stopped answering twice: around 11:49 and at 17:45 KST. The browser container exited at 11:49 KST (exit 1, `chromium exited (SIGTRAP)`, restart policy `no`) and stayed down.
+- The hourly canary logged `skipped - the browser is not available` from 18:17 KST on, and filed nothing.
+
+**Cause**
+- The machine's `earlyoom` (override from 2026-08-14: `-m 15 -s 40`) sent SIGTERM to Chrome and Chromium processes: 25 between 11:45 and 11:49, 17 at 17:45. It acts when available memory is under 15% and free swap under 40%. Swap was 88% used (1 GiB free of 8), so every dip under 15% memory picked a process, and Chrome's processes carried the highest badness (800-876).
+- Earlier days show the same: 248 Chrome kills on 2026-10-08 (09:00-11:59 KST), which likely explains that day's browser losses.
+- At 19:03 earlyoom also killed `chrome-headless`, `swapdex`, `ssh` and `dbus-daemon` processes, so the pressure is machine-wide, not prodex's.
+
+**Recovery**
+- Host browser restarted once on the Xvfb display (`login --virtual-display`, logged in, 4 s); the container started from the same image `547e852632b5` and its tab reopened (2 s). The canary from `12aab1e` (PR #24, re-read before reporting broken) then reported `ok` on build `314720d0`.
+
+**Not changed**
+- The earlyoom configuration and the container restart policy. Both are the maintainer's machine-level choices.
+
 ## 0.40.31 Release Record
 
 Release commit `0b10dd1` on `main` (cut after PR #23, merge `d5296e0`); tag `v0.40.31`.
