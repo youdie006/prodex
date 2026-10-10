@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Unreleased
 
 ### Fixed
+- Browser container patches from 2026-10-07 to 2026-10-10, each first shipped on `main` (0.40.28-0.40.30, and PR #23) and measured live in this container:
+  - Answers are read as markdown from the page: code blocks, tables, nested and numbered lists, math, checkboxes, bold and links survive. The newer web-search renderer's bold (`data-d-default-strong`) and source badges (`[GitHub+1]`) are kept too.
+  - The sent user turn keeps its inline `code` backticks, and URLs the composer autolinked are compared as plain URLs.
+  - A `--file` send is no longer refused after posting because ChatGPT drew the sent turn as markdown and dropped its fence lines. Fence lines are ignored; every other character must still match in order.
+  - Leftover attachment chips that survive a reload are removed before sending.
+  - Model hints and the offered model labels come only from the model picker, never from sidebar or page text.
+  - `thread_navigated_away` names the recover command; opening a thread waits up to 30 s.
+  - `pro list` reads the receipts once instead of once per consult.
+  - `send_timeout` is not marked retryable once the request reached a thread.
+  - `pro browser smoke` always uses a fresh chat and has a 5-minute default.
+  - The setup hint reflects whether the saved token expired.
 - Browser container patches from 2026-09-30 to 2026-10-06, measured live in this container, each first shipped on `main` (0.40.21-0.40.27):
   - The composer's plain "Stop" button counts as streaming. Before, a pause mid-answer could end the wait and return a truncated answer.
   - The new-chat wait is 30 s instead of 8 s. Measured 5.2-8.5 s idle, and over 15 s with the host under heavy load.

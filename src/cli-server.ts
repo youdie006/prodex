@@ -73,7 +73,13 @@ export async function runSetupCommand(rest: string[], io: CliIO): Promise<number
     io.stdout("Saved local ChatGPT Developer Mode MCP profile.");
     io.stdout(`Server URL: ${redactServerUrl(config.server_url)}`);
     io.stdout(formatTokenExpiryLine(config));
-    io.stdout("The token is stored (once) in .bridge/config.local.json; print the full URL with `prodex status --show-token --url-only`.");
+    // A token without expiry is refused by plain `status --show-token`, which
+    // is what setup creates by default; the hint has to be one that works.
+    io.stdout(
+      getTokenExpiryStatus(config).status === "valid"
+        ? "The token is stored (once) in .bridge/config.local.json; print the full URL with `prodex status --show-token --url-only`."
+        : "The token is stored (once) in .bridge/config.local.json; it never expires, so keep it local. Print the full URL with `prodex status --show-token --url-only --unsafe-show-non-expiring-token`, or rerun setup with --token-ttl-hours <hours> before sharing it."
+    );
     if (config.browser_defaults) {
       io.stdout(`Browser send defaults: ${formatBrowserDefaults(config.browser_defaults)}`);
       // Ask the picker whether it can actually provide what was just pinned.
