@@ -119,6 +119,25 @@ describe("page-read answers as markdown", () => {
     expect(render(root)).toBe("Rust 1.99.0 is current. [blog.rust-lang.org](https://blog.rust-lang.org/x/)\n\nwalnut-9 [cont-att], done");
   });
 
+  it("reads the renderer ChatGPT uses for web-search answers since 2026-10-10", () => {
+    // Bold is a span[data-d-default-strong], and a source is a badge inside a
+    // popover trigger whose urls only exist once it is opened. Both came back
+    // as plain words: "Latest LTS: Node.js v24 ... Node.js downloads+1".
+    const strong = (text: string) => el("span", { "data-d-component": "text", "data-d-default-strong": "", "data-d-inline": "" }, [text]);
+    const badge = (label: string) =>
+      el("span", { "data-d-component": "popover-trigger", role: "button" }, [
+        el("span", { "data-d-component": "box" }, [el("div", { "data-pill": "", "data-d-component": "badge" }, [el("div", {}, [label])])])
+      ]);
+    const root = el("div", {}, [
+      el("ol", { "data-d-component": "list" }, [
+        el("li", { "data-d-component": "list-item" }, [
+          el("div", {}, [el("p", { "data-d-component": "text" }, [strong("Latest LTS:"), " Node.js v24 is current.", badge("Node.js downloads+1")])])
+        ])
+      ])
+    ]);
+    expect(render(root)).toBe("1. **Latest LTS:** Node.js v24 is current. [Node.js downloads+1]");
+  });
+
   it("falls back to the page text when nothing could be read", () => {
     expect(render(el("div", {}, []), "only what the page shows")).toBe("only what the page shows");
   });

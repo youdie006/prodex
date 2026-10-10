@@ -52,7 +52,14 @@ export const PAGE_CANARY_EXPRESSION = `(() => {
       selectionIds: all("[data-chatgpt-selection-message-id]").filter(visible).length,
       userBubbles: all("[data-user-message-bubble]").filter(visible).length
     },
-    markdown: { copyKinds: [...new Set(all("[data-markdown-copy]").map((el) => el.getAttribute("data-markdown-copy") || ""))].sort() }
+    // Markers plus the renderer families seen: web-search answers moved to a
+    // data-d-component renderer on 2026-10-10 with the same copy markers, and
+    // only this told the two apart.
+    markdown: { copyKinds: [...new Set([
+      ...all("[data-markdown-copy]").map((el) => el.getAttribute("data-markdown-copy") || ""),
+      ...(document.querySelector("[data-d-component]") ? ["renderer:data-d-component"] : []),
+      ...(document.querySelector(".cm-content") ? ["renderer:codemirror"] : [])
+    ])].sort() }
   };
 })()`;
 
@@ -91,8 +98,14 @@ export function judgePageCanary(facts, previous, knownMarkers) {
     if (facts.messages.assistant > 0 && facts.messages.selectionIds === 0) fail("assistant turns", "assistant turns without a selection message id");
   }
   const changes = [];
-  const buildChanged = Boolean(previous && previous.build !== facts.build);
-  if (buildChanged) changes.push({ check: "build", detail: `${previous?.build ?? "unknown"} -> ${facts.build ?? "unknown"}` });
+  // An idle tab keeps the build it loaded, so the build ChatGPT serves now
+  // (liveBuild, read from the homepage) decides; the tab's is the fallback.
+  const buildOf = (run) => (run ? run.liveBuild ?? run.build : undefined);
+  const buildChanged = Boolean(previous && buildOf(previous) !== buildOf(facts));
+  if (buildChanged) changes.push({ check: "build", detail: `${buildOf(previous) ?? "unknown"} -> ${buildOf(facts) ?? "unknown"}` });
+  if (facts.liveBuild && facts.build && facts.liveBuild !== facts.build) {
+    changes.push({ check: "stale tab", detail: `the tab still runs ${facts.build}; ChatGPT now serves ${facts.liveBuild}, so the controls above were read from the older build` });
+  }
   // Which markers a page carries depends on the answer on screen (a short
   // reply has no code block), so a marker counts as new only against every
   // marker seen before, not against the previous page.
@@ -125,6 +138,29 @@ async function sendLockHeld(lockFile) {
   }
 }
 
+// The build ChatGPT serves now, from its homepage HTML fetched inside the tab
+// (same request as opening the page; nothing is navigated). Measured
+// 2026-10-10: an idle tab still showed build 4c511f80 for hours after
+// 314720d0 was being served, so the hourly canary never saw the change.
+const LIVE_BUILD_EXPRESSION = `fetch("/", { credentials: "include", cache: "no-store" })
+  .then((response) => response.text())
+  .then((html) => (html.match(/data-build="([0-9a-f]+)"/) || [])[1] || null)
+  .catch(() => null)`;
+
+function readLiveBuild(ws, timeoutMs) {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(null), timeoutMs);
+    ws.addEventListener("message", (event) => {
+      const message = JSON.parse(event.data);
+      if (message.id !== 2) return;
+      clearTimeout(timer);
+      const value = message.result?.result?.value;
+      resolve(typeof value === "string" ? value : null);
+    });
+    ws.send(JSON.stringify({ id: 2, method: "Runtime.evaluate", params: { expression: LIVE_BUILD_EXPRESSION, returnByValue: true, awaitPromise: true } }));
+  });
+}
+
 async function readPageFacts(port, timeoutMs) {
   const signal = AbortSignal.timeout(timeoutMs);
   const pages = await (await fetch(`http://127.0.0.1:${port}/json/list`, { signal })).json();
@@ -147,7 +183,7 @@ async function readPageFacts(port, timeoutMs) {
       });
       ws.send(JSON.stringify({ id: 1, method: "Runtime.evaluate", params: { expression: PAGE_CANARY_EXPRESSION, returnByValue: true } }));
       setTimeout(() => reject(Object.assign(new Error("the tab did not answer"), { skip: "the tab did not answer (busy or crashed)" })), timeoutMs);
-    });
+    }).then(async (facts) => ({ ...facts, liveBuild: await readLiveBuild(ws, timeoutMs) }));
   } finally {
     ws.close();
   }
@@ -194,12 +230,12 @@ async function main() {
   const verdict = judgePageCanary(facts, state.last?.facts, state.knownMarkers);
   state.knownMarkers = [...new Set([...(state.knownMarkers ?? []), ...facts.markdown.copyKinds])].sort();
   state.last = { at, facts, verdict };
-  state.history.push({ at, build: facts.build, status: verdict.status, ...(verdict.failures.length > 0 ? { detail: verdict.failures.map((f) => f.check).join(", ") } : {}) });
+  state.history.push({ at, build: facts.liveBuild ?? facts.build, status: verdict.status, ...(verdict.failures.length > 0 ? { detail: verdict.failures.map((f) => f.check).join(", ") } : {}) });
   await save();
   if (json) {
-    console.log(JSON.stringify({ status: verdict.status, build: facts.build, page: facts.pageKind, failures: verdict.failures, changes: verdict.changes }, null, 2));
+    console.log(JSON.stringify({ status: verdict.status, build: facts.liveBuild ?? facts.build, tabBuild: facts.build, page: facts.pageKind, failures: verdict.failures, changes: verdict.changes }, null, 2));
   } else {
-    console.log(`canary: ${verdict.status} build=${facts.build ?? "unknown"} page=${facts.pageKind}`);
+    console.log(`canary: ${verdict.status} build=${facts.liveBuild ?? facts.build ?? "unknown"} page=${facts.pageKind}`);
     for (const change of verdict.changes) console.log(`changed: ${change.check} - ${change.detail}`);
     for (const failure of verdict.failures) console.log(`broken: ${failure.check} - ${failure.detail}`);
   }
