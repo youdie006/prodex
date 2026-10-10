@@ -12,8 +12,8 @@ or reconnect an already-running agent.
 The bounded implementation keeps Chromium, Xvfb, and ProDex in one single-user
 container. CDP stays on container loopback. A password-protected local noVNC viewer
 can display the same browser for manual authentication; disconnecting the viewer
-must not restart Chromium. New containers start on `about:blank`, never by sending
-a ChatGPT prompt. No private endpoints, session copying, stealth settings, or
+must not restart Chromium. New containers open the ChatGPT root, never by sending
+a ChatGPT prompt. (They started on `about:blank` until 2026-10-10; see Restart policy.) No private endpoints, session copying, stealth settings, or
 automatic protection handling are part of this experiment.
 
 ## Implementation gates
@@ -1021,3 +1021,15 @@ This is a verification-record update only. No npm/image publication, release tag
 installation, or runtime change was made. Commit/push details are recorded in
 [PR 7](https://github.com/youdie006/prodex/pull/7); the user's untracked `Makefile`
 remains untouched.
+
+## Restart policy (2026-10-10)
+
+The container used `restart: "no"`, and the evidence table above records that an
+unexpected browser exit stopped it without a restart. On 2026-10-10 the host's
+earlyoom (`-m 15 -s 40`, swap 88% used) sent SIGTERM to the container's Chromium
+processes at 11:48-11:49 KST; the service exited 1 (`chromium exited (SIGTRAP)`)
+and stayed down for hours. The compose file now uses `restart: "unless-stopped"`,
+and Chromium starts on `https://chatgpt.com/` instead of `about:blank`, so a
+restarted container has a ChatGPT tab without a manual `login --wait`. Opening the
+root sends nothing. A signed-out profile still needs the viewer for manual login;
+`docker compose stop` still stops it for good.

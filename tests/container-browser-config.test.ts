@@ -19,7 +19,8 @@ describe("experimental container browser isolation", () => {
     expect(service.security_opt).toEqual(["no-new-privileges:true", "seccomp=./seccomp.json"]);
     expect(service.ports).toEqual(["127.0.0.1:${PRODEX_VIEWER_PORT:-39333}:6080"]);
     expect(service.volumes).toEqual(["browser-home:/home/node"]);
-    expect(service.restart).toBe("no");
+    // earlyoom ended the container browser on 2026-10-10 and it stayed down.
+    expect(service.restart).toBe("unless-stopped");
     expect(service.environment.PRODEX_NO_AUTO_LOGIN).toBe("1");
     expect(service.environment.PRODEX_HEADLESS).toBe("0");
     expect(service.environment.DISPLAY).toBe(":99");

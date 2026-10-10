@@ -72,7 +72,7 @@ export function buildServiceLaunchPlan(config) {
         ...buildChromeLaunchArgs({
           port: config.cdpPort,
           profileDir: config.profileDir,
-          url: "about:blank",
+          url: "https://chatgpt.com/",
           headless: false
         })
       ]

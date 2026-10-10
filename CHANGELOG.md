@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Unreleased
 
 ### Fixed
+- The browser container stayed down after the host's earlyoom ended its Chromium on 2026-10-10, and even after a manual start it had no ChatGPT tab until `prodex pro browser login --wait` ran. It now restarts unless stopped and opens the ChatGPT root itself; no prompt is sent.
 - Browser container patches from 2026-10-07 to 2026-10-10, each first shipped on `main` (0.40.28-0.40.30, and PR #23) and measured live in this container:
   - Answers are read as markdown from the page: code blocks, tables, nested and numbered lists, math, checkboxes, bold and links survive. The newer web-search renderer's bold (`data-d-default-strong`) and source badges (`[GitHub+1]`) are kept too.
   - The sent user turn keeps its inline `code` backticks, and URLs the composer autolinked are compared as plain URLs.

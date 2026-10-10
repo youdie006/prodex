@@ -56,7 +56,9 @@ describe("container browser service launch plan", () => {
     expect(plan.chromium.args).toContain("--remote-debugging-address=127.0.0.1");
     expect(plan.chromium.args).toContain("--remote-debugging-port=9333");
     expect(plan.chromium.args).toContain(`--user-data-dir=${config.profileDir}`);
-    expect(plan.chromium.args.at(-1)).toBe("about:blank");
+    // Opens ChatGPT itself, so a restarted container is usable without a
+    // manual `login --wait` (it never sends a prompt).
+    expect(plan.chromium.args.at(-1)).toBe("https://chatgpt.com/");
     expect(plan.chromium.args.join(" ")).not.toMatch(/headless|no-sandbox|disable-setuid-sandbox|AutomationControlled|password-store|keychain/i);
     expect(plan.x11vnc.args).toEqual([
       "-display", ":99",
