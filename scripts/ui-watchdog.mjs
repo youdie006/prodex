@@ -12,6 +12,9 @@
 // a picker that looked right and could not be driven.
 
 import { execFile } from "node:child_process";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
@@ -24,19 +27,74 @@ const shouldFile = process.argv.includes("--file-issue");
 // a prompt every hour.
 const canaryFirst = process.argv.includes("--canary");
 const canaryScript = fileURLToPath(new URL("./page-canary.mjs", import.meta.url));
+// --revive: when the canary finds the dedicated browser gone, start it once on
+// the virtual display. On 2026-10-10 the machine's earlyoom ended it twice and
+// the hourly run could only log "skipped" until someone restarted it by hand.
+const revive = process.argv.includes("--revive");
+const reviveStatePath = process.env.PRODEX_WATCHDOG_REVIVE_STATE ?? path.join(os.homedir(), ".local", "state", "prodex-maint", "revive.json");
+
+// A browser that keeps dying is started again at most this often, so a machine
+// short of memory does not get a fresh Chrome every hour.
+export const REVIVE_INTERVAL_MS = 6 * 60 * 60_000;
+
+/**
+ * Only a browser that is gone, or has no ChatGPT tab, is started. A consult
+ * holding the lock, or a tab that stopped answering, may be mid-send.
+ */
+export function shouldReviveBrowser(canarySummary, lastReviveAt, now) {
+  if (!/skipped - (the browser is not available|no ChatGPT tab is open)/.test(canarySummary)) return false;
+  return lastReviveAt === undefined || now - lastReviveAt >= REVIVE_INTERVAL_MS;
+}
+
+async function runCanary() {
+  try {
+    const { stdout } = await run(process.execPath, [canaryScript], { timeout: 2 * 60_000 });
+    return { exitCode: 0, summary: stdout.trim().split(/\r?\n/).join(" | ") };
+  } catch (error) {
+    return {
+      exitCode: typeof error?.code === "number" ? error.code : 1,
+      summary: typeof error?.stdout === "string" ? error.stdout.trim().split(/\r?\n/).join(" | ") : firstLine(error)
+    };
+  }
+}
+
+async function lastBrowserRevive() {
+  try {
+    const at = JSON.parse(await readFile(reviveStatePath, "utf8")).lastReviveAt;
+    return typeof at === "number" ? at : undefined;
+  } catch {
+    return undefined; // Never revived, or an unreadable state file.
+  }
+}
+
+async function reviveBrowser() {
+  await mkdir(path.dirname(reviveStatePath), { recursive: true });
+  await writeFile(reviveStatePath, `${JSON.stringify({ lastReviveAt: Date.now() })}\n`, { mode: 0o600 });
+  try {
+    await run(cli, ["pro", "browser", "login", "--virtual-display", "--wait", "--wait-timeout-ms", "120000"], { timeout: 4 * 60_000 });
+    console.log("ui_watchdog_revive=started");
+    return true;
+  } catch (error) {
+    console.log(`ui_watchdog_revive=failed detail=${firstLine(error)}`);
+    return false;
+  }
+}
 
 async function main() {
   if (canaryFirst) {
-    let exitCode = 0;
-    let summary = "";
-    try {
-      const { stdout } = await run(process.execPath, [canaryScript], { timeout: 2 * 60_000 });
-      summary = stdout.trim().split(/\r?\n/).join(" | ");
-    } catch (error) {
-      exitCode = typeof error?.code === "number" ? error.code : 1;
-      summary = typeof error?.stdout === "string" ? error.stdout.trim().split(/\r?\n/).join(" | ") : firstLine(error);
-    }
+    let { exitCode, summary } = await runCanary();
     console.log(`ui_watchdog_canary exit=${exitCode} ${summary}`);
+    if (revive) {
+      const lastReviveAt = await lastBrowserRevive();
+      if (shouldReviveBrowser(summary, lastReviveAt, Date.now())) {
+        if (await reviveBrowser()) {
+          ({ exitCode, summary } = await runCanary());
+          console.log(`ui_watchdog_canary exit=${exitCode} ${summary}`);
+        }
+      } else if (shouldReviveBrowser(summary, undefined, Date.now())) {
+        console.log(`ui_watchdog_revive=held last=${new Date(lastReviveAt).toISOString()}`);
+      }
+    }
     // 0 is ok or skipped; 3 changed and 2 broken go on to the round trip,
     // which decides whether prodex still works on this page.
     if (exitCode === 0) return 0;
@@ -87,4 +145,6 @@ function firstLine(error) {
   return "unknown failure";
 }
 
-process.exit(await main());
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  process.exit(await main());
+}
