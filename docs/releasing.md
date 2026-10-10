@@ -16,6 +16,23 @@ Release target: `v0.40.13` on `main`. The GitHub Release records the resolved co
 
 The release adds a guarded, opt-in transition and more accurate blocker reporting. It does not claim that headless Pro consultation is verified on either deployment target or that authentication can be retained indefinitely.
 
+## 0.40.31 Release Record
+
+Release commit `0b10dd1` on `main` (cut after PR #23, merge `d5296e0`); tag `v0.40.31`.
+
+**Publishing**
+- `publish.yml` run 38019182789 passed all six platforms on the first attempt, then npm publish with SLSA v1 provenance and the GitHub Release (2026-10-10 03:03 UTC).
+- `npm run release:verify` passed on the release commit after a build.
+
+**Installed**
+- WSL, M3, Mac mini: `prodex --version` reports 0.40.31. Running services were not restarted: 4 stdio MCP servers on WSL and 4 on M3 keep older code until their clients reconnect. The Mac mini had none running.
+- The maintainer watchdog checkout (`~/.local/share/prodex-maint/repo`) was pulled to `0b10dd1` and rebuilt, so the hourly canary now uses the live build check and the renderer markers.
+
+**Verified live**
+- Host 0.40.31: a Markdown `--file` new-chat send answered (`opal-5`).
+- The host's dedicated browser had stopped answering on port 9333 after about 11:18 KST; it was restarted once on the Xvfb display (`login --virtual-display`, logged in, 5 s). Cause not established.
+- The canary's first run right after that restart reported `broken: model selector`, because the composer had not rendered yet; the next run was `ok` on build `314720d0`. The model picker lists GPT-6, GPT-5.6 Sol and GPT-5.5.
+
 ## Browser Container Rebuild 2026-10-10
 
 **Patches**
