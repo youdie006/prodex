@@ -161,6 +161,21 @@ function readLiveBuild(ws, timeoutMs) {
   });
 }
 
+/**
+ * A page that just loaded can be judged before its composer renders: right
+ * after a browser restart on 2026-10-10 the first run reported "broken: model
+ * selector" and the next was ok. A broken read is read again after a pause and
+ * counts only if it stays broken.
+ */
+export async function settledPageFacts(read, isBroken, { attempts = 3, waitMs = 10_000, sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)) } = {}) {
+  let facts = await read();
+  for (let attempt = 1; attempt < attempts && isBroken(facts); attempt += 1) {
+    await sleep(waitMs);
+    facts = await read();
+  }
+  return facts;
+}
+
 async function readPageFacts(port, timeoutMs) {
   const signal = AbortSignal.timeout(timeoutMs);
   const pages = await (await fetch(`http://127.0.0.1:${port}/json/list`, { signal })).json();
@@ -220,10 +235,16 @@ async function main() {
     console.log(json ? JSON.stringify({ status: "skipped", reason }, null, 2) : `canary: skipped - ${reason}; nothing was judged.`);
     return EXIT.skipped;
   };
-  if (await sendLockHeld(lockFile)) return skip("a consult is using the browser");
   let facts;
   try {
-    facts = await readPageFacts(port, timeoutMs);
+    facts = await settledPageFacts(
+      async () => {
+        // A consult that starts between reads changes the page; leave it alone.
+        if (await sendLockHeld(lockFile)) throw Object.assign(new Error("busy"), { skip: "a consult is using the browser" });
+        return readPageFacts(port, timeoutMs);
+      },
+      (read) => judgePageCanary(read, state.last?.facts, state.knownMarkers).status === "broken"
+    );
   } catch (error) {
     return skip(error?.skip ?? `the browser is not available (${error instanceof Error ? error.message : String(error)})`);
   }

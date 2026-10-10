@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { judgePageCanary, PAGE_CANARY_EXPRESSION } from "../scripts/page-canary.mjs";
+import { judgePageCanary, PAGE_CANARY_EXPRESSION, settledPageFacts } from "../scripts/page-canary.mjs";
 
 type PageCanaryFacts = Parameters<typeof judgePageCanary>[0];
 
@@ -83,5 +83,38 @@ describe("judging the page canary", () => {
 
   it("is a single expression that parses", () => {
     expect(() => new Function(`return ${PAGE_CANARY_EXPRESSION};`)).not.toThrow();
+  });
+});
+
+// Measured 2026-10-10: the first run right after the browser restarted
+// reported "broken: model selector" because the composer had not rendered
+// yet; the next run was ok. The hourly job files an issue on broken, so a
+// failing read is read again after a pause before it counts.
+describe("reading a settled page", () => {
+  const unrendered: PageCanaryFacts = { ...healthy, modelButton: false };
+  const isBroken = (facts: PageCanaryFacts) => judgePageCanary(facts, undefined, undefined).status === "broken";
+  const reader = (sequence: PageCanaryFacts[]) => {
+    let reads = 0;
+    return { read: async () => sequence[Math.min(reads++, sequence.length - 1)], reads: () => reads };
+  };
+  const pauses: number[] = [];
+  const sleep = async (ms: number) => { pauses.push(ms); };
+
+  it("reads once when the page is healthy", async () => {
+    const page = reader([healthy]);
+    expect(await settledPageFacts(page.read, isBroken, { attempts: 3, waitMs: 10, sleep })).toBe(healthy);
+    expect(page.reads()).toBe(1);
+  });
+
+  it("does not report a page that was still rendering", async () => {
+    const page = reader([unrendered, healthy]);
+    expect(await settledPageFacts(page.read, isBroken, { attempts: 3, waitMs: 10, sleep })).toBe(healthy);
+    expect(page.reads()).toBe(2);
+  });
+
+  it("still reports a control that stays missing", async () => {
+    const page = reader([unrendered]);
+    expect(await settledPageFacts(page.read, isBroken, { attempts: 3, waitMs: 10, sleep })).toBe(unrendered);
+    expect(page.reads()).toBe(3);
   });
 });
