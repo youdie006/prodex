@@ -16,6 +16,22 @@ Release target: `v0.40.13` on `main`. The GitHub Release records the resolved co
 
 The release adds a guarded, opt-in transition and more accurate blocker reporting. It does not claim that headless Pro consultation is verified on either deployment target or that authentication can be retained indefinitely.
 
+## Browser Container Rebuild 2026-10-10
+
+**Patches**
+- `container/redesign-patches` `5047ef9` ports 0.40.28-0.40.30 and PR #23 (newer answer renderer, sent turn drawn as markdown) onto the container branch. It is based on `b5eac7d`; `feat/headless-browser-compatibility` itself is unchanged.
+
+**Image**
+- `547e852632b5`, built from `5047ef9`; the branch suite passed (2027 passed, 3 skipped).
+- Both swaps were gated on the send lock being free. After the swap the browser had no ChatGPT tab, so `prodex pro browser login --wait` reopened it (logged in, 3 s). MCP clients of the container need `/mcp` reconnects.
+
+**Verified live**
+- Image `9b51e0639a37` (the port without the fence fix): web search with bold and `[GitHub+1]` badges, continued and temporary attach, recover, models (the picker now lists GPT-6), smoke in a new chat, `pro list` in 5 s. A Markdown `--file` send posted but was refused as unverified: the container's ChatGPT drew the sent turn as markdown and dropped the ```` ```text ```` fence line.
+- Image `547e852632b5`: the same `--file` send answered 2/2, and the smoke answered `PRODEX_PRO_SMOKE_OK`.
+
+**Not a bug**
+- A host 0.40.30 `--file` run failed during this check only because another send held the browser lock past its wait budget; the next run answered.
+
 ## 0.40.30 Release Record
 
 Release commit `e566efc` on `main` (cut after PR #22, merge `c0964f2`, plus the docs commit `09e80bc`); tag `v0.40.30`.

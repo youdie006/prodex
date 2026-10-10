@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Fixed
+- Web-search answers lost their bold text and showed their sources as loose words, e.g. "... is current. Node.js downloads+1". Since 2026-10-10, ChatGPT draws these answers with a newer renderer: bold is a `data-d-default-strong` span, and each source is a badge whose links only exist once it is opened. Bold now comes back as `**...**` and each source badge as `[label]`. Verified live: a formatted web-search answer kept its heading, numbered list with bold labels, code block, table and `[GitHub+1]` source marks.
+- A `--file` send could post and then fail with "The latest visible user turn could not be verified against this prodex request". Measured 2026-10-10 in the browser container: ChatGPT now draws the sent turn as markdown, so the file's ```` ```text ```` fence line disappears and the inner fences move. Fence lines are now ignored when checking the sent turn; every other character, inline backticks included, must still match in order.
+
 ## 0.40.30
 
 ### Fixed

@@ -475,6 +475,9 @@ export const CHATGPT_RENDERED_MESSAGE_TEXT_JS = `
       const isBlock = (node) => node.nodeType === 1 && !skipped(node) &&
         (BLOCK_TAGS.includes(tagOf(node)) || isCodeBlock(node) || (isMath(node) && isDisplayMath(node)) ||
           (tagOf(node) === "span" && findAll(node, (n) => BLOCK_TAGS.includes(tagOf(n))).length > 0));
+      // The renderer web-search answers use since 2026-10-10 marks a source as a
+      // badge inside a popover trigger; its urls only exist once it is opened.
+      const isSourceBadge = (node) => attr(node, "data-d-component") === "popover-trigger" && findAll(node, (n) => attr(n, "data-pill") !== null).length > 0;
       const pill = (node) => {
         const label = collapse(node.textContent || "").trim();
         if (!label) return "";
@@ -487,7 +490,7 @@ export const CHATGPT_RENDERED_MESSAGE_TEXT_JS = `
           const piece = inlineNode(child);
           if (!piece) continue;
           // A source pill sits right after its sentence; keep one space before it.
-          if (child.nodeType === 1 && attr(child, "data-chatgpt-copy-reference") !== null && out && !isSpaceChar(out[out.length - 1])) out += " ";
+          if (child.nodeType === 1 && (attr(child, "data-chatgpt-copy-reference") !== null || isSourceBadge(child)) && out && !isSpaceChar(out[out.length - 1])) out += " ";
           out += piece;
         }
         return out;
@@ -499,11 +502,12 @@ export const CHATGPT_RENDERED_MESSAGE_TEXT_JS = `
         // A task list item's box (measured: button[role=checkbox][aria-checked]).
         if (isCheckbox(node)) return (attr(node, "aria-checked") === "true" || attr(node, "checked") !== null ? "[x]" : "[ ]") + " ";
         if (isMath(node)) return isDisplayMath(node) ? "$$" + mathSource(node) + "$$" : "$" + mathSource(node) + "$";
-        if (attr(node, "data-chatgpt-copy-reference") !== null) return pill(node);
+        if (attr(node, "data-chatgpt-copy-reference") !== null || isSourceBadge(node)) return pill(node);
         if (attr(node, "data-markdown-copy") === "inline-code" || tag === "code") return BT + (node.textContent || "") + BT;
         if (tag === "br") return NL;
         const inner = inline(node);
-        if (tag === "strong" || tag === "b") return inner.trim() ? "**" + inner.trim() + "**" : "";
+        // The newer renderer marks bold as span[data-d-default-strong].
+        if (tag === "strong" || tag === "b" || attr(node, "data-d-default-strong") !== null) return inner.trim() ? "**" + inner.trim() + "**" : "";
         if (tag === "em" || tag === "i") return inner.trim() ? "*" + inner.trim() + "*" : "";
         if (tag === "del" || tag === "s") return inner.trim() ? "~~" + inner.trim() + "~~" : "";
         if (tag === "a") {
@@ -6804,8 +6808,22 @@ function chatGptRequestMarkerMatches(userText: string, requestId: string): boole
 
 /** Full prompt and per-send identity; wrappers may contain tool/file labels. */
 export function chatGptRequestMatchesUserTurn(userText: string, sentPrompt: string, requestId: string): boolean {
-  return chatGptRequestMarkerMatches(userText, requestId) &&
-    normalizeChatGptPromptText(userText).includes(normalizeChatGptPromptText(sentPrompt));
+  if (!chatGptRequestMarkerMatches(userText, requestId)) return false;
+  if (normalizeChatGptPromptText(userText).includes(normalizeChatGptPromptText(sentPrompt))) return true;
+  // The container's ChatGPT renders a sent turn as markdown since 2026-10-10:
+  // a --file prompt's fence lines disappear and the inner fences shift, so
+  // every such send posted and was then refused. Fence lines carry no request
+  // text; everything else, punctuation and inline backticks included, must
+  // still match in order.
+  return withoutFenceLines(userText).includes(withoutFenceLines(sentPrompt));
+}
+
+function withoutFenceLines(value: string): string {
+  return value
+    .replace(AUTOLINKED_URL_PATTERN, "$1")
+    .replace(/\\([\\`*_{}[\]()#+\-.!>~|])/g, "$1")
+    .replace(/^[ \t]*```[\w-]*[ \t]*$/gm, "")
+    .replace(/\s+/g, "");
 }
 
 /**

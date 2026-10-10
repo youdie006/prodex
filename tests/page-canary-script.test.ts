@@ -35,6 +35,20 @@ describe("judging the page canary", () => {
     expect(verdict.changes.map((c) => c.detail)).toEqual(["new: blank-lines"]);
   });
 
+  it("reports a new answer renderer, as data-d-component appeared on 2026-10-10", () => {
+    const verdict = judgePageCanary({ ...healthy, markdown: { copyKinds: [...healthy.markdown.copyKinds, "renderer:data-d-component"] } }, healthy, healthy.markdown.copyKinds);
+    expect(verdict.changes.map((c) => c.detail)).toEqual(["new: renderer:data-d-component"]);
+  });
+
+  it("judges the build ChatGPT serves now, not the one an idle tab still shows", () => {
+    // Measured 2026-10-10: the tab kept 4c511f80 for hours while 314720d0 was served.
+    const previous = { ...healthy, build: "4c511f80", liveBuild: "4c511f80" };
+    const verdict = judgePageCanary({ ...healthy, build: "4c511f80", liveBuild: "314720d0" }, previous);
+    expect(verdict.status).toBe("changed");
+    expect(verdict.changes.map((c) => c.check)).toEqual(["build", "stale tab"]);
+    expect(verdict.changes[0]?.detail).toBe("4c511f80 -> 314720d0");
+  });
+
   it("does not flag markers that only depend on which answer is on screen", () => {
     // Measured: a short answer shows only "contents"; the page before showed a
     // code block. Compared run to run, that read as a new marker every time.
