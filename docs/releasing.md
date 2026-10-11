@@ -94,7 +94,7 @@ Release commit `e566efc` on `main` (cut after PR #22, merge `c0964f2`, plus the 
 On the maintainer's WSL machine, cron runs the UI watchdog every hour (since 2026-10-08):
 
 ```
-17 * * * * PATH=<node bin>:/usr/bin:/bin PRODEX_CLI=~/.local/share/prodex-maint/prodex PRODEX_WATCHDOG_CWD=/mnt/d/MyProject/gptprouse <node> ~/.local/share/prodex-maint/repo/scripts/ui-watchdog.mjs --canary --file-issue >> ~/.local/state/prodex-watchdog.log 2>&1
+17 * * * * PATH=<node bin>:/usr/bin:/bin PRODEX_CLI=~/.local/share/prodex-maint/prodex PRODEX_WATCHDOG_CWD=/mnt/d/MyProject/gptprouse <node> ~/.local/share/prodex-maint/repo/scripts/ui-watchdog.mjs --canary --revive --file-issue >> ~/.local/state/prodex-watchdog.log 2>&1
 ```
 
 **What each run does**
@@ -105,6 +105,7 @@ On the maintainer's WSL machine, cron runs the UI watchdog every hour (since 202
   - A broken read is read again up to twice, 10 s apart, and counts only if it stays broken. Right after a browser restart on 2026-10-10 the first read found no model selector because the composer had not rendered yet.
 - Only when the canary reports changed (3) or broken (2) does the watchdog run `pro browser smoke` (a fresh chat, 5-minute budget). If that fails, it files or extends a GitHub issue by blocker code.
 - A busy browser is logged as skipped and never filed.
+- With `--revive` (since 2026-10-10), a canary that finds the dedicated browser gone, or without a ChatGPT tab, makes the watchdog run `pro browser login --virtual-display --wait` once and read the page again. It does this at most once every 6 hours (`~/.local/state/prodex-maint/revive.json`), so a machine short of memory does not get a new Chrome every hour. A consult holding the lock, or a tab that stopped answering, is never touched. This came from the earlyoom incident below, where the browser stayed down for hours.
 
 **Where it runs from**
 - `~/.local/share/prodex-maint/repo` is a clone of `main`, built with `npm ci && npm run build`.
