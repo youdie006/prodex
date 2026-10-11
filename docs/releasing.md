@@ -120,6 +120,7 @@ On the maintainer's WSL machine, cron runs the UI watchdog every hour (since 202
   - It timed out at 90 s on high efforts (issue #4).
   - It filed a busy browser as broken (issue #20, closed as a false positive).
 - The crontab before the change is saved at `~/.local/state/prodex-maint/crontab.backup-20261008`.
+- `--revive` was added to the cron line on 2026-10-11 after PR #25 (merge `9c9a1b4`); the checkout was pulled to that merge and rebuilt, and one manual run was `ok`. The crontab before that edit is saved at `~/.local/state/prodex-maint/crontab.backup-20261011`.
 
 ## 0.40.29 Release Record
 
