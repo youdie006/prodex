@@ -16,6 +16,30 @@ Release target: `v0.40.13` on `main`. The GitHub Release records the resolved co
 
 The release adds a guarded, opt-in transition and more accurate blocker reporting. It does not claim that headless Pro consultation is verified on either deployment target or that authentication can be retained indefinitely.
 
+## 0.40.32 Release Record
+
+Release commit `e0e260e` on `main` (cut after PR #26, merge `f57f413`); tag `v0.40.32`.
+
+**Publishing**
+- `publish.yml` run 38339570276 passed all six platforms on the first attempt, then npm publish with SLSA v1 provenance and the GitHub Release (2026-10-13 02:59 UTC).
+- `npm run release:verify` passed on the release commit after a build.
+
+**Installed**
+- WSL, M3, Mac mini: `prodex --version` reports 0.40.32. Running services were not restarted: 4 stdio MCP servers on WSL and 4 on M3 keep older code until their clients reconnect. The Mac mini had none running.
+- The maintainer watchdog checkout was pulled to `e0e260e` and rebuilt.
+
+**Verified live**
+- Before the fix, installed 0.40.31 refused a 500-line (12 KB) `--file` send as `request_mismatch`; installed 0.40.32 answered it (`amber-19`).
+- With the PR build: a 2,400-line `--file` is refused with the `--attach` pointer, and a 57 KB inline prompt answered in 84 s.
+
+**Browser container**
+- `container/redesign-patches` `f408fda` ports PR #26 onto the container's own transcript reader. Image `05c65e5dd1f4`; branch suite 2034 passed, 3 skipped. The swap was gated on the send lock; the ChatGPT tab opened on its own afterwards (the restart change from 2026-10-10, `42a027e`).
+- Live in the container: the 2,400-line `--file` refusal, the 500-line `--file` answer (`amber-19`), and the smoke (`PRODEX_PRO_SMOKE_OK`).
+
+**Also on 2026-10-11 to 10-13**
+- `container/redesign-patches` `42a027e`: the container restarts unless stopped and opens the ChatGPT root itself. Verified by sending SIGTERM to its Chromium: Docker restarted it and the smoke answered without a login step.
+- The canary stayed `ok` on build `314720d0` hourly from 2026-10-11 to 10-13.
+
 ## Browser Incident 2026-10-10: earlyoom
 
 **What happened**
