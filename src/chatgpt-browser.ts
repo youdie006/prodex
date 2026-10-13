@@ -357,6 +357,8 @@ interface ChatGptAnswerState {
   userMessageCount: number;
   /** The user turn immediately preceding the candidate answer. */
   lastUserText?: string;
+  /** That turn was collapsed and has just been expanded; its text is read on the next poll. */
+  lastUserCollapsed?: boolean;
   /** A generated image follows the last user turn and no assistant turn does. */
   nonTextAnswer?: boolean;
   /** ChatGPT's own tag for the model that produced the last answer. */
@@ -653,7 +655,22 @@ export const CHATGPT_MODEL_HINTS_JS = `
       return seen.slice(0, 30);
     };`;
 
-const CHATGPT_MESSAGE_NODES_JS = `${CHATGPT_RENDERED_MESSAGE_TEXT_JS}
+/**
+ * ChatGPT collapses a long user turn behind "Show more" and leaves the rest
+ * out of the DOM (measured 2026-10-13: 10,250 of 12,095 characters, the request
+ * marker among the missing). Clicking it only changes what is displayed, and
+ * the full text renders after the click returns, so the caller reads again.
+ */
+export const CHATGPT_EXPAND_USER_TURN_JS = `
+    const expandCollapsedUserTurn = (node) => {
+      if (!node || typeof node.querySelector !== 'function') return false;
+      const more = node.querySelector('button[aria-expanded="false"]');
+      if (!more) return false;
+      more.click();
+      return true;
+    };`;
+
+const CHATGPT_MESSAGE_NODES_JS = `${CHATGPT_RENDERED_MESSAGE_TEXT_JS}${CHATGPT_EXPAND_USER_TURN_JS}
     // ChatGPT keeps a previously opened conversation mounted but hidden
     // (measured 2026-10-06: two turns without a box on a project home), and
     // counting them made a fresh chat look like an existing conversation.
@@ -4275,6 +4292,7 @@ export async function recoverChatGptAnswerFromThread(
   let state: ChatGptAnswerState | undefined;
   let generating = false;
   let stableRuns = 0;
+  let expandingPolls = 0;
   let lastAnswer = "";
   let lastObservedUrl = "";
   let completed = false;
@@ -4308,6 +4326,12 @@ export async function recoverChatGptAnswerFromThread(
       // turns (measured 2026-10-06), and judging the request on it refused a
       // recovery of the very request it was asked for.
       if (state.userMessageCount === 0) {
+        stableRuns = 0;
+        lastAnswer = "";
+        continue;
+      }
+      if (chatGptUserTurnStillExpanding(state, expandingPolls)) {
+        expandingPolls += 1;
         stableRuns = 0;
         lastAnswer = "";
         continue;
@@ -4771,6 +4795,7 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
     // prompt posts the composer clears and no send button is found.
     const promptPostedExpression = `(() => {${CHATGPT_MESSAGE_NODES_JS}
       const last = chatMessageNodes().filter((message) => message.role === "user").at(-1);
+      if (last && expandCollapsedUserTurn(last.textNode)) return false;
       return Boolean(last && userMessageText(last.textNode).includes(${JSON.stringify(`[prodex-request:${requestId}]`)}));
     })()`;
     // A dispatch can reach Chrome even if its acknowledgement is lost.
@@ -4812,6 +4837,7 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
   const acceptDeadline = computePromptAcceptanceDeadline(timeoutMs, started);
   let accepted = false;
   let finalState: ChatGptAnswerState | undefined;
+  let expandingPolls = 0;
   while (Date.now() < acceptDeadline) {
     await sleep(500);
     try {
@@ -4829,6 +4855,10 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
       if (normalizedTargetUrl) assertChatGptTargetUrlMatches(finalState.url, normalizedTargetUrl);
       accepted = true;
       break;
+    }
+    if (chatGptUserTurnStillExpanding(finalState, expandingPolls)) {
+      expandingPolls += 1;
+      continue;
     }
     if (hasChatGptPromptAcceptance(beforeSubmit, finalState)) throw requestMismatch(normalizedTargetUrl);
     emitProgress("waiting", "prompt posting");
@@ -4868,6 +4898,7 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
     : undefined;
   let consecutiveReadFailures = 0;
   let answerSettled = false;
+  expandingPolls = 0;
   let nonTextPolls = 0;
   let nonTextSettled = false;
   const answerIsStable = createChatGptAnswerStabilityTracker();
@@ -4876,6 +4907,10 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
     try {
       const observedState = await evaluateOnPage<ChatGptAnswerState>(page, answerExpression());
       consecutiveReadFailures = 0;
+      if (chatGptUserTurnStillExpanding(observedState, expandingPolls)) {
+        expandingPolls += 1;
+        continue;
+      }
       // Freeze the first conversation identity the accepted page exposes. A
       // later tab move must never rewrite result metadata to another thread.
       if (!pinnedConversationId) {
@@ -6601,15 +6636,14 @@ async function insertComposerTextViaCdp(
   // Both failures come from crossing the CDP boundary mid-edit, so large text
   // is inserted by a single in-page execCommand instead: the editor applies it
   // as one input event and nothing can interleave. Measured: 67 KB inserted in
-  // ~20s, verified byte-for-byte.
+  // ~20s, verified byte-for-byte; 57 KB took 63-126 s on 2026-10-13.
   if (text.length <= COMPOSER_INSERT_CHUNK_CHARS) {
     await cdp.send("Input.insertText", { text });
   } else {
-    // A 67 KB insert measured ~20s in the page, which the default 20s CDP
-    // command budget would cut off, so this one call gets its own connection
-    // with a size-scaled budget instead of loosening the budget for every
-    // command on the shared connection.
-    const budgetMs = Math.max(60_000, Math.ceil(text.length / 1_000) * 1_000);
+    // A large insert outlasts the default 20s CDP command budget, so this one
+    // call gets its own connection with a size-scaled budget instead of
+    // loosening the budget for every command on the shared connection.
+    const budgetMs = composerInsertBudgetMs(text.length);
     const slowCdp = page ? await connectCdp(page.webSocketDebuggerUrl, budgetMs) : undefined;
     try {
       const target = slowCdp ?? cdp;
@@ -6626,6 +6660,17 @@ async function insertComposerTextViaCdp(
 }
 
 export const COMPOSER_INSERT_CHUNK_CHARS = 4_000;
+
+/**
+ * How long one in-page insert of `chars` characters may take. Measured
+ * 2026-10-13: 10 s for 15 KB, 34 s for 30 KB, and 63 s then 126 s for the same
+ * 57 KB - far slower than when this path was built (67 KB in ~20 s), and the
+ * old one-second-per-KB budget cut a 57 KB prompt off. 5 ms per character
+ * covers the slowest measured run with room to spare.
+ */
+export function composerInsertBudgetMs(chars: number): number {
+  return Math.max(60_000, chars * 5);
+}
 
 /**
  * Split composer text into insertText-sized pieces. Splits on code points (not
@@ -6805,6 +6850,20 @@ function chatGptRequestMarkerMatches(userText: string, requestId: string): boole
   const markers = [...normalizeChatGptPromptText(userText).matchAll(/\[prodex-request:([a-f0-9]{32})\]/g)];
   return markers.at(-1)?.[1] === requestId && markers.filter((match) => match[1] === requestId).length === 1;
 }
+
+/**
+ * A collapsed user turn is not judged until its expanded text has rendered.
+ * Bounded, so a turn that collapses again on every render is judged in the end
+ * instead of holding the send until its timeout.
+ */
+export function chatGptUserTurnStillExpanding(
+  state: Pick<ChatGptAnswerState, "lastUserText" | "lastUserCollapsed">,
+  skippedPolls = 0
+): boolean {
+  return state.lastUserCollapsed === true && skippedPolls < USER_TURN_EXPAND_MAX_POLLS;
+}
+
+export const USER_TURN_EXPAND_MAX_POLLS = 10;
 
 /** Full prompt and per-send identity; wrappers may contain tool/file labels. */
 export function chatGptRequestMatchesUserTurn(userText: string, sentPrompt: string, requestId: string): boolean {
@@ -7126,10 +7185,11 @@ export function answerExpression(): string {
         if (tagged) modelSlug = tagged.getAttribute('data-message-model-slug') || undefined;
       }
       // User turns stay as typed: the request marker is matched against them.
-      return { role, node, text: role === "assistant" ? renderedMessageText(textNode) : userMessageText(textNode), modelSlug };
+      return { role, node, textNode, text: role === "assistant" ? renderedMessageText(textNode) : userMessageText(textNode), modelSlug };
     });
     const assistantMessages = messages.filter((message) => message.role === "assistant");
     const userMessages = messages.filter((message) => message.role === "user");
+    const lastUserCollapsed = expandCollapsedUserTurn(userMessages.at(-1)?.textNode);
     // A turn without an assistant message is NOT an answer. Treating one as an
     // answer (a 0.21.3 fallback for deep research, which is read from the
     // transcript now) turned a tool's progress panel into a 28-character
@@ -7163,6 +7223,7 @@ export function answerExpression(): string {
       assistantMessageCount: assistantMessages.length,
       userMessageCount: userMessages.length,
       lastUserText: userMessages.at(-1)?.text || "",
+      lastUserCollapsed,
       // An image result is rendered outside every message unit and leaves no
       // assistant message at all (measured 2026-09-29), so it is reported here
       // for the waiter to recognize: a generated image that comes after the
