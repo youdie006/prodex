@@ -4,7 +4,7 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 0.40.32
 
 ### Fixed
 - `--file` sent only the first 500 lines of a longer file, without saying so. Measured: a 2,400-line file went out as lines 1-500, and ChatGPT answered "Not found" about line 1777. A file over 500 lines is now refused with a pointer to `--attach`, which uploads it whole.
