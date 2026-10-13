@@ -4,6 +4,13 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Fixed
+- `--file` sent only the first 500 lines of a longer file, without saying so. Measured: a 2,400-line file went out as lines 1-500, and ChatGPT answered "Not found" about line 1777. A file over 500 lines is now refused with a pointer to `--attach`, which uploads it whole.
+- A send of more than about 10 KB, such as a 500-line `--file`, posted and was then refused as `request_mismatch`. ChatGPT collapses a long sent message behind "Show more" and leaves the rest, including prodex's request marker, out of the page. prodex now expands the latest sent message and reads it again before judging it. Verified live: the same 12 KB `--file` send was refused by 0.40.31 and answered with this change.
+- A prompt of about 57 KB failed with "Chrome DevTools command timed out: Runtime.evaluate" and left its text in the composer. Typing it into ChatGPT's editor now takes 63-126 s (it took about 20 s for 67 KB when this path was built), beyond the 60 s allowed. The allowance is now 5 ms per character. Verified live: a 57 KB prompt answered in 84 s.
+
 ## 0.40.31
 
 ### Fixed

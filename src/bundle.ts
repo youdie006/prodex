@@ -53,6 +53,9 @@ export function looksLikeBinaryFileContent(content: string): boolean {
   return control / sample.length > 0.1;
 }
 
+/** The most lines `--file` puts into a prompt; longer files go through --attach. */
+export const INLINE_FILE_MAX_LINES = 500;
+
 export async function buildDryRunBundle(root: string, input: DryRunBundleInput): Promise<DryRunBundle> {
   const sections: string[] = [
     "# prodex consult dry run",
@@ -67,7 +70,15 @@ export async function buildDryRunBundle(root: string, input: DryRunBundleInput):
   // The prompt leads so the instruction is never buried under file dumps.
   const sendSections: string[] = [input.prompt.trim()];
   for (const file of input.files) {
-    const content = await readRepoFile(root, file, { maxLines: 500 });
+    const content = await readRepoFile(root, file, { maxLines: INLINE_FILE_MAX_LINES });
+    // Sending only the first lines without saying so made ChatGPT answer
+    // confidently about a file it never saw whole (measured 2026-10-13).
+    if (content.total_lines > content.end_line) {
+      throw new Error(
+        `--file ${file} has ${content.total_lines} lines; --file inlines at most ${INLINE_FILE_MAX_LINES}. ` +
+          `Upload the whole file instead: --attach ${file}.`
+      );
+    }
     if (looksLikeBinaryFileContent(content.content)) {
       throw new Error(
         `--file ${file} is not a text file, and --file inlines a file's TEXT into the prompt. ` +

@@ -93,7 +93,7 @@ Useful flags on every send:
 |---|---|
 | `--new-chat` | Explicitly request the default: ordinary consults start in a fresh chat. The shared current tab is never an implicit destination. |
 | `--session-key id` | Identify one caller for scoped `--continue`. Falls back to `PRODEX_SESSION_KEY`, then `CODEX_THREAD_ID`. |
-| `--file path` | Inline a text file's contents into the prompt. Repeatable. |
+| `--file path` | Inline a text file's contents into the prompt, up to 500 lines; a longer file is refused with a pointer to `--attach`. Repeatable. |
 | `--attach path` | Upload the file itself: the only way to hand ChatGPT a pdf, pptx, xlsx or image. Paths must live inside the repo. |
 | `--tool web-search` | Select a rendered composer tool. Automatic deep-research report retrieval is currently unsupported and is blocked before sending. |
 | `--project "name"` | Send inside an existing sidebar project. `--project-new` creates one first. `prodex pro browser projects` lists exact names. |

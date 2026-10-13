@@ -50,6 +50,21 @@ describe("buildDryRunBundle", () => {
     expect(bundle.sendText.indexOf("Summarize the notes.")).toBeLessThan(bundle.sendText.indexOf("## File: notes.md"));
   });
 
+  it("refuses a file longer than it can inline instead of sending only its start", async () => {
+    // Measured 2026-10-13: a 2,400-line --file went out as its first 500 lines
+    // with nothing saying so, and ChatGPT answered "Not found" about line 1777.
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-bundle-"));
+    const lines = Array.from({ length: 501 }, (_, i) => `line ${i + 1}`).join("\n");
+    await writeFile(path.join(cwd, "long.txt"), `${lines}\n`, "utf8");
+    await expect(buildDryRunBundle(cwd, { prompt: "Find it.", files: ["long.txt"] })).rejects.toThrow(
+      /long\.txt has 501 lines; --file inlines at most 500\. Upload the whole file instead: --attach long\.txt/
+    );
+
+    await writeFile(path.join(cwd, "fits.txt"), `${lines.split("\n").slice(0, 500).join("\n")}\n`, "utf8");
+    const bundle = await buildDryRunBundle(cwd, { prompt: "Find it.", files: ["fits.txt"] });
+    expect(bundle.sendText).toContain("line 500");
+  });
+
   it("rejects env-like files as consult bundle context", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "prodex-bundle-"));
     await writeFile(path.join(root, ".envrc"), "SECRET=leak\n", "utf8");
