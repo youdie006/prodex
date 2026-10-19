@@ -16,6 +16,27 @@ Release target: `v0.40.13` on `main`. The GitHub Release records the resolved co
 
 The release adds a guarded, opt-in transition and more accurate blocker reporting. It does not claim that headless Pro consultation is verified on either deployment target or that authentication can be retained indefinitely.
 
+## 0.40.36 Release Record
+
+Release commit `eee7a7c` on `main` (cut after PR #30, merge `1e53f4e`); tag `v0.40.36`.
+
+**Publishing**
+- `publish.yml` run 39220885039 passed all six platforms on the first attempt, then npm publish with SLSA v1 provenance and the GitHub Release (2026-10-19 08:10 UTC).
+- `npm run release:verify` passed on the release commit after a build.
+
+**Installed**
+- WSL, M3, Mac mini: `prodex --version` reports 0.40.36. Running services were not restarted: 9 stdio MCP servers on WSL and 2 on M3 keep older code until their clients reconnect. The Mac mini had none running.
+- The maintainer watchdog checkout was pulled to `eee7a7c` and rebuilt.
+
+**Verified live**
+- Host, installed 0.40.36: an answer with a markdown code block showing a fenced `js` example was saved with a four-backtick fence and no toolbar label line. Code blocks with HTML entities and backslashes, a table with an escaped pipe, and inline and display math were saved intact.
+
+**Browser container**
+- `container/redesign-patches` `3233bdc` ports PR #30 by hand. Image `3945d3d38af0`; branch suite 2042 passed, 3 skipped. Swapped under the send lock check. Live: the same nested block was saved intact.
+
+**Known and left as is**
+- An answer's text `&lt;tag&gt;` is saved as `<tag>`, as displayed; rendering the saved markdown again may treat it as an HTML tag.
+
 ## 0.40.35 Release Record
 
 Release commit `4c711c7` on `main` (cut after PR #29, merge `fdf7501`); tag `v0.40.35`.
