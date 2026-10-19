@@ -7142,8 +7142,24 @@ const NORMALIZED_PROMPT_MATCH_CHARS = 120;
 // place of the bare url (measured 2026-10-07, under load).
 const AUTOLINKED_URL_PATTERN = /\[(https?:\/\/[^\]\s]+)\]\(\1\)/g;
 
+/**
+ * ChatGPT displays a sent turn's HTML entities decoded (measured 2026-10-19:
+ * "&amp; &lt;b&gt;" was shown as "& <b>"), so both sides are compared decoded.
+ */
+function decodeHtmlEntities(value: string): string {
+  const named: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " " };
+  return value.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (entity: string, body: string) => {
+    const lower = body.toLowerCase();
+    if (lower.startsWith("#")) {
+      const code = lower.startsWith("#x") ? Number.parseInt(lower.slice(2), 16) : Number.parseInt(lower.slice(1), 10);
+      return code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : entity;
+    }
+    return named[lower] ?? entity;
+  });
+}
+
 function normalizeChatGptPromptText(value: string): string {
-  const unescaped = value.replace(AUTOLINKED_URL_PATTERN, "$1").replace(/\\([\\`*_{}[\]()#+\-.!>~|])/g, "$1");
+  const unescaped = decodeHtmlEntities(value).replace(AUTOLINKED_URL_PATTERN, "$1").replace(/\\([\\`*_{}[\]()#+\-.!>~|])/g, "$1");
   const renderedFences = unescaped.replace(
     /(^|\r?\n)```text[ \t]*\r?\n([\s\S]*?)\r?\n```(?=\r?\n|$)/g,
     "$1text\n$2"
@@ -7206,7 +7222,7 @@ export function chatGptRequestMatchesUserTurn(userText: string, sentPrompt: stri
 }
 
 function withoutFenceLines(value: string): string {
-  return value
+  return decodeHtmlEntities(value)
     .replace(AUTOLINKED_URL_PATTERN, "$1")
     .replace(/\\([\\`*_{}[\]()#+\-.!>~|])/g, "$1")
     .replace(/^[ \t]*```[\w-]*[ \t]*$/gm, "")
