@@ -4,7 +4,7 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 0.40.36
 
 ### Fixed
 - An answer's code block that itself shows a fenced example (e.g. a markdown block containing a ```` ```js ```` snippet) was saved broken: the block's toolbar label ("Markdown") leaked into the code, and the three-backtick fence was closed early by the backticks inside. Measured 2026-10-19: such a block keeps its text in a source element with no `<pre>`. The code is now read from that element, and the fence is longer than any backtick run inside. Verified live: the saved answer had a four-backtick fence around the nested block.
