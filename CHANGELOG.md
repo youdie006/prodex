@@ -4,7 +4,7 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 0.40.35
 
 ### Fixed
 - A prompt containing HTML entities such as `&amp;` or `&lt;b&gt;` posted and was then refused as `request_mismatch`. Measured 2026-10-19: ChatGPT displays them decoded in the sent turn ("& <b>"). Both sides are now compared with entities decoded; any other difference is still refused. Verified live: a prompt mixing paths, HTML, markdown, `$`, tabs, a table and Korean text answered on the host.
