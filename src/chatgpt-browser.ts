@@ -6001,12 +6001,19 @@ export const CHATGPT_RENDERED_MESSAGE_TEXT_JS = `
         }
         const lines = findAll(node, (n) => hasClass(n, "cm-line")).map((line) => line.textContent || "");
         const pre = tagOf(node) === "pre" ? node : findAll(node, (n) => tagOf(n) === "pre")[0];
-        const code = fullCode !== null ? trimEnd(fullCode) : lines.length > 0 ? lines.join(NL) : trimEnd(pre ? pre.textContent || "" : node.textContent || "");
+        // Some blocks keep their text in a source element with no <pre>
+        // (measured 2026-10-19), and the whole block's text carries the toolbar.
+        const source = pre || findAll(node, (n) => attr(n, "data-code-block-source") !== null)[0];
+        const code = fullCode !== null ? trimEnd(fullCode) : lines.length > 0 ? lines.join(NL) : trimEnd(source ? source.textContent || "" : node.textContent || "");
         const editor = findAll(node, (n) => attr(n, "data-language") !== null)[0];
         const toolbar = findAll(node, (n) => attr(n, "data-markdown-copy") === "exclude")[0];
         const label = toolbar ? collapse(findAll(toolbar, (n) => n.nodeType === 1 && tagOf(n) === "div" && children(n).every((c) => c.nodeType === 3)).map((n) => n.textContent || "")[0] || "").trim() : "";
         const language = ((editor && attr(editor, "data-language")) || label).trim().toLowerCase();
-        return BT + BT + BT + language + NL + code + NL + BT + BT + BT;
+        // A fence must be longer than any backtick run inside, or a block that
+        // shows a fenced example is closed early by it.
+        const longestRun = (code.match(new RegExp(BT + "+", "g")) || []).reduce((most, run) => Math.max(most, run.length), 0);
+        const fence = BT.repeat(Math.max(3, longestRun + 1));
+        return fence + language + NL + code + NL + fence;
       };
       const table = (node) => {
         const cell = (value) => collapse(value).trim().split("|").join(String.fromCharCode(92) + "|");

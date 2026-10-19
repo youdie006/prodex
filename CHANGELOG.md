@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Unreleased
 
 ### Fixed
+- An answer's code block that shows a fenced example was saved with its toolbar label in the code and a fence closed early by the inner backticks; it is now read from its source element and fenced longer than any backtick run inside (from `main` PR #30).
 - A prompt containing HTML entities (`&amp;`, `&lt;b&gt;`) posted and was then refused as unverified: the sent turn displays them decoded. Both sides are now compared decoded (from `main` PR #29).
 - `--model` with a model other than the current one (e.g. "GPT-5.6 Sol") was refused with "another element covers its click point": the picker now opens on its effort view with the model rows underneath. The view label is clicked first to show the model list (from `main` PR #28).
 - Long-prompt fixes from `main` 0.40.32 (PR #26): a `--file` over 500 lines is refused with a pointer to `--attach` instead of being sent as its first 500 lines; a long sent message that ChatGPT collapsed behind "Show more" is expanded and read again instead of being refused as `request_mismatch`; one large composer insert may take 5 ms per character (57 KB took 63-126 s on 2026-10-13).

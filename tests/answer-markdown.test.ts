@@ -93,6 +93,20 @@ describe("page-read answers as markdown", () => {
     expect(render(root)).toBe("Here it is.\n\n```python\ndef add(a, b):\n    return a + b\n```\n\nCalling `add(2, 3)` returns 5.");
   });
 
+  it("reads a code block kept in its source element, with a fence longer than any backtick run inside", () => {
+    // Measured 2026-10-19 on build bfc3a09a: a markdown block has no <pre>;
+    // its text sits in [data-code-block-source] <code>. The whole block's text
+    // was used instead, so the toolbar's "Markdown" leaked into the code, and
+    // the three-backtick fence was closed early by the ``` inside it.
+    const root = el("div", {}, [
+      el("div", { "data-markdown-copy": "code-block", "data-code-block": "true" }, [
+        el("div", { "data-markdown-copy": "exclude" }, [el("div", {}, ["Markdown"]), el("button", { "aria-label": "Copy code" }, [])]),
+        el("div", { "data-code-block-source": "true" }, [el("code", {}, [el("span", {}, ['```js\nconst s = "nested";\n```'])])])
+      ])
+    ]);
+    expect(render(root)).toBe('````markdown\n```js\nconst s = "nested";\n```\n````');
+  });
+
   it("reads a long code block from its editor, not just the lines on screen", () => {
     // Measured 2026-10-07: a 150-line code block came back with 36 lines -
     // CodeMirror renders only the lines in view - and nothing said so.
