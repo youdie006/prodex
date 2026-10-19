@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Fixed
+- `--model "GPT-5.6 Sol"` (any model other than the current one) failed with "Refusing to click ... another element covers its click point". Measured 2026-10-19 on ChatGPT build `bfc3a09a`: the picker opens on its effort view, a "Pro ›" label over the slider, with the model rows hidden underneath. prodex now clicks that label to show the model list when the requested row is covered. Verified live: switched to GPT-5.6 Sol and back to GPT-6 at the Pro step, each answering its prompt.
+
 ## 0.40.33
 
 ### Fixed

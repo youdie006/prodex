@@ -2983,6 +2983,31 @@ export function menuItemRectExpression(label: string | readonly string[]): strin
   })()`;
 }
 
+/**
+ * The picker's effort view covers its model rows: measured 2026-10-19, the
+ * menu opens on a "Pro ›" label over the slider with GPT-6 and GPT-5.6 Sol
+ * underneath, so a click on a model row hit the slider and was refused.
+ * Clicking the label swaps in the model list. Reports whether that is needed
+ * and where the label is; a row that can already be clicked needs nothing.
+ */
+export function pickerModelViewToggleExpression(label: string | readonly string[]): string {
+  return `(() => {${CLICK_POINT_SNIPPET}
+    const m = document.querySelector('[data-testid="composer-intelligence-picker-content"],[role="menu"]:has([role="slider"])');
+    if (!m) return { needed: false };
+    const items = [...m.querySelectorAll('[role="menuitemradio"],[role="menuitem"]')];
+    const row = items.filter((item) => item.getAttribute("role") === "menuitemradio").find(${menuLabelMatchPredicate(label)});
+    if (!row) return { needed: false };
+    const r = row.getBoundingClientRect();
+    const hit = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+    if (hit && (hit === row || row.contains(hit))) return { needed: false };
+    const toggle = items.find((item) =>
+      item.getAttribute("role") === "menuitem" && item.getClientRects().length > 0 &&
+      !item.querySelector('[role="slider"]') && (item.innerText || "").trim().length > 0);
+    if (!toggle) return { needed: true, ok: false, reason: "the model rows are covered and no view label was found" };
+    return { needed: true, ...clickPoint(toggle) };
+  })()`;
+}
+
 export function submenuItemRectExpression(label: string | readonly string[]): string {
   return `(() => {${CLICK_POINT_SNIPPET}
     const items = [...document.querySelectorAll('[role="menuitemradio"],[role="menuitem"]')];
@@ -3407,6 +3432,11 @@ async function selectPickerModel(cdp: CdpConnection, requested: string, warnings
       return;
     }
     throw new Error(hit.reason ?? `ChatGPT's model picker has no "${requested}" model.`);
+  }
+  const view = await cdp.evaluate<RectHit & { needed?: boolean }>(pickerModelViewToggleExpression(requested));
+  if (view.needed && view.ok && view.x !== undefined && view.y !== undefined) {
+    await verifiedClickAt(cdp, view.x, view.y, "the picker's model list");
+    await sleep(400);
   }
   await verifiedClickWithRetry(cdp, () => cdp.evaluate<RectHit>(menuItemRectExpression(requested)), requested);
 }
