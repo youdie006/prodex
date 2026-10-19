@@ -16,6 +16,24 @@ Release target: `v0.40.13` on `main`. The GitHub Release records the resolved co
 
 The release adds a guarded, opt-in transition and more accurate blocker reporting. It does not claim that headless Pro consultation is verified on either deployment target or that authentication can be retained indefinitely.
 
+## 0.40.35 Release Record
+
+Release commit `4c711c7` on `main` (cut after PR #29, merge `fdf7501`); tag `v0.40.35`.
+
+**Publishing**
+- `publish.yml` run 39211269776 passed all six platforms on the first attempt, then npm publish with SLSA v1 provenance and the GitHub Release (2026-10-19 06:40 UTC).
+- `npm run release:verify` passed on the release commit after a build.
+
+**Installed**
+- WSL, M3, Mac mini: `prodex --version` reports 0.40.35. Running services were not restarted: 10 stdio MCP servers on WSL and 2 on M3 keep older code until their clients reconnect. The Mac mini had none running.
+- The maintainer watchdog checkout was pulled to `4c711c7` and rebuilt.
+
+**Verified live**
+- Host, installed 0.40.35: the special-character stdin prompt (paths, HTML tags and entities, markdown, a link, `$`, tabs, a table, Korean) answered `SPECIAL_OK`; 0.40.34 had refused it as `request_mismatch`.
+
+**Browser container**
+- `container/redesign-patches` `62b713e` ports PR #29. Image `9b46b724ea31`; branch suite 2041 passed, 3 skipped. Swapped under the send lock check. Live: the same prompt answered `SPECIAL_OK` (the previous image refused it); smoke `PRODEX_PRO_SMOKE_OK`.
+
 ## 0.40.34 Release Record
 
 Release commit `574e5f0` on `main` (cut after PR #28, merge `1d93de4`); tag `v0.40.34`.
