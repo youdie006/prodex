@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Fixed
+- After a Windows restart, `prodex pro browser login` failed with "did not expose a reachable DevTools endpoint ... check the display, profile lock ..." and left the browser it had started running. Measured 2026-10-19: Windows had reserved TCP ports 9240-9339, and with WSL's mirrored networking Chrome could not bind 9333, so it ran without a control port. Every later automatic restart then refused that browser as wedged. Now the browser prodex started is closed when its control port never appears, and a port held by something else (a Windows reservation included) is named, with how to list reservations, free the port, or use another one.
+
 ## 0.40.32
 
 ### Fixed

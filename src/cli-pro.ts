@@ -1,5 +1,6 @@
 import { existsSync, realpathSync, statSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { createServer as createNetServer } from "node:net";
 import path from "node:path";
 import { BrowserProcessInspectionError } from "./browser-process.js";
 import { buildDryRunBundle } from "./bundle.js";
@@ -2755,9 +2756,55 @@ export async function assertBrowserLaunchStayedAlive(opened: ChatGptBrowserLaunc
       `Chrome/Chromium exited before DevTools became reachable (${detail}). Check the visible browser environment, profile lock, display access, or PRODEX_CHROME, then retry.`
     );
   }
+  // A browser prodex cannot reach is of no use to it, and left running it
+  // made every later attempt refuse it as wedged (measured 2026-10-19).
+  await endLaunchedBrowser(opened.processId);
+  if (!(await canBindLoopbackPort(opened.port))) {
+    throw new Error(
+      `Chrome started, but its DevTools control port ${opened.port} on 127.0.0.1 is already taken, so prodex cannot reach it. ` +
+        `On WSL with networkingMode=mirrored, Windows reserves port ranges at boot and they apply inside WSL too ` +
+        `(measured 2026-10-19: 9240-9339 reserved, covering 9333); list them with \`netsh interface ipv4 show excludedportrange protocol=tcp\`. ` +
+        `Free the port (as administrator: \`net stop winnat\` then \`net start winnat\`; a Windows dynamic port range starting at 49152 keeps it from coming back), ` +
+        `or use another port with --port or PRODEX_CDP_PORT. The browser prodex started was closed.`
+    );
+  }
   throw new Error(
-    `Chrome/Chromium did not expose a reachable DevTools endpoint after launch. Check the visible browser environment, profile lock, display access, or PRODEX_CHROME, then retry.`
+    `Chrome/Chromium did not expose a reachable DevTools endpoint after launch. Check the visible browser environment, profile lock, display access, or PRODEX_CHROME, then retry. The browser prodex started was closed.`
   );
+}
+
+async function endLaunchedBrowser(processId: number | undefined): Promise<void> {
+  if (!processId) return;
+  const alive = () => {
+    try {
+      process.kill(processId, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  try {
+    process.kill(processId, "SIGTERM");
+  } catch {
+    return;
+  }
+  for (let waited = 0; waited < 5_000 && alive(); waited += 100) await sleep(100);
+  if (alive()) {
+    try {
+      process.kill(processId, "SIGKILL");
+    } catch {
+      // Already gone.
+    }
+  }
+}
+
+/** Whether anything already holds this loopback port, a Windows reservation included. */
+function canBindLoopbackPort(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const server = createNetServer();
+    server.once("error", () => resolve(false));
+    server.listen(port, "127.0.0.1", () => server.close(() => resolve(true)));
+  });
 }
 
 /** Whether a send asked for ChatGPT's Pro step, on either axis that can name it. */
