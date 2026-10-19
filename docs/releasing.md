@@ -45,6 +45,7 @@ Release commit `0497134` on `main` (cut after PR #27, merge `6083c6a`); tag `v0.
 **Recovery and fixes**
 - The leftover Chrome was ended with `prodex pro browser reset --confirm`. PR #27 (0.40.33) makes login close a browser whose control port never appears and name a taken port.
 - Not changed: the Windows port settings. Bringing the host browser back needs an administrator on Windows: `net stop winnat` then `net start winnat` for now, and `netsh int ipv4 set dynamicport tcp start=49152 num=16384` (and `udp`) plus a restart to keep it from recurring. As of this record the range was still reserved and the host browser was down.
+- Resolved 2026-10-19 11:51 KST: the maintainer ran the elevated script (`netsh int ipv4 set dynamicport tcp|udp start=49152 num=16384`, then `net stop winnat` / `net start winnat`). The 9240-9339 reservation was gone and 9333 could be bound. `login --virtual-display` was ready in 2 s; the canary reported the new ChatGPT build `bfc3a09a` as changed; the smoke answered `PRODEX_PRO_SMOKE_OK`, and a 500-line `--file` send on 0.40.33 answered correctly with the request verified.
 
 ## 0.40.32 Release Record
 
