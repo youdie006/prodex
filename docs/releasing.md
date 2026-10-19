@@ -16,6 +16,36 @@ Release target: `v0.40.13` on `main`. The GitHub Release records the resolved co
 
 The release adds a guarded, opt-in transition and more accurate blocker reporting. It does not claim that headless Pro consultation is verified on either deployment target or that authentication can be retained indefinitely.
 
+## 0.40.33 Release Record
+
+Release commit `0497134` on `main` (cut after PR #27, merge `6083c6a`); tag `v0.40.33`.
+
+**Publishing**
+- `publish.yml` run 39181118204 passed all six platforms on the first attempt, then npm publish with SLSA v1 provenance and the GitHub Release (2026-10-19 00:51 UTC).
+- `npm run release:verify` passed on the release commit after a build.
+
+**Installed**
+- WSL, M3, Mac mini: `prodex --version` reports 0.40.33. Running services were not restarted: 10 stdio MCP servers on WSL and 2 on M3 keep older code until their clients reconnect. The Mac mini had none running.
+- The maintainer watchdog checkout was pulled to `0497134` and rebuilt.
+
+**Verified live**
+- With 0.40.33 installed, `login --virtual-display` on the affected machine printed the taken-port message for 9333 and left no Chrome running on the profile.
+
+## Browser Incident 2026-10-18: Windows reserved port 9333
+
+**What happened**
+- The WSL machine restarted at 2026-10-18 18:08 KST. From 19:17 KST the hourly canary logged `skipped - the browser is not available`.
+- The watchdog's first revive (19:17 KST) started Chrome, which loaded ChatGPT logged in but never opened its DevTools port; login reported "did not expose a reachable DevTools endpoint ... check the display, profile lock". Later revives refused the leftover Chrome as wedged (`ui_watchdog_revive=failed ... still running ... stopped answering`).
+- The browser container was unaffected (port 9333 is inside its own network namespace).
+
+**Cause**
+- Windows (Hyper-V/WinNAT) reserved TCP ports 9240-9339 at boot (`netsh interface ipv4 show excludedportrange protocol=tcp`). The machine runs WSL with `networkingMode=mirrored`, so the reservation applies inside WSL, and Chrome logged `bind() failed: Address already in use` and `Cannot start http server for devtools`.
+- The Windows TCP dynamic port range starts at 1024 (13,977 ports) instead of the default 49152, which lets these reservations land on 9333.
+
+**Recovery and fixes**
+- The leftover Chrome was ended with `prodex pro browser reset --confirm`. PR #27 (0.40.33) makes login close a browser whose control port never appears and name a taken port.
+- Not changed: the Windows port settings. Bringing the host browser back needs an administrator on Windows: `net stop winnat` then `net start winnat` for now, and `netsh int ipv4 set dynamicport tcp start=49152 num=16384` (and `udp`) plus a restart to keep it from recurring. As of this record the range was still reserved and the host browser was down.
+
 ## 0.40.32 Release Record
 
 Release commit `e0e260e` on `main` (cut after PR #26, merge `f57f413`); tag `v0.40.32`.
