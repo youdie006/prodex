@@ -16,6 +16,25 @@ Release target: `v0.40.13` on `main`. The GitHub Release records the resolved co
 
 The release adds a guarded, opt-in transition and more accurate blocker reporting. It does not claim that headless Pro consultation is verified on either deployment target or that authentication can be retained indefinitely.
 
+## 0.40.34 Release Record
+
+Release commit `574e5f0` on `main` (cut after PR #28, merge `1d93de4`); tag `v0.40.34`.
+
+**Publishing**
+- `publish.yml` run 39201678797 passed all six platforms on the first attempt, then npm publish with SLSA v1 provenance and the GitHub Release (2026-10-19 04:52 UTC).
+- `npm run release:verify` passed on the release commit after a build.
+
+**Installed**
+- WSL, M3, Mac mini: `prodex --version` reports 0.40.34. Running services were not restarted: 10 stdio MCP servers on WSL and 2 on M3 keep older code until their clients reconnect. The Mac mini had none running.
+- The maintainer watchdog checkout was pulled to `574e5f0` and rebuilt.
+
+**Verified live**
+- Host, installed 0.40.34: `--model "GPT-5.6 Sol" --effort Pro` and then `--model GPT-6 --effort Pro` both answered; the picker ended on GPT-6, 5/5 Pro. Installed 0.40.33 had refused the Sol selection ("another element covers its click point").
+- Before the fix, on ChatGPT build `bfc3a09a` the host matrix passed: `--continue-task`, `--temporary`, `--tool web-search`, `--attach`, `--project`, `recover --request-id`, `--effort High`, `--model Pro`.
+
+**Browser container**
+- `container/redesign-patches` `ab1c6e1` ports PR #28. Image `a3746b490dbb`; branch suite 2038 passed, 3 skipped. Swapped under the send lock check; the ChatGPT tab opened on its own. Live: GPT-5.6 Sol then GPT-6 Pro both answered.
+
 ## 0.40.33 Release Record
 
 Release commit `0497134` on `main` (cut after PR #27, merge `6083c6a`); tag `v0.40.33`.
