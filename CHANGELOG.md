@@ -4,7 +4,7 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 0.40.37
 
 ### Fixed
 - A finished answer could be held as "still generating" for the whole budget, then returned as `answer_incomplete`, while any send queued behind it gave up waiting. Measured 2026-10-20: after a Pro answer, the composer kept a hidden, zero-size "Stop" button, and prodex counted it as streaming just because it existed. Only a displayed stop button or busy message counts now. Verified live: two sends started together had taken 311 s (incomplete) and failed after 306 s; with this change they finished in 35 s and 64 s, both complete.
