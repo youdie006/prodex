@@ -16,6 +16,25 @@ Release target: `v0.40.13` on `main`. The GitHub Release records the resolved co
 
 The release adds a guarded, opt-in transition and more accurate blocker reporting. It does not claim that headless Pro consultation is verified on either deployment target or that authentication can be retained indefinitely.
 
+## 0.40.38 Release Record
+
+Release commit `9541727` on `main` (cut after PR #32, merge `2c049b5`); tag `v0.40.38`.
+
+**Publishing**
+- `publish.yml` run 39362699716 passed all six platforms on the first attempt, then npm publish with SLSA v1 provenance and the GitHub Release (2026-10-20 03:08 UTC).
+- `npm run release:verify` passed on the release commit after a build.
+
+**Installed**
+- WSL, M3, Mac mini: `prodex --version` reports 0.40.38. Running services were not restarted: 9 stdio MCP servers on WSL and 3 on M3 keep older code until their clients reconnect. The Mac mini had none running.
+- The maintainer watchdog checkout was pulled to `9541727` and rebuilt.
+
+**Verified live**
+- Over a fresh stdio MCP server on installed 0.40.38: a `pro_consult` with a 15 s timeout returned `status: "blocked"` (`send_timeout`) with `recover`, and `pro_recover` with `recover.arguments` returned `status: "done"`. On 0.40.37 the same consult returned only error text naming a CLI command.
+- Earlier the same day over MCP: `files`, `continue_thread`, and refusals for a path outside the repo, `.env`, a missing attachment, `new_chat` with `continue_thread`, and `deep-research` all behaved as documented.
+
+**Browser container**
+- `container/redesign-patches` `9c8a3d9` ports PR #32. Image `7486d2054a82`; branch suite 2049 passed, 3 skipped. Swapped under the send lock check. Live over MCP in the container: the same timeout returned `recover`, and `pro_recover` returned `done`.
+
 ## 0.40.37 Release Record
 
 Release commit `437590d` on `main` (cut after PR #31, merge `fd0ef2e`); tag `v0.40.37`.
