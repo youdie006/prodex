@@ -16,6 +16,28 @@ Release target: `v0.40.13` on `main`. The GitHub Release records the resolved co
 
 The release adds a guarded, opt-in transition and more accurate blocker reporting. It does not claim that headless Pro consultation is verified on either deployment target or that authentication can be retained indefinitely.
 
+## 0.40.37 Release Record
+
+Release commit `437590d` on `main` (cut after PR #31, merge `fd0ef2e`); tag `v0.40.37`.
+
+**Publishing**
+- `publish.yml` run 39351689919 passed all six platforms on the first attempt, then npm publish with SLSA v1 provenance and the GitHub Release (2026-10-20 01:07 UTC).
+- `npm run release:verify` passed on the release commit after a build.
+
+**Installed**
+- WSL, M3, Mac mini: `prodex --version` reports 0.40.37. Running services were not restarted: 9 stdio MCP servers on WSL and 3 on M3 keep older code until their clients reconnect. The Mac mini had none running.
+- The maintainer watchdog checkout was pulled to `437590d` and rebuilt.
+
+**Verified live**
+- Before the fix, on installed 0.40.36, two sends started together took 311 s (`answer_incomplete`, though the answer was on screen) and failed after 306 s in the queue: a hidden, zero-size "Stop" button stayed in the composer after a Pro answer.
+- Installed 0.40.37: the same two concurrent sends both completed, with no `answer_incomplete`.
+
+**Browser container**
+- `container/redesign-patches` `7ea2015` ports PR #31. Image `452d4ae8fc85`; branch suite 2045 passed, 1 failed (a sidebar retry timing test, 3/3 green alone), 3 skipped. Swapped under the send lock check. Live: two concurrent sends finished in 29 s and 61 s, both complete.
+
+**Not acted on**
+- An unsolicited email (2026-10-20) proposed `"exports": {".": {"import": "./dist/index.js", "require": "./dist/index.cjs"}}`. The package is CLI-only by design (`d46034c`, 2026-06-24), `dist/index.cjs` does not exist, and applying it in a scratch checkout made `npm run smoke:package` fail ("Installed package unexpectedly allowed import(@youdie006/prodex)"). Nothing was changed; the sender was not contacted.
+
 ## 0.40.36 Release Record
 
 Release commit `eee7a7c` on `main` (cut after PR #30, merge `1e53f4e`); tag `v0.40.36`.
