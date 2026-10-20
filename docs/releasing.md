@@ -26,6 +26,12 @@ The release adds a guarded, opt-in transition and more accurate blocker reportin
 - The dedicated browser was closed with CDP `Browser.close` (send lock idle), then started with a window. Cloudflare passed. `--minimized` was not kept: this macOS desktop reports a minimized window as hidden, so prodex restored it.
 - The profile's ChatGPT login had expired; the maintainer signed in on the Mac. `pro browser check` then reported `ok logged_in=true composer=true`, and `pro browser smoke` answered `PRODEX_PRO_SMOKE_OK`.
 
+**Headless handoff, then the cause (same day)**
+- `login --background` handed the signed-in profile to headless (after PR #35's lock-wait problem was worked around by retrying), and the headless tab was immediately back on Cloudflare's "Just a moment" page (`NOT READY - cloudflare_check ... not ready headlessly`).
+- Read over CDP: the headless browser reports `HeadlessChrome/155.0.0.0` in its user agent and an 800x600 screen. WSL never runs headless - its dedicated browser is ordinary Chrome on the Xvfb display - which is why the same account works there. macOS has no Xvfb. Faking the user agent was not done: the container design excludes stealth settings.
+- M3's Claude and Codex MCP configs already use the browser container (`container-client.mjs --context colima-prodex-check mcp`), which runs ordinary Chromium on Xvfb and was logged in and ready. Three long-running sessions (two Claude, started via cmux with `--resume`, and a Codex running since 2026-09-15) still held host `prodex mcp` connections; they reach the container after a `/mcp` reconnect.
+- M3's container was rebuilt from `container/redesign-patches` `a870b0c` (image `feb5a47aae06`, restart `unless-stopped`) under the container's send-lock check. Its login was kept, the ChatGPT tab opened by itself, `pro browser check` was ok and the smoke answered `PRODEX_PRO_SMOKE_OK`. The container's `prodex --version` still prints 0.40.18 because that branch never bumped its version.
+
 **Open**
 - A long-running headless browser ends up behind Cloudflare's check (also noted on WSL, where the Xvfb display is used instead). On macOS there is no virtual display, and a minimized window counts as hidden, so the remaining no-headless option there is a window kept behind others. Changing the headless preference is a design decision that was not made here.
 
