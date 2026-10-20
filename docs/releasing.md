@@ -16,6 +16,19 @@ Release target: `v0.40.13` on `main`. The GitHub Release records the resolved co
 
 The release adds a guarded, opt-in transition and more accurate blocker reporting. It does not claim that headless Pro consultation is verified on either deployment target or that authentication can be retained indefinitely.
 
+## Browser Incident 2026-10-20: M3 headless browser behind Cloudflare
+
+**What happened**
+- A read-only `prodex pro browser check` on M3 (0.40.38) reported `cloudflare_check`: the dedicated browser had run headless since 2026-09-16 and its ChatGPT tab sat on Cloudflare's human-verification page. Consults from M3's stdio MCP servers could not send.
+- `login --headed --recover-visible` could not take it over (`Chrome DevTools command timed out: Runtime.enable` on the stuck tab), and `reset` declined because the browser itself still answered.
+
+**Recovery**
+- The dedicated browser was closed with CDP `Browser.close` (send lock idle), then started with a window. Cloudflare passed. `--minimized` was not kept: this macOS desktop reports a minimized window as hidden, so prodex restored it.
+- The profile's ChatGPT login had expired; the maintainer signed in on the Mac. `pro browser check` then reported `ok logged_in=true composer=true`, and `pro browser smoke` answered `PRODEX_PRO_SMOKE_OK`.
+
+**Open**
+- A long-running headless browser ends up behind Cloudflare's check (also noted on WSL, where the Xvfb display is used instead). On macOS there is no virtual display, and a minimized window counts as hidden, so the remaining no-headless option there is a window kept behind others. Changing the headless preference is a design decision that was not made here.
+
 ## 0.40.38 Release Record
 
 Release commit `9541727` on `main` (cut after PR #32, merge `2c049b5`); tag `v0.40.38`.
