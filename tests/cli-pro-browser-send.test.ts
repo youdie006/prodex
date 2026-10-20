@@ -60,6 +60,16 @@ afterEach(async () => {
   await rm(isolatedLoginDir, { recursive: true, force: true });
 });
 
+
+// Since 2026-10-20 a blocked MCP consult returns its blocked record (with the
+// pro_recover call when one applies) instead of throwing the text.
+async function expectMcpBlocked(run: Promise<unknown>, pattern: RegExp): Promise<Record<string, unknown>> {
+  const outcome = (await run) as Record<string, unknown>;
+  expect(outcome.status).toBe("blocked");
+  expect(String(outcome.message)).toMatch(pattern);
+  return outcome;
+}
+
 describe("pro browser ask persistence", () => {
   beforeEach(() => {
     sendChatGptPromptMock.mockReset();
@@ -2526,7 +2536,7 @@ describe("pro browser ask model/project selection", () => {
     getChatGptBrowserStatusMock.mockResolvedValue({ reachable: true, loggedInLikely: false, hasComposer: false, modelHints: [], blocker });
     const { performBrowserConsultForMcp } = await import("../src/cli-pro.js");
     try {
-      await expect(performBrowserConsultForMcp(cwd, { prompt: "keep this request headless" })).rejects.toThrow(/temporary visible browser is still running/i);
+      await expectMcpBlocked(performBrowserConsultForMcp(cwd, { prompt: "keep this request headless" }), /temporary visible browser is still running/i);
       expect(openChatGptTabMock).not.toHaveBeenCalled();
       expect(openChatGptBrowserMock).not.toHaveBeenCalled();
       expect(sendChatGptPromptMock).toHaveBeenCalledOnce();
@@ -2650,7 +2660,8 @@ describe("pro browser ask model/project selection", () => {
       : runCli(["ask", ...(mode === "auto-login" ? ["--auto-login"] : []), "Send only once"], {
           cwd, stdout: () => {}, stderr: () => {}, isInteractive: mode === "interactive"
         });
-    await expect(run).rejects.toThrow(/blocked consult recorded/);
+    if (mode === "mcp") await expectMcpBlocked(run, /blocked consult recorded/);
+    else await expect(run).rejects.toThrow(/blocked consult recorded/);
     expect(sendChatGptPromptMock).toHaveBeenCalledTimes(1);
     expect(openChatGptBrowserMock).not.toHaveBeenCalled();
     const latest: string[] = [];
@@ -2766,9 +2777,7 @@ describe("pro browser ask model/project selection", () => {
       };
       sendChatGptPromptMock.mockRejectedValueOnce(Object.assign(new Error(blocker.message), { blocker }));
 
-      await expect(performBrowserConsultForMcp(cwd, { prompt: "no auto login please" })).rejects.toThrow(
-        /No Chrome DevTools endpoint/
-      );
+      await expectMcpBlocked(performBrowserConsultForMcp(cwd, { prompt: "no auto login please" }), /No Chrome DevTools endpoint/);
       expect(openChatGptBrowserMock).not.toHaveBeenCalled();
     } finally {
       if (priorOptOut === undefined) delete process.env.PRODEX_NO_AUTO_LOGIN;

@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Fixed
+- Over MCP, a blocked `pro_consult` came back only as error text naming a CLI command (`prodex pro browser recover --target-url ... --request-id ...`). The structured record with its `thread` and `blocker` was dropped, so an agent without a shell could not follow it, and `pro_recover` asked for a `thread` field the agent never received. A blocked consult now returns `status: "blocked"` with `blocker`, `thread`, `message`, and, when the request reached ChatGPT, `request_id` and `recover: { tool: "pro_recover", arguments: { thread, request_id } }`. Verified live: a consult with a 15 s timeout returned `recover`, and `pro_recover` with those arguments returned the finished answer.
+- The `--allow-model-fallback` help and the MCP description still said the picker's model rows "cannot be driven at all"; since 0.40.34 they can. The text now says a model the picker does not offer is a warning.
+
 ## 0.40.37
 
 ### Fixed
