@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Unreleased
 
 ### Fixed
+- A finished answer was held as "still generating" for the whole budget because a hidden, zero-size "Stop" button stayed in the composer; only a displayed stop button or busy message counts now (from `main` PR #31).
 - An answer's code block that shows a fenced example was saved with its toolbar label in the code and a fence closed early by the inner backticks; it is now read from its source element and fenced longer than any backtick run inside (from `main` PR #30).
 - A prompt containing HTML entities (`&amp;`, `&lt;b&gt;`) posted and was then refused as unverified: the sent turn displays them decoded. Both sides are now compared decoded (from `main` PR #29).
 - `--model` with a model other than the current one (e.g. "GPT-5.6 Sol") was refused with "another element covers its click point": the picker now opens on its effort view with the model rows underneath. The view label is clicked first to show the model list (from `main` PR #28).
