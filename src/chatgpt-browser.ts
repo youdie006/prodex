@@ -748,6 +748,18 @@ const CHATGPT_GENERATING_CONTROL_PATTERN = /\bstop\s+(?:generating|responding|re
 export const CHATGPT_STREAMING_SELECTOR =
   '[data-testid="stop-button"],form button[aria-label="Stop"],form button[aria-label="중지"],[data-message-author-role="assistant"][aria-busy="true"],[data-message-author-role="assistant"] [aria-busy="true"]';
 
+/**
+ * Whether a streaming signal is actually on screen. Measured 2026-10-20: after
+ * a Pro answer finished, the composer kept a zero-size, undisplayed "Stop"
+ * button, and its mere presence held a finished answer as "generating" for
+ * the whole budget. A message drawn through display: contents has no box of
+ * its own, so its children decide.
+ */
+export const CHATGPT_STREAMING_SIGNAL_JS = `
+    const streamingSignalVisible = () =>
+      [...document.querySelectorAll(${JSON.stringify(CHATGPT_STREAMING_SELECTOR)})].some((node) =>
+        node.getClientRects().length > 0 || [...(node.children || [])].some((child) => child.getClientRects().length > 0));`;
+
 export function defaultChatGptProfileDir(): string {
   return path.join(os.homedir(), ".local", "share", "prodex", "chrome-chatgpt-pro");
 }
@@ -5998,11 +6010,10 @@ export const CHATGPT_THINKING_PLACEHOLDER_JS =
 export function statusExpression(): string {
   const excludedTextSelector = JSON.stringify(CHATGPT_RUNTIME_BLOCKER_TEXT_EXCLUDED_ANCESTORS);
   const blockerScanExcludedSelector = JSON.stringify(CHATGPT_BLOCKER_SCAN_EXCLUDED_ANCESTORS);
-  const streamingSelector = JSON.stringify(CHATGPT_STREAMING_SELECTOR);
   const responseChoiceSelector = JSON.stringify(CHATGPT_RESPONSE_CHOICE_SELECTOR);
   const generatingControlPattern = JSON.stringify(CHATGPT_GENERATING_CONTROL_PATTERN.source);
   const generatingControlFlags = JSON.stringify(CHATGPT_GENERATING_CONTROL_PATTERN.flags);
-  return `(() => {${CHATGPT_MODEL_HINTS_JS}
+  return `(() => {${CHATGPT_MODEL_HINTS_JS}${CHATGPT_STREAMING_SIGNAL_JS}
     ${composerExpressionHelpers()}
     const text = document.body?.innerText || "";
     const runtimeExcludedTextSelector = ${excludedTextSelector};
@@ -6053,7 +6064,7 @@ export function statusExpression(): string {
       blockerScanTextSample: blockerScanText.slice(0, 12000),
       visibleButtonLabels,
       hasComposer,
-      generating: placeholder || Boolean(document.querySelector(${streamingSelector})) || visibleButtonLabels.some((label) => generatingControlPattern.test(label)),
+      generating: placeholder || streamingSignalVisible() || visibleButtonLabels.some((label) => generatingControlPattern.test(label)),
       awaitingResponseChoice: Boolean(document.querySelector(${responseChoiceSelector})),
       modelHints: modelHintLines(),
       openDialogText: (([...document.querySelectorAll('[role="dialog"]')].find((d) => d.offsetWidth || d.offsetHeight || d.getClientRects().length)?.innerText) || "").trim().slice(0, 200)
@@ -7200,11 +7211,10 @@ function composerExpressionHelpers(): string {
 export function answerExpression(): string {
   const excludedTextSelector = JSON.stringify(CHATGPT_RUNTIME_BLOCKER_TEXT_EXCLUDED_ANCESTORS);
   const blockerScanExcludedSelector = JSON.stringify(CHATGPT_BLOCKER_SCAN_EXCLUDED_ANCESTORS);
-  const streamingSelector = JSON.stringify(CHATGPT_STREAMING_SELECTOR);
   const responseChoiceSelector = JSON.stringify(CHATGPT_RESPONSE_CHOICE_SELECTOR);
   const generatingControlPattern = JSON.stringify(CHATGPT_GENERATING_CONTROL_PATTERN.source);
   const generatingControlFlags = JSON.stringify(CHATGPT_GENERATING_CONTROL_PATTERN.flags);
-  return `(() => {${CHATGPT_MODEL_HINTS_JS}
+  return `(() => {${CHATGPT_MODEL_HINTS_JS}${CHATGPT_STREAMING_SIGNAL_JS}
     const text = document.body?.innerText || "";
     const excludedTextSelector = ${excludedTextSelector};
     const blockerScanExcludedSelector = ${blockerScanExcludedSelector};
@@ -7271,7 +7281,7 @@ export function answerExpression(): string {
       blockerTextSample: visibleTextOutsideMessages(excludedTextSelector).slice(0, 12000),
       blockerScanTextSample: visibleTextOutsideMessages(blockerScanExcludedSelector).slice(0, 12000),
       visibleButtonLabels: buttons,
-      generating: placeholder || Boolean(document.querySelector(${streamingSelector})) || buttons.some((label) => generatingControlPattern.test(label)),
+      generating: placeholder || streamingSignalVisible() || buttons.some((label) => generatingControlPattern.test(label)),
       awaitingResponseChoice: Boolean(document.querySelector(${responseChoiceSelector})),
       assistantMessageCount: assistantMessages.length,
       userMessageCount: userMessages.length,
