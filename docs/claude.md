@@ -109,6 +109,8 @@ Write tools are narrow and receipt-gated, and they require a git worktree with a
 
 `pro_recover` reads a finished, rendered answer after a consult stopped waiting. Pass the original `request_id` with its `thread` to verify the answer follows that exact marked user turn. Omitting it supports old records but returns `request_verified: false` and a warning. It sends nothing and refuses wrong-request, wrong-thread, still-generating, or unstable content. Deep-research widget reports remain unsupported, and this tool is also registered only on the local stdio MCP server.
 
+A `pro_consult` that is blocked returns `status: "blocked"` with its `blocker`, `thread` and `message`. When the request already reached ChatGPT (a timeout, or the browser lost mid-answer), it also carries `request_id` and `recover: { tool: "pro_recover", arguments: { thread, request_id } }`: call `pro_recover` with those arguments once the answer has finished instead of sending the question again.
+
 Updating the installed package does not reload an already-running MCP process. Reconnect the MCP server or restart the Codex/Claude agent client to load the new build. The dedicated browser profile remains signed in, so no ChatGPT reauthentication is needed.
 
 Generic bridge result/session/task tools redact ChatGPT thread metadata, including nested blockers; local `pro_consult` recovery information remains available. A legacy result artifact with no saved hash returns `legacy_artifact_unverified` rather than implying its bytes were verified. `sessions cancel` only clears stale bookkeeping after a send was interrupted; it does not stop an active consult.
