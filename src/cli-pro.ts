@@ -2160,6 +2160,34 @@ export function answerRescuedFromFailedPersistence(
   return { taskId, thread, answer };
 }
 
+/**
+ * The --json blocked record a failed consult printed, for an MCP caller.
+ *
+ * Measured 2026-10-20: a pro_consult that timed out came back to the agent as
+ * plain text naming a CLI command, while the record with its thread and
+ * blocker was dropped - and pro_recover asks for that thread. The record is
+ * returned instead, with the pro_recover call to make when the request
+ * reached a thread.
+ */
+export function mcpBlockedConsultOutcome(stdoutLines: readonly string[], error: unknown): Record<string, unknown> | undefined {
+  let record: Record<string, unknown>;
+  try {
+    record = JSON.parse(stdoutLines.join("\n")) as Record<string, unknown>;
+  } catch {
+    return undefined;
+  }
+  if (!record || record.status !== "blocked") return undefined;
+  const blocker = (record.blocker ?? {}) as { next_step?: string; thread?: string };
+  const thread = typeof record.thread === "string" ? record.thread : blocker.thread;
+  const requestId = /--request-id ([a-f0-9]{32})/.exec(blocker.next_step ?? "")?.[1];
+  return {
+    ...record,
+    message: errorMessage(error),
+    ...(requestId ? { request_id: requestId } : {}),
+    ...(thread && requestId ? { recover: { tool: "pro_recover", arguments: { thread, request_id: requestId } } } : {})
+  };
+}
+
 export async function performBrowserConsultForMcp(
   cwd: string,
   input: BrowserConsultInput,
@@ -2244,7 +2272,11 @@ export async function performBrowserConsultForMcp(
     // answer is usually a Pro run someone waited minutes for. Hand it back
     // with the failure attached rather than losing it.
     const rescued = answerRescuedFromFailedPersistence(stdoutLines);
-    if (!rescued) throw error;
+    if (!rescued) {
+      const blocked = mcpBlockedConsultOutcome(stdoutLines, error);
+      if (blocked) return blocked as unknown as BrowserConsultOutcome;
+      throw error;
+    }
     const notes = [
       ...stderrLines.filter((line) => !line.startsWith("progress:")),
       `answer_not_saved: ${errorMessage(error)}`

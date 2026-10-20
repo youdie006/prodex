@@ -470,7 +470,9 @@ describe("MCP follow-up approval checkpoints", () => {
     vi.stubEnv("PRODEX_MAX_AUTO_FOLLOWUPS", "1");
     const { cwd, root } = await start();
     sendChatGptPromptMock.mockRejectedValueOnce(new Error("send_timeout: answer is not finished"));
-    await expect(performBrowserConsultForMcp(cwd, { ...root.continuation, prompt: "Height is 23" })).rejects.toThrow(/send_timeout/);
+    const failed = (await performBrowserConsultForMcp(cwd, { ...root.continuation, prompt: "Height is 23" })) as unknown as Record<string, unknown>;
+    expect(failed.status).toBe("blocked");
+    expect(JSON.stringify(failed)).toMatch(/send_timeout/);
     const outcome = await performBrowserConsultForMcp(cwd, { ...root.continuation, prompt: "Do not resend without approval" });
     expect(outcome.status).toBe("awaiting_user");
     expect(sendChatGptPromptMock).toHaveBeenCalledTimes(2);
