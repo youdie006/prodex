@@ -107,7 +107,8 @@ export async function readRepoFile(root: string, repoPath: string, options: Read
   const resolved = resolveRepoPath(root, repoPath);
   await assertResolvedRepoPathAllowed(root, resolved, repoPath);
   const text = await readVerifiedUtf8File(resolved, () => assertResolvedRepoPathAllowed(root, resolved, repoPath), {
-    maxBytes: MAX_REPO_READ_BYTES
+    maxBytes: MAX_REPO_READ_BYTES,
+    decodeUtf16Bom: true
   }).catch((error) => {
     if (error instanceof Error && /too large/.test(error.message)) {
       throw new Error(`Path ${repoPath} is too large to read through repo tools`);

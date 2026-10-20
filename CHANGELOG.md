@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Fixed
+- `--file` refused a text file saved by Windows Notepad as "Unicode" (UTF-16 with a byte order mark) as "not a text file", because it was read as UTF-8. Files that start with a UTF-16 byte order mark are now decoded as UTF-16 when read through `--file` or the MCP `repo_read_file` tool; nothing is re-encoded on write. Verified live: a UTF-16 LE file answered with its value.
+
 ## 0.40.38
 
 ### Fixed
