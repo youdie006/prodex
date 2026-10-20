@@ -119,7 +119,7 @@ export async function withCrossProcessFileLock<T>(
 export async function readVerifiedUtf8File(
   filePath: string,
   validate: () => Promise<void>,
-  options: { maxBytes?: number; mode?: number } = {}
+  options: { maxBytes?: number; mode?: number; decodeUtf16Bom?: boolean } = {}
 ): Promise<string> {
   await validate();
   const parentSnapshot = await captureParentSnapshot(filePath);
@@ -134,7 +134,7 @@ export async function readVerifiedUtf8File(
     if (options.maxBytes !== undefined && stat.size > options.maxBytes) {
       throw new Error(`Target file is too large (${stat.size} bytes)`);
     }
-    const content = await readHandleUtf8(handle, filePath, options.maxBytes);
+    const content = await readHandleUtf8(handle, filePath, options.maxBytes, options.decodeUtf16Bom === true);
     if (options.mode !== undefined) {
       await testHooks.beforeChmod?.(filePath, "read");
       await assertSafeOpenFile(handle, filePath, "read");
@@ -275,7 +275,7 @@ async function replaceByVerifiedTempFile(
   }
 }
 
-async function readHandleUtf8(handle: FileHandle, filePath: string, maxBytes?: number): Promise<string> {
+async function readHandleUtf8(handle: FileHandle, filePath: string, maxBytes?: number, decodeUtf16Bom = false): Promise<string> {
   await assertOpenFileMatchesPath(handle, filePath, "read");
   const stat = await handle.stat();
   if (!stat.isFile()) {
@@ -295,7 +295,24 @@ async function readHandleUtf8(handle: FileHandle, filePath: string, maxBytes?: n
       throw new Error(`Target file is too large (${offset} bytes)`);
     }
   }
-  return buffer.subarray(0, offset).toString("utf8");
+  return decodeFileText(buffer.subarray(0, offset), decodeUtf16Bom);
+}
+
+/**
+ * UTF-8, or UTF-16 when asked and the file starts with its BOM. Windows
+ * Notepad's "Unicode" saves UTF-16 LE with a BOM, and reading that as UTF-8
+ * turned every other byte into a NUL (measured 2026-10-20: --file refused it
+ * as "not a text file"). Only readers opt in, so nothing is re-encoded on write.
+ */
+export function decodeFileText(bytes: Buffer, decodeUtf16Bom = false): string {
+  if (decodeUtf16Bom && bytes.length >= 2) {
+    if (bytes[0] === 0xff && bytes[1] === 0xfe) return bytes.subarray(2).toString("utf16le");
+    if (bytes[0] === 0xfe && bytes[1] === 0xff) {
+      const body = Buffer.from(bytes.subarray(2, 2 + ((bytes.length - 2) & ~1)));
+      return body.swap16().toString("utf16le");
+    }
+  }
+  return bytes.toString("utf8");
 }
 
 async function writeHandleUtf8(handle: FileHandle, filePath: string, content: string): Promise<void> {

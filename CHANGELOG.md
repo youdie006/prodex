@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Unreleased
 
 ### Fixed
+- `--file` reads a UTF-16 text file that starts with a byte order mark (Windows Notepad "Unicode") instead of refusing it as not text (from `main` PR #33).
 - A blocked `pro_consult` over MCP returns `status: "blocked"` with its `blocker`, `thread` and, when the request reached ChatGPT, the `pro_recover` call to make, instead of only error text naming a CLI command; the stale "model rows cannot be driven" text is corrected (from `main` PR #32).
 - A finished answer was held as "still generating" for the whole budget because a hidden, zero-size "Stop" button stayed in the composer; only a displayed stop button or busy message counts now (from `main` PR #31).
 - An answer's code block that shows a fenced example was saved with its toolbar label in the code and a fence closed early by the inner backticks; it is now read from its source element and fenced longer than any backtick run inside (from `main` PR #30).
