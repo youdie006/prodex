@@ -10,6 +10,8 @@
 export interface BlockedConsultLike {
   task_id: string;
   status: string;
+  /** When the result was recorded; the version that ran it is not stored. */
+  blockedAt?: string;
   blocker?: {
     code?: string;
     message?: string;
@@ -59,6 +61,9 @@ export function buildIssueReport(consult: BlockedConsultLike, environment: Repor
     ? "The browser response did not match the smoke-test token."
     : "Consult blocked; detailed diagnostics are kept in the local receipt.";
   const area = issueAreaLabel(code);
+  // Only a bare timestamp travels: the field comes from a local record, and
+  // anything else in it stays local like the rest of the blocker prose.
+  const blockedAt = consult.blockedAt && /^\d{4}-\d{2}-\d{2}T[\d:.]+Z$/.test(consult.blockedAt) ? consult.blockedAt : "(not recorded)";
   const body = [
     "A consult was blocked. Filed from its receipt, so the prompt and the answer are not included.",
     "",
@@ -67,7 +72,10 @@ export function buildIssueReport(consult: BlockedConsultLike, environment: Repor
     `| blocker | \`${code}\` |`,
     `| message | ${message || "(none)"} |`,
     `| retryable | ${consult.blocker.retryable === true ? "yes" : "no"} |`,
-    `| prodex | ${environment.version} |`,
+    `| blocked at | ${blockedAt} |`,
+    // Records do not store the version that ran the consult, so name this one
+    // for what it is; the time above places the failure among releases.
+    `| prodex filing this report | ${environment.version} |`,
     `| platform | ${environment.platform} |`,
     `| node | ${environment.nodeVersion} |`,
     "",

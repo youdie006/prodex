@@ -33,6 +33,21 @@ describe("a bug report built from a blocked consult", () => {
     expect(report.labels).toContain("bug");
   });
 
+  it("says when the consult failed and that the version is the one filing", () => {
+    // Records do not store the version that ran the consult, so an old failure
+    // filed today looked like it happened on today's release.
+    const report = buildIssueReport({ ...blocked, blockedAt: "2026-09-03T02:49:13.000Z" }, environment);
+    expect(report.body).toContain("| blocked at | 2026-09-03T02:49:13.000Z |");
+    expect(report.body).toContain("| prodex filing this report | 0.36.5 |");
+    expect(report.body).not.toMatch(/^\| prodex \|/m);
+  });
+
+  it("drops a blocked-at value that is not a timestamp", () => {
+    const report = buildIssueReport({ ...blocked, blockedAt: "see https://chatgpt.com/c/private" }, environment);
+    expect(report.body).not.toContain("chatgpt.com");
+    expect(report.body).toContain("| blocked at | (not recorded) |");
+  });
+
   it("never carries the prompt or the answer", () => {
     // The failure is the report; the conversation is the user's. A public issue
     // must not become the place a private consult leaks.
