@@ -107,6 +107,26 @@ describe("page-read answers as markdown", () => {
     expect(render(root)).toBe('````markdown\n```js\nconst s = "nested";\n```\n````');
   });
 
+  it("keeps a mermaid diagram as its source, or says it was there", () => {
+    // Measured 2026-10-21 on build 9e0e8636: a mermaid block is drawn as an
+    // SVG preview ([data-chatgpt-mermaid-preview]) whose only text is the
+    // toolbar and the node labels, so the saved answer lost it entirely. The
+    // source lives in the React props of the preview's fiber ancestors.
+    const preview = el("div", { "data-chatgpt-mermaid-preview": "" }, [
+      el("div", { "data-markdown-copy": "exclude" }, []),
+      el("div", { "data-code-block-preview-pane": "mermaid" }, ["A B C"])
+    ]) as FakeNode & Record<string, unknown>;
+    preview.__reactFiber$x = { memoizedProps: {}, return: { memoizedProps: { content: "flowchart TD\n    A --> B --> C" }, return: null } };
+    expect(render(el("div", {}, [el("p", {}, ["Before."]), preview, el("p", {}, ["After."])]))).toBe(
+      "Before.\n\n```mermaid\nflowchart TD\n    A --> B --> C\n```\n\nAfter."
+    );
+
+    const unreadable = el("div", { "data-chatgpt-mermaid-preview": "" }, [
+      el("div", { "data-code-block-preview-pane": "mermaid" }, ["A B C"])
+    ]);
+    expect(render(el("div", {}, [unreadable]))).toBe("[mermaid diagram - open the thread to see its source]");
+  });
+
   it("reads a long code block from its editor, not just the lines on screen", () => {
     // Measured 2026-10-07: a 150-line code block came back with 36 lines -
     // CodeMirror renders only the lines in view - and nothing said so.
