@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Unreleased
 
 ### Fixed
+- When `prodex pro browser login --background` handed a signed-in profile to headless Chrome and Cloudflare stopped it (`cloudflare_check`), the message only said to inspect the headless failure. Measured 2026-10-20 on M3: headless Chrome reports itself as `HeadlessChrome` and stays on Cloudflare's check right after a visible sign-in. It now says so, and names the way out: a virtual display on Linux (`--virtual-display`), or the browser container on macOS.
 - `prodex pro browser login --background` (and `--recover-visible`) waited only 5 s for the browser lock, so while an agent sent consults back to back the handoff never got its turn, and the failure said to "raise --timeout-ms", which `login` does not accept. Measured 2026-10-20 on M3. They now queue for up to `--wait-timeout-ms`, and the message names that option.
 - A prompt that starts with a dash, such as `prodex ask "-5 + 3, what is it?"`, failed with only "Unknown option". Anything that cannot be an option now says to put `--` before the prompt, with the exact command.
 - `--file` refused a text file saved by Windows Notepad as "Unicode" (UTF-16 with a byte order mark) as "not a text file", because it was read as UTF-8. Files that start with a UTF-16 byte order mark are now decoded as UTF-16 when read through `--file` or the MCP `repo_read_file` tool; nothing is re-encoded on write. Verified live: a UTF-16 LE file answered with its value.

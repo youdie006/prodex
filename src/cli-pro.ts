@@ -2598,6 +2598,20 @@ async function completeVisibleAuthRecovery(
   }, "--wait-timeout-ms");
 }
 
+/**
+ * Why a headless handoff sat on Cloudflare's check, and the way out. Measured
+ * 2026-10-20 on M3: headless Chrome reported "HeadlessChrome/155.0.0.0" and an
+ * 800x600 screen and stayed on "Just a moment", right after a visible sign-in.
+ * WSL works because its browser is ordinary Chrome on a virtual display.
+ */
+export function headlessCloudflareHint(code: string | undefined, platform: NodeJS.Platform): string | undefined {
+  if (code !== "cloudflare_check") return undefined;
+  const cause = "Cloudflare keeps headless Chrome on its check (it identifies itself as HeadlessChrome), so another login or handoff will not get past it.";
+  return platform === "darwin"
+    ? `${cause} macOS has no virtual display for Chrome; run the dedicated browser in the browser container instead (docs/container-browser.md), or keep a visible window open behind your other windows.`
+    : `${cause} Run it on a virtual display instead, with no window on screen: \`prodex pro browser login --virtual-display\`.`;
+}
+
 async function completeBackgroundBrowserLogin(
   io: CliIO,
   options: { port: number; profileDir: string; timeoutMs: number; headedLoginCommand: string; headlessRecoveryCommand: string }
@@ -2625,6 +2639,8 @@ async function completeBackgroundBrowserLogin(
     if (!ready) {
       const status = await getChatGptBrowserStatus({ port: opened.port, timeoutMs: 5_000 }).catch(() => undefined);
       io.stderr(`background: NOT READY (${status?.blocker?.code ?? "not_ready"}). The same profile was kept; this is not proof that your saved login was lost. No prompt was sent.`);
+      const hint = headlessCloudflareHint(status?.blocker?.code, process.platform);
+      if (hint) io.stderr(`background: ${hint}`);
       return 1;
     }
     if (!getDedicatedBrowserHeadlessMode({ port: opened.port, profileDir: opened.profileDir })) throw new Error("The replacement browser is not actually headless; background readiness was not confirmed.");
