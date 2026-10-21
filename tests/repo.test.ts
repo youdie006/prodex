@@ -124,6 +124,18 @@ describe("repo path policy", () => {
     await expect(searchRepo(root, "TOKEN")).resolves.toEqual([{ path: "README.md", line: 1, text: "TOKEN=public" }]);
   });
 
+  it("explains an invalid regex query instead of passing on ripgrep's failure", async () => {
+    // Measured 2026-10-21: repo_search "(" returned "Command failed: <local rg
+    // path> --no-config ..." with rg's parse error, naming neither the cause
+    // nor a fix.
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-repo-"));
+    await writeFile(path.join(root, "code.ts"), "call(a)\n", "utf8");
+    const failure = searchRepo(root, "call(");
+    await expect(failure).rejects.toThrow(/regular expression.*unclosed group.*backslash/s);
+    await expect(searchRepo(root, "call(")).rejects.not.toThrow(/Command failed|--no-config/);
+    await expect(searchRepo(root, "call\\(")).resolves.toEqual([{ path: "code.ts", line: 1, text: "call(a)" }]);
+  });
+
   it("blocks local bridge, git, and env files from repo reads", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "prodex-repo-"));
     await mkdir(path.join(root, ".bridge"), { recursive: true });

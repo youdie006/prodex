@@ -268,7 +268,7 @@ export function createServer(cwd = process.cwd(), options: CreateMcpServerOption
   server.registerTool(
     "repo_search",
     {
-      description: "Search the current repo with ripgrep. Read-only.",
+      description: "Search the current repo with ripgrep. The query is a regular expression: escape ( ) [ ] . * + ? with a backslash to match them literally. Read-only.",
       inputSchema: { query: McpBridgeTextSchema.min(1), glob: McpShortTextSchema.optional() }
     },
     async (input) => asText(await handlers.repo_search(input))
@@ -277,7 +277,7 @@ export function createServer(cwd = process.cwd(), options: CreateMcpServerOption
   server.registerTool(
     "repo_write_file_dry_run",
     {
-      description: "Create a receipt-gated write preview for an existing repo-relative text file. Does not modify files.",
+      description: "Create a receipt-gated write preview for an existing repo-relative text file. Does not modify files. The file keeps its CRLF line endings and UTF-8 BOM when the new content leaves them out.",
       inputSchema: {
         path: McpShortTextSchema,
         content: z.string().max(1_000_000),

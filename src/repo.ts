@@ -218,8 +218,22 @@ export async function searchRepoWithMetadata(root: string, query: string, glob?:
       throw new Error("repo_search returned too many matches; narrow the query or glob and try again");
     }
     if (maybe.code === 1) return { matches: [], truncated: false, limit: MAX_REPO_SEARCH_MATCHES };
+    // An invalid pattern used to surface as "Command failed: <rg path> ..."
+    // with rg's parse error buried in it (measured 2026-10-21, query "(").
+    const reason = ripgrepRegexError((error as { stderr?: string }).stderr);
+    if (reason) {
+      throw new Error(
+        `repo_search treats the query as a regular expression, and ${JSON.stringify(query)} is not valid (${reason}). Escape characters such as ( ) [ ] { } . * + ? | with a backslash to search for them literally.`
+      );
+    }
     throw error;
   }
+}
+
+function ripgrepRegexError(stderr: string | undefined): string | undefined {
+  if (!stderr || !/regex parse error/i.test(stderr)) return undefined;
+  const detail = stderr.split("\n").map((line) => line.trim()).find((line) => /^error:/i.test(line));
+  return detail ? detail.replace(/^error:\s*/i, "") : "regex parse error";
 }
 
 function parseRipgrepJsonMatch(line: string): SearchResult | undefined {
