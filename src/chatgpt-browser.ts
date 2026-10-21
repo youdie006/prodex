@@ -5954,9 +5954,31 @@ export const CHATGPT_RENDERED_MESSAGE_TEXT_JS = `
       // Inline math carries data-math-display="false" (measured), so the value counts, not its presence.
       const isDisplayMath = (node) => attr(node, "data-math-display") === "true" || hasClass(node, "katex-display");
       const isCodeBlock = (node) => attr(node, "data-markdown-copy") === "code-block" || tagOf(node) === "pre";
+      // A mermaid block is drawn as an SVG preview whose only text is the
+      // toolbar and node labels (measured 2026-10-21); its source is in the
+      // React props of the preview's fiber ancestors, as CodeMirror's is in
+      // its editor state.
+      const isMermaidPreview = (node) => attr(node, "data-chatgpt-mermaid-preview") !== null;
+      const mermaidBlock = (node) => {
+        let source = null;
+        try {
+          const fiberKey = Object.keys(node).find((key) => key.startsWith("__reactFiber"));
+          let fiber = fiberKey ? node[fiberKey] : null;
+          for (let depth = 0; fiber && depth < 12 && source === null; depth += 1, fiber = fiber.return) {
+            const content = fiber.memoizedProps && fiber.memoizedProps.content;
+            if (typeof content === "string" && content.trim()) source = trimEnd(content);
+          }
+        } catch (error) {
+          source = null;
+        }
+        if (source === null) return "[mermaid diagram - open the thread to see its source]";
+        const longestRun = (source.match(new RegExp(BT + "+", "g")) || []).reduce((most, run) => Math.max(most, run.length), 0);
+        const fence = BT.repeat(Math.max(3, longestRun + 1));
+        return fence + "mermaid" + NL + source + NL + fence;
+      };
       const BLOCK_TAGS = ["p", "div", "section", "article", "figure", "ul", "ol", "li", "table", "blockquote", "pre", "hr", "h1", "h2", "h3", "h4", "h5", "h6"];
       const isBlock = (node) => node.nodeType === 1 && !skipped(node) &&
-        (BLOCK_TAGS.includes(tagOf(node)) || isCodeBlock(node) || (isMath(node) && isDisplayMath(node)) ||
+        (BLOCK_TAGS.includes(tagOf(node)) || isCodeBlock(node) || isMermaidPreview(node) || (isMath(node) && isDisplayMath(node)) ||
           (tagOf(node) === "span" && findAll(node, (n) => BLOCK_TAGS.includes(tagOf(n))).length > 0));
       // The renderer web-search answers use since 2026-10-10 marks a source as a
       // badge inside a popover trigger; its urls only exist once it is opened.
@@ -6064,6 +6086,7 @@ export const CHATGPT_RENDERED_MESSAGE_TEXT_JS = `
         const tag = tagOf(node);
         if (isMath(node)) return isDisplayMath(node) ? "$$" + NL + mathSource(node) + NL + "$$" : "$" + mathSource(node) + "$";
         if (isCodeBlock(node)) return codeBlock(node);
+        if (isMermaidPreview(node)) return mermaidBlock(node);
         if (tag === "table") return table(node);
         if (/^h[1-6]$/.test(tag)) return "#".repeat(Number(tag[1])) + " " + inline(node).trim();
         if (tag === "ul" || tag === "ol") return list(node, depth);

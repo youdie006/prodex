@@ -79,6 +79,12 @@ export function unknownTopLevelCommandError(command: string): Error {
   return new Error(`Unknown command: ${command}.${suggestionText} Run \`prodex help\`.`);
 }
 export function unknownOptionError(option: string, command: string | undefined, candidates: readonly string[]): Error {
+  // A prompt that starts with a dash ("-5 + 3, what is it?") lands here.
+  // Anything that cannot be a flag gets the way to send it instead of a guess.
+  if (!/^--?[A-Za-z][\w-]*(=.*)?$/.test(option)) {
+    const context = command ? ` for ${command}` : "";
+    return new Error(`Unknown option${context}: ${option}. If this is the prompt, put \`--\` before it: prodex ask -- ${JSON.stringify(option)}`);
+  }
   const suggestion = closestSuggestion(option, candidates);
   const suggestionText = suggestion ? `. Did you mean \`${suggestion}\`?` : "";
   const context = command ? ` for ${command}` : "";

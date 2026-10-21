@@ -16,9 +16,15 @@ function lockPath(): string {
 /**
  * Serialize visible-browser sends across processes. Waits up to waitMs for a
  * live holder to finish (0 = fail fast); a lock whose holder process is dead
- * is reaped immediately.
+ * is reaped immediately. budgetFlag is the option that sets waitMs for the
+ * command that is waiting, named when the wait runs out.
  */
-export async function withBrowserSendLock<T>(waitMs: number, onWait: (detail: string) => void, fn: () => Promise<T>): Promise<T> {
+export async function withBrowserSendLock<T>(
+  waitMs: number,
+  onWait: (detail: string) => void,
+  fn: () => Promise<T>,
+  budgetFlag = "--timeout-ms"
+): Promise<T> {
   const file = lockPath();
   const reapClaim = path.join(path.dirname(file), `.${path.basename(file)}.reap`);
   return withCrossProcessFileLock(
@@ -30,7 +36,7 @@ export async function withBrowserSendLock<T>(waitMs: number, onWait: (detail: st
       onWait: (holder) => onWait(`another prodex send holds the browser (pid ${holder.pid ?? "unknown"}); waiting`),
       busyError: (holder) =>
         new Error(
-          `Another prodex browser send is in progress (pid ${holder.pid ?? "unknown"}) and did not finish within the wait budget. Retry once it finishes, or raise --timeout-ms (which is also the queue budget).`
+          `Another prodex browser send is in progress (pid ${holder.pid ?? "unknown"}) and did not finish within the wait budget. Retry once it finishes, or raise ${budgetFlag} (which is also the queue budget).`
         ),
       unavailableError: () =>
         new Error(
