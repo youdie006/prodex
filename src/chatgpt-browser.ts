@@ -6905,7 +6905,9 @@ export function transcriptContainsWholeSentPrompt(userText: string, sentPrompt: 
 const NORMALIZED_PROMPT_MATCH_CHARS = 120;
 
 // The composer can autolink a url before the send, storing "[url](url)" in
-// place of the bare url (measured 2026-10-07, under load).
+// place of the bare url (measured 2026-10-07, under load). It escapes the two
+// halves differently ("Function\_(x)" vs "Function_\(x\)", measured
+// 2026-10-21), so the pattern is applied after markdown escapes are undone.
 const AUTOLINKED_URL_PATTERN = /\[(https?:\/\/[^\]\s]+)\]\(\1\)/g;
 
 /**
@@ -6925,7 +6927,7 @@ function decodeHtmlEntities(value: string): string {
 }
 
 function normalizeChatGptPromptText(value: string): string {
-  const unescaped = decodeHtmlEntities(value).replace(AUTOLINKED_URL_PATTERN, "$1").replace(/\\([\\`*_{}[\]()#+\-.!>~|])/g, "$1");
+  const unescaped = decodeHtmlEntities(value).replace(/\\([\\`*_{}[\]()#+\-.!>~|])/g, "$1").replace(AUTOLINKED_URL_PATTERN, "$1");
   const renderedFences = unescaped.replace(
     /(^|\r?\n)```text[ \t]*\r?\n([\s\S]*?)\r?\n```(?=\r?\n|$)/g,
     "$1text\n$2"
@@ -6966,8 +6968,8 @@ export function chatGptRequestMatchesUserTurn(userText: string, sentPrompt: stri
 
 function withoutFenceLines(value: string): string {
   return decodeHtmlEntities(value)
-    .replace(AUTOLINKED_URL_PATTERN, "$1")
     .replace(/\\([\\`*_{}[\]()#+\-.!>~|])/g, "$1")
+    .replace(AUTOLINKED_URL_PATTERN, "$1")
     .replace(/^[ \t]*```[\w-]*[ \t]*$/gm, "")
     .replace(/\s+/g, "");
 }
