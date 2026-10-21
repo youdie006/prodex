@@ -116,7 +116,7 @@ try {
   assertIncludes(help.stdout, "prodex project prompt", "installed help output");
   assertIncludes(help.stdout, "prodex claude prompt", "installed help output");
   assertIncludes(help.stdout, "prodex claude config", "installed help output");
-  assertIncludes(help.stdout, "prodex pro ask [--dry-run] [--cwd /absolute/path/to/repo] [--file path] [--attach path] [--tool deep-research|web-search|create-image]", "installed help output");
+  assertIncludes(help.stdout, "prodex pro ask [--dry-run] [--cwd /absolute/path/to/repo] [--file path]", "installed help output");
   assertIncludes(
     help.stdout,
     "prodex pro browser login [--cwd /absolute/path/to/repo] [--dry-run] [--source-cli /absolute/path/to/dist/cli.js] [--profile-dir path] [--port 9333] [--url https://chatgpt.com/...] [--launch-timeout-ms 5000] [--wait|--no-wait] [--headed|--headless|--minimized|--virtual-display]",
@@ -261,7 +261,7 @@ try {
     { args: ["receipts", "show", "--help"], expected: "prodex receipts show <receipt-id|latest> [--cwd /absolute/path/to/repo]" },
     { args: ["sessions", "list", "--help"], expected: "prodex sessions list [--status preview|running|done|blocked] [--cwd /absolute/path/to/repo] [--json]" },
     { args: ["sessions", "show", "--help"], expected: "prodex sessions show <session-id|latest> [--cwd /absolute/path/to/repo]" },
-    { args: ["pro", "ask", "--help"], expected: "prodex pro ask [--dry-run] [--cwd /absolute/path/to/repo] [--file path] [--attach path] [--tool deep-research|web-search|create-image]" },
+    { args: ["pro", "ask", "--help"], expected: "prodex pro ask [--dry-run] [--cwd /absolute/path/to/repo] [--file path]" },
     { args: ["pro", "browser", "ask", "--help"], expected: "prodex pro browser ask [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]" },
     { args: ["pro", "latest", "--help"], expected: "prodex pro latest [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]" },
     { args: ["pro", "list", "--help"], expected: "prodex pro list [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]" },
