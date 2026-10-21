@@ -2560,7 +2560,7 @@ async function completeVisibleAuthRecovery(
     shouldWait: boolean; timeoutMs: number;
   }
 ): Promise<number> {
-  return withBrowserSendLock(5_000, (detail) => io.stderr(`recovery: ${detail}`), async () => {
+  return withBrowserSendLock(options.timeoutMs, (detail) => io.stderr(`recovery: ${detail}`), async () => {
     const { closeBlockedHeadlessBrowserForVisibleAuth, getDedicatedBrowserHeadlessMode } = await import("./browser-handoff.js");
     io.stderr("recovery: verifying the blocked headless browser before graceful visible handoff...");
     let url: string;
@@ -2595,14 +2595,16 @@ async function completeVisibleAuthRecovery(
       headedLoginCommand: formatHeadedBrowserLoginCommand(options.sourceCli, { ...options.commandOptions, profileDir: opened.profileDir, port: opened.port })
     });
     return ready ? 0 : 1;
-  });
+  }, "--wait-timeout-ms");
 }
 
 async function completeBackgroundBrowserLogin(
   io: CliIO,
   options: { port: number; profileDir: string; timeoutMs: number; headedLoginCommand: string; headlessRecoveryCommand: string }
 ): Promise<number> {
-  return withBrowserSendLock(5_000, (detail) => io.stderr(`background: ${detail}`), async () => {
+  // An agent sending consults back to back left no 5 s gap (measured
+  // 2026-10-20 on M3), so the handoff queues for its turn like a send does.
+  return withBrowserSendLock(options.timeoutMs, (detail) => io.stderr(`background: ${detail}`), async () => {
     const { closeIdleChatGptBrowserForHandoff, getDedicatedBrowserHeadlessMode } = await import("./browser-handoff.js");
     io.stderr("background: checking the dedicated browser before graceful handoff...");
     const { url } = await closeIdleChatGptBrowserForHandoff({ port: options.port, profileDir: options.profileDir });
@@ -2628,7 +2630,7 @@ async function completeBackgroundBrowserLogin(
     if (!getDedicatedBrowserHeadlessMode({ port: opened.port, profileDir: opened.profileDir })) throw new Error("The replacement browser is not actually headless; background readiness was not confirmed.");
     io.stdout("background: READY - the saved login works headless, with no visible window. You may close this terminal; later consults reuse this mode.");
     return 0;
-  });
+  }, "--wait-timeout-ms");
 }
 
 export interface LoginWaitDeps {
