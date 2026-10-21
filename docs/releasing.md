@@ -35,6 +35,31 @@ The release adds a guarded, opt-in transition and more accurate blocker reportin
 **Open**
 - A long-running headless browser ends up behind Cloudflare's check (also noted on WSL, where the Xvfb display is used instead). On macOS there is no virtual display, and a minimized window counts as hidden, so the remaining no-headless option there is a window kept behind others. Changing the headless preference is a design decision that was not made here.
 
+## 0.40.40 Release Record
+
+Release commit `3d671f5` on `main` (cut after PRs #38-#44, last merge `5609f4c`); tag `v0.40.40`.
+
+**Publishing**
+- `publish.yml` run 39563515199 passed all six platforms, then npm publish with SLSA v1 provenance and the GitHub Release (2026-10-21 07:39 UTC start).
+- `npm run release:verify` passed on the release commit after a build.
+
+**Changelog defect**
+- The released `CHANGELOG.md` (also inside the npm tarball) repeats five entries in the 0.40.40 section and leaves the token TTL fix (#44) under a stray `## Unreleased` heading below it. Cause: the script that resolved CHANGELOG conflicts while rebasing queued PRs copied the branch's whole Unreleased section, which already held the entries merged before it, and #44's branch added a second Unreleased section. `main` was corrected right after the release, and the GitHub Release notes were replaced with the corrected eight entries. The npm tarball cannot be changed. The rebase script now carries only lines missing from `main` and stops on duplicate lines or a second Unreleased section; the release script stops if an Unreleased section survives the rename.
+
+**Installed**
+- WSL, M3, Mac mini: `prodex --version` reports 0.40.40. Running services were not restarted: 9 stdio MCP servers on WSL and 1 on M3 keep older code until their clients reconnect. The Mac mini had none running.
+- The maintainer watchdog checkout was pulled to `3d671f5` and rebuilt.
+
+**Verified live**
+- Installed 0.40.40 on WSL: a prompt with `[the docs](https://en.wikipedia.org/wiki/Function_(mathematics))`, refused twice as `request_mismatch` by 0.40.39, returned `done` with `request_verified: yes`.
+- Over MCP on installed 0.40.40: `repo_search "("` explains that the query is a regular expression.
+- `pro report-issue` preview shows `blocked at` and `prodex filing this report`; `pro ask --tool web-search` names the send command.
+
+**Browser container**
+- `container/redesign-patches` `1f4baa6` ports PRs #38-#41 and `5812053` ports PRs #42-#44. Branch suite at `5812053`: 2074 passed, 3 skipped; `release:verify` ok. One full run failed `project-sidebar-current-ui` "retries a covered target three times" (untouched; passed 3/3 alone and on the rerun).
+- WSL: image `75828cfb7ed5` after #38-#41 (the autolink prompt went through live with `request_verified: yes`), then `6042260bebe7` after #42-#44 (smoke `requestVerified: true`). Both swapped under the send lock check.
+- M3 (colima `prodex-check`): image `59fd7b2f0e89`, then `2ab687763354`; smoke `requestVerified: true` after each swap, under the send lock check.
+
 ## 0.40.39 Release Record
 
 Release commit `c8a170f` on `main` (cut after PRs #33-#37, last merge `09ad42e`); tag `v0.40.39`. First batched release: five fixes merged on green CI and released together.
