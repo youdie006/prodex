@@ -37,7 +37,7 @@ Ask / consult commands:
 
 Bridge ledger (durable tasks/results/receipts/sessions under .bridge/):
   prodex init [--cwd /absolute/path/to/repo]
-  prodex tasks create [--cwd /absolute/path/to/repo] --title "Title" --prompt "Prompt" [--repo-id id] [--file path] [--attach path] [--tool deep-research|web-search|create-image]
+  prodex tasks create [--cwd /absolute/path/to/repo] --title "Title" --prompt "Prompt" [--repo-id id] [--file path]
   prodex tasks list [--status new|claimed|done|blocked] [--cwd /absolute/path/to/repo] [--json]
   prodex tasks show <task-id|latest> [--cwd /absolute/path/to/repo]
   prodex tasks claim <task-id> [--cwd /absolute/path/to/repo] [--by codex]
@@ -211,7 +211,7 @@ export function printTasksHelp(stdout: (line: string) => void): void {
   stdout(`prodex tasks
 
 Commands:
-  prodex tasks create [--cwd /absolute/path/to/repo] --title "Title" --prompt "Prompt" [--repo-id id] [--file path] [--attach path] [--tool deep-research|web-search|create-image]
+  prodex tasks create [--cwd /absolute/path/to/repo] --title "Title" --prompt "Prompt" [--repo-id id] [--file path]
   prodex tasks list [--status new|claimed|done|blocked] [--cwd /absolute/path/to/repo] [--json]
   prodex tasks show <task-id|latest> [--cwd /absolute/path/to/repo]
   prodex tasks claim <task-id> [--cwd /absolute/path/to/repo] [--by codex]

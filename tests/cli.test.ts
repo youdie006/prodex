@@ -1363,6 +1363,18 @@ describe("runCli", () => {
     expect(previewLine).not.toMatch(/--attach|--tool/);
   });
 
+  it("does not advertise --attach/--tool on tasks create, which never accepted them", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
+    const help: string[] = [];
+    await runCli(["tasks", "create", "--help"], { cwd, stdout: (line) => help.push(line), stderr: () => {} });
+    const createLine = help.join("\n").split("\n").find((line) => line.trimStart().startsWith("prodex tasks create "));
+    expect(createLine).toBeDefined();
+    expect(createLine).not.toMatch(/--attach|--tool/);
+    await expect(
+      runCli(["tasks", "create", "--title", "T", "--prompt", "P", "--attach", "a.pdf"], { cwd, stdout: () => {}, stderr: () => {} })
+    ).rejects.toThrow(/Unknown option for tasks create: --attach/);
+  });
+
   it("rejects unknown ask-pro flags before they become prompt text", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
 
