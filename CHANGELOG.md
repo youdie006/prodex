@@ -4,7 +4,7 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 0.40.39
 
 ### Fixed
 - A mermaid diagram in an answer was dropped from the saved answer. Measured 2026-10-21 on ChatGPT build `9e0e8636`: ChatGPT draws it as an SVG preview whose page text is only the toolbar and node labels. Its source is now read from the preview's page state and saved as a ```` ```mermaid ```` block; when it cannot be read, a "[mermaid diagram - open the thread to see its source]" line marks the spot instead of nothing. Verified live: the saved answer kept the flowchart source.
