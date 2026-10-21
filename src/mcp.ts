@@ -268,7 +268,7 @@ export function createServer(cwd = process.cwd(), options: CreateMcpServerOption
   server.registerTool(
     "repo_search",
     {
-      description: "Search the current repo with ripgrep. Read-only.",
+      description: "Search the current repo with ripgrep. The query is a regular expression: escape ( ) [ ] . * + ? with a backslash to match them literally. Read-only.",
       inputSchema: { query: McpBridgeTextSchema.min(1), glob: McpShortTextSchema.optional() }
     },
     async (input) => asText(await handlers.repo_search(input))
