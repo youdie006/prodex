@@ -4,7 +4,7 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 0.40.40
 
 ### Fixed
 - `repo_search` with a query that is not a valid regular expression, such as `(` when looking for a call, failed with "Command failed: <local rg path> --no-config ..." and ripgrep's parse error, and the tool did not say that its query is a regular expression (a literal `a(b)c` silently found nothing). Measured 2026-10-21 over MCP. The error now says the query is a regular expression, names the problem ("unclosed group"), and how to escape it; the tool description says so too.
