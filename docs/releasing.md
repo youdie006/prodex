@@ -35,6 +35,26 @@ The release adds a guarded, opt-in transition and more accurate blocker reportin
 **Open**
 - A long-running headless browser ends up behind Cloudflare's check (also noted on WSL, where the Xvfb display is used instead). On macOS there is no virtual display, and a minimized window counts as hidden, so the remaining no-headless option there is a window kept behind others. Changing the headless preference is a design decision that was not made here.
 
+## 0.40.39 Release Record
+
+Release commit `c8a170f` on `main` (cut after PRs #33-#37, last merge `09ad42e`); tag `v0.40.39`. First batched release: five fixes merged on green CI and released together.
+
+**Publishing**
+- `publish.yml` run 39525668044 passed all six platforms, then npm publish with SLSA v1 provenance and the GitHub Release (2026-10-21 01:09 UTC start).
+- `npm run release:verify` passed on the release commit after a build.
+
+**Installed**
+- WSL, M3, Mac mini: `prodex --version` reports 0.40.39. Running services were not restarted: 10 stdio MCP servers on WSL and 4 on M3 keep older code until their clients reconnect. The Mac mini had none running.
+- The maintainer watchdog checkout was pulled to `c8a170f` and rebuilt.
+
+**Verified live**
+- Installed 0.40.39 on WSL: `prodex ask "- list these"` refuses with the hint to put `--` before the prompt.
+
+**Browser container**
+- `container/redesign-patches` `d3d7b66` ports PRs #34-#37 (UTF-16 decoding from #33 was already on the branch). The mermaid serializer was applied by hand because the container's transcript helpers differ from `main`. Branch suite: 2061 passed, 3 skipped.
+- WSL: image `67b473c3e850`, swapped under the send lock check. Live: a prompt asking for a mermaid flowchart saved the answer with a ```` ```mermaid ```` fence and its source.
+- M3 (colima `prodex-check`): image `ad0746f93e40`, swapped under the send lock check; `pro browser smoke` in the container returned `requestVerified: true`.
+
 ## 0.40.38 Release Record
 
 Release commit `9541727` on `main` (cut after PR #32, merge `2c049b5`); tag `v0.40.38`.
