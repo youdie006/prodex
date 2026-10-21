@@ -141,6 +141,20 @@ describe("local bridge config", () => {
     await expect(writeLocalConfig(cwd, { port: 9797, token: "test-token", tokenTtlHours: 0 })).rejects.toThrow(/token ttl/i);
   });
 
+  it("rejects a token TTL whose expiry falls past year 9999 with a plain message", async () => {
+    // Measured 2026-10-21: `setup --token-ttl-hours 99999999` printed a raw
+    // schema error ("invalid_string ... token_expires_at"); 1e20 threw a
+    // RangeError. Both are a TTL too large to write as a date.
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-config-"));
+    for (const tokenTtlHours of [99_999_999, 1e20]) {
+      await expect(writeLocalConfig(cwd, { port: 9797, token: "test-token", tokenTtlHours })).rejects.toThrow(
+        /--token-ttl-hours is too large.*year 9999/
+      );
+    }
+    const config = await writeLocalConfig(cwd, { port: 9797, token: "test-token", tokenTtlHours: 8_760_000 });
+    expect(config.token_expires_at).toMatch(/^\d{4}-/);
+  });
+
   it("writes local MCP config with owner-only permissions", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "prodex-config-"));
 

@@ -317,6 +317,8 @@ export function assertTokenNotExpired(config: Pick<LocalConfig, "token_expires_a
   }
 }
 
+const MAX_TOKEN_EXPIRES_AT_MS = Date.parse("9999-12-31T23:59:59.999Z");
+
 function computeTokenExpiresAt(tokenTtlHours: number | undefined, nowIso: string): string | undefined {
   if (tokenTtlHours === undefined) return undefined;
   if (!Number.isFinite(tokenTtlHours) || tokenTtlHours <= 0) {
@@ -325,6 +327,11 @@ function computeTokenExpiresAt(tokenTtlHours: number | undefined, nowIso: string
   const expiresAtMs = Date.parse(nowIso) + tokenTtlHours * 60 * 60 * 1000;
   if (!Number.isFinite(expiresAtMs)) {
     throw new Error("token ttl produced an invalid expiry time");
+  }
+  // Past year 9999 the ISO date gains a sign and six-digit year, which the
+  // config schema rejects with a raw validation dump (measured 2026-10-21).
+  if (expiresAtMs > MAX_TOKEN_EXPIRES_AT_MS) {
+    throw new Error("--token-ttl-hours is too large: the token would expire after year 9999. Use a smaller value, such as 8760 for a year.");
   }
   return new Date(expiresAtMs).toISOString();
 }
