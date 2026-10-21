@@ -20,6 +20,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `prodex ask --dry-run` points at `prodex pro ask` for previews, but `prodex pro ask --attach file` or `--tool web-search` stopped with a bare "Unknown option", and `prodex pro help` listed both flags on the preview line. Found 2026-10-21 probing 0.40.39. The preview now says each one only applies when sending and names `prodex pro browser ask`, and the help no longer lists them on the preview line.
 - `prodex tasks create` was listed with `--attach` and `--tool`, which it never accepted (a task record has no place for either), so following the help ended in "Unknown option". A sweep of every help line against each command's accepted options on 2026-10-21 found only this and the `pro ask` line; both are corrected.
 
+## Unreleased
+
+### Fixed
+- `prodex setup --token-ttl-hours` with a value large enough to put the expiry past year 9999 (about 70 million hours or more) printed a raw schema dump (`"code": "invalid_string" ... token_expires_at`). Measured 2026-10-21. It now says the value is too large and suggests 8760 for a year; nothing is written.
+
 ## 0.40.39
 
 ### Fixed
