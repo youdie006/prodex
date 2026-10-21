@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Unreleased
 
 ### Fixed
+- Fixes from `main` PRs #38-#41: `pro ask` points `--attach`/`--tool` at the send command and the help stops listing them where they are rejected; a relative `--file` resolves like an absolute one; `pro report-issue` says when the consult was blocked and which version is filing; an autolinked url that the composer escaped unevenly no longer turns a valid send into `request_mismatch`.
 - Fixes from `main` 0.40.39 (PRs #34-#37): a prompt that starts with a dash is told to follow `--`; `login --background` and `--recover-visible` queue for the browser lock up to `--wait-timeout-ms` and name that option; a headless handoff stopped by Cloudflare explains why and names the way out; a mermaid diagram in an answer is saved as its source instead of being dropped.
 - `--file` reads a UTF-16 text file that starts with a byte order mark (Windows Notepad "Unicode") instead of refusing it as not text (from `main` PR #33).
 - A blocked `pro_consult` over MCP returns `status: "blocked"` with its `blocker`, `thread` and, when the request reached ChatGPT, the `pro_recover` call to make, instead of only error text naming a CLI command; the stale "model rows cannot be driven" text is corrected (from `main` PR #32).

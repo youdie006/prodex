@@ -1116,6 +1116,7 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
         {
           task_id: record.result.task_id,
           status: record.result.status,
+          blockedAt: record.result.created_at,
           ...(record.result.blocker ? { blocker: record.result.blocker } : {})
         },
         { version: CLI_VERSION, platform: process.platform, nodeVersion: process.version }
@@ -1323,13 +1324,17 @@ export async function runAskProCommand(
     const targetCwd = resolveCwdFlag(io.cwd, parsedAskPro.optionArgs);
     const targetStore = new BridgeStore(targetCwd);
     const files = readRepeatedFlag(parsedAskPro.optionArgs, "--file").map((file) => {
-      if (!path.isAbsolute(file)) return file;
-      // Accept an absolute --file that points INSIDE the repo by converting it to
-      // the repo-relative path the reader requires (agents naturally pass absolute
-      // paths); reject one that escapes the repo so a file outside the project
-      // (secrets, ~/.ssh, ...) is not attached to a consult by mistake.
-      const rel = path.relative(targetCwd, path.resolve(file));
-      if (rel === "" || rel.startsWith("..") || path.isAbsolute(rel)) {
+      // Accept a --file that points INSIDE the repo, absolute or relative (even
+      // ../repo/x), by converting it to the repo-relative path the reader
+      // requires; reject one that escapes the repo so a file outside the project
+      // (secrets, ~/.ssh, ...) is not attached to a consult by mistake. A
+      // relative escape used to reach the reader and fail with its internal
+      // "repo-relative root" wording instead of this guidance.
+      const rel = path.relative(targetCwd, path.resolve(targetCwd, file));
+      if (rel === "") {
+        throw new Error(`--file "${file}" is the repo root itself (${targetCwd}). Pass a file inside it.`);
+      }
+      if (rel === ".." || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel)) {
         throw new Error(
           `--file "${file}" is outside the repo root (${targetCwd}). Pass a path inside the repo (absolute or relative), or point --cwd at that repo.`
         );
@@ -1342,7 +1347,7 @@ export async function runAskProCommand(
     const attachments = readRepeatedFlag(parsedAskPro.optionArgs, "--attach").map((file) => {
       const absolute = path.resolve(targetCwd, file);
       const rel = path.relative(targetCwd, absolute);
-      if (rel === "" || rel.startsWith("..") || path.isAbsolute(rel)) {
+      if (rel === "" || rel === ".." || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel)) {
         throw new Error(
           `--attach "${file}" is outside the repo root (${targetCwd}). Pass a path inside the repo, or point --cwd at that repo.`
         );

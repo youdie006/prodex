@@ -3243,6 +3243,36 @@ describe("pro browser ask model/project selection", () => {
     expect(sendChatGptPromptMock).toHaveBeenCalledTimes(1);
   });
 
+  it("resolves a relative --file with .. the same way as an absolute one", async () => {
+    const parent = await mkdtemp(path.join(tmpdir(), "prodex-pro-send-"));
+    const cwd = path.join(parent, "repo");
+    await mkdir(cwd);
+    await writeFile(path.join(cwd, "note.txt"), "note body", "utf8");
+    await writeFile(path.join(parent, "outside.txt"), "outside", "utf8");
+    sendChatGptPromptMock.mockResolvedValueOnce({
+      url: "https://chatgpt.com/c/file",
+      title: "ChatGPT",
+      answer: "ok",
+      modelHints: [],
+      warnings: []
+    });
+
+    // ../repo/note.txt leaves and re-enters the repo: it is inside, so it is sent.
+    await runCli(["ask", "--file", "../repo/note.txt", "summarize"], { cwd, stdout: () => {}, stderr: () => {} });
+    expect(sendChatGptPromptMock).toHaveBeenCalledTimes(1);
+    expect(sendChatGptPromptMock.mock.calls[0]?.[0]?.prompt ?? JSON.stringify(sendChatGptPromptMock.mock.calls[0])).toContain("note body");
+
+    // ../outside.txt escapes: same guidance as an absolute path outside the
+    // repo, not the internal "repo-relative root" wording.
+    await expect(
+      runCli(["ask", "--file", "../outside.txt", "x"], { cwd, stdout: () => {}, stderr: () => {} })
+    ).rejects.toThrow(/--file "\.\.\/outside\.txt" is outside the repo root .*--cwd/);
+    await expect(
+      runCli(["ask", "--file", ".", "x"], { cwd, stdout: () => {}, stderr: () => {} })
+    ).rejects.toThrow(/--file "\." is the repo root itself/);
+    expect(sendChatGptPromptMock).toHaveBeenCalledTimes(1);
+  });
+
   it("rejects --stdin when no piped input arrives", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-send-"));
 
