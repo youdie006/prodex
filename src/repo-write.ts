@@ -87,6 +87,21 @@ interface GitIndexEntry {
   objectId: string;
 }
 
+/**
+ * repo_read_file hands an agent "\n" endings for a CRLF file, so writing the
+ * edited text back turned every line into a change (measured 2026-10-21), and
+ * a UTF-8 BOM was dropped the same way. Keep what the file already uses, as an
+ * editor does: CRLF only when the file uses it throughout and the new content
+ * carries no CR of its own, and a BOM only when the new content has none.
+ */
+export function keepFileConventions(current: string, next: string): string {
+  let content = next;
+  const crlf = current.includes("\r\n") && !/(^|[^\r])\n/.test(current);
+  if (crlf && !content.includes("\r")) content = content.replace(/\n/g, "\r\n");
+  if (current.startsWith("\uFEFF") && !content.startsWith("\uFEFF")) content = `\uFEFF${content}`;
+  return content;
+}
+
 export async function createRepoWriteDryRun(
   root: string,
   store: BridgeStore,
@@ -98,16 +113,17 @@ export async function createRepoWriteDryRun(
   }
 
   const current = await readWritableExistingFile(root, input.path);
-  if (current.content === input.content) {
+  const content = keepFileConventions(current.content, input.content);
+  if (current.content === content) {
     throw new Error(`No changes for ${input.path}`);
   }
 
   const preimage = sha256(current.content);
-  const newSha = sha256(input.content);
-  const diff = buildSimpleDiff(input.path, current.content, input.content);
+  const newSha = sha256(content);
+  const diff = buildSimpleDiff(input.path, current.content, content);
   const candidateArtifactPath = `.bridge/artifacts/repo-writes/${newSha}.txt`;
   const artifactAlreadyExisted = await store.hasArtifactText(candidateArtifactPath);
-  const artifactPath = await store.writeArtifactText(candidateArtifactPath, input.content);
+  const artifactPath = await store.writeArtifactText(candidateArtifactPath, content);
   const metadata: DryRunMetadata = {
     path: input.path,
     expected_head: head,
