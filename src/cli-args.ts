@@ -307,9 +307,11 @@ export const ASK_PRO_PREVIEW_VALUE_FLAGS = new Set([
   "--file",
   "--port",
   "--timeout-ms",
-  // Accepted here only so the preview path can reject it with the friendly
+  // Accepted here only so the preview path can reject them with the friendly
   // "only applies when sending" guidance instead of a raw "Unknown option".
   "--busy-wait-ms",
+  "--attach",
+  "--tool",
   "--target-url",
   ...ASK_PRO_SELECTION_VALUE_FLAGS
 ]);

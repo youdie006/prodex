@@ -19,7 +19,7 @@ First-time setup:
 
 Ask / consult commands:
   prodex ask [same flags as pro browser ask] "prompt"  # top-level shortcut for pro browser ask
-  prodex pro ask [--dry-run] [--cwd /absolute/path/to/repo] [--file path] [--attach path] [--tool deep-research|web-search|create-image] "prompt"  # dry-run preview
+  prodex pro ask [--dry-run] [--cwd /absolute/path/to/repo] [--file path] "prompt"  # dry-run preview
   prodex pro debate-prompt [--topic "..."] [--rounds 2] [--source-cli /absolute/path/to/dist/cli.js]  # print an agent prompt for a structured GPT Pro debate
   prodex pro browser login [--cwd /absolute/path/to/repo] [--dry-run] [--source-cli /absolute/path/to/dist/cli.js] [--profile-dir path] [--port 9333] [--url https://chatgpt.com/...] [--launch-timeout-ms 5000] [--wait|--no-wait] [--headed|--headless|--minimized|--virtual-display] [--wait-timeout-ms 300000] [--background] [--recover-visible]  # preview/open browser login
   prodex pro browser help [--source-cli /absolute/path/to/dist/cli.js]
@@ -37,7 +37,7 @@ Ask / consult commands:
 
 Bridge ledger (durable tasks/results/receipts/sessions under .bridge/):
   prodex init [--cwd /absolute/path/to/repo]
-  prodex tasks create [--cwd /absolute/path/to/repo] --title "Title" --prompt "Prompt" [--repo-id id] [--file path] [--attach path] [--tool deep-research|web-search|create-image]
+  prodex tasks create [--cwd /absolute/path/to/repo] --title "Title" --prompt "Prompt" [--repo-id id] [--file path]
   prodex tasks list [--status new|claimed|done|blocked] [--cwd /absolute/path/to/repo] [--json]
   prodex tasks show <task-id|latest> [--cwd /absolute/path/to/repo]
   prodex tasks claim <task-id> [--cwd /absolute/path/to/repo] [--by codex]
@@ -165,7 +165,7 @@ export function printProHelp(stdout: (line: string) => void): void {
   stdout(`prodex pro
 
 Commands:
-  prodex pro ask [--dry-run] [--cwd /absolute/path/to/repo] [--file path] [--attach path] [--tool deep-research|web-search|create-image] "prompt"
+  prodex pro ask [--dry-run] [--cwd /absolute/path/to/repo] [--file path] "prompt"
   prodex pro debate-prompt [--topic "..."] [--rounds 2] [--source-cli /absolute/path/to/dist/cli.js]
   prodex pro browser help [--source-cli /absolute/path/to/dist/cli.js]
   prodex pro browser login [--cwd /absolute/path/to/repo] [--dry-run] [--source-cli /absolute/path/to/dist/cli.js] [--launch-timeout-ms 5000] [--wait|--no-wait] [--headed|--headless|--minimized|--virtual-display] [--wait-timeout-ms 300000] [--background] [--recover-visible]
@@ -211,7 +211,7 @@ export function printTasksHelp(stdout: (line: string) => void): void {
   stdout(`prodex tasks
 
 Commands:
-  prodex tasks create [--cwd /absolute/path/to/repo] --title "Title" --prompt "Prompt" [--repo-id id] [--file path] [--attach path] [--tool deep-research|web-search|create-image]
+  prodex tasks create [--cwd /absolute/path/to/repo] --title "Title" --prompt "Prompt" [--repo-id id] [--file path]
   prodex tasks list [--status new|claimed|done|blocked] [--cwd /absolute/path/to/repo] [--json]
   prodex tasks show <task-id|latest> [--cwd /absolute/path/to/repo]
   prodex tasks claim <task-id> [--cwd /absolute/path/to/repo] [--by codex]

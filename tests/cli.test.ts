@@ -1345,6 +1345,36 @@ describe("runCli", () => {
     expect(out.join("\n")).toContain("DRY RUN");
   });
 
+  it("points `pro ask --attach/--tool` at the send command instead of calling them unknown", async () => {
+    // `prodex ask --dry-run` sends agents to `prodex pro ask`; a bare
+    // "Unknown option: --attach" there was a two-hop dead end.
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
+    await runCli(["init"], { cwd, stdout: () => {}, stderr: () => {} });
+    await writeFile(path.join(cwd, "deck.pdf"), "%PDF-1.4\n", "utf8");
+    for (const flag of [["--attach", "deck.pdf"], ["--tool", "web-search"]]) {
+      await expect(
+        runCli(["pro", "ask", ...flag, "hi"], { cwd, stdout: () => {}, stderr: () => {} })
+      ).rejects.toThrow(/only applies when sending.*prodex pro browser ask/);
+    }
+    const help: string[] = [];
+    await runCli(["pro", "help"], { cwd, stdout: (line) => help.push(line), stderr: () => {} });
+    const previewLine = help.join("\n").split("\n").find((line) => line.trimStart().startsWith("prodex pro ask "));
+    expect(previewLine).toBeDefined();
+    expect(previewLine).not.toMatch(/--attach|--tool/);
+  });
+
+  it("does not advertise --attach/--tool on tasks create, which never accepted them", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
+    const help: string[] = [];
+    await runCli(["tasks", "create", "--help"], { cwd, stdout: (line) => help.push(line), stderr: () => {} });
+    const createLine = help.join("\n").split("\n").find((line) => line.trimStart().startsWith("prodex tasks create "));
+    expect(createLine).toBeDefined();
+    expect(createLine).not.toMatch(/--attach|--tool/);
+    await expect(
+      runCli(["tasks", "create", "--title", "T", "--prompt", "P", "--attach", "a.pdf"], { cwd, stdout: () => {}, stderr: () => {} })
+    ).rejects.toThrow(/Unknown option for tasks create: --attach/);
+  });
+
   it("rejects unknown ask-pro flags before they become prompt text", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
 
@@ -2416,7 +2446,7 @@ describe("runCli", () => {
     });
 
     const text = out.join("\n");
-    expect(text).toContain('prodex pro ask [--dry-run] [--cwd /absolute/path/to/repo] [--file path] [--attach path] [--tool deep-research|web-search|create-image] "prompt"  # dry-run preview');
+    expect(text).toContain('prodex pro ask [--dry-run] [--cwd /absolute/path/to/repo] [--file path] "prompt"  # dry-run preview');
     expect(text).toContain(
       "prodex pro browser login [--cwd /absolute/path/to/repo] [--dry-run] [--source-cli /absolute/path/to/dist/cli.js] [--profile-dir path] [--port 9333] [--url https://chatgpt.com/...] [--launch-timeout-ms 5000] [--wait|--no-wait] [--headed|--headless|--minimized|--virtual-display] [--wait-timeout-ms 300000] [--background] [--recover-visible]  # preview/open browser login"
     );
@@ -2452,7 +2482,7 @@ describe("runCli", () => {
       const text = out.join("\n");
       expect(code).toBe(0);
       expect(text).toContain("prodex pro");
-      expect(text).toContain('prodex pro ask [--dry-run] [--cwd /absolute/path/to/repo] [--file path] [--attach path] [--tool deep-research|web-search|create-image] "prompt"');
+      expect(text).toContain('prodex pro ask [--dry-run] [--cwd /absolute/path/to/repo] [--file path] "prompt"');
       expect(text).toContain("prodex pro browser help");
       expect(text).toContain("prodex pro latest [--source-cli /absolute/path/to/dist/cli.js]");
       expect(text).toContain("prodex pro list [--source-cli /absolute/path/to/dist/cli.js]");
@@ -2645,7 +2675,7 @@ describe("runCli", () => {
       { args: ["receipts", "show", "--help"], expected: "prodex receipts show <receipt-id|latest> [--cwd /absolute/path/to/repo]" },
       { args: ["sessions", "list", "--help"], expected: "prodex sessions list [--status preview|running|done|blocked] [--cwd /absolute/path/to/repo]" },
       { args: ["sessions", "show", "--help"], expected: "prodex sessions show <session-id|latest> [--cwd /absolute/path/to/repo]" },
-      { args: ["pro", "ask", "--help"], expected: 'prodex pro ask [--dry-run] [--cwd /absolute/path/to/repo] [--file path] [--attach path] [--tool deep-research|web-search|create-image] "prompt"' },
+      { args: ["pro", "ask", "--help"], expected: 'prodex pro ask [--dry-run] [--cwd /absolute/path/to/repo] [--file path] "prompt"' },
       {
         args: ["pro", "browser", "login", "--help"],
         expected: "prodex pro browser login [--cwd /absolute/path/to/repo] [--dry-run] [--source-cli /absolute/path/to/dist/cli.js]"
@@ -3338,7 +3368,7 @@ describe("runCli", () => {
     });
 
     const text = out.join("\n");
-    expect(text).toContain("prodex pro ask [--dry-run] [--cwd /absolute/path/to/repo] [--file path] [--attach path] [--tool deep-research|web-search|create-image]");
+    expect(text).toContain("prodex pro ask [--dry-run] [--cwd /absolute/path/to/repo] [--file path]");
     expect(text).toContain("prodex pro browser login [--cwd /absolute/path/to/repo] [--dry-run]");
     expect(text).toContain("prodex pro browser help");
     expect(text).toContain("prodex pro browser check [--source-cli /absolute/path/to/dist/cli.js] [--cwd /absolute/path/to/repo]");
