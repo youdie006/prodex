@@ -1097,6 +1097,7 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
         {
           task_id: record.result.task_id,
           status: record.result.status,
+          blockedAt: record.result.created_at,
           ...(record.result.blocker ? { blocker: record.result.blocker } : {})
         },
         { version: CLI_VERSION, platform: process.platform, nodeVersion: process.version }
