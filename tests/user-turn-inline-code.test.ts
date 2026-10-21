@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { CHATGPT_RENDERED_MESSAGE_TEXT_JS, chatGptRequestMatchesUserTurn } from "../src/chatgpt-browser.js";
+import { CHATGPT_RENDERED_MESSAGE_TEXT_JS, chatGptRequestMatchesUserTurn, transcriptMatchesSentPrompt } from "../src/chatgpt-browser.js";
 
 // Measured 2026-10-07: ChatGPT renders inline code in the sent user turn as
 // <code>x</code>, so the page shows "$HOME x" for a prompt that said
@@ -54,5 +54,18 @@ describe("matching a user turn whose url the composer autolinked", () => {
   it("still refuses a different url", () => {
     const seen = `- item two with a [link]\\([https://other.example](https://other.example))\n\n[prodex-request:${id}]`;
     expect(chatGptRequestMatchesUserTurn(seen, sent, id)).toBe(false);
+  });
+
+  it("recognizes an autolinked url that the composer escaped differently in its text and its href", () => {
+    // Measured 2026-10-21: a url with "_" and parentheses was stored with "\\_"
+    // in the link text but "_\\(...\\)" in the href, so the two halves were not
+    // identical until unescaped and the request was refused.
+    const url = "https://en.wikipedia.org/wiki/Function_(mathematics)";
+    const sentWithParens = `See [the docs](${url}) for more.\n\n[prodex-request:${id}]`;
+    const seen =
+      "See [the docs]\\([https://en.wikipedia.org/wiki/Function\\_(mathematics)](https://en.wikipedia.org/wiki/Function_\\(mathematics\\))) for more." +
+      `\n\n[prodex-request:${id}]`;
+    expect(chatGptRequestMatchesUserTurn(seen, sentWithParens, id)).toBe(true);
+    expect(transcriptMatchesSentPrompt(seen, sentWithParens)).toBe(true);
   });
 });
