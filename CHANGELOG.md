@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Fixed
+- `--model Instant` (or Medium, High, Extra High) was not applied: on the current picker those are steps of the effort slider, not models, so the send warned `model_not_applied` and went out on whatever step was saved - measured 2026-10-22, a request for a fast answer ran at the saved Pro step. Only `--model Pro` was moved to the slider. Every Chat step named as a model is now applied to the slider with the same `model_is_now_an_effort` warning, and, as `--model Pro` already did, it takes precedence over a saved effort default instead of being "ignored in favour of --effort Pro", a flag nobody typed. Max and Ultra stay model names because they are Work rungs.
+
 ## 0.40.40
 
 ### Fixed

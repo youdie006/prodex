@@ -21,6 +21,14 @@ describe("what a send actually selects", () => {
     });
   });
 
+  it("lets any other Chat step named as a model beat a saved effort the same way", () => {
+    // Measured 2026-10-22: `--model Instant` in a repo with a saved Pro effort
+    // went out at Pro, the warning saying it was "ignored in favour of --effort
+    // Pro" - a flag nobody typed.
+    expect(resolveSelectionAxes({ explicit: { model: "Instant" }, defaults: { effort: "Pro" } })).toEqual({ model: "Instant" });
+    expect(resolveSelectionAxes({ explicit: { model: "높음" }, defaults: { effort: "Pro" } })).toEqual({ model: "높음" });
+  });
+
   // A model row and the slider are different controls, so naming a model does
   // not answer the effort question. Only Pro does, by being a step.
   it("leaves a saved effort alone under a model that is not Pro", () => {
