@@ -50,6 +50,26 @@ describe("what a picker selection should drive", () => {
     expect(plan.warning).toMatch(/pro/i);
   });
 
+  it("reads any other Chat step named as a model the same way", () => {
+    // Measured 2026-10-22: the menu offered only GPT-6 and GPT-5.6 Sol, with
+    // Instant..Pro on the slider. `--model Instant` warned "does not offer" and
+    // went out on the saved Pro step, so a request for a fast answer waited on
+    // Pro reasoning.
+    for (const [model, step] of [["Instant", "즉시"], ["instant", "즉시"], ["Medium", "중간"], ["High", "높음"], ["Extra High", "매우 높음"], ["즉시", "즉시"]]) {
+      const plan = pickerSelectionPlan({ model });
+      expect(plan.sliderLabel).toBe(step);
+      expect(plan.modelLabel).toBeUndefined();
+      expect(plan.warning).toContain(`--model ${model}`);
+      expect(plan.warning).toMatch(/effort/i);
+    }
+  });
+
+  it("keeps real model names and the Work-only rungs off that path", () => {
+    expect(pickerSelectionPlan({ model: "GPT-6" })).toEqual({ modelLabel: "GPT-6" });
+    // Max and Ultra only exist on the Work surface, which a model name does not reach.
+    expect(pickerSelectionPlan({ model: "Ultra" })).toEqual({ modelLabel: "Ultra" });
+  });
+
   it("asks for nothing when nothing was requested", () => {
     expect(pickerSelectionPlan({})).toEqual({});
   });

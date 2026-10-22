@@ -45,7 +45,8 @@ import {
   namesPro,
   sendWarningsFromError,
   destinationVerification,
-  chatGptProjectIdFromUrl
+  chatGptProjectIdFromUrl,
+  chatStepNamedAsModel
 } from "./chatgpt-browser.js";
 import {
   ASK_PRO_BOOLEAN_FLAGS,
@@ -2927,7 +2928,9 @@ export function resolveSelectionAxes<M extends string, P extends string, E exten
   const { explicit } = input;
   const defaults = input.defaults;
   const reasoningAxisChosen = explicit.proMode !== undefined || explicit.effort !== undefined;
-  const explicitlyPro = explicit.model !== undefined && namesPro(explicit.model);
+  // Pro, and any other Chat step given as a model, is a position of the same
+  // slider a saved effort sets, so asking for it answers the effort question.
+  const explicitlyPro = explicit.model !== undefined && (namesPro(explicit.model) || chatStepNamedAsModel(explicit.model) !== undefined);
   const model = explicit.model ?? (explicit.effort !== undefined ? undefined : defaults?.model);
   const proMode = explicit.proMode ?? (reasoningAxisChosen ? undefined : defaults?.pro_mode);
   const effort = explicit.effort ?? (reasoningAxisChosen || explicitlyPro ? undefined : defaults?.effort);

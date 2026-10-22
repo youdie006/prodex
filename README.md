@@ -163,7 +163,7 @@ Power slider on this account (the slider was walked and put back):
 * 5/5  6  -  Pro
 ```
 
-- `--effort 즉시|중간|높음|"매우 높음"|Pro` picks a rung; English aliases `instant`, `medium`, `high`, `extrahigh` and `max` are accepted, and `--model Pro` reaches the same top rung. Korean and English (US) ChatGPT labels are both matched; on another display language, pass the exact label `models` shows.
+- `--effort 즉시|중간|높음|"매우 높음"|Pro` picks a rung; English aliases `instant`, `medium`, `high`, `extrahigh` and `max` are accepted, and a step name given as a model (`--model Pro`, `--model Instant`) is applied to the slider with a `model_is_now_an_effort` warning. Korean and English (US) ChatGPT labels are both matched; on another display language, pass the exact label `models` shows.
 - ChatGPT now has two surfaces, Chat and Work, with different pickers; Work's ladder ends in Max and Ultra and offers no Pro. prodex puts the browser back on Chat before a send (and says so on the receipt), so a drifted browser cannot quietly send on the wrong picker. `Max` and `Ultra` are accepted for a browser already on Work.
 - The model rows themselves (Latest, GPT-5.6 Sol, GPT-5.5) cannot be clicked by automation in the current picker; the slider is the lever, and prodex says so rather than pretending a row was chosen.
 - Selection is guarded: a control that is covered or off screen is not clicked, a menu that stays open after a pick counts as a failed pick, and any failure backs out with Escape and reports a blocker instead of sending with the wrong model. What was applied is recorded on the receipt (`metadata.selection`, project name redacted).
