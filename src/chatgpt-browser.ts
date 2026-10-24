@@ -1308,19 +1308,42 @@ export interface PickerSelectionPlan {
  */
 export function pickerSelectionPlan(input: { model?: string; effort?: string }): PickerSelectionPlan {
   const plan: PickerSelectionPlan = {};
-  const modelIsNowAnEffort = input.model !== undefined && /^\s*pro\s*$/i.test(input.model);
+  const modelAsEffort = input.model !== undefined ? chatStepNamedAsModel(input.model) : undefined;
   if (input.effort !== undefined) plan.sliderLabel = input.effort;
-  else if (modelIsNowAnEffort) plan.sliderLabel = input.model;
-  if (input.model !== undefined && !modelIsNowAnEffort) plan.modelLabel = input.model;
-  if (modelIsNowAnEffort) {
+  else if (modelAsEffort !== undefined) plan.sliderLabel = modelAsEffort;
+  if (input.model !== undefined && modelAsEffort === undefined) plan.modelLabel = input.model;
+  if (modelAsEffort !== undefined) {
     plan.warning =
-      `model_is_now_an_effort: ChatGPT's picker lists Pro as an effort step, not a model, so --model ${input.model} was ` +
+      `model_is_now_an_effort: ChatGPT's picker lists ${input.model!.trim()} as an effort step, not a model, so --model ${input.model} was ` +
       (input.effort === undefined
-        ? "applied to the effort slider instead. Say --effort Pro to be explicit"
+        ? `applied to the effort slider instead. Say --effort ${input.model!.trim()} to be explicit`
         : `ignored in favour of --effort ${input.effort}`) +
       ", or clear a saved default with `prodex setup --clear-model`.";
   }
   return plan;
+}
+
+/**
+ * The Chat slider step a --model value names, if it names one.
+ *
+ * Pro was the first model to become a step, but Instant through Extra High sit
+ * on the same slider: `--model Instant` warned "does not offer" and went out on
+ * whatever step was saved, so a request for a fast answer waited on Pro
+ * reasoning (measured 2026-10-22). Max and Ultra are Work-only rungs that a
+ * model name does not reach, so they stay model names.
+ */
+export function chatStepNamedAsModel(model: string): ChatGptReasoningEffort | undefined {
+  let step: ChatGptReasoningEffort;
+  try {
+    step = parseReasoningEffort(model);
+  } catch {
+    return undefined;
+  }
+  if (step === "Max" || step === "Ultra") return undefined;
+  // "max" is an alias of 매우 높음 for --effort, but a model called Max is
+  // asking for the Work rung, not for Extra High.
+  if (/^\s*max\s*$/i.test(model)) return undefined;
+  return step;
 }
 
 export function chatGptBusyBlocker(state: {

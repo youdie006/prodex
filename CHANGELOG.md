@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Unreleased
 
 ### Fixed
+- Fix from `main` PR #45: `--model Instant` (Medium, High, Extra High) is applied to the effort slider like `--model Pro`, and beats a saved effort default instead of being sent at it.
 - Fixes from `main` PRs #42-#44 (0.40.40): repo-tool writes keep a file's CRLF endings and UTF-8 BOM; an invalid `repo_search` regex gets a plain explanation instead of ripgrep's raw failure; `setup --token-ttl-hours` past year 9999 gets a plain message instead of a schema dump.
 - Fixes from `main` PRs #38-#41: `pro ask` points `--attach`/`--tool` at the send command and the help stops listing them where they are rejected; a relative `--file` resolves like an absolute one; `pro report-issue` says when the consult was blocked and which version is filing; an autolinked url that the composer escaped unevenly no longer turns a valid send into `request_mismatch`.
 - Fixes from `main` 0.40.39 (PRs #34-#37): a prompt that starts with a dash is told to follow `--`; `login --background` and `--recover-visible` queue for the browser lock up to `--wait-timeout-ms` and name that option; a headless handoff stopped by Cloudflare explains why and names the way out; a mermaid diagram in an answer is saved as its source instead of being dropped.
