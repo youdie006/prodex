@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Unreleased
 
 ### Fixed
+- A prompt that mentions the same words both plainly and in backticks (`run npm test, then \`npm test\` again`) was sent, then refused as `request_mismatch` and its answer withheld. ChatGPT shows inline code in the sent turn without its backticks, and prodex put them back by searching the text, so they landed on the first plain occurrence and the turn no longer matched the prompt. Measured 2026-10-24: two sends of a 28k-character consult were refused although both had posted; reproduced 2026-10-25 with a one-line prompt. The backticks are now placed at the code spans themselves.
 - `--model Instant` (or Medium, High, Extra High) was not applied: on the current picker those are steps of the effort slider, not models, so the send warned `model_not_applied` and went out on whatever step was saved - measured 2026-10-22, a request for a fast answer ran at the saved Pro step. Only `--model Pro` was moved to the slider. Every Chat step named as a model is now applied to the slider with the same `model_is_now_an_effort` warning, and, as `--model Pro` already did, it takes precedence over a saved effort default instead of being "ignored in favour of --effort Pro", a flag nobody typed. Max and Ultra stay model names because they are Work rungs.
 
 ## 0.40.40
