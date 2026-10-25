@@ -39,6 +39,63 @@ describe("reading a user turn whose inline code was rendered", () => {
   });
 });
 
+// A minimal DOM: text nodes and inline <code> elements under one root, with
+// innerText computed from the children as they are at read time.
+function domTurn(parts: Array<string | { code: string }>) {
+  type Node = { nodeType: number; textContent: string; parentNode: typeof root | null; closest?: (s: string) => null };
+  const root = {
+    childNodes: [] as Node[],
+    ownerDocument: {
+      createTextNode: (text: string): Node => ({ nodeType: 3, textContent: text, parentNode: null })
+    },
+    get innerText(): string {
+      return root.childNodes.map((node) => node.textContent).join("");
+    },
+    querySelectorAll: (selector: string) => (selector === "code" ? root.childNodes.filter((node) => node.nodeType === 1) : []),
+    insertBefore(node: Node, before: Node | null) {
+      const index = before ? root.childNodes.indexOf(before) : root.childNodes.length;
+      root.childNodes.splice(index, 0, node);
+      node.parentNode = root;
+      return node;
+    },
+    removeChild(node: Node) {
+      root.childNodes.splice(root.childNodes.indexOf(node), 1);
+      node.parentNode = null;
+      return node;
+    }
+  };
+  for (const part of parts) {
+    const node: Node =
+      typeof part === "string"
+        ? { nodeType: 3, textContent: part, parentNode: root }
+        : { nodeType: 1, textContent: part.code, parentNode: root, closest: () => null };
+    root.childNodes.push(node);
+  }
+  for (const node of root.childNodes) {
+    Object.defineProperty(node, "nextSibling", { get: () => root.childNodes[root.childNodes.indexOf(node) + 1] ?? null });
+  }
+  return root;
+}
+
+describe("reading a user turn whose code span text also occurs as plain text", () => {
+  // Measured 2026-10-24 on a 28k-character consult: "sessionwiki list" occurred
+  // three times as plain text and once in backticks. The backticks were put back
+  // by searching the text, so they landed on the first plain occurrence, the
+  // turn no longer matched the prompt, and two sends were refused as
+  // request_mismatch although both had posted.
+  const id = "e".repeat(32);
+  const sent = `run sessionwiki list first, then \`sessionwiki list\` again\n\n[prodex-request:${id}]`;
+
+  it("puts the backticks around the code span itself, not an earlier plain occurrence", () => {
+    const root = domTurn(["run sessionwiki list first, then ", { code: "sessionwiki list" }, ` again\n\n[prodex-request:${id}]`]);
+    const seen = new Function("root", `${CHATGPT_RENDERED_MESSAGE_TEXT_JS}\n return userMessageText(root);`)(root) as string;
+    expect(seen).toBe(sent);
+    expect(chatGptRequestMatchesUserTurn(seen, sent, id)).toBe(true);
+    // The page is left as it was found.
+    expect(root.childNodes).toHaveLength(3);
+  });
+});
+
 describe("matching a user turn whose url the composer autolinked", () => {
   // Measured 2026-10-07 under load: the composer autolinked a url before the
   // send, so the stored turn read "[link]\\([https://example.com](https://example.com))"

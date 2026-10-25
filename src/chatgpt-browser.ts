@@ -631,7 +631,43 @@ export const CHATGPT_RENDERED_MESSAGE_TEXT_JS = `
     // A sent user turn renders inline code as <code>, dropping its backticks
     // from innerText (measured 2026-10-07), and the request is matched against
     // what was typed. Each inline code span gets its backticks back, in page order.
+    const inlineCodes = (root) =>
+      [...root.querySelectorAll('code')].filter((code) => {
+        if (code.closest('pre')) return false;
+        const value = code.textContent || "";
+        // A fenced block in a user turn is one <code> outside any <pre>
+        // (measured); inline code is a single line.
+        return value.length > 0 && !value.includes(String.fromCharCode(10));
+      });
+    // Backtick text nodes go in beside each span for one innerText read and come
+    // straight out again, so they land where the span is. Searching the text for
+    // the span's value put them on an earlier plain occurrence of the same words
+    // and refused a request that had posted (measured 2026-10-24). All of it runs
+    // in one synchronous evaluation, so the page never renders in between.
+    const userMessageTextAtCodePositions = (root) => {
+      const doc = root.ownerDocument;
+      if (!doc || typeof doc.createTextNode !== "function") return undefined;
+      const tick = String.fromCharCode(96);
+      const inserted = [];
+      try {
+        for (const code of inlineCodes(root)) {
+          const parent = code.parentNode;
+          if (!parent || typeof parent.insertBefore !== "function") return undefined;
+          const before = doc.createTextNode(tick);
+          const after = doc.createTextNode(tick);
+          parent.insertBefore(before, code);
+          inserted.push(before);
+          parent.insertBefore(after, code.nextSibling);
+          inserted.push(after);
+        }
+        return root.innerText || "";
+      } finally {
+        for (const node of inserted) node.parentNode?.removeChild(node);
+      }
+    };
     const userMessageText = (root) => {
+      const placed = userMessageTextAtCodePositions(root);
+      if (placed !== undefined) return placed;
       let text = root.innerText || "";
       const tick = String.fromCharCode(96);
       let cursor = 0;
