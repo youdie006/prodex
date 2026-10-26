@@ -35,6 +35,32 @@ The release adds a guarded, opt-in transition and more accurate blocker reportin
 **Open**
 - A long-running headless browser ends up behind Cloudflare's check (also noted on WSL, where the Xvfb display is used instead). On macOS there is no virtual display, and a minimized window counts as hidden, so the remaining no-headless option there is a window kept behind others. Changing the headless preference is a design decision that was not made here.
 
+## 0.40.41 Release Record
+
+Release commit `e0ea707` on `main` (cut after PRs #45-#47, last merge `6911f3e`); tag `v0.40.41`. Released ahead of the usual batch for PR #46, which withheld answers from requests that had posted.
+
+**Publishing**
+- `publish.yml` run 40274938156 passed all six platforms, then npm publish with SLSA v1 provenance and the GitHub Release (2026-10-26 05:34 UTC start).
+- `npm run release:verify` passed on the release commit after a build. The release script now refuses to tag when the release section has duplicate lines or an `## Unreleased` section survives the rename; the GitHub Release lists the same three entries as `CHANGELOG.md`.
+
+**Installed**
+- WSL, M3, Mac mini: `prodex --version` reports 0.40.41. Running services were not restarted: no host stdio MCP servers on WSL and 1 on M3; the Mac mini had none.
+- The maintainer watchdog checkout was pulled to `e0ea707` and rebuilt.
+
+**Verified live on installed 0.40.41 (WSL)**
+- `Reply with only OK. Run npm test first, then \`npm test\` again.`: `request_verified: yes` (0.40.40 refused it as `request_mismatch`). Before the fix, the 2026-10-24 thread whose two sends had been refused also matched when re-read with the fixed extraction.
+- `--model Instant` in a repo with a saved Pro effort: applied to the slider with `model_is_now_an_effort`, answered in 9 s.
+- `pro browser recover --target-url "https://chatgpt.com/c/abc def"`: refused before the send lock; the shared tab did not move.
+
+**Browser container**
+- `container/redesign-patches` `60a49da` ports #45, `5154330` ports #46 (applied by hand: the container's message helpers differ from `main`), `6a9ea08` ports #47. Branch suite at `6a9ea08`: 2080 passed, 3 skipped; `release:verify` ok.
+- WSL images `1ce5bcde0ace` (#45, `--model Instant` applied live), `88bd2a8f427a` (#46, the backtick repro verified), `e83a90389d02` (#47, bad URL refused, smoke `requestVerified: true`).
+- M3 (colima `prodex-check`) images `c289e00e756d`, `ee6f98e1588d` (backtick repro verified), `5cd5a5642917` (bad URL refused, smoke ok). Every swap waited for an idle send lock.
+
+**Incidents**
+- 2026-10-22: the WSL disk filled to 100% from another project's session scratch data, so command output stopped being written mid-port. Nothing in prodex was involved; the #45 container port resumed after that session's data was cleaned up on its side.
+- 2026-10-26: probing recovery input with `--target-url "https://chatgpt.com/c/abc def"` on 0.40.40 moved the shared ChatGPT tab to that URL (the bug PR #47 fixes); no send was in flight and the tab was moved back to the home page.
+
 ## 0.40.40 Release Record
 
 Release commit `3d671f5` on `main` (cut after PRs #38-#44, last merge `5609f4c`); tag `v0.40.40`.
