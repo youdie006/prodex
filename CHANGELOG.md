@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Unreleased
 
 ### Fixed
+- Fix from `main` PR #48: `--attach` and MCP `attach` refuse `.env`, `.git` contents, key files and symlinks that leave the repo, as `--file` does, instead of uploading them.
 - Fix from `main` PR #47: `pro browser recover` and MCP `pro_recover` refuse a target that is not a conversation URL before taking the send lock, instead of moving the shared tab there.
 - Fix from `main` PR #46: a prompt naming the same words plainly and in backticks is no longer refused as `request_mismatch`; the user turn's backticks are put back at the code spans instead of by text search. Applied by hand because the container's message helpers differ from `main`.
 - Fix from `main` PR #45: `--model Instant` (Medium, High, Extra High) is applied to the effort slider like `--model Pro`, and beats a saved effort default instead of being sent at it.
