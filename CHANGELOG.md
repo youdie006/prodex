@@ -4,7 +4,7 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 0.40.41
 
 ### Fixed
 - `prodex pro browser recover` (and MCP `pro_recover`) accepted any chatgpt.com URL as the thread to recover: `--target-url "https://chatgpt.com/c/abc def"`, the home page or a project page took the send lock and moved the shared ChatGPT tab there, and a non-ChatGPT host was refused with "Resolve the visible browser issue manually", which was not the problem. Measured 2026-10-26. The target must now be a conversation URL (`https://chatgpt.com/c/<id>`, also inside a project); anything else is refused before the browser is touched, with a message saying what is expected.
