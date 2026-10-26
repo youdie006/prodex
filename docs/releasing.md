@@ -35,6 +35,27 @@ The release adds a guarded, opt-in transition and more accurate blocker reportin
 **Open**
 - A long-running headless browser ends up behind Cloudflare's check (also noted on WSL, where the Xvfb display is used instead). On macOS there is no virtual display, and a minimized window counts as hidden, so the remaining no-headless option there is a window kept behind others. Changing the headless preference is a design decision that was not made here.
 
+## 0.40.42 Release Record
+
+Release commit `9c97a14` on `main` (cut after PR #48, merge `cc129d8`); tag `v0.40.42`. Released on its own: before it, `--attach` and MCP `attach` uploaded `.env`, `.git` contents, key files and outward symlinks.
+
+**Publishing**
+- `publish.yml` run 40284687723 passed all six platforms, then npm publish with SLSA v1 provenance and the GitHub Release (2026-10-26 07:15 UTC start). The GitHub Release lists the one entry from `CHANGELOG.md`.
+- `npm run release:verify` passed on the release commit after a build.
+
+**Installed**
+- WSL, M3, Mac mini: `prodex --version` reports 0.40.42. Running services were not restarted: no host stdio MCP servers on WSL, 1 on M3, none on the Mac mini.
+- The maintainer watchdog checkout was pulled to `9c97a14` and rebuilt.
+
+**Verified live on installed 0.40.42 (WSL, scratch repo)**
+- `--attach .env` refused: "Path .env is sensitive and cannot be read through repo tools".
+- `--attach link.pdf` (symlink to a file outside the repo) refused: "escapes the repository root after resolving symlinks".
+- `--attach note.txt` still uploads; ChatGPT answered with the code word from the file, `request_verified: yes`.
+
+**Browser container**
+- `container/redesign-patches` `41c34de` ports PR #48. Branch suite: 2081 passed, 3 skipped; `release:verify` ok.
+- WSL image `491971a34a26` and M3 image `59747258b693`, each swapped after an idle send-lock check; in both, `--attach .env.probe` is refused and smoke returned `requestVerified: true`.
+
 ## 0.40.41 Release Record
 
 Release commit `e0ea707` on `main` (cut after PRs #45-#47, last merge `6911f3e`); tag `v0.40.41`. Released ahead of the usual batch for PR #46, which withheld answers from requests that had posted.
