@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Fixed
+- `--attach` (and MCP `pro_consult` `attach`) uploaded files that `--file` and `repo_read_file` refuse: `.env` files, `.git` contents and key files, and a symlink inside the repo pointing to a file outside it, whose target was uploaded. It only checked that the path was inside the repo and existed. Found 2026-10-26 reading the code; reproduced with a test against the send. Attachments now get the same sensitive-path and symlink checks before anything is sent, and the refusal names the file and the reason.
+
 ## 0.40.41
 
 ### Fixed

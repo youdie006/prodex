@@ -109,6 +109,7 @@ import { readBridgeRoots } from "./registry.js";
 import { ProdexRequestIdSchema, SessionKeySchema } from "./schema.js";
 import { BridgeStore, MAX_FETCHABLE_RESULT_ARTIFACT_BYTES } from "./store.js";
 import { CLI_VERSION } from "./cli-help.js";
+import { assertRepoRelativePath, assertResolvedRepoPathAllowed } from "./repo.js";
 import { PRODEX_ISSUE_REPO, buildIssueReport, fileGitHubIssue } from "./issue-report.js";
 import type { CliIO } from "./cli.js";
 
@@ -1343,6 +1344,20 @@ export async function runAskProCommand(
       }
       return absolute;
     });
+    // An upload leaves the machine, so it gets the same guard as --file and
+    // repo_read_file: no .env, .git or key files, and no symlink out of the
+    // repo. --attach used to check only "inside the repo and exists", so both
+    // `--attach .env` and a link to ~/.ssh reached the upload (measured
+    // 2026-10-26); MCP attach takes this route too.
+    for (const [index, absolute] of attachments.entries()) {
+      const repoPath = path.relative(targetCwd, absolute).split(path.sep).join("/");
+      try {
+        assertRepoRelativePath(repoPath);
+        await assertResolvedRepoPathAllowed(targetCwd, absolute, repoPath);
+      } catch (error) {
+        throw new Error(`--attach "${readRepeatedFlag(parsedAskPro.optionArgs, "--attach")[index]}" refused: ${errorMessage(error)}.`, { cause: error });
+      }
+    }
     if (attachments.length > 0 && !hasSendMode) {
       throw new Error("--attach only applies when sending (`prodex pro browser ask`); the dry-run preview cannot upload files.");
     }
