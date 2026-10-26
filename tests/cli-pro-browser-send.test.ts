@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -3253,6 +3253,28 @@ describe("pro browser ask model/project selection", () => {
     const sentPrompt = (sendChatGptPromptMock.mock.calls[0][0] as { prompt: string }).prompt;
     expect(sentPrompt).toContain("review this on its own");
     expect(sentPrompt).not.toContain("--- piped input (stdin) ---");
+  });
+
+  it("refuses to upload a sensitive file or a symlink that leaves the repo, as --file does", async () => {
+    // Measured 2026-10-26 in the code: --attach checked only that the path was
+    // inside the repo and existed. `--attach .env` and `--attach link` (a
+    // symlink to a file outside the repo) both reached the upload, while
+    // --file and repo_read_file refuse the same paths. MCP attach takes the
+    // same route.
+    const parent = await mkdtemp(path.join(tmpdir(), "prodex-attach-"));
+    const cwd = path.join(parent, "repo");
+    await mkdir(path.join(cwd, ".git"), { recursive: true });
+    await writeFile(path.join(cwd, ".env"), "SECRET=1\n", "utf8");
+    await writeFile(path.join(cwd, ".git", "config"), "[remote]\n", "utf8");
+    await writeFile(path.join(cwd, "id_rsa"), "key\n", "utf8");
+    await writeFile(path.join(parent, "outside.pdf"), "%PDF-1.4\n", "utf8");
+    await symlink(path.join(parent, "outside.pdf"), path.join(cwd, "link.pdf"));
+    for (const target of [".env", ".git/config", "id_rsa", "link.pdf"]) {
+      await expect(
+        runCli(["ask", "--attach", target, "look"], { cwd, stdout: () => {}, stderr: () => {} })
+      ).rejects.toThrow(/--attach .*(sensitive|outside the repo|escapes)/);
+    }
+    expect(sendChatGptPromptMock).not.toHaveBeenCalled();
   });
 
   it("accepts an absolute --file inside the repo and rejects one outside it", async () => {
