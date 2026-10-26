@@ -47,7 +47,8 @@ import {
   sendWarningsFromError,
   destinationVerification,
   chatGptProjectIdFromUrl,
-  chatStepNamedAsModel
+  chatStepNamedAsModel,
+  normalizeChatGptThreadUrl
 } from "./chatgpt-browser.js";
 import {
   ASK_PRO_BOOLEAN_FLAGS,
@@ -787,6 +788,9 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
             "pro browser recover requires --target-url <thread-url> - the ChatGPT conversation URL whose finished answer to recover (e.g. the thread from a send_timeout blocker)."
           );
         }
+        // Checked here, before the send lock and the navigation it guards, and
+        // outside the catch below that dresses errors as browser failures.
+        normalizeChatGptThreadUrl(targetUrl);
         const recoverPort = readPortFlag(browserArgs, "--port");
         const recoverTimeoutMs = readPositiveIntegerFlag(browserArgs, "--timeout-ms");
         const recoverRequestIdRaw = readFlag(browserArgs, "--request-id");

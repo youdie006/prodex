@@ -1584,6 +1584,28 @@ export function normalizeChatGptTargetUrl(value: string): string {
   return url.toString();
 }
 
+/**
+ * A conversation URL, the only thing recovery can read an answer from.
+ *
+ * Recovery navigates the shared tab to its target. A URL that only passed the
+ * host check (`/c/abc def`, the home page, a project page) took the send lock
+ * and moved the tab somewhere no answer could be (measured 2026-10-26).
+ */
+export function normalizeChatGptThreadUrl(value: string): string {
+  const describe = `It must be a ChatGPT conversation URL such as https://chatgpt.com/c/<id> (or https://chatgpt.com/g/<project>/c/<id>), not ${JSON.stringify(value)}.`;
+  let url: string;
+  try {
+    url = normalizeChatGptTargetUrl(value);
+  } catch {
+    throw new Error(`Recovery target is not a ChatGPT URL. ${describe}`);
+  }
+  const pathname = new URL(url).pathname;
+  if (!/^(?:\/g\/[A-Za-z0-9_-]+)?\/c\/[A-Za-z0-9][A-Za-z0-9_-]*$/.test(pathname)) {
+    throw new Error(`Recovery target is not a conversation URL. ${describe}`);
+  }
+  return url;
+}
+
 export function chatGptUrlsReferToSameTarget(currentUrl: string, expectedUrl: string): boolean {
   try {
     return normalizeChatGptTargetUrl(currentUrl) === normalizeChatGptTargetUrl(expectedUrl);
@@ -4042,7 +4064,7 @@ export async function recoverChatGptAnswerFromThread(
   }
   const port = resolveCdpPort(options.port);
   const timeoutMs = Math.max(1_000, options.timeoutMs ?? 60_000);
-  const url = normalizeChatGptTargetUrl(options.targetUrl);
+  const url = normalizeChatGptThreadUrl(options.targetUrl);
   const page = await findChatGptPage(port, 3_000);
   if (!page.ok || !page.page) {
     throw new ChatGptBrowserBlockerError(

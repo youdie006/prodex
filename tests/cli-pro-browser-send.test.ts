@@ -35,6 +35,7 @@ import { shellQuote } from "../src/cli-args.js";
 import { loadLocalConfig, writeLocalConfig } from "../src/config.js";
 import { setSafeFileTestHooks } from "../src/safe-file.js";
 import { setBridgeStoreTestHooks } from "../src/store.js";
+import { normalizeChatGptThreadUrl } from "../src/chatgpt-browser.js";
 
 const originalLastLoginFile = process.env.PRODEX_LAST_LOGIN_FILE;
 const originalProdexSessionKey = process.env.PRODEX_SESSION_KEY;
@@ -1170,6 +1171,34 @@ describe("pro browser ask persistence", () => {
       )
     ).rejects.toThrow(/request-id.*32.*hex/i);
     expect(recoverChatGptAnswerFromThreadMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects a recovery target that is not a conversation before touching the browser", async () => {
+    // Measured 2026-10-26: `recover --target-url "https://chatgpt.com/c/abc def"`
+    // passed the URL check, took the send lock and moved the shared tab to
+    // /c/abc%20def; a bad host failed with "Resolve the visible browser issue
+    // manually", which is not what was wrong.
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-recover-"));
+    for (const targetUrl of ["https://chatgpt.com/c/abc def", "https://chatgpt.com/", "https://chatgpt.com/g/g-p-abc-project/project", "https://example.com/c/abc"]) {
+      let message = "";
+      try {
+        await runCli(["pro", "browser", "recover", "--target-url", targetUrl], { cwd, stdout: () => {}, stderr: () => {} });
+      } catch (error) {
+        message = error instanceof Error ? error.message : String(error);
+      }
+      expect(message).toMatch(/conversation URL.*chatgpt\.com\/c\//);
+      expect(message).not.toMatch(/visible browser issue/);
+    }
+    expect(recoverChatGptAnswerFromThreadMock).not.toHaveBeenCalled();
+  });
+
+  it("accepts conversation URLs, inside a project too", () => {
+    expect(normalizeChatGptThreadUrl("https://chatgpt.com/c/6ad9be5b-f0ec-83ee-a8ea-dcb1dfd30c8b/")).toBe(
+      "https://chatgpt.com/c/6ad9be5b-f0ec-83ee-a8ea-dcb1dfd30c8b"
+    );
+    expect(normalizeChatGptThreadUrl("https://chatgpt.com/g/g-p-6a3b2405-codex/c/recovered-thread?model=x")).toBe(
+      "https://chatgpt.com/g/g-p-6a3b2405-codex/c/recovered-thread"
+    );
   });
 
   it("records a blocked consult when the visible browser send fails", async () => {
