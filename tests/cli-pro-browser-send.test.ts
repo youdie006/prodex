@@ -33,6 +33,7 @@ vi.mock("../src/chatgpt-browser.js", async () => {
 import { runCli } from "../src/cli.js";
 import { shellQuote } from "../src/cli-args.js";
 import { loadLocalConfig, writeLocalConfig } from "../src/config.js";
+import { sendPacingMarkerPath } from "../src/browser-send-lock.js";
 import { setSafeFileTestHooks } from "../src/safe-file.js";
 import { setBridgeStoreTestHooks } from "../src/store.js";
 import { normalizeChatGptThreadUrl } from "../src/chatgpt-browser.js";
@@ -2440,7 +2441,7 @@ describe("pro browser ask model/project selection", () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-select-"));
     await mkdir(path.join(cwd, ".bridge"), { recursive: true });
     // A fresh prior-send marker makes the next send hit the pacing wait.
-    await writeFile(path.join(cwd, ".bridge", "last-browser-send"), `${new Date().toISOString()}\n`, "utf8");
+    await writeFile(sendPacingMarkerPath(), `${new Date().toISOString()}\n`, "utf8");
     process.env.PRODEX_MIN_SEND_INTERVAL_MS = "600";
     sendChatGptPromptMock.mockResolvedValueOnce({
       url: "https://chatgpt.com/c/abc",
@@ -2458,14 +2459,28 @@ describe("pro browser ask model/project selection", () => {
     expect(err.join("\n")).toContain("send_pacing");
     expect(elapsed).toBeGreaterThanOrEqual(400);
     expect(sendChatGptPromptMock).toHaveBeenCalledTimes(1);
-    const marker = await readFile(path.join(cwd, ".bridge", "last-browser-send"), "utf8");
+    const marker = await readFile(sendPacingMarkerPath(), "utf8");
     expect(Number.isFinite(Date.parse(marker.trim()))).toBe(true);
+  });
+
+  it("paces a send from another repo, because the browser is shared", async () => {
+    // The marker used to live in each repo's .bridge, so a send from a second
+    // repo (or worktree) followed the first at machine speed.
+    process.env.PRODEX_MIN_SEND_INTERVAL_MS = "600";
+    const answer = { url: "https://chatgpt.com/c/abc", title: "ChatGPT", answer: "ok", modelHints: [], warnings: [] };
+    sendChatGptPromptMock.mockResolvedValueOnce(answer).mockResolvedValueOnce(answer);
+    const first = await mkdtemp(path.join(tmpdir(), "prodex-pace-a-"));
+    const second = await mkdtemp(path.join(tmpdir(), "prodex-pace-b-"));
+    await runCli(["pro", "browser", "ask", "First"], { cwd: first, stdout: () => {}, stderr: () => {} });
+    const err: string[] = [];
+    await runCli(["pro", "browser", "ask", "Second"], { cwd: second, stdout: () => {}, stderr: (line) => err.push(line) });
+    expect(err.join("\n")).toContain("send_pacing");
   });
 
   it("does not throttle when pacing is disabled", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-select-"));
     await mkdir(path.join(cwd, ".bridge"), { recursive: true });
-    await writeFile(path.join(cwd, ".bridge", "last-browser-send"), `${new Date().toISOString()}\n`, "utf8");
+    await writeFile(sendPacingMarkerPath(), `${new Date().toISOString()}\n`, "utf8");
     process.env.PRODEX_MIN_SEND_INTERVAL_MS = "0";
     sendChatGptPromptMock.mockResolvedValueOnce({
       url: "https://chatgpt.com/c/abc",
