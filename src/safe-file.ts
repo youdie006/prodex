@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { constants } from "node:fs";
+import { constants, readFileSync } from "node:fs";
 import { chmod, link, lstat, mkdir, open, realpath, rename, rm, type FileHandle } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 
 type SafeFileOperation = "read" | "write";
@@ -96,7 +97,8 @@ export async function withCrossProcessFileLock<T>(
       continue;
     }
     retriedMissingAtDeadline = false;
-    const holderAlive = snapshot.holder.pid !== undefined && processIsAlive(snapshot.holder.pid);
+    const holderAlive =
+      snapshot.holder.pid !== undefined && processIsAlive(snapshot.holder.pid) && !pidReusedSince(snapshot.holder);
     if (!holderAlive && (await reapFileLockSnapshot(filePath, snapshot, parentSnapshot))) continue;
 
     if (Date.now() >= deadline) {
@@ -695,6 +697,39 @@ function processIsAlive(pid: number): boolean {
     return true;
   } catch (error) {
     return (error as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
+/**
+ * Whether the holder's pid now names a process that started after the lock was
+ * written, so the writer is gone. A send that dies with the machine, the WSL VM
+ * or its container leaves the lock behind, and after a restart pids are handed
+ * out again: measured, a 2020 lock naming pid 1 held off every send for its
+ * whole wait budget because pid 1 was alive - as a different process.
+ */
+function pidReusedSince(holder: CrossProcessFileLockHolder): boolean {
+  const writtenAt = Date.parse(holder.started_at ?? "");
+  if (holder.pid === undefined || !Number.isFinite(writtenAt)) return false;
+  const processStartedAt = linuxProcessStartMs(holder.pid);
+  // A holder writes the lock after it starts; a few seconds absorb clock steps.
+  if (processStartedAt !== undefined) return processStartedAt > writtenAt + 5_000;
+  // No per-process start time here: nothing alive now predates the boot.
+  return writtenAt < Date.now() - os.uptime() * 1000 - 60_000;
+}
+
+function linuxProcessStartMs(pid: number): number | undefined {
+  if (process.platform !== "linux") return undefined;
+  try {
+    const btime = /^btime (\d+)$/m.exec(readFileSync("/proc/stat", "utf8"))?.[1];
+    const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+    // Field 22 (starttime, in clock ticks since boot) counted after the
+    // parenthesised command name, which may itself contain spaces.
+    const ticks = Number(stat.slice(stat.lastIndexOf(")") + 2).split(" ")[19]);
+    if (!btime || !Number.isFinite(ticks)) return undefined;
+    // USER_HZ is 100 on every Linux ABI Node supports.
+    return Number(btime) * 1000 + ticks * 10;
+  } catch {
+    return undefined;
   }
 }
 
