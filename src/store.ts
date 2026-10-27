@@ -330,6 +330,7 @@ export class BridgeStore {
   async completeTask(taskId: string, input: CompleteTaskInput): Promise<Result> {
     const task = await this.getTask(taskId);
     assertFetchableResultArtifacts(input.artifacts ?? []);
+    assertDistinctArtifactPaths(input.artifacts ?? []);
     const retryResult: Result = ResultSchema.parse({
       schema_version: SCHEMA_VERSION,
       task_id: taskId,
@@ -981,7 +982,7 @@ export class BridgeStore {
 
   private async ensureReceiptIntegrityKey(): Promise<string> {
     try {
-      const [activeKey] = await this.readReceiptIntegrityKeys();
+      const [activeKey] = await this.readReceiptIntegrityKeysAfterCreate();
       return activeKey;
     } catch (error) {
       if (!isErrorCode(error, "ENOENT")) throw error;
@@ -1000,8 +1001,24 @@ export class BridgeStore {
       return key;
     } catch (error) {
       if (!isErrorCode(error, "EEXIST")) throw error;
-      const [activeKey] = await this.readReceiptIntegrityKeys();
+      const [activeKey] = await this.readReceiptIntegrityKeysAfterCreate();
       return activeKey;
+    }
+  }
+
+  // The key is created exclusively and THEN written, so another store opening
+  // the same fresh repo can read it in between and find it empty. Measured on
+  // CI: that read was reported as "receipt-key.local is corrupt. Move it
+  // aside", advice that would discard a good key. An empty file is a write in
+  // progress for a short while; only after that is it corrupt.
+  private async readReceiptIntegrityKeysAfterCreate(): Promise<string[]> {
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        return await this.readReceiptIntegrityKeys();
+      } catch (error) {
+        if (!(error instanceof ReceiptKeyFileEmptyError) || attempt >= 40) throw error;
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
     }
   }
 
@@ -1016,7 +1033,8 @@ export class BridgeStore {
       .split(/\r?\n/)
       .map((line) => line.trim())
       .filter((line) => line.length > 0);
-    if (lines.length === 0 || !lines.every((line) => /^[a-f0-9]{64}$/.test(line))) {
+    if (lines.length === 0) throw new ReceiptKeyFileEmptyError();
+    if (!lines.every((line) => /^[a-f0-9]{64}$/.test(line))) {
       throw new Error(".bridge/receipt-key.local is corrupt. Move it aside and recreate write receipts.");
     }
     return lines;
@@ -1644,6 +1662,25 @@ function assertFetchableResultArtifacts(artifacts: BridgeFile[]): void {
     if (!isFetchableResultArtifactPath(normalizedPath) || normalizedPath !== artifact.path) {
       throw new Error(`Artifact is not a fetchable result artifact: ${artifact.path}`);
     }
+  }
+}
+
+// Two entries for one file record one content under two names: the file holds
+// whichever was written last, and a reader asking for "the" result artifact is
+// told there are several.
+function assertDistinctArtifactPaths(artifacts: BridgeFile[]): void {
+  const seen = new Set<string>();
+  for (const artifact of artifacts) {
+    if (seen.has(artifact.path)) {
+      throw new Error(`Artifact ${artifact.path} is listed more than once; list each artifact once.`);
+    }
+    seen.add(artifact.path);
+  }
+}
+
+class ReceiptKeyFileEmptyError extends Error {
+  constructor() {
+    super(".bridge/receipt-key.local is corrupt. Move it aside and recreate write receipts.");
   }
 }
 

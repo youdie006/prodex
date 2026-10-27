@@ -3,7 +3,7 @@ import { readVerifiedUtf8File, writeVerifiedUtf8File } from "./safe-file.js";
 
 const required = [
   "tasks/*.json", "results/*.json", "sessions/*.json", "receipts/*.json",
-  "artifacts/*", "config.local.json", "receipt-key.local", "last-browser-send", "!.gitignore"
+  "artifacts/*", "diagnostics/", "config.local.json", "receipt-key.local", "last-browser-send", "!.gitignore"
 ];
 
 export async function ensureBridgeGitignore(filePath: string, validate: () => Promise<void>): Promise<void> {
