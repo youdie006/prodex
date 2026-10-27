@@ -6023,6 +6023,17 @@ describe("runCli", () => {
     clearTimeout(stop);
   });
 
+  it("keeps the expiry instant and the sentences as written when refusing an expired token", async () => {
+    // The whole message used to be lowercased, printing the expiry as
+    // "2020-01-01t00:00:00.000z" - no longer an ISO time - and "new url".
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
+    await writeExpiredLocalConfig(cwd);
+    const start = runCli(["start"], { cwd, stdout: () => {}, stderr: () => {} });
+    const stop = setTimeout(() => process.emit("SIGTERM"), 50);
+    await expect(start).rejects.toThrow(/^token expired at \d{4}-\d{2}-\d{2}T[\d:.]+Z\. Run `prodex setup/);
+    clearTimeout(stop);
+  });
+
   it("requires setup before start creates a persisted local MCP config", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
 
