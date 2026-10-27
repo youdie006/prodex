@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Unreleased
 
 ### Fixed
+- Fixes from `main` PRs #49-#58 (released in 0.40.43): `pro blockers --since` refuses a unitless or oversized age; the bridge registry counts each repo once whatever the spelling of its path; the HTTP MCP server accepts any case of `Bearer` and answers a malformed request with 400; a repeated result artifact path is refused; a blank `--project`/`--project-new` is refused; a send lock whose pid now belongs to a later process is reaped (this matters most here, where a container restart reuses pids while the home volume keeps the lock); the receipt key is waited on while another store is still writing it; `init` keeps out of other projects' root `.gitignore`; `.bridge/diagnostics/` is git-ignored; expired-token messages keep the expiry time intact.
 - Fix from `main` PR #48: `--attach` and MCP `attach` refuse `.env`, `.git` contents, key files and symlinks that leave the repo, as `--file` does, instead of uploading them.
 - Fix from `main` PR #47: `pro browser recover` and MCP `pro_recover` refuse a target that is not a conversation URL before taking the send lock, instead of moving the shared tab there.
 - Fix from `main` PR #46: a prompt naming the same words plainly and in backticks is no longer refused as `request_mismatch`; the user turn's backticks are put back at the code spans instead of by text search. Applied by hand because the container's message helpers differ from `main`.

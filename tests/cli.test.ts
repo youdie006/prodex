@@ -1275,6 +1275,7 @@ describe("runCli", () => {
 
   it("adds missing build output ignores even when dependencies are already ignored", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
+    await writeFile(path.join(cwd, "package.json"), JSON.stringify({ name: "@youdie006/prodex" }), "utf8");
     await writeFile(path.join(cwd, ".gitignore"), "node_modules/\n", "utf8");
 
     await runCli(["init"], { cwd, stdout: () => {}, stderr: () => {} });
@@ -1282,6 +1283,28 @@ describe("runCli", () => {
     const gitignore = await readFile(path.join(cwd, ".gitignore"), "utf8");
     expect(gitignore).toContain("node_modules/");
     expect(gitignore).toContain("dist/");
+  });
+
+  it("leaves another project's root .gitignore alone", async () => {
+    // Measured: `prodex init` in a repo that commits dist/ (a JavaScript
+    // GitHub Action) appended node_modules/ and dist/ to its .gitignore, so
+    // new build output there would silently stop being tracked. Those two
+    // lines are for a prodex source checkout only.
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
+    await writeFile(path.join(cwd, "package.json"), JSON.stringify({ name: "some-action" }), "utf8");
+    await writeFile(path.join(cwd, ".gitignore"), "*.log\n", "utf8");
+
+    await runCli(["init"], { cwd, stdout: () => {}, stderr: () => {} });
+
+    await expect(readFile(path.join(cwd, ".gitignore"), "utf8")).resolves.toBe("*.log\n");
+  });
+
+  it("keeps the send-pacing marker ignored after init", async () => {
+    // init rewrote .bridge/.gitignore from an older list without
+    // last-browser-send, so the marker showed up for `git add -A`.
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
+    await runCli(["init"], { cwd, stdout: () => {}, stderr: () => {} });
+    await expect(readFile(path.join(cwd, ".bridge", ".gitignore"), "utf8")).resolves.toContain("last-browser-send");
   });
 
   it("uses an explicit --cwd target for init", async () => {
@@ -1305,6 +1328,8 @@ describe("runCli", () => {
     const outside = await mkdtemp(path.join(tmpdir(), "prodex-cli-outside-"));
     const outsideGitignore = path.join(outside, ".gitignore");
     await writeFile(outsideGitignore, "outside\n", "utf8");
+    // Only a prodex source checkout gets root ignores, so only it writes here.
+    await writeFile(path.join(cwd, "package.json"), JSON.stringify({ name: "@youdie006/prodex" }), "utf8");
     await symlink(outsideGitignore, path.join(cwd, ".gitignore"));
 
     await expect(
@@ -6041,6 +6066,17 @@ describe("runCli", () => {
     const stop = setTimeout(() => process.emit("SIGTERM"), 50);
 
     await expect(start).rejects.toThrow(/token expired/i);
+    clearTimeout(stop);
+  });
+
+  it("keeps the expiry instant and the sentences as written when refusing an expired token", async () => {
+    // The whole message used to be lowercased, printing the expiry as
+    // "2020-01-01t00:00:00.000z" - no longer an ISO time - and "new url".
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
+    await writeExpiredLocalConfig(cwd);
+    const start = runCli(["start"], { cwd, stdout: () => {}, stderr: () => {} });
+    const stop = setTimeout(() => process.emit("SIGTERM"), 50);
+    await expect(start).rejects.toThrow(/^token expired at \d{4}-\d{2}-\d{2}T[\d:.]+Z\. Run `prodex setup/);
     clearTimeout(stop);
   });
 

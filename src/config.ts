@@ -310,10 +310,19 @@ export function getTokenExpiryStatus(config: Pick<LocalConfig, "token_expires_at
     : { status: "valid", token_expires_at: config.token_expires_at };
 }
 
+/**
+ * "Token expired ..." reads as "failed token expired ..." after a status
+ * prefix. Only the first letter: lowercasing the whole message printed the
+ * expiry as "2026-10-26t00:00:00.000z", which is no longer an ISO time.
+ */
+export function lowercaseFirst(message: string): string {
+  return message.charAt(0).toLowerCase() + message.slice(1);
+}
+
 export function assertTokenNotExpired(config: Pick<LocalConfig, "token_expires_at">, now: Date = new Date()): void {
   const status = getTokenExpiryStatus(config, now);
   if (status.status === "expired") {
-    throw new Error(status.warning.toLowerCase());
+    throw new Error(lowercaseFirst(status.warning));
   }
 }
 

@@ -1,3 +1,4 @@
+import path from "node:path";
 import {
   assertNoExtraArgs,
   assertOnlyOptions,
@@ -367,7 +368,8 @@ export function receiptInspectionListSuffix(receipt: Receipt): string {
 }
 
 export async function writeTaskCompleteArtifacts(store: BridgeStore, values: string[]): Promise<BridgeFile[]> {
-  const artifacts: BridgeFile[] = [];
+  const parsed: { artifactPath: string; content: string }[] = [];
+  const seen = new Set<string>();
   for (const value of values) {
     const separator = value.indexOf("=");
     if (separator <= 0) {
@@ -378,6 +380,17 @@ export async function writeTaskCompleteArtifacts(store: BridgeStore, values: str
     if (!artifactPath.trim()) {
       throw new Error("tasks complete --artifact requires path=text");
     }
+    // Checked before anything is written: a repeated path used to overwrite
+    // the earlier text silently and be recorded twice.
+    const key = path.posix.normalize(artifactPath.replaceAll("\\", "/"));
+    if (seen.has(key)) {
+      throw new Error(`tasks complete --artifact ${artifactPath} names a file more than once; pass each artifact path once.`);
+    }
+    seen.add(key);
+    parsed.push({ artifactPath, content });
+  }
+  const artifacts: BridgeFile[] = [];
+  for (const { artifactPath, content } of parsed) {
     const storedPath = await store.writeArtifactText(artifactPath, content);
     artifacts.push({ path: storedPath, role: "result" });
   }
