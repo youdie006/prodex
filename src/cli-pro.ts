@@ -73,7 +73,8 @@ import {
   readRepeatedFlag,
   resolveCwdFlag,
   resolveOptionalFileFlag,
-  unknownSubcommandError
+  unknownSubcommandError,
+  assertProjectName
 } from "./cli-args.js";
 import { printProBrowserHelp, printProHelp } from "./cli-help.js";
 import { listRawResultsForInspection, listTasksForInspection } from "./cli-ledger.js";
@@ -1404,6 +1405,8 @@ export async function runAskProCommand(
     const sessionKey = resolveProdexSessionKey(readFlag(parsedAskPro.optionArgs, "--session-key"));
     const explicitProject = readFlag(parsedAskPro.optionArgs, "--project");
     const explicitProjectNew = readFlag(parsedAskPro.optionArgs, "--project-new");
+    assertProjectName("--project", explicitProject);
+    assertProjectName("--project-new", explicitProjectNew);
     // Opt out of a pinned default project for one send. Without this a repo
     // that pins a project has no route back to the plain chat list.
     const suppressProject = parsedAskPro.optionArgs.includes("--no-project");
