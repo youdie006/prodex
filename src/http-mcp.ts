@@ -44,7 +44,15 @@ export async function startHttpMcpServer(options: StartHttpMcpServerOptions): Pr
 
   const server = http.createServer(async (req, res) => {
     try {
-      const requestUrl = new URL(req.url ?? "/", `http://${req.headers.host ?? host}`);
+      // Only the path and query are read, so the base is fixed: taking it from
+      // the Host header turned a malformed header into a 500.
+      let requestUrl: URL;
+      try {
+        requestUrl = new URL(req.url ?? "/", "http://localhost");
+      } catch {
+        writeJson(res, 400, { error: "bad_request" });
+        return;
+      }
       if (requestUrl.pathname === "/health") {
         writeJson(res, 200, { ok: true, name: "prodex" });
         return;
@@ -289,8 +297,9 @@ function isAuthorized(req: IncomingMessage, url: URL, token?: string, tokenExpir
   if (tokenExpiresAt && isExpired(tokenExpiresAt)) return false;
   const provided = url.searchParams.get("prodex_token");
   if (provided !== null && safeEqual(provided, token)) return true;
-  const authorization = headerValue(req.headers.authorization);
-  return authorization !== undefined && safeEqual(authorization, `Bearer ${token}`);
+  // The scheme is case-insensitive (RFC 7235): "bearer <token>" is the same.
+  const bearer = /^bearer +(.+)$/i.exec(headerValue(req.headers.authorization) ?? "");
+  return bearer !== null && safeEqual(bearer[1]!, token);
 }
 
 function isExpired(tokenExpiresAt: string): boolean {

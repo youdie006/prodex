@@ -162,6 +162,46 @@ describe("HTTP MCP server", () => {
     expect(body.error.message).toContain("no valid MCP session");
   });
 
+  it("accepts the bearer scheme in any letter case", async () => {
+    // RFC 7235 makes the auth scheme case-insensitive; "bearer <token>" was
+    // answered 401 as if the token were wrong.
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-http-mcp-"));
+    running = await startHttpMcpServer({ cwd, host: "127.0.0.1", port: 0, token: "test-token" });
+
+    for (const scheme of ["bearer", "BEARER"]) {
+      const response = await fetch(`${running.url}/mcp`, {
+        method: "POST",
+        headers: { authorization: `${scheme} test-token` },
+        body: "{}"
+      });
+      expect(response.status).toBe(400);
+    }
+    const wrong = await fetch(`${running.url}/mcp`, {
+      method: "POST",
+      headers: { authorization: "bearer wrong-token" },
+      body: "{}"
+    });
+    expect(wrong.status).toBe(401);
+  });
+
+  it("serves a request whose Host header is malformed instead of failing with a server error", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-http-mcp-"));
+    running = await startHttpMcpServer({ cwd, host: "127.0.0.1", port: 0, token: "test-token" });
+    const status = await new Promise<number | undefined>((resolve, reject) => {
+      const req = httpRequest(
+        { host: "127.0.0.1", port: running!.port, path: "/mcp?prodex_token=test-token", method: "GET", headers: { host: "a b" } },
+        (res) => {
+          res.resume();
+          resolve(res.statusCode);
+        }
+      );
+      req.on("error", reject);
+      req.end();
+    });
+    // Reaches the session check (no mcp-session-id), which is a 400; it was a 500.
+    expect(status).toBe(400);
+  });
+
   it("rejects authorized MCP request bodies over the configured byte limit", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "prodex-http-mcp-"));
     running = await startHttpMcpServer({
@@ -215,17 +255,14 @@ describe("HTTP MCP server", () => {
     expect(body.error).toBe("invalid_json");
   });
 
-  it("does not leak internal exception messages in generic HTTP 500 responses", async () => {
+  it("does not leak internal exception messages when a request cannot be parsed", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "prodex-http-mcp-"));
     running = await startHttpMcpServer({ cwd, host: "127.0.0.1", port: 0, token: "test-token" });
 
-    const raw = await rawHttpRequest(
-      running.port,
-      "GET /mcp?prodex_token=test-token HTTP/1.1\r\nHost: :\r\nConnection: close\r\n\r\n"
-    );
+    const raw = await rawHttpRequest(running.port, "GET //[ HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n");
 
-    expect(raw).toContain("HTTP/1.1 500");
-    expect(raw).toContain('"error":"internal_server_error"');
+    expect(raw).toContain("HTTP/1.1 400");
+    expect(raw).toContain('"error":"bad_request"');
     expect(raw).not.toContain("Invalid URL");
     expect(raw).not.toContain('"message"');
   });
