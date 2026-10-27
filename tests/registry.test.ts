@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { bridgesRegistryPath, registerBridgeRoot } from "../src/registry.js";
+import { bridgesRegistryPath, readBridgeRoots, registerBridgeRoot } from "../src/registry.js";
 import { BridgeStore } from "../src/store.js";
 
 async function withTempRegistry(fn: (file: string, makeRoot: () => Promise<string>) => Promise<void>): Promise<void> {
@@ -105,6 +105,21 @@ describe("registerBridgeRoot", () => {
     });
   });
 
+  it("does not add a second spelling of a bridge it already lists", async () => {
+    // On a case-insensitive drive (WSL /mnt/d, macOS) realpath keeps the case
+    // it was given, so /mnt/d/MyProject/x and /mnt/d/myproject/x were both
+    // recorded. A symlink spelling written by an older prodex stands in here.
+    await withTempRegistry(async (file, makeRoot) => {
+      const real = await makeRoot();
+      await fs.mkdir(path.join(real, ".bridge"));
+      const alias = `${real}-alias`;
+      await fs.symlink(real, alias, process.platform === "win32" ? "junction" : "dir");
+      await fs.writeFile(file, JSON.stringify({ schema_version: 1, roots: [alias] }), "utf8");
+      await registerBridgeRoot(real);
+      expect(await readRoots(file)).toEqual([alias]);
+    });
+  });
+
   it("prunes roots whose directory no longer exists when a new root is added", async () => {
     await withTempRegistry(async (file, makeRoot) => {
       const dead = await makeRoot();
@@ -136,6 +151,23 @@ describe("keeping throwaway bridges out of the registry", () => {
       const root = await makeRoot();
       await new BridgeStore(root).ensure();
       expect(await readRoots(file)).toContain(await fs.realpath(root));
+    });
+  });
+});
+
+describe("reading the registered roots", () => {
+  it("lists one bridge once even when the registry spells it several ways", async () => {
+    // Measured on this machine: five repos were registered under two or three
+    // spellings each, and `pro blockers` reported 1247 consults where 648 exist.
+    await withTempRegistry(async (file, makeRoot) => {
+      const real = await makeRoot();
+      await fs.mkdir(path.join(real, ".bridge"));
+      const alias = `${real}-alias`;
+      await fs.symlink(real, alias, process.platform === "win32" ? "junction" : "dir");
+      const other = await makeRoot();
+      await fs.mkdir(path.join(other, ".bridge"));
+      await fs.writeFile(file, JSON.stringify({ schema_version: 1, roots: [real, alias, other] }), "utf8");
+      expect(await readBridgeRoots()).toEqual([real, other]);
     });
   });
 });
