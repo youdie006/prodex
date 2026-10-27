@@ -19,6 +19,8 @@ export type SafeFileTestHooks = {
 export interface CrossProcessFileLockHolder {
   pid?: number;
   started_at?: string;
+  /** The holder process's start time in clock ticks since boot (Linux). */
+  pid_start?: string;
 }
 
 export interface CrossProcessFileLockOptions {
@@ -517,6 +519,8 @@ async function tryAcquireFileLock(filePath: string, parentSnapshot: ParentSnapsh
     nonce: randomUUID(),
     started_at: new Date().toISOString()
   };
+  const pidStart = linuxProcessStartTicks(process.pid);
+  if (pidStart !== undefined) owner.pid_start = pidStart;
   const tokenPath = fileLockTokenPath(filePath, owner);
   const handle = await openStableNoFollow(
     tokenPath,
@@ -581,12 +585,13 @@ async function readFileLockSnapshot(
 
 function parseFileLockHolder(content: string): CrossProcessFileLockHolder & { nonce?: string } {
   try {
-    const parsed = JSON.parse(content) as { pid?: unknown; nonce?: unknown; started_at?: unknown };
+    const parsed = JSON.parse(content) as { pid?: unknown; nonce?: unknown; started_at?: unknown; pid_start?: unknown };
     return {
       pid: Number.isSafeInteger(parsed.pid) && Number(parsed.pid) > 0 ? Number(parsed.pid) : undefined,
       nonce:
         typeof parsed.nonce === "string" && /^[A-Za-z0-9-]{1,128}$/.test(parsed.nonce) ? parsed.nonce : undefined,
-      started_at: typeof parsed.started_at === "string" ? parsed.started_at : undefined
+      started_at: typeof parsed.started_at === "string" ? parsed.started_at : undefined,
+      pid_start: typeof parsed.pid_start === "string" && /^\d{1,20}$/.test(parsed.pid_start) ? parsed.pid_start : undefined
     };
   } catch {
     return {};
@@ -595,7 +600,12 @@ function parseFileLockHolder(content: string): CrossProcessFileLockHolder & { no
 
 function parseFileLockOwner(holder: CrossProcessFileLockHolder & { nonce?: string }): FileLockOwner | undefined {
   if (holder.pid === undefined || holder.nonce === undefined) return undefined;
-  return { pid: holder.pid, nonce: holder.nonce, started_at: holder.started_at };
+  return {
+    pid: holder.pid,
+    nonce: holder.nonce,
+    started_at: holder.started_at,
+    ...(holder.pid_start !== undefined ? { pid_start: holder.pid_start } : {})
+  };
 }
 
 async function releaseFileLockLease(
@@ -701,33 +711,40 @@ function processIsAlive(pid: number): boolean {
 }
 
 /**
- * Whether the holder's pid now names a process that started after the lock was
- * written, so the writer is gone. A send that dies with the machine, the WSL VM
- * or its container leaves the lock behind, and after a restart pids are handed
- * out again: measured, a 2020 lock naming pid 1 held off every send for its
- * whole wait budget because pid 1 was alive - as a different process.
+ * Whether the holder's pid now names a different process than the one that
+ * wrote the lock, so the writer is gone. A send that dies with the machine,
+ * the WSL VM or its container leaves the lock behind, and after a restart pids
+ * are handed out again: measured, a 2020 lock naming pid 1 held off every send
+ * for its whole wait budget because pid 1 was alive - as a different process.
+ *
+ * The lock records its writer's start time in clock ticks since boot, and that
+ * is compared with the pid's start ticks now: boot clock against boot clock.
+ * 0.40.43 converted the start to wall time through /proc/stat btime instead,
+ * and on WSL2 btime moves (measured 30 minutes over one day: the VM's boot
+ * clock stops while the host sleeps, then the wall clock is resynced), so a
+ * live holder looked newer than its own lock and its lock was reaped mid-send.
  */
 function pidReusedSince(holder: CrossProcessFileLockHolder): boolean {
+  if (holder.pid === undefined) return false;
+  if (holder.pid_start !== undefined) {
+    const current = linuxProcessStartTicks(holder.pid);
+    return current !== undefined && current !== holder.pid_start;
+  }
+  // A lock from a prodex that did not record start ticks: the only safe call is
+  // that nothing alive now was running before the last boot.
   const writtenAt = Date.parse(holder.started_at ?? "");
-  if (holder.pid === undefined || !Number.isFinite(writtenAt)) return false;
-  const processStartedAt = linuxProcessStartMs(holder.pid);
-  // A holder writes the lock after it starts; a few seconds absorb clock steps.
-  if (processStartedAt !== undefined) return processStartedAt > writtenAt + 5_000;
-  // No per-process start time here: nothing alive now predates the boot.
+  if (!Number.isFinite(writtenAt)) return false;
   return writtenAt < Date.now() - os.uptime() * 1000 - 60_000;
 }
 
-function linuxProcessStartMs(pid: number): number | undefined {
+function linuxProcessStartTicks(pid: number): string | undefined {
   if (process.platform !== "linux") return undefined;
   try {
-    const btime = /^btime (\d+)$/m.exec(readFileSync("/proc/stat", "utf8"))?.[1];
     const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
-    // Field 22 (starttime, in clock ticks since boot) counted after the
-    // parenthesised command name, which may itself contain spaces.
-    const ticks = Number(stat.slice(stat.lastIndexOf(")") + 2).split(" ")[19]);
-    if (!btime || !Number.isFinite(ticks)) return undefined;
-    // USER_HZ is 100 on every Linux ABI Node supports.
-    return Number(btime) * 1000 + ticks * 10;
+    // Field 22 (starttime) counted after the parenthesised command name, which
+    // may itself contain spaces.
+    const ticks = stat.slice(stat.lastIndexOf(")") + 2).split(" ")[19];
+    return ticks !== undefined && /^\d+$/.test(ticks) ? ticks : undefined;
   } catch {
     return undefined;
   }
