@@ -13,7 +13,8 @@ import {
   readPositiveNumberFlag,
   resolveCwdFlag,
   resolveOptionalFileFlag,
-  unknownSubcommandError
+  unknownSubcommandError,
+  assertProjectName
 } from "./cli-args.js";
 import { printInitHelp, printSetupHelp, printStartHelp, printStatusHelp, printTunnelHelp, printTunnelUrlHelp } from "./cli-help.js";
 import { errorMessage, isLoopbackHost, isMissingFileError, sourceAwareSetupMessage } from "./cli-shared.js";
@@ -408,6 +409,7 @@ export function parseBrowserDefaultFlags(args: string[]): WriteLocalConfigInput[
   const proModeRaw = readFlag(args, "--pro-mode");
   const effortRaw = readFlag(args, "--effort");
   const project = readFlag(args, "--project");
+  assertProjectName("--project", project);
   if (proModeRaw !== undefined && effortRaw !== undefined) {
     throw new Error("setup cannot combine --pro-mode and --effort; Pro sub-modes and reasoning effort are different model axes.");
   }

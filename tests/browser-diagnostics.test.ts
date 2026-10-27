@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
+import { BridgeStore } from "../src/store.js";
 import { temporaryChatWarning } from "../src/chatgpt-browser.js";
 import {
   captureBrowserDiagnostics,
@@ -101,5 +102,18 @@ describe("a temporary chat", () => {
   it("says nothing for an ordinary send", () => {
     expect(temporaryChatWarning(false)).toBeUndefined();
     expect(temporaryChatWarning(undefined)).toBeUndefined();
+  });
+});
+
+describe("keeping captures out of git", () => {
+  it("ignores .bridge/diagnostics, where a capture puts a screenshot of the conversation", async () => {
+    // Measured: with PRODEX_BROWSER_DIAGNOSTICS=1 a failed send left
+    // .bridge/diagnostics/<label>/screen.png and page-shape.json (the thread
+    // URL and title) untracked in `git status`, ready for `git add -A`, while
+    // the help says the captures stay local.
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-diag-ignore-"));
+    await new BridgeStore(root).ensure();
+    const ignore = (await readFile(path.join(root, ".bridge", ".gitignore"), "utf8")).split("\n");
+    expect(ignore).toContain("diagnostics/");
   });
 });
