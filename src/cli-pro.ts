@@ -3389,9 +3389,15 @@ export function readSinceFlag(args: string[]): string | undefined {
   if (relative) {
     const amount = Number(relative[1]);
     const hours = relative[2]?.toLowerCase() === "d" ? amount * 24 : amount;
-    return new Date(Date.now() - hours * 3_600_000).toISOString();
+    const since = new Date(Date.now() - hours * 3_600_000);
+    if (!Number.isFinite(since.getTime())) {
+      throw new Error(`--since ${raw} reaches too far back to be a date; use an age like 365d or a date like 2026-01-01.`);
+    }
+    return since.toISOString();
   }
-  const parsed = Date.parse(raw);
+  // Only a calendar date: Date.parse also reads a bare "7" as 2001-07-01, so a
+  // forgotten unit silently widened the report to every consult ever recorded.
+  const parsed = /^\d{4}-\d{2}-\d{2}(?:[T ]|$)/.test(raw.trim()) ? Date.parse(raw) : Number.NaN;
   if (!Number.isFinite(parsed)) {
     throw new Error(`--since expects a date or an age like 7d or 24h, not "${raw}".`);
   }
