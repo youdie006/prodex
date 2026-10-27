@@ -202,6 +202,39 @@ describe("BridgeStore", () => {
     }
   });
 
+  it("waits for a key another store is still writing instead of calling it corrupt", async () => {
+    // Measured on CI (macOS arm64): two stores opening a fresh repo at once,
+    // one read receipt-key.local between the other's exclusive create and its
+    // write, found it empty and failed with "receipt-key.local is corrupt.
+    // Move it aside" - advice that would discard a good key.
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-store-"));
+    const keyPath = path.join(root, ".bridge", "receipt-key.local");
+    let paused = false;
+    let release!: () => void;
+    let reachedWrite!: () => void;
+    const writerPaused = new Promise<void>((resolve) => {
+      reachedWrite = resolve;
+    });
+    setSafeFileTestHooks({
+      beforeWrite: async (filePath) => {
+        if (paused || filePath !== keyPath) return;
+        paused = true;
+        reachedWrite();
+        await new Promise<void>((resolve) => {
+          release = resolve;
+        });
+      }
+    });
+    const first = new BridgeStore(root).ensure();
+    await writerPaused;
+    expect((await readFile(keyPath, "utf8")).length).toBe(0);
+    const second = new BridgeStore(root).ensure();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    release();
+    await expect(Promise.all([first, second])).resolves.toBeDefined();
+    expect((await readFile(keyPath, "utf8")).trim()).toMatch(/^[a-f0-9]{64}$/);
+  });
+
   it("recovers a claim after a crashed holder left a stale lock file", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "prodex-store-"));
     const store = new BridgeStore(root);
