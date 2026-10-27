@@ -180,6 +180,19 @@ describe("reading the window flag", () => {
   it("refuses something it cannot read as a time", () => {
     expect(() => readSinceFlag(["--since", "last tuesday"])).toThrow(/7d or 24h/);
   });
+
+  it("refuses a bare number instead of reading it as a year-2001 date", () => {
+    // Measured: `--since 7` (the unit forgotten) became 2001-06-30, so the
+    // report quietly covered every consult ever recorded.
+    expect(() => readSinceFlag(["--since", "7"])).toThrow(/7d or 24h/);
+    expect(() => readSinceFlag(["--since", "12"])).toThrow(/7d or 24h/);
+  });
+
+  it("refuses an age too large to be a date, rather than failing with a raw RangeError", () => {
+    // Measured: `--since 999999999d` printed only "Invalid time value".
+    expect(() => readSinceFlag(["--since", "999999999d"])).toThrow(/--since .*too far back/);
+    expect(() => readSinceFlag(["--since", "99999999999999999999h"])).toThrow(/--since .*too far back/);
+  });
 });
 
 describe("laying the report out", () => {
