@@ -35,6 +35,28 @@ The release adds a guarded, opt-in transition and more accurate blocker reportin
 **Open**
 - A long-running headless browser ends up behind Cloudflare's check (also noted on WSL, where the Xvfb display is used instead). On macOS there is no virtual display, and a minimized window counts as hidden, so the remaining no-headless option there is a window kept behind others. Changing the headless preference is a design decision that was not made here.
 
+## 0.40.43 Release Record
+
+Release commit `834e3e2` on `main` (cut after PRs #49-#58, last merge `a6bbf85`); tag `v0.40.43`. Ten fixes, including two that block or corrupt work: a send lock left by a dead send whose pid was reused blocked every later send (#54), and two processes opening a fresh repo could fail one with a false "receipt-key.local is corrupt" (#58).
+
+**Publishing**
+- `publish.yml` run 40451563636 first failed on macOS 15 Intel only: `tests/cli.test.ts` "uses an explicit --cwd target for local HTTP MCP start" timed out at 90 s; the same commit passed on the five other platforms and in PR CI. The failed job was rerun and passed, then npm publish with SLSA v1 provenance and the GitHub Release ran. The GitHub Release lists the ten entries from `CHANGELOG.md`.
+- `npm run release:verify` passed on the release commit after a build.
+
+**Installed**
+- WSL, M3, Mac mini: `prodex --version` reports 0.40.43. Running services were not restarted: no host stdio MCP servers on WSL, 1 on M3, none on the Mac mini.
+- The maintainer watchdog checkout was pulled to `834e3e2` and rebuilt.
+
+**Container**
+- `container/redesign-patches` `f72862c` ports #49-#58; full suite (164 files, 2098 tests) and `release:verify` pass on it.
+- WSL: image rebuilt and the container swapped to `1d48d753fbf7`; the in-container send lock was idle before and after.
+- M3: not rebuilt in this release. The build over ssh was refused by the agent's permission classifier; the M3 container still runs the 0.40.42 port.
+
+**Verified live on installed 0.40.43 (WSL)**
+- `pro blockers --since 7` refused: "--since expects a date or an age like 7d or 24h".
+- `pro blockers --json` across the machine: 21 roots and 657 consults (before: 27 roots, about twice the consults, counting case-variant paths of the same repo).
+- `ask --project "  "` refused: "--project is blank".
+
 ## 0.40.42 Release Record
 
 Release commit `9c97a14` on `main` (cut after PR #48, merge `cc129d8`); tag `v0.40.42`. Released on its own: before it, `--attach` and MCP `attach` uploaded `.env`, `.git` contents, key files and outward symlinks.
