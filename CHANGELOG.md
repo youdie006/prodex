@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - `prodex pro blockers --since 7`, with the unit forgotten, was read as the date 2001-06-30, so the report quietly covered every consult ever recorded instead of failing. An age too large to be a date (`--since 999999999d`) failed with only "Invalid time value". Found 2026-10-27 probing the flag. `--since` now takes an age (`7d`, `24h`) or a calendar date starting `YYYY-MM-DD`, and refuses anything else, including an oversized age, with a message showing both forms.
+- `prodex pro blockers` counted a repo's consults once for every spelling of its path in the machine-wide bridge registry. On a case-insensitive drive (WSL `/mnt/d`, macOS) the same repo was registered as `/mnt/d/MyProject/x` and `/mnt/d/myproject/x`, because resolving the path keeps the letter case it was given. Measured 2026-10-27 on one machine: 1247 consults across 27 roots reported, where 648 consults in 21 repos exist. The registry is now read, and new repos added, by which directory a path names rather than by its spelling, so each repo is counted once.
 
 ## 0.40.42
 

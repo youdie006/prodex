@@ -51,6 +51,23 @@ async function directoryExists(dir: string): Promise<boolean> {
 }
 
 /**
+ * Which directory a path names, independent of how it is spelled. realpath
+ * resolves symlinks but keeps the letter case it was given, so on a
+ * case-insensitive drive (WSL /mnt/d, macOS) /mnt/d/MyProject/x and
+ * /mnt/d/myproject/x are one directory under two names. Undefined when the
+ * path is not a directory, or the filesystem reports no inode to compare.
+ */
+async function directoryIdentity(dir: string): Promise<string | undefined> {
+  try {
+    const stat = await fs.stat(dir, { bigint: true });
+    if (!stat.isDirectory() || stat.ino === 0n) return undefined;
+    return `${stat.dev}:${stat.ino}`;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Every bridge root this machine knows about. The registry has only ever been
  * written; reading it is what lets a report span the repos where the failures
  * actually are, instead of the one the command happens to run in.
@@ -69,11 +86,20 @@ export async function readBridgeRoots(): Promise<string[]> {
   const raw = (parsed as { roots?: unknown })?.roots;
   if (!Array.isArray(raw)) return [];
   const roots: string[] = [];
+  const identities = new Set<string>();
   for (const entry of raw.slice(0, MAX_REGISTRY_ROOTS)) {
     const value = typeof entry === "string" ? entry : (entry as { path?: unknown })?.path;
     if (typeof value !== "string" || value.length === 0) continue;
     if (!(await directoryExists(path.join(value, ".bridge")))) continue;
-    if (!roots.includes(value)) roots.push(value);
+    if (roots.includes(value)) continue;
+    // One bridge listed under two spellings was read twice: measured, a
+    // machine-wide `pro blockers` counted 1247 consults where 648 exist.
+    const identity = await directoryIdentity(value);
+    if (identity !== undefined) {
+      if (identities.has(identity)) continue;
+      identities.add(identity);
+    }
+    roots.push(value);
   }
   return roots;
 }
@@ -110,9 +136,13 @@ async function registerBridgeRootInner(root: string): Promise<void> {
       // A genuinely new root: opportunistically prune entries whose directory
       // is gone (cheap here since this path only runs on first registration,
       // not on every ensure()) and cap total growth, keeping the newest.
+      const identity = await directoryIdentity(abs);
       const survivors: string[] = [];
       for (const existing of roots) {
-        if (await directoryExists(existing)) survivors.push(existing);
+        if (!(await directoryExists(existing))) continue;
+        // Already listed under another spelling (see directoryIdentity).
+        if (identity !== undefined && (await directoryIdentity(existing)) === identity) return;
+        survivors.push(existing);
       }
       survivors.push(abs);
       roots = survivors.length > MAX_REGISTRY_ROOTS ? survivors.slice(survivors.length - MAX_REGISTRY_ROOTS) : survivors;
