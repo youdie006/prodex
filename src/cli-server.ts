@@ -25,7 +25,8 @@ import {
   type LocalConfig,
   writeLocalConfig,
   type WriteLocalConfigInput,
-  composeServerUrlWithToken
+  composeServerUrlWithToken,
+  lowercaseFirst
 } from "./config.js";
 import { startHttpMcpServer } from "./http-mcp.js";
 import { readVerifiedUtf8File, writeVerifiedUtf8File } from "./safe-file.js";
@@ -306,7 +307,7 @@ export const TOKEN_BEARING_MCP_URL_AUTHORITY_WARNING =
 export function assertTokenNotExpiredForCommand(config: LocalConfig, sourceCli?: string, setupHintCwd?: string): void {
   const tokenStatus = getTokenExpiryStatus(config);
   if (tokenStatus.status === "expired") {
-    throw new Error(sourceAwareSetupMessage(tokenStatus.warning.toLowerCase(), sourceCli, { cwd: setupHintCwd }));
+    throw new Error(sourceAwareSetupMessage(lowercaseFirst(tokenStatus.warning), sourceCli, { cwd: setupHintCwd }));
   }
 }
 
