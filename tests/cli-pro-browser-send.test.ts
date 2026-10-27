@@ -1070,7 +1070,9 @@ describe("pro browser ask persistence", () => {
       // queue budget must fail without allowing a second sender to enter.
       await writeFile(
         lockFile,
-        JSON.stringify({ pid: process.pid, started_at: new Date(Date.now() - 60_000).toISOString() }),
+        // Old, yet after this process started, as a real holder's must be: a
+        // lock older than its own pid's process is reaped as pid reuse.
+        JSON.stringify({ pid: process.pid, started_at: new Date(Date.now() - process.uptime() * 1000 + 1_000).toISOString() }),
         "utf8"
       );
       sendChatGptPromptMock.mockResolvedValueOnce({
