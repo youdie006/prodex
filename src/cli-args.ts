@@ -406,3 +406,14 @@ export function printHelpIfRequested(
   printHelp(stdout);
   return true;
 }
+
+/**
+ * A project is found and created by its name, so a name that is only spaces
+ * names nothing: it used to reach the browser, where --project-new typed it
+ * into ChatGPT's new-project dialog.
+ */
+export function assertProjectName(flag: string, value: string | undefined): void {
+  if (value !== undefined && !value.trim()) {
+    throw new Error(`${flag} is blank; give the ChatGPT project name, or leave the option out.`);
+  }
+}
