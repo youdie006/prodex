@@ -1070,7 +1070,9 @@ describe("pro browser ask persistence", () => {
       // queue budget must fail without allowing a second sender to enter.
       await writeFile(
         lockFile,
-        JSON.stringify({ pid: process.pid, started_at: new Date(Date.now() - 60_000).toISOString() }),
+        // Old, yet after this process started, as a real holder's must be: a
+        // lock older than its own pid's process is reaped as pid reuse.
+        JSON.stringify({ pid: process.pid, started_at: new Date(Date.now() - process.uptime() * 1000 + 1_000).toISOString() }),
         "utf8"
       );
       sendChatGptPromptMock.mockResolvedValueOnce({
@@ -3489,3 +3491,27 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: s
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
+
+describe("blank project names", () => {
+  // Measured: `--project "  "` and `--project-new "  "` passed every check and
+  // went to the browser, where --project-new would type a blank name into
+  // ChatGPT's new-project dialog; `setup --project "  "` saved a blank default
+  // that every later send then tried to open.
+  const io = (cwd: string) => ({ cwd, stdout: () => {}, stderr: () => {} });
+  beforeEach(() => {
+    sendChatGptPromptMock.mockClear();
+  });
+
+  it.each(["--project", "--project-new"])("refuses a blank %s before touching the browser", async (flag) => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-send-"));
+    await expect(runCli(["pro", "browser", "ask", "--send", flag, "   ", "Review this"], io(cwd))).rejects.toThrow(
+      new RegExp(`${flag} .*blank`)
+    );
+    expect(sendChatGptPromptMock).not.toHaveBeenCalled();
+  });
+
+  it("refuses to save a blank default project", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-send-"));
+    await expect(runCli(["setup", "--project", "   "], io(cwd))).rejects.toThrow(/--project .*blank/);
+  });
+});

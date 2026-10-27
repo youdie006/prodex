@@ -46,7 +46,9 @@ describe("browser send lock ownership", () => {
     const file = path.join(dir, "send.lock");
     process.env.PRODEX_SEND_LOCK_FILE = file;
     process.env.PRODEX_SEND_LOCK_STALE_MS = "1";
-    await writeFile(file, JSON.stringify({ pid: process.pid, started_at: "2000-01-01T00:00:00.000Z" }), "utf8");
+    // Old, but written after this process started - as a real holder's is.
+    const startedAt = new Date(Date.now() - process.uptime() * 1000 + 1_000).toISOString();
+    await writeFile(file, JSON.stringify({ pid: process.pid, started_at: startedAt }), "utf8");
     let entered = false;
 
     await expect(
@@ -55,6 +57,24 @@ describe("browser send lock ownership", () => {
       })
     ).rejects.toThrow(/Another prodex browser send is in progress/);
     expect(entered).toBe(false);
+  });
+
+  it("reaps a lock its process could not have written, because that pid now belongs to a later process", async () => {
+    // Measured: a lock left by a send that died with the machine (written
+    // 2020, pid 1) blocked every later send for its whole wait budget with
+    // "Retry once it finishes", because pid 1 is alive - as a different
+    // process. A crash, reboot, `wsl --shutdown` or container restart leaves
+    // exactly this: the file survives and the pid is reused.
+    const dir = await mkdtemp(path.join(tmpdir(), "prodex-send-lock-"));
+    const file = path.join(dir, "send.lock");
+    process.env.PRODEX_SEND_LOCK_FILE = file;
+    await writeFile(
+      file,
+      JSON.stringify({ pid: process.pid, nonce: "before-this-process", started_at: "2020-01-01T00:00:00.000Z" }),
+      "utf8"
+    );
+
+    await expect(withBrowserSendLock(0, () => undefined, async () => "recovered")).resolves.toBe("recovered");
   });
 
   it("does not let an old same-process owner release a successor acquisition", async () => {
