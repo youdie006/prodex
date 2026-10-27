@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Fixed
+- In the interactive picker (`prodex ui`), a file dragged onto a macOS terminal at the "attach files?" prompt arrives with its spaces backslash-escaped (`My\ File.pdf`), and the line was split into `My\` and `File.pdf`, neither of which exists. Found 2026-10-27 reading the attachment parser. A backslash before a space or shell punctuation is now read as an escape; a backslash before a letter, as in a Windows path, is still part of the path.
+
 ## 0.40.43
 
 ### Fixed
