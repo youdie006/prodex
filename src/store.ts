@@ -330,6 +330,7 @@ export class BridgeStore {
   async completeTask(taskId: string, input: CompleteTaskInput): Promise<Result> {
     const task = await this.getTask(taskId);
     assertFetchableResultArtifacts(input.artifacts ?? []);
+    assertDistinctArtifactPaths(input.artifacts ?? []);
     const retryResult: Result = ResultSchema.parse({
       schema_version: SCHEMA_VERSION,
       task_id: taskId,
@@ -1644,6 +1645,19 @@ function assertFetchableResultArtifacts(artifacts: BridgeFile[]): void {
     if (!isFetchableResultArtifactPath(normalizedPath) || normalizedPath !== artifact.path) {
       throw new Error(`Artifact is not a fetchable result artifact: ${artifact.path}`);
     }
+  }
+}
+
+// Two entries for one file record one content under two names: the file holds
+// whichever was written last, and a reader asking for "the" result artifact is
+// told there are several.
+function assertDistinctArtifactPaths(artifacts: BridgeFile[]): void {
+  const seen = new Set<string>();
+  for (const artifact of artifacts) {
+    if (seen.has(artifact.path)) {
+      throw new Error(`Artifact ${artifact.path} is listed more than once; list each artifact once.`);
+    }
+    seen.add(artifact.path);
   }
 }
 
