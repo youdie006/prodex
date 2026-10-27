@@ -1,4 +1,4 @@
-import { lstat, mkdir } from "node:fs/promises";
+import { lstat, readFile } from "node:fs/promises";
 import path from "node:path";
 import { parseProMode, parseReasoningEffort } from "./chatgpt-browser.js";
 import {
@@ -310,15 +310,17 @@ export function assertTokenNotExpiredForCommand(config: LocalConfig, sourceCli?:
   }
 }
 
+/**
+ * Root ignores for a prodex source checkout. `.bridge/.gitignore` is written by
+ * BridgeStore.ensure() from the one shared list; this used to overwrite it with
+ * an older list that lacked last-browser-send.
+ *
+ * node_modules/ and dist/ go into the ROOT .gitignore only when the target is
+ * prodex itself: added to any repo, they silently stopped tracking new build
+ * output in projects that commit dist/ (JavaScript GitHub Actions do).
+ */
 export async function ensureBridgeGitignore(cwd: string): Promise<void> {
-  const bridgeIgnorePath = path.join(cwd, ".bridge", ".gitignore");
-  await mkdir(path.dirname(bridgeIgnorePath), { recursive: true });
-  await writeVerifiedUtf8File(
-    bridgeIgnorePath,
-    ["tasks/*.json", "results/*.json", "sessions/*.json", "receipts/*.json", "artifacts/*", "config.local.json", "receipt-key.local", "!.gitignore", ""].join("\n"),
-    () => assertGitignoreTargetSafe(bridgeIgnorePath),
-    { create: true }
-  );
+  if (!(await isProdexSourceCheckout(cwd))) return;
   const rootIgnorePath = path.join(cwd, ".gitignore");
   let current = "";
   try {
@@ -335,6 +337,15 @@ export async function ensureBridgeGitignore(cwd: string): Promise<void> {
       () => assertGitignoreTargetSafe(rootIgnorePath),
       { create: true }
     );
+  }
+}
+
+async function isProdexSourceCheckout(cwd: string): Promise<boolean> {
+  try {
+    const manifest = JSON.parse(await readFile(path.join(cwd, "package.json"), "utf8")) as { name?: unknown };
+    return manifest.name === "@youdie006/prodex";
+  } catch {
+    return false;
   }
 }
 
