@@ -35,6 +35,28 @@ The release adds a guarded, opt-in transition and more accurate blocker reportin
 **Open**
 - A long-running headless browser ends up behind Cloudflare's check (also noted on WSL, where the Xvfb display is used instead). On macOS there is no virtual display, and a minimized window counts as hidden, so the remaining no-headless option there is a window kept behind others. Changing the headless preference is a design decision that was not made here.
 
+## 0.40.45 Release Record
+
+Release commit `5e5f965` on `main` (cut after PRs #59 and #63-#68, last merge `52243f4`); tag `v0.40.45`. A batch released on the user's go-ahead: machine-wide send pacing (#59), accurate advice for a busy tab (#63), word-bounded project-name redaction (#64), the IPv6 loopback message (#65), no cancelling of finished sessions (#66), a blank saved default project stopped before the browser (#67), and the project-delete preview (#68).
+
+**Publishing**
+- `npm run release:verify` passed on the release commit after a build (nothing else was run on the machine meanwhile, after 0.40.44's load-related flake).
+- `publish.yml` run 40634873154 passed all six platforms, then npm publish with SLSA v1 provenance and the GitHub Release, which lists the seven entries from `CHANGELOG.md`.
+
+**Installed**
+- WSL, M3, Mac mini: `prodex --version` reports 0.40.45. Running services were not restarted: no host stdio MCP servers on WSL, 1 on M3, none on the Mac mini.
+- The maintainer watchdog checkout was pulled to `5e5f965` and rebuilt.
+
+**Container**
+- `container/redesign-patches` `7f40247` ports #59, #60 and #63-#68 (full suite, 165 files and 2112 tests, and `release:verify` pass on it). #62 changes main's CI only and is not ported.
+- The images were still not rebuilt: `docker compose build` is refused by the agent's permission classifier on WSL and over ssh on M3. The running WSL container is the #49-#58 port and the M3 container the 0.40.42 port.
+
+**Verified live on installed 0.40.45 (WSL, scratch repo, unreachable CDP port)**
+- `setup --host ::1`: "HTTP MCP host ::1 (IPv6 loopback) is not supported ... Use --host 127.0.0.1 or localhost."
+- A repo whose config holds project " ": the send stops with "The default project saved for this repo ... is blank" before any browser step; `--no-project` goes on to the browser.
+- The send-pacing marker was written beside the send lock (`last-browser-send`), not in the repo's `.bridge`.
+- `sessions cancel` on a blocked session: "is already blocked; its outcome is recorded, so there is nothing to cancel."
+
 ## 0.40.44 Release Record
 
 Release commit `060d71c` on `main` (cut after PRs #60-#62, last merge `95c5ddc`); tag `v0.40.44`. Released promptly because of #61: 0.40.43's stale-lock check (#54) derived a holder's wall-clock start from `/proc/stat` btime, which drifts on WSL2 (measured 2026-10-27: 3 to 4 seconds every 30 seconds, 30 minutes over a day), so a send a few minutes into another session's consult freed the live lock and drove the same tab. #60 (picker paths with escaped spaces) went out with it; #62 changes CI only. #59 (machine-wide send pacing) was not ready and is not in this release.
