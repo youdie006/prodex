@@ -329,16 +329,39 @@ describe("BridgeStore", () => {
       status: "running"
     });
 
-    const done = await store.writeSession({
+    // An update that does not repeat the key keeps it.
+    const updated = await store.writeSession({
       id: running.id,
       direction: running.direction,
       backend: running.backend,
-      status: "done"
+      status: "running"
     });
-    expect(done.session_key).toBe("codex-thread-1");
+    expect(updated.session_key).toBe("codex-thread-1");
 
     const cancelled = await store.cancelSession(running.id);
     expect(cancelled.session_key).toBe("codex-thread-1");
+
+    const done = await store.writeSession({
+      direction: "codex_to_chatgpt",
+      backend: "chatgpt-control",
+      session_key: "codex-thread-2",
+      status: "running"
+    });
+    const finished = await store.writeSession({ id: done.id, direction: done.direction, backend: done.backend, status: "done" });
+    expect(finished.session_key).toBe("codex-thread-2");
+  });
+
+  it("refuses to cancel a session that already finished", async () => {
+    // `sessions cancel` rewrote any session as blocked/cancelled - including
+    // one whose consult had answered, so its record said cancelled while the
+    // task said done. Cancel is for a session left running or previewed.
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-store-"));
+    const store = new BridgeStore(root);
+    for (const status of ["done", "blocked"] as const) {
+      const session = await store.writeSession({ direction: "codex_to_chatgpt", backend: "chatgpt-control", status });
+      await expect(store.cancelSession(session.id)).rejects.toThrow(new RegExp(`already ${status}`));
+      expect((await store.getSessionReadOnly(session.id)).status).toBe(status);
+    }
   });
 
   it("treats unsafe record id path occupants as existing without dereferencing them", async () => {

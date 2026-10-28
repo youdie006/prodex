@@ -1455,6 +1455,7 @@ export async function runAskProCommand(
       // Scope by the project this send would have used, so a follow-up cannot
       // land in another project's conversation.
       const continuationProject = explicitProject ?? (suppressProject ? undefined : browserDefaults?.project);
+      assertSavedProjectNotBlank(continuationProject);
       // The name alone cannot identify a project written in another script -
       // measured, two of this account's projects slug to nothing - so the id
       // is read off the live sidebar. A sidebar that cannot be read leaves
@@ -1562,6 +1563,7 @@ export async function runAskProCommand(
       (normalizedTargetUrl || selectionProjectNew !== undefined || suppressProject || temporary
         ? undefined
         : browserDefaults?.project);
+    assertSavedProjectNotBlank(selectionProject);
     const selectionProMode = selectionAxes.proMode;
     const selectionEffort = selectionAxes.effort;
     const continuationScopeProject = continuedFromTaskId
@@ -2971,6 +2973,21 @@ export function resolveSelectionAxes<M extends string, P extends string, E exten
 }
 
 /**
+ * A blank project here can only be the repo's saved default: explicit flags are
+ * refused as blank before this. setup accepted one until 0.40.43, and a send
+ * then searched the shared browser's sidebar for a project with no name before
+ * failing as project_not_found (measured 2026-10-28).
+ */
+function assertSavedProjectNotBlank(project: string | undefined): void {
+  if (project !== undefined && !project.trim()) {
+    throw new Error(
+      "The default project saved for this repo in .bridge/config.local.json is blank, so there is no project to send into. " +
+        'Clear it with `prodex setup --clear-project` (or pin one with `prodex setup --project "name"`), or pass --project or --no-project for this send.'
+    );
+  }
+}
+
+/**
  * Scrub project names out of text that gets persisted.
  *
  * Both names count. A send that CREATES its project names it in exactly the
@@ -2982,9 +2999,16 @@ export function resolveSelectionAxes<M extends string, P extends string, E exten
 export function redactProjectNames(text: string, names: readonly (string | undefined)[]): string {
   let redacted = text;
   // Longest first: a project named "Notes" inside "Notes Archive" would
-  // otherwise leave "<project> Archive" behind.
-  for (const name of [...names].filter((name): name is string => Boolean(name)).sort((a, b) => b.length - a.length)) {
-    redacted = redacted.split(name).join("<project>");
+  // otherwise leave "<project> Archive" behind. A blank name names nothing;
+  // replacing it turned every space of a record into "<project>".
+  for (const name of [...names].filter((name): name is string => Boolean(name?.trim())).sort((a, b) => b.length - a.length)) {
+    // As a word: a plain substring replacement read "Go" inside "Google". The
+    // boundary applies only at an ASCII word character, since a name in a
+    // script like Korean takes its particles directly ("회의록에서").
+    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const before = /^[A-Za-z0-9_]/.test(name) ? "(?<![A-Za-z0-9_])" : "";
+    const after = /[A-Za-z0-9_]$/.test(name) ? "(?![A-Za-z0-9_])" : "";
+    redacted = redacted.replace(new RegExp(`${before}${escaped}${after}`, "g"), "<project>");
   }
   return redacted;
 }
