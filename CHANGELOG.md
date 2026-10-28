@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Send pacing (one visible-browser send per ten seconds by default) was tracked per repo, in `.bridge/last-browser-send`, although every repo on the machine drives the same browser. Sends from two repos, or two worktrees of one, followed each other at machine speed. The pause also ran before the send lock: a send queued behind another posted the moment the lock freed. Found 2026-10-27 reading the pacing code; reproduced with a test that sends from two repos. The marker now sits beside the machine-wide send lock, and the pause runs once the lock is held, right before the send.
+- `prodex sessions cancel` rewrote any session as blocked and cancelled, including one whose consult had already answered, so the session record said cancelled while its task and result said done. `sessions cancel latest` did this to the newest session whatever its state. Found 2026-10-27 probing the ledger. A session that is already done or blocked is now left alone, with a message saying so; cancel marks only a session left running or a preview.
 
 ## 0.40.44
 
