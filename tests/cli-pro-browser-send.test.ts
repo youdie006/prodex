@@ -2442,7 +2442,10 @@ describe("pro browser ask model/project selection", () => {
     await mkdir(path.join(cwd, ".bridge"), { recursive: true });
     // A fresh prior-send marker makes the next send hit the pacing wait.
     await writeFile(sendPacingMarkerPath(), `${new Date().toISOString()}\n`, "utf8");
-    process.env.PRODEX_MIN_SEND_INTERVAL_MS = "600";
+    // The pause now runs inside the send lock, after the task is created; on a
+    // slow CI runner (macOS, Windows) that work alone outlasted a 600 ms
+    // interval, so the pause was already over before it was checked.
+    process.env.PRODEX_MIN_SEND_INTERVAL_MS = "4000";
     sendChatGptPromptMock.mockResolvedValueOnce({
       url: "https://chatgpt.com/c/abc",
       title: "ChatGPT",
@@ -2457,7 +2460,7 @@ describe("pro browser ask model/project selection", () => {
     const elapsed = Date.now() - startedAt;
 
     expect(err.join("\n")).toContain("send_pacing");
-    expect(elapsed).toBeGreaterThanOrEqual(400);
+    expect(elapsed).toBeGreaterThanOrEqual(1_000);
     expect(sendChatGptPromptMock).toHaveBeenCalledTimes(1);
     const marker = await readFile(sendPacingMarkerPath(), "utf8");
     expect(Number.isFinite(Date.parse(marker.trim()))).toBe(true);
@@ -2466,7 +2469,10 @@ describe("pro browser ask model/project selection", () => {
   it("paces a send from another repo, because the browser is shared", async () => {
     // The marker used to live in each repo's .bridge, so a send from a second
     // repo (or worktree) followed the first at machine speed.
-    process.env.PRODEX_MIN_SEND_INTERVAL_MS = "600";
+    // The pause now runs inside the send lock, after the task is created; on a
+    // slow CI runner (macOS, Windows) that work alone outlasted a 600 ms
+    // interval, so the pause was already over before it was checked.
+    process.env.PRODEX_MIN_SEND_INTERVAL_MS = "4000";
     const answer = { url: "https://chatgpt.com/c/abc", title: "ChatGPT", answer: "ok", modelHints: [], warnings: [] };
     sendChatGptPromptMock.mockResolvedValueOnce(answer).mockResolvedValueOnce(answer);
     const first = await mkdtemp(path.join(tmpdir(), "prodex-pace-a-"));
