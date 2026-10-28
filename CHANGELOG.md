@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Fixed
+- Answers lost their italic and strikethrough. ChatGPT's newer answer renderer marks them as `span[data-d-font-style=italic]` and `span[data-d-text-decoration=line-through]`, and prodex read only that renderer's bold marker, so "*better*" and "~~old~~" came back as plain words and bold italic as bold. Found 2026-10-28 with live Instant sends; on the same answer prodex now returns "The ~~old~~ idea became a *better* and ***brilliant*** solution."
+
 ## 0.40.46
 
 ### Fixed
