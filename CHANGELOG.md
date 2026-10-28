@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - The interactive picker (`prodex ui`) measured rows in UTF-16 units, so a Korean conversation or project name took twice the room it was given and wrapped into the next row: measured at width 40, a row came out 94 columns wide. When a colored row was cut, the cut could fall inside the color and drop its reset, so the color ran on into the rows below; an emoji could be cut in half; and hints and the settings frame went out of line after wide names. Found 2026-10-28 rendering a Korean title. Rows are now measured in terminal columns, color codes are kept whole and closed after a cut, characters are never split, and hints and the frame line up.
+- Answers lost every line break inside a paragraph. ChatGPT's newer answer renderer shows a paragraph's single newlines as line breaks (`white-space: pre-line`), and prodex collapsed them like source whitespace: an answer showing "alpha" and "beta" on two lines came back as "alpha beta", and a multi-line answer written without list markup came back as one line. Found 2026-10-28 with live Instant sends; the fixed reader returns "alpha\nbeta" from the same page. Text the page keeps on separate lines now stays on separate lines; spaces and tabs still collapse as before.
 
 ## 0.40.45
 
