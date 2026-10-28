@@ -33,7 +33,7 @@ vi.mock("../src/chatgpt-browser.js", async () => {
 import { runCli } from "../src/cli.js";
 import { shellQuote } from "../src/cli-args.js";
 import { loadLocalConfig, writeLocalConfig } from "../src/config.js";
-import { sendPacingMarkerPath } from "../src/browser-send-lock.js";
+import { sendPacingMarkerPath, withBrowserSendLock } from "../src/browser-send-lock.js";
 import { setSafeFileTestHooks } from "../src/safe-file.js";
 import { setBridgeStoreTestHooks } from "../src/store.js";
 import { normalizeChatGptThreadUrl } from "../src/chatgpt-browser.js";
@@ -2437,15 +2437,14 @@ describe("pro browser ask model/project selection", () => {
     expect(thrown?.message).not.toMatch(/Unknown option/);
   });
 
-  it("stamps a send marker and throttles the next send at human pace", async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-select-"));
-    await mkdir(path.join(cwd, ".bridge"), { recursive: true });
-    // A fresh prior-send marker makes the next send hit the pacing wait.
-    await writeFile(sendPacingMarkerPath(), `${new Date().toISOString()}\n`, "utf8");
-    // The pause now runs inside the send lock, after the task is created; on a
-    // slow CI runner (macOS, Windows) that work alone outlasted a 600 ms
-    // interval, so the pause was already over before it was checked.
-    process.env.PRODEX_MIN_SEND_INTERVAL_MS = "4000";
+  // Neither test below measures how long a send takes before it paces: on the
+  // Windows CI runner one send took 4 to 14 s, longer than any interval worth
+  // waiting out in a test, so a pause that had to survive that work flaked.
+  it("stamps the machine-wide pacing marker, not one inside the repo", async () => {
+    // The marker used to live in each repo's .bridge, so a send from a second
+    // repo (or worktree) followed the first at machine speed although they
+    // share one browser.
+    process.env.PRODEX_MIN_SEND_INTERVAL_MS = "0";
     sendChatGptPromptMock.mockResolvedValueOnce({
       url: "https://chatgpt.com/c/abc",
       title: "ChatGPT",
@@ -2453,35 +2452,54 @@ describe("pro browser ask model/project selection", () => {
       modelHints: [],
       warnings: []
     });
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pace-a-"));
+    const before = Date.now();
+
+    await runCli(["pro", "browser", "ask", "First"], { cwd, stdout: () => {}, stderr: () => {} });
+
+    const stamped = Date.parse((await readFile(sendPacingMarkerPath(), "utf8")).trim());
+    expect(stamped).toBeGreaterThanOrEqual(before - 1_000);
+    await expect(readFile(path.join(cwd, ".bridge", "last-browser-send"), "utf8")).rejects.toThrow();
+  });
+
+  it("paces a send queued behind another once it holds the lock", async () => {
+    // The pause used to run before the lock, so a send that queued behind
+    // another posted the moment the lock freed. Here the test holds the lock,
+    // stamps a send as it lets go, and the queued send must pause after that.
+    process.env.PRODEX_MIN_SEND_INTERVAL_MS = "5000";
+    sendChatGptPromptMock.mockResolvedValueOnce({
+      url: "https://chatgpt.com/c/abc",
+      title: "ChatGPT",
+      answer: "ok",
+      modelHints: [],
+      warnings: []
+    });
+    let release!: () => void;
+    let entered!: () => void;
+    const holding = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const held = withBrowserSendLock(0, () => undefined, () =>
+      new Promise<void>((resolve) => {
+        release = resolve;
+        entered();
+      })
+    );
+    await holding;
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pace-b-"));
     const err: string[] = [];
+    const send = runCli(["pro", "browser", "ask", "Queued"], { cwd, stdout: () => {}, stderr: (line) => err.push(line) });
+    while (!err.some((line) => line.includes("another prodex send holds the browser"))) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    await writeFile(sendPacingMarkerPath(), `${new Date().toISOString()}\n`, "utf8");
+    release();
+    await held;
 
-    const startedAt = Date.now();
-    await runCli(["pro", "browser", "ask", "Review this"], { cwd, stdout: () => {}, stderr: (line) => err.push(line) });
-    const elapsed = Date.now() - startedAt;
-
+    await send;
     expect(err.join("\n")).toContain("send_pacing");
-    expect(elapsed).toBeGreaterThanOrEqual(1_000);
     expect(sendChatGptPromptMock).toHaveBeenCalledTimes(1);
-    const marker = await readFile(sendPacingMarkerPath(), "utf8");
-    expect(Number.isFinite(Date.parse(marker.trim()))).toBe(true);
-  });
-
-  it("paces a send from another repo, because the browser is shared", async () => {
-    // The marker used to live in each repo's .bridge, so a send from a second
-    // repo (or worktree) followed the first at machine speed.
-    // The pause now runs inside the send lock, after the task is created; on a
-    // slow CI runner (macOS, Windows) that work alone outlasted a 600 ms
-    // interval, so the pause was already over before it was checked.
-    process.env.PRODEX_MIN_SEND_INTERVAL_MS = "4000";
-    const answer = { url: "https://chatgpt.com/c/abc", title: "ChatGPT", answer: "ok", modelHints: [], warnings: [] };
-    sendChatGptPromptMock.mockResolvedValueOnce(answer).mockResolvedValueOnce(answer);
-    const first = await mkdtemp(path.join(tmpdir(), "prodex-pace-a-"));
-    const second = await mkdtemp(path.join(tmpdir(), "prodex-pace-b-"));
-    await runCli(["pro", "browser", "ask", "First"], { cwd: first, stdout: () => {}, stderr: () => {} });
-    const err: string[] = [];
-    await runCli(["pro", "browser", "ask", "Second"], { cwd: second, stdout: () => {}, stderr: (line) => err.push(line) });
-    expect(err.join("\n")).toContain("send_pacing");
-  });
+  }, 60_000);
 
   it("does not throttle when pacing is disabled", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-select-"));
