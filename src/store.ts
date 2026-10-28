@@ -631,6 +631,13 @@ export class BridgeStore {
   // fields; throws if the session does not exist.
   async cancelSession(sessionId: string): Promise<Session> {
     const existing = await this.getSession(sessionId);
+    // Cancel marks a session left running (or a preview) as abandoned. A
+    // finished one was rewritten too, so a consult that had answered read
+    // "cancelled" here while its task said done.
+    if (existing.status === "done" || existing.status === "blocked") {
+      const why = existing.blocker?.code === "cancelled" ? "it was cancelled before" : "its outcome is recorded";
+      throw new Error(`Session ${existing.id} is already ${existing.status}; ${why}, so there is nothing to cancel.`);
+    }
     return this.writeSession({
       id: existing.id,
       direction: existing.direction,
