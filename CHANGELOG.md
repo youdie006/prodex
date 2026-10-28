@@ -4,7 +4,7 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 0.40.45
 
 ### Fixed
 - Send pacing (one visible-browser send per ten seconds by default) was tracked per repo, in `.bridge/last-browser-send`, although every repo on the machine drives the same browser. Sends from two repos, or two worktrees of one, followed each other at machine speed. The pause also ran before the send lock: a send queued behind another posted the moment the lock freed. Found 2026-10-27 reading the pacing code; reproduced with a test that sends from two repos. The marker now sits beside the machine-wide send lock, and the pause runs once the lock is held, right before the send.
