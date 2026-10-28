@@ -176,3 +176,36 @@ describe("page-read answers as markdown", () => {
     expect(render(el("div", {}, []), "only what the page shows")).toBe("only what the page shows");
   });
 });
+
+// Measured 2026-10-28: ChatGPT's newer answer renderer puts a paragraph's text
+// in word spans under white-space: pre-line, so a single newline inside a
+// paragraph shows on screen as a line break. Collapsing it like ordinary HTML
+// whitespace returned "alpha beta" for an answer showing alpha and beta on two
+// lines, and a whole multi-line answer as one line.
+describe("line breaks the page shows", () => {
+  const preLine = { style: "white-space: pre-line" };
+
+  it("keeps a newline inside a pre-line paragraph", () => {
+    const root = el("div", {}, [el("p", preLine, [el("span", {}, ["alpha\n"]), el("span", {}, ["beta"])])]);
+    expect(render(root)).toBe("alpha\nbeta");
+  });
+
+  it("keeps them when the pre-line style is set on an ancestor", () => {
+    const root = el("div", preLine, [
+      el("p", {}, [el("span", {}, ["Pros:  \n"]), el("span", {}, ["fast\n"]), el("span", {}, ["cheap"])]),
+      el("ul", {}, [el("li", {}, ["one\ntwo"])])
+    ]);
+    expect(render(root)).toBe("Pros:\nfast\ncheap\n\n- one\ntwo");
+  });
+
+  it("keeps a blank line between paragraphs held in one pre-line block", () => {
+    // The shape measured live: "Heading\n\n" and the next words in spans.
+    const root = el("div", preLine, [el("p", {}, [el("span", {}, ["Heading\n\n"]), el("span", {}, ["Inline "]), el("span", {}, ["text"])])]);
+    expect(render(root)).toBe("Heading\n\nInline text");
+  });
+
+  it("still collapses source whitespace where the page does", () => {
+    const root = el("div", {}, [el("p", {}, ["word\n   wrapped  in\tsource"])]);
+    expect(render(root)).toBe("word wrapped in source");
+  });
+});

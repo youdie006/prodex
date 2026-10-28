@@ -456,6 +456,40 @@ export const CHATGPT_RENDERED_MESSAGE_TEXT_JS = `
         return space ? out + " " : out;
       };
       const trimEnd = (value) => { let end = value.length; while (end > 0 && isSpaceChar(value[end - 1])) end -= 1; return value.slice(0, end); };
+      // The newer answer renderer sets white-space: pre-line on a paragraph,
+      // so a newline inside it is a line break on screen (measured
+      // 2026-10-28). Collapsing it like source whitespace returned "alpha beta"
+      // for an answer showing alpha and beta on two lines. Spaces and tabs
+      // still collapse; only the newlines stay.
+      const collapseKeepingLines = (value) => {
+        let out = "";
+        let space = false;
+        for (const ch of value) {
+          if (ch === NL) { while (out.endsWith(" ")) out = out.slice(0, -1); out += NL; space = false; continue; }
+          if (isSpaceChar(ch)) { space = true; continue; }
+          if (space && out && !out.endsWith(NL)) out += " ";
+          space = false;
+          out += ch;
+        }
+        return space && !out.endsWith(NL) ? out + " " : out;
+      };
+      const keepsLineBreaks = (node, inherited) => {
+        if (!node || node.nodeType !== 1) return inherited;
+        let whiteSpace = null;
+        try {
+          const view = node.ownerDocument && node.ownerDocument.defaultView;
+          if (view && typeof view.getComputedStyle === "function") whiteSpace = view.getComputedStyle(node).whiteSpace;
+        } catch (error) {
+          whiteSpace = null;
+        }
+        if (!whiteSpace) {
+          const style = (attr(node, "style") || "").toLowerCase();
+          const at = style.indexOf("white-space");
+          if (at >= 0) whiteSpace = style.slice(at).split(":")[1].split(";")[0].trim();
+        }
+        if (!whiteSpace) return inherited;
+        return whiteSpace === "pre" || whiteSpace === "pre-wrap" || whiteSpace === "pre-line" || whiteSpace === "break-spaces";
+      };
       const isCheckbox = (node) => attr(node, "role") === "checkbox" || (tagOf(node) === "input" && attr(node, "type") === "checkbox");
       const skipped = (node) => {
         const tag = tagOf(node);
@@ -508,10 +542,11 @@ export const CHATGPT_RENDERED_MESSAGE_TEXT_JS = `
         const link = findAll(node, (n) => tagOf(n) === "a" && (attr(n, "href") || "").startsWith("http"))[0];
         return link ? "[" + label + "](" + attr(link, "href") + ")" : "[" + label + "]";
       };
-      const inline = (node) => {
+      const inline = (node, keep) => {
+        const keepLines = keepsLineBreaks(node, keep === true);
         let out = "";
         for (const child of children(node)) {
-          const piece = inlineNode(child);
+          const piece = inlineNode(child, keepLines);
           if (!piece) continue;
           // A source pill sits right after its sentence; keep one space before it.
           if (child.nodeType === 1 && (attr(child, "data-chatgpt-copy-reference") !== null || isSourceBadge(child)) && out && !isSpaceChar(out[out.length - 1])) out += " ";
@@ -519,8 +554,8 @@ export const CHATGPT_RENDERED_MESSAGE_TEXT_JS = `
         }
         return out;
       };
-      const inlineNode = (node) => {
-        if (node.nodeType === 3) return collapse(node.textContent || "");
+      const inlineNode = (node, keep) => {
+        if (node.nodeType === 3) return keep === true ? collapseKeepingLines(node.textContent || "") : collapse(node.textContent || "");
         if (node.nodeType !== 1 || skipped(node)) return "";
         const tag = tagOf(node);
         // A task list item's box (measured: button[role=checkbox][aria-checked]).
@@ -529,7 +564,7 @@ export const CHATGPT_RENDERED_MESSAGE_TEXT_JS = `
         if (attr(node, "data-chatgpt-copy-reference") !== null || isSourceBadge(node)) return pill(node);
         if (attr(node, "data-markdown-copy") === "inline-code" || tag === "code") return BT + (node.textContent || "") + BT;
         if (tag === "br") return NL;
-        const inner = inline(node);
+        const inner = inline(node, keep);
         // The newer renderer marks bold as span[data-d-default-strong].
         if (tag === "strong" || tag === "b" || attr(node, "data-d-default-strong") !== null) return inner.trim() ? "**" + inner.trim() + "**" : "";
         if (tag === "em" || tag === "i") return inner.trim() ? "*" + inner.trim() + "*" : "";
@@ -575,7 +610,7 @@ export const CHATGPT_RENDERED_MESSAGE_TEXT_JS = `
         const line = (cells) => "| " + cells.join(" | ") + " |";
         return [line(rows[0]), line(rows[0].map(() => "---")), ...rows.slice(1).map(line)].join(NL);
       };
-      const list = (node, depth) => {
+      const list = (node, depth, keep) => {
         const ordered = tagOf(node) === "ol";
         let number = parseInt(attr(node, "start") || "1", 10);
         if (!Number.isFinite(number)) number = 1;
@@ -588,19 +623,20 @@ export const CHATGPT_RENDERED_MESSAGE_TEXT_JS = `
           const words = [];
           const nested = [];
           let buffer = "";
+          const keepItemLines = keepsLineBreaks(item, keep === true);
           for (const child of children(item)) {
             const tag = child.nodeType === 1 ? tagOf(child) : "";
-            if (tag === "ul" || tag === "ol") { nested.push(list(child, depth + 1)); continue; }
-            if (isBlock(child)) { if (buffer.trim()) words.push(buffer.trim()); buffer = ""; const b = block(child, depth + 1); if (b) words.push(b); continue; }
-            buffer += inlineNode(child);
+            if (tag === "ul" || tag === "ol") { nested.push(list(child, depth + 1, keepItemLines)); continue; }
+            if (isBlock(child)) { if (buffer.trim()) words.push(buffer.trim()); buffer = ""; const b = block(child, depth + 1, keepItemLines); if (b) words.push(b); continue; }
+            buffer += inlineNode(child, keepItemLines);
           }
           if (buffer.trim()) words.push(buffer.trim());
           items.push(indent + marker + " " + words.join(" ") + (nested.length ? NL + nested.join(NL) : ""));
         }
         return items.join(NL);
       };
-      const block = (node, depth) => {
-        if (node.nodeType === 3) return collapse(node.textContent || "").trim();
+      const block = (node, depth, keep) => {
+        if (node.nodeType === 3) return (keep === true ? collapseKeepingLines(node.textContent || "") : collapse(node.textContent || "")).trim();
         if (node.nodeType !== 1 || skipped(node)) return "";
         const tag = tagOf(node);
         if (isMath(node)) return isDisplayMath(node) ? "$$" + NL + mathSource(node) + NL + "$$" : "$" + mathSource(node) + "$";
@@ -608,19 +644,20 @@ export const CHATGPT_RENDERED_MESSAGE_TEXT_JS = `
         if (isMermaidPreview(node)) return mermaidBlock(node);
         if (tag === "table") return table(node);
         if (/^h[1-6]$/.test(tag)) return "#".repeat(Number(tag[1])) + " " + inline(node).trim();
-        if (tag === "ul" || tag === "ol") return list(node, depth);
+        if (tag === "ul" || tag === "ol") return list(node, depth, keepsLineBreaks(node, keep === true));
         if (tag === "hr") return "---";
-        if (tag === "blockquote") return blocks(node, depth).split(NL).map((line) => "> " + line).join(NL);
-        if (tag === "p") return inline(node).trim();
-        return blocks(node, depth);
+        if (tag === "blockquote") return blocks(node, depth, keep).split(NL).map((line) => "> " + line).join(NL);
+        if (tag === "p") return inline(node, keep).trim();
+        return blocks(node, depth, keep);
       };
-      const blocks = (node, depth) => {
+      const blocks = (node, depth, keep) => {
+        const keepLines = keepsLineBreaks(node, keep === true);
         const parts = [];
         let buffer = "";
         const flush = () => { if (buffer.trim()) parts.push(buffer.trim()); buffer = ""; };
         for (const child of children(node)) {
-          if (isBlock(child)) { flush(); const b = block(child, depth); if (b) parts.push(b); continue; }
-          buffer += inlineNode(child);
+          if (isBlock(child)) { flush(); const b = block(child, depth, keepLines); if (b) parts.push(b); continue; }
+          buffer += inlineNode(child, keepLines);
         }
         flush();
         return parts.join(NL + NL);
