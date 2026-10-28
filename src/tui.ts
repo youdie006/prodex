@@ -230,10 +230,85 @@ function paint(text: string, code: string, color: boolean): string {
   return color ? `${code}${text}${RESET}` : text;
 }
 
-/** Cut a line to the terminal rather than letting it wrap into a second row. */
+// Color codes take no columns, and must be carried through a cut whole.
+const SGR_PATTERN = /^\u001b\[[0-9;]*m/;
+
+/**
+ * Terminal columns a character takes: two for East Asian wide characters
+ * (Hangul, CJK, full-width forms) and the common emoji, none for combining and
+ * variation marks, one otherwise. Counting UTF-16 units instead put a Korean
+ * conversation title at twice its allowance, so it wrapped into the next row.
+ */
+function charColumns(codePoint: number): number {
+  if (codePoint < 0x20 || (codePoint >= 0x7f && codePoint < 0xa0)) return 0;
+  if ((codePoint >= 0x300 && codePoint <= 0x36f) || codePoint === 0x200b || codePoint === 0x200d || (codePoint >= 0xfe00 && codePoint <= 0xfe0f)) {
+    return 0;
+  }
+  if (
+    (codePoint >= 0x1100 && codePoint <= 0x115f) ||
+    (codePoint >= 0x2e80 && codePoint <= 0xa4cf && codePoint !== 0x303f) ||
+    (codePoint >= 0xac00 && codePoint <= 0xd7a3) ||
+    (codePoint >= 0xf900 && codePoint <= 0xfaff) ||
+    (codePoint >= 0xfe30 && codePoint <= 0xfe4f) ||
+    (codePoint >= 0xff00 && codePoint <= 0xff60) ||
+    (codePoint >= 0xffe0 && codePoint <= 0xffe6) ||
+    (codePoint >= 0x1f300 && codePoint <= 0x1faff) ||
+    (codePoint >= 0x20000 && codePoint <= 0x3fffd)
+  ) {
+    return 2;
+  }
+  return 1;
+}
+
+/** Columns a string takes on screen, ignoring color codes. */
+export function displayWidth(text: string): number {
+  let columns = 0;
+  for (let index = 0; index < text.length; ) {
+    const sgr = SGR_PATTERN.exec(text.slice(index));
+    if (sgr) {
+      index += sgr[0].length;
+      continue;
+    }
+    const codePoint = text.codePointAt(index)!;
+    columns += charColumns(codePoint);
+    index += codePoint > 0xffff ? 2 : 1;
+  }
+  return columns;
+}
+
+/** Pad with spaces to a number of columns, not of UTF-16 units. */
+export function padEndToWidth(text: string, width: number): string {
+  return text + " ".repeat(Math.max(0, width - displayWidth(text)));
+}
+
+/**
+ * Cut a line to the terminal rather than letting it wrap into a second row.
+ * Counts columns, keeps color codes whole, never splits a character, and closes
+ * a color the cut fell inside: a cut that dropped the reset left the rows
+ * below in the label's color.
+ */
 export function truncateToWidth(text: string, width: number): string {
-  if (width <= 0 || text.length <= width) return text;
-  return width <= 3 ? text.slice(0, width) : `${text.slice(0, width - 3)}...`;
+  if (width <= 0 || displayWidth(text) <= width) return text;
+  const budget = width <= 3 ? width : width - 3;
+  let out = "";
+  let columns = 0;
+  let colored = false;
+  for (let index = 0; index < text.length; ) {
+    const sgr = SGR_PATTERN.exec(text.slice(index));
+    if (sgr) {
+      out += sgr[0];
+      colored = sgr[0] !== RESET;
+      index += sgr[0].length;
+      continue;
+    }
+    const codePoint = text.codePointAt(index)!;
+    const step = charColumns(codePoint);
+    if (columns + step > budget) break;
+    out += String.fromCodePoint(codePoint);
+    columns += step;
+    index += codePoint > 0xffff ? 2 : 1;
+  }
+  return `${out}${width <= 3 ? "" : "..."}${colored ? RESET : ""}`;
 }
 
 export function renderSelectList(input: SelectListInput): string {
@@ -246,7 +321,7 @@ export function renderSelectList(input: SelectListInput): string {
   const lines = [`${paint(input.title, BOLD, color)}${step}`, ""];
   // Hints line up in their own column; ragged hints read as noise next to the
   // labels they belong to.
-  const labelWidth = Math.max(...input.options.map((option) => option.label.length), 0);
+  const labelWidth = Math.max(...input.options.map((option) => displayWidth(option.label)), 0);
   input.options.forEach((option, index) => {
     const onCursor = index === input.cursor;
     // A left bar reads as a cursor even once the row is colored, where a ">"
@@ -257,9 +332,9 @@ export function renderSelectList(input: SelectListInput): string {
     const ordinal = paint(`${index + 1}`, onCursor ? ACCENT : DIM, color);
     const box = input.multi ? (selected.has(index) ? "[x] " : "[ ] ") : "";
     const label = onCursor ? paint(option.label, BOLD, color) : option.label;
-    const gap = " ".repeat(Math.max(0, labelWidth - option.label.length));
+    const gap = " ".repeat(Math.max(0, labelWidth - displayWidth(option.label)));
     const hint = option.hint ? `${gap}    ${paint(option.hint, DIM, color)}` : "";
-    lines.push(truncateToWidth(` ${bar} ${ordinal} ${box}${label}${hint}`, width + (color ? 64 : 0)));
+    lines.push(truncateToWidth(` ${bar} ${ordinal} ${box}${label}${hint}`, width));
   });
   if (input.footer) lines.push("", paint(input.footer, DIM, color));
   return lines.join("\n");
@@ -283,8 +358,8 @@ export function renderContextPanel(rows: ContextRow[], options: { color?: boolea
   const texts = rows.map((row) => ` ${row.label.padEnd(labelWidth)}   ${row.value} `);
   // Size the frame to its contents, capped by the terminal. A box stretched to
   // the full width is mostly empty space with a border around it.
-  const inner = Math.min(Math.max(...texts.map((text) => text.length), 0), Math.max(20, (options.width ?? 72) - 2));
-  const body = texts.map((text) => `│${truncateToWidth(text, inner).padEnd(inner)}│`);
+  const inner = Math.min(Math.max(...texts.map((text) => displayWidth(text)), 0), Math.max(20, (options.width ?? 72) - 2));
+  const body = texts.map((text) => `│${padEndToWidth(truncateToWidth(text, inner), inner)}│`);
   const top = `╭${"─".repeat(inner)}╮`;
   const bottom = `╰${"─".repeat(inner)}╯`;
   return [top, ...body, bottom].map((line) => (color ? paint(line, DIM, color) : line)).join("\n");
