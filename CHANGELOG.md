@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Fixed
+- Links in answers carried a tracking parameter the answer never wrote. ChatGPT's link component appends `utm_source=chatgpt.com` to every link it renders, and prodex copied the rendered address: a link written as `https://example.com/page` came back as `https://example.com/page?utm_source=chatgpt.com`, and `https://example.com/b#sec` as `https://example.com/b?utm_source=chatgpt.com#sec`. Found 2026-10-28 by comparing a live answer's source with its rendered links. prodex now drops exactly that parameter from answer links and source links, keeping the rest of the query and the fragment. Two changes the page makes cannot be undone from the rendered link: it re-encodes the query (`%20` comes back as `+`), and it replaces a `utm_source` the answer wrote itself.
+
 ## 0.40.46
 
 ### Fixed
