@@ -35,6 +35,26 @@ The release adds a guarded, opt-in transition and more accurate blocker reportin
 **Open**
 - A long-running headless browser ends up behind Cloudflare's check (also noted on WSL, where the Xvfb display is used instead). On macOS there is no virtual display, and a minimized window counts as hidden, so the remaining no-headless option there is a window kept behind others. Changing the headless preference is a design decision that was not made here.
 
+## 0.40.46 Release Record
+
+Release commit `807f245` on `main` (cut after PRs #69 and #70, last merge `9253ee9`); tag `v0.40.46`. A batch released on the user's go-ahead: terminal-column widths in the interactive picker (#69) and line breaks kept inside answers from ChatGPT's newer `white-space: pre-line` renderer (#70).
+
+**Publishing**
+- `npm run release:verify` passed on the release commit after a build, with nothing else running on the machine.
+- `publish.yml` run 40645773352 passed all six platforms, then npm publish with SLSA v1 provenance and the GitHub Release, which lists the two entries from `CHANGELOG.md`.
+
+**Installed**
+- WSL, M3, Mac mini: `prodex --version` reports 0.40.46, and each installed `dist/chatgpt-browser.js` carries the line-break reader. Running services were not restarted: no host stdio MCP servers on WSL, 1 on M3, none on the Mac mini.
+- The maintainer watchdog checkout was pulled to `807f245` and rebuilt.
+
+**Container**
+- `container/redesign-patches` `5d021d1` ports #69 and `ad24ce2` ports #70 (the #70 cherry-pick conflicted in `src/chatgpt-browser.ts` and the PR diff was applied instead; tsc, build, the suite and `release:verify` pass on it).
+- The images were still not rebuilt: `docker compose build` is refused by the agent's permission classifier on WSL and over ssh on M3. The running WSL container is the #49-#58 port and the M3 container the 0.40.42 port.
+
+**Verified**
+- Before the release, on the live tab: the reader in 0.40.45 returned "alpha beta" for an answer showing "alpha" and "beta" on two lines; the #70 build returned "alpha\nbeta" from the same page, with the list after it unchanged.
+- After installing, the tab no longer showed a multi-line answer, so the line-break fix was not re-read live on the installed build; the installed reader ran on the current answer without error.
+
 ## 0.40.45 Release Record
 
 Release commit `5e5f965` on `main` (cut after PRs #59 and #63-#68, last merge `52243f4`); tag `v0.40.45`. A batch released on the user's go-ahead: machine-wide send pacing (#59), accurate advice for a busy tab (#63), word-bounded project-name redaction (#64), the IPv6 loopback message (#65), no cancelling of finished sessions (#66), a blank saved default project stopped before the browser (#67), and the project-delete preview (#68).
