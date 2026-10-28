@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { access, chmod, link, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -75,6 +76,64 @@ describe("browser send lock ownership", () => {
     );
 
     await expect(withBrowserSendLock(0, () => undefined, async () => "recovered")).resolves.toBe("recovered");
+  });
+
+  // Linux only: these read the holder's start time out of /proc.
+  const ownStartTicks = (): string => {
+    const stat = readFileSync(`/proc/${process.pid}/stat`, "utf8");
+    return stat.slice(stat.lastIndexOf(")") + 2).split(" ")[19]!;
+  };
+
+  it.runIf(process.platform === "linux")(
+    "keeps a live holder's lock when the wall clock has stepped since the lock was written",
+    async () => {
+      // Measured on WSL2: /proc/stat btime moved 30 minutes later over one day
+      // (the VM's boot clock stops while the host sleeps, then the wall clock
+      // is resynced). Converting a process start to wall time through btime
+      // then put a live holder's start AFTER its own lock, and 0.40.43 reaped
+      // that lock: a second send drove the tab while the first was mid-answer.
+      // The start ticks recorded in the lock compare boot clock to boot clock.
+      const dir = await mkdtemp(path.join(tmpdir(), "prodex-send-lock-"));
+      const file = path.join(dir, "send.lock");
+      process.env.PRODEX_SEND_LOCK_FILE = file;
+      await writeFile(
+        file,
+        JSON.stringify({
+          pid: process.pid,
+          nonce: "live-holder",
+          started_at: "2020-01-01T00:00:00.000Z",
+          pid_start: ownStartTicks()
+        }),
+        "utf8"
+      );
+      let entered = false;
+      await expect(
+        withBrowserSendLock(0, () => undefined, async () => {
+          entered = true;
+        })
+      ).rejects.toThrow(/Another prodex browser send is in progress/);
+      expect(entered).toBe(false);
+    }
+  );
+
+  it.runIf(process.platform === "linux")("reaps a lock whose pid now has a different start time", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "prodex-send-lock-"));
+    const file = path.join(dir, "send.lock");
+    process.env.PRODEX_SEND_LOCK_FILE = file;
+    await writeFile(
+      file,
+      JSON.stringify({ pid: process.pid, nonce: "earlier-process", started_at: new Date().toISOString(), pid_start: "1" }),
+      "utf8"
+    );
+    await expect(withBrowserSendLock(0, () => undefined, async () => "recovered")).resolves.toBe("recovered");
+  });
+
+  it.runIf(process.platform === "linux")("records the holder's start ticks in the lock it takes", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "prodex-send-lock-"));
+    const file = path.join(dir, "send.lock");
+    process.env.PRODEX_SEND_LOCK_FILE = file;
+    const recorded = await withBrowserSendLock(0, () => undefined, async () => JSON.parse(await readFile(file, "utf8")));
+    expect(recorded).toEqual(expect.objectContaining({ pid: process.pid, pid_start: ownStartTicks() }));
   });
 
   it("does not let an old same-process owner release a successor acquisition", async () => {
