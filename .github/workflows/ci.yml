@@ -58,8 +58,13 @@ jobs:
             rg --version
             exit 0
           fi
-          timeout 300 sudo apt-get update
-          timeout 300 sudo apt-get install -y ripgrep
+          # Package mirrors fail transiently; one bad fetch used to fail the run.
+          for attempt in 1 2 3; do
+            if timeout 300 sudo apt-get update && timeout 300 sudo apt-get install -y ripgrep; then break; fi
+            [ "$attempt" = 3 ] && exit 1
+            echo "ripgrep install failed (attempt $attempt); retrying in $((20 * attempt))s"
+            sleep $((20 * attempt))
+          done
           rg --version
 
       - name: Ensure ripgrep is installed (macOS)
@@ -70,7 +75,13 @@ jobs:
             rg --version
             exit 0
           fi
-          brew install ripgrep
+          # Measured: "Failed to download resource ripgrep" failed a PR run.
+          for attempt in 1 2 3; do
+            if brew install ripgrep; then break; fi
+            [ "$attempt" = 3 ] && exit 1
+            echo "ripgrep install failed (attempt $attempt); retrying in $((20 * attempt))s"
+            sleep $((20 * attempt))
+          done
           rg --version
 
       - name: Ensure ripgrep is installed (Windows)
@@ -81,8 +92,14 @@ jobs:
             rg --version
             exit 0
           }
-          choco install ripgrep -y --no-progress
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # Measured: a community.chocolatey.org 504 failed a PR run.
+          for ($attempt = 1; $attempt -le 3; $attempt++) {
+            choco install ripgrep -y --no-progress
+            if ($LASTEXITCODE -eq 0) { break }
+            if ($attempt -eq 3) { exit $LASTEXITCODE }
+            Write-Host "ripgrep install failed (attempt $attempt); retrying in $(20 * $attempt)s"
+            Start-Sleep -Seconds (20 * $attempt)
+          }
           rg --version
 
       - name: Install dependencies
