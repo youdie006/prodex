@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Send pacing (one visible-browser send per ten seconds by default) was tracked per repo, in `.bridge/last-browser-send`, although every repo on the machine drives the same browser. Sends from two repos, or two worktrees of one, followed each other at machine speed. The pause also ran before the send lock: a send queued behind another posted the moment the lock freed. Found 2026-10-27 reading the pacing code; reproduced with a test that sends from two repos. The marker now sits beside the machine-wide send lock, and the pause runs once the lock is held, right before the send.
+- A send that stopped because the browser tab was still generating another answer advised "A new topic can go to a new chat instead", even when it had been started with `--new-chat`. Every send waits for the shared tab, since leaving a thread mid-answer could lose that answer, so the advice sent callers into the same wait. Its recover command also read `--target-url <thread-url>` while the generating thread was on screen. Found 2026-10-27 when a `--new-chat` send waited five minutes behind another session's Pro answer. The advice now says that a new chat waits as well, and names the generating thread in the recover command.
 
 ## 0.40.44
 
