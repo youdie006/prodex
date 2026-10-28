@@ -6075,11 +6075,21 @@ export const CHATGPT_RENDERED_MESSAGE_TEXT_JS = `
       // The renderer web-search answers use since 2026-10-10 marks a source as a
       // badge inside a popover trigger; its urls only exist once it is opened.
       const isSourceBadge = (node) => attr(node, "data-d-component") === "popover-trigger" && findAll(node, (n) => attr(n, "data-pill") !== null).length > 0;
+      // ChatGPT's link component appends utm_source=chatgpt.com to every link
+      // it renders (measured 2026-10-28), a parameter the answer never wrote.
+      const untracked = (href) => {
+        const hashAt = href.indexOf("#");
+        const base = hashAt === -1 ? href : href.slice(0, hashAt);
+        const queryAt = base.indexOf("?");
+        if (queryAt === -1) return href;
+        const params = base.slice(queryAt + 1).split("&").filter((param) => param !== "utm_source=chatgpt.com");
+        return base.slice(0, queryAt) + (params.length > 0 ? "?" + params.join("&") : "") + (hashAt === -1 ? "" : href.slice(hashAt));
+      };
       const pill = (node) => {
         const label = collapse(node.textContent || "").trim();
         if (!label) return "";
         const link = findAll(node, (n) => tagOf(n) === "a" && (attr(n, "href") || "").startsWith("http"))[0];
-        return link ? "[" + label + "](" + attr(link, "href") + ")" : "[" + label + "]";
+        return link ? "[" + label + "](" + untracked(attr(link, "href")) + ")" : "[" + label + "]";
       };
       const inline = (node, keep) => {
         const keepLines = keepsLineBreaks(node, keep === true);
@@ -6122,7 +6132,7 @@ export const CHATGPT_RENDERED_MESSAGE_TEXT_JS = `
         }
         if (tag === "a") {
           const href = attr(node, "href") || "";
-          return href.startsWith("http") && inner.trim() ? "[" + inner.trim() + "](" + href + ")" : inner;
+          return href.startsWith("http") && inner.trim() ? "[" + inner.trim() + "](" + untracked(href) + ")" : inner;
         }
         return inner;
       };

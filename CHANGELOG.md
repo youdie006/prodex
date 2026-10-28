@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Unreleased
 
 ### Fixed
+- Fix from `main` PR #73: answer and source links no longer carry the `utm_source=chatgpt.com` parameter ChatGPT's link component appends to every link it renders; the rest of the query and the fragment are kept.
 - Fix from `main` PR #72: a prompt with a url containing "&" is no longer refused as `request_mismatch` after it was answered; the composer escapes "&" only in the href half of the `[url](url)` it stores, and every markdown escape is now undone before comparing.
 - Fix from `main` PR #71: answers keep the italic and strikethrough of the newer renderer (span[data-d-font-style=italic] and span[data-d-text-decoration=line-through]); only its bold was read, so they came back as plain words and bold italic as bold.
 - Fix from `main` PR #70: answers keep the line breaks the page shows inside a paragraph (the newer renderer's white-space: pre-line); they were collapsed into spaces, so multi-line answers came back as one line.

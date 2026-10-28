@@ -243,3 +243,32 @@ describe("emphasis in the newer renderer", () => {
     expect(render(root)).toBe("***both***");
   });
 });
+
+// Measured 2026-10-28: ChatGPT's link component appends utm_source=chatgpt.com
+// to every link it renders. An answer whose source linked
+// "https://example.com/page" came back as "https://example.com/page?utm_source=chatgpt.com",
+// a url the model never wrote; "?id=3&q=x" became "?id=3&q=x&utm_source=chatgpt.com"
+// and "/b#sec" became "/b?utm_source=chatgpt.com#sec".
+describe("links ChatGPT tagged for tracking", () => {
+  const linked = (href: string, label: string) => el("div", {}, [el("p", {}, [el("a", { href }, [label])])]);
+
+  it("drops the parameter ChatGPT appended", () => {
+    expect(render(linked("https://example.com/page?utm_source=chatgpt.com", "example"))).toBe("[example](https://example.com/page)");
+    expect(render(linked("https://example.com/?utm_source=chatgpt.com", "four"))).toBe("[four](https://example.com/)");
+  });
+
+  it("keeps the rest of the query and the fragment", () => {
+    expect(render(linked("https://example.com/a?id=3&q=x+y&utm_source=chatgpt.com", "one"))).toBe("[one](https://example.com/a?id=3&q=x+y)");
+    expect(render(linked("https://example.com/b?utm_source=chatgpt.com#sec", "two"))).toBe("[two](https://example.com/b#sec)");
+  });
+
+  it("leaves a link alone when its utm_source is anything else", () => {
+    expect(render(linked("https://example.com/c?utm_source=newsletter", "three"))).toBe("[three](https://example.com/c?utm_source=newsletter)");
+    expect(render(linked("https://example.com/c?x=utm_source=chatgpt.com", "five"))).toBe("[five](https://example.com/c?x=utm_source=chatgpt.com)");
+  });
+
+  it("drops it from a source pill's link as well", () => {
+    const web = el("span", { "data-chatgpt-copy-reference": "0" }, [el("a", { href: "https://blog.rust-lang.org/x/?utm_source=chatgpt.com" }, ["blog.rust-lang.org"])]);
+    expect(render(el("div", {}, [el("p", {}, ["Rust is current.", web])]))).toBe("Rust is current. [blog.rust-lang.org](https://blog.rust-lang.org/x/)");
+  });
+});
