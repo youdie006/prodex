@@ -166,6 +166,24 @@ describe("keeping project names out of persisted records", () => {
     );
   });
 
+  // Plain substring replacement read a short name inside other words: with a
+  // project called "Go" every "Google" became "<project>ogle", and a blank
+  // default project (saved before blank names were refused) turned every
+  // space of a recorded blocker into "<project>" - measured in `pro blockers`.
+  it("redacts the name as a word, not inside other words", () => {
+    expect(redactProjectNames("Open Google, then go to project Go and Go-live", ["Go"])).toBe(
+      "Open Google, then go to project <project> and <project>-live"
+    );
+  });
+
+  it("still redacts a name written in a script whose particles attach to it", () => {
+    expect(redactProjectNames("프로젝트 회의록에서 찾지 못함", ["회의록"])).toBe("프로젝트 <project>에서 찾지 못함");
+  });
+
+  it("ignores a blank name instead of redacting every space", () => {
+    expect(redactProjectNames("The Chrome DevTools endpoint is gone", [" ", "  "])).toBe("The Chrome DevTools endpoint is gone");
+  });
+
   it("leaves text alone when no project was named", () => {
     expect(redactProjectNames("No Chrome DevTools endpoint is reachable", [undefined, undefined])).toBe(
       "No Chrome DevTools endpoint is reachable"
