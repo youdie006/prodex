@@ -51,8 +51,13 @@ jobs:
             echo "ripgrep already present: $(rg --version | head -1)"
             exit 0
           fi
-          timeout 300 sudo apt-get update || echo "apt-get update timed out; trying the install anyway"
-          timeout 300 sudo apt-get install -y ripgrep
+          for attempt in 1 2 3; do
+            timeout 300 sudo apt-get update || echo "apt-get update timed out; trying the install anyway"
+            if timeout 300 sudo apt-get install -y ripgrep; then break; fi
+            [ "$attempt" = 3 ] && exit 1
+            echo "ripgrep install failed (attempt $attempt); retrying in $((20 * attempt))s"
+            sleep $((20 * attempt))
+          done
 
       - name: Upgrade npm for trusted publishing (OIDC)
         # Pinned to the 11.x line: OIDC trusted publishing needs npm >= 11.5.1,
