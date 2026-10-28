@@ -972,10 +972,13 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
         });
         if (!target.ok) throw new Error(target.reason);
         // Deleting a project is not undoable from here, so the default is a
-        // preview: say exactly what would go, and delete nothing.
+        // preview: say exactly what would go, and delete nothing. The browser
+        // layer does not automate deletion at all, so the preview must not
+        // promise that --confirm-delete would carry it out - it used to, and
+        // the confirmed run then failed as unsupported.
         if (!browserArgs.includes("--confirm-delete")) {
-          io.stdout(`Would delete project "${target.name}" (${target.id}) and everything filed under it.`);
-          io.stdout("Nothing was deleted. Re-run with --confirm-delete to go ahead.");
+          io.stdout(`Deleting project "${target.name}" (${target.id}) would remove everything filed under it.`);
+          io.stdout("Nothing was deleted. prodex does not delete projects itself: delete it from its menu in the ChatGPT UI.");
           return 0;
         }
         await deleteChatGptProject({
