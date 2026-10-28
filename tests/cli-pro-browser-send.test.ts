@@ -228,7 +228,10 @@ describe("pro browser ask persistence", () => {
 
     expect(code).toBe(0);
     expect(out.join("\n")).toContain("g-p-ccc");
-    expect(out.join("\n")).toMatch(/--confirm-delete/);
+    // Deletion is not automated (the browser layer refuses it), so the preview
+    // must not promise that --confirm-delete goes ahead - it used to.
+    expect(out.join("\n")).not.toMatch(/--confirm-delete to go ahead/);
+    expect(out.join("\n")).toMatch(/ChatGPT UI/);
     expect(deleteChatGptProjectMock).not.toHaveBeenCalled();
 
     // An ambiguous name is refused outright rather than resolved by guessing.

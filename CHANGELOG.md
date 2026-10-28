@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Send pacing (one visible-browser send per ten seconds by default) was tracked per repo, in `.bridge/last-browser-send`, although every repo on the machine drives the same browser. Sends from two repos, or two worktrees of one, followed each other at machine speed. The pause also ran before the send lock: a send queued behind another posted the moment the lock freed. Found 2026-10-27 reading the pacing code; reproduced with a test that sends from two repos. The marker now sits beside the machine-wide send lock, and the pause runs once the lock is held, right before the send.
+- `prodex pro browser project-delete --name <project>` previewed the deletion and said "Re-run with --confirm-delete to go ahead", but prodex does not automate project deletion, so the confirmed run always failed as unsupported (the help line already said so). Found 2026-10-28 reading the command. The preview now says nothing was deleted and that the project is deleted from its menu in the ChatGPT UI.
 
 ## 0.40.44
 
