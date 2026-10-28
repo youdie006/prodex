@@ -81,6 +81,18 @@ describe("local bridge config", () => {
     await expect(readFile(localConfigPath(cwd), "utf8")).rejects.toThrow();
   });
 
+  it("says IPv6 loopback is unsupported instead of calling it non-loopback", async () => {
+    // `setup --host ::1` was refused with "must be loopback-only", which ::1
+    // is. The listener and every printed URL are IPv4-shaped, so the refusal
+    // stands, but it has to say what to use.
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-config-"));
+    for (const host of ["::1", "[::1]"]) {
+      await expect(writeLocalConfig(cwd, { host, port: 9797, token: "test-token" })).rejects.toThrow(
+        /IPv6 loopback.*not supported.*127\.0\.0\.1/
+      );
+    }
+  });
+
   it("rejects legacy local MCP config files with non-loopback hosts", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "prodex-config-"));
     await mkdir(path.join(cwd, ".bridge"), { recursive: true });

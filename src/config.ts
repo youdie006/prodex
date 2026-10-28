@@ -120,6 +120,11 @@ export function normalizeLoopbackHttpHost(host: string): string {
   const isLocalhost = normalized === "localhost";
   const isIpv4Loopback = isIP(normalized) === 4 && normalized.startsWith("127.");
   if (isLocalhost || isIpv4Loopback) return normalized;
+  // ::1 IS loopback; it was refused as if it were not. The listener and every
+  // URL prodex prints are IPv4-shaped, so say that rather than "loopback-only".
+  if (normalized.replace(/^\[|\]$/g, "") === "::1") {
+    throw new Error("HTTP MCP host ::1 (IPv6 loopback) is not supported: prodex prints and serves IPv4 URLs. Use --host 127.0.0.1 or localhost.");
+  }
   throw new Error(
     "HTTP MCP host must be loopback-only, such as 127.0.0.1 or localhost. Keep prodex local and put your own tunnel in front of it when needed."
   );
