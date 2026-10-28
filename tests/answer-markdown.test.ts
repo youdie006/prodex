@@ -210,6 +210,38 @@ describe("line breaks the page shows", () => {
   });
 });
 
+// Measured 2026-10-28 with live Instant sends: the newer renderer marks
+// italic as span[data-d-font-style=italic] and strikethrough as
+// span[data-d-text-decoration=line-through], as it marks bold with
+// data-d-default-strong. Only bold was read, so "*better*" and "~~old~~" came
+// back as plain words and "***brilliant***" as "**brilliant**".
+describe("emphasis in the newer renderer", () => {
+  const text = (attrs: Record<string, string>, value: string) => el("span", { "data-d-component": "text", ...attrs }, [value]);
+
+  it("keeps italic and strikethrough", () => {
+    const root = el("div", {}, [
+      el("p", {}, [
+        "The ",
+        text({ "data-d-text-decoration": "line-through" }, "old"),
+        " idea became ",
+        text({ "data-d-font-style": "italic" }, "better"),
+        "."
+      ])
+    ]);
+    expect(render(root)).toBe("The ~~old~~ idea became *better*.");
+  });
+
+  it("keeps bold inside italic", () => {
+    const root = el("div", {}, [el("p", {}, [text({ "data-d-font-style": "italic" }, ""), text({ "data-d-font-style": "italic" }, "x")])]);
+    expect(render(root)).toBe("*x*");
+    const nested = el("div", {}, [el("p", {}, [el("span", { "data-d-font-style": "italic" }, [text({ "data-d-default-strong": "" }, "brilliant")])])]);
+    expect(render(nested)).toBe("***brilliant***");
+  });
+
+  it("applies every marker one element carries", () => {
+    const root = el("div", {}, [el("p", {}, [text({ "data-d-default-strong": "", "data-d-font-style": "italic" }, "both")])]);
+    expect(render(root)).toBe("***both***");
+
 // Measured 2026-10-28: ChatGPT's link component appends utm_source=chatgpt.com
 // to every link it renders. An answer whose source linked
 // "https://example.com/page" came back as "https://example.com/page?utm_source=chatgpt.com",

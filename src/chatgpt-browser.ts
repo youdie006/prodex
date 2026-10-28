@@ -575,10 +575,22 @@ export const CHATGPT_RENDERED_MESSAGE_TEXT_JS = `
         if (attr(node, "data-markdown-copy") === "inline-code" || tag === "code") return BT + (node.textContent || "") + BT;
         if (tag === "br") return NL;
         const inner = inline(node, keep);
-        // The newer renderer marks bold as span[data-d-default-strong].
-        if (tag === "strong" || tag === "b" || attr(node, "data-d-default-strong") !== null) return inner.trim() ? "**" + inner.trim() + "**" : "";
-        if (tag === "em" || tag === "i") return inner.trim() ? "*" + inner.trim() + "*" : "";
-        if (tag === "del" || tag === "s") return inner.trim() ? "~~" + inner.trim() + "~~" : "";
+        // The newer renderer marks bold as span[data-d-default-strong], italic
+        // as span[data-d-font-style=italic] and strikethrough as
+        // span[data-d-text-decoration=line-through] (measured 2026-10-28; only
+        // bold was read, so the other two came back as plain words). One
+        // element can carry several, so each applies in turn.
+        const strong = tag === "strong" || tag === "b" || attr(node, "data-d-default-strong") !== null;
+        const italic = tag === "em" || tag === "i" || attr(node, "data-d-font-style") === "italic";
+        const struck = tag === "del" || tag === "s" || (attr(node, "data-d-text-decoration") || "").includes("line-through");
+        if (strong || italic || struck) {
+          let marked = inner.trim();
+          if (!marked) return "";
+          if (strong) marked = "**" + marked + "**";
+          if (italic) marked = "*" + marked + "*";
+          if (struck) marked = "~~" + marked + "~~";
+          return marked;
+        }
         if (tag === "a") {
           const href = attr(node, "href") || "";
           return href.startsWith("http") && inner.trim() ? "[" + inner.trim() + "](" + untracked(href) + ")" : inner;
@@ -7032,9 +7044,8 @@ export function pickLandedConversation(candidates: LandedConversationCandidate[]
  */
 export function transcriptContainsWholeSentPrompt(userText: string, sentPrompt: string): boolean {
   const normalize = (value: string): string =>
-    value
+    undoMarkdownEscapes(value)
       .replace(AUTOLINKED_URL_PATTERN, "$1")
-      .replace(/\\([\\`*_{}[\]()#+\-.!>~|])/g, "$1")
       .replace(/\s+/g, " ")
       .trim();
   const seen = normalize(userText);
@@ -7050,6 +7061,16 @@ const NORMALIZED_PROMPT_MATCH_CHARS = 120;
 // halves differently ("Function\_(x)" vs "Function_\(x\)", measured
 // 2026-10-21), so the pattern is applied after markdown escapes are undone.
 const AUTOLINKED_URL_PATTERN = /\[(https?:\/\/[^\]\s]+)\]\(\1\)/g;
+
+// The composer escapes more than the markdown it would otherwise misread: an
+// autolinked url's href kept "\\&" where its text had "&" (measured
+// 2026-10-28). Any ASCII punctuation can carry a markdown escape, so every such
+// escape is undone, on both sides alike.
+const MARKDOWN_ESCAPE_PATTERN = /\\([!-\/:-@[-`{-~])/g;
+
+function undoMarkdownEscapes(value: string): string {
+  return value.replace(MARKDOWN_ESCAPE_PATTERN, "$1");
+}
 
 /**
  * ChatGPT displays a sent turn's HTML entities decoded (measured 2026-10-19:
@@ -7068,7 +7089,7 @@ function decodeHtmlEntities(value: string): string {
 }
 
 function normalizeChatGptPromptText(value: string): string {
-  const unescaped = decodeHtmlEntities(value).replace(/\\([\\`*_{}[\]()#+\-.!>~|])/g, "$1").replace(AUTOLINKED_URL_PATTERN, "$1");
+  const unescaped = undoMarkdownEscapes(decodeHtmlEntities(value)).replace(AUTOLINKED_URL_PATTERN, "$1");
   const renderedFences = unescaped.replace(
     /(^|\r?\n)```text[ \t]*\r?\n([\s\S]*?)\r?\n```(?=\r?\n|$)/g,
     "$1text\n$2"
@@ -7108,8 +7129,7 @@ export function chatGptRequestMatchesUserTurn(userText: string, sentPrompt: stri
 }
 
 function withoutFenceLines(value: string): string {
-  return decodeHtmlEntities(value)
-    .replace(/\\([\\`*_{}[\]()#+\-.!>~|])/g, "$1")
+  return undoMarkdownEscapes(decodeHtmlEntities(value))
     .replace(AUTOLINKED_URL_PATTERN, "$1")
     .replace(/^[ \t]*```[\w-]*[ \t]*$/gm, "")
     .replace(/\s+/g, "");

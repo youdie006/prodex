@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { CHATGPT_RENDERED_MESSAGE_TEXT_JS, chatGptRequestMatchesUserTurn, transcriptMatchesSentPrompt } from "../src/chatgpt-browser.js";
+import {
+  CHATGPT_RENDERED_MESSAGE_TEXT_JS,
+  chatGptRequestMatchesUserTurn,
+  transcriptContainsWholeSentPrompt,
+  transcriptMatchesSentPrompt
+} from "../src/chatgpt-browser.js";
 
 // Measured 2026-10-07: ChatGPT renders inline code in the sent user turn as
 // <code>x</code>, so the page shows "$HOME x" for a prompt that said
@@ -124,5 +129,27 @@ describe("matching a user turn whose url the composer autolinked", () => {
       `\n\n[prodex-request:${id}]`;
     expect(chatGptRequestMatchesUserTurn(seen, sentWithParens, id)).toBe(true);
     expect(transcriptMatchesSentPrompt(seen, sentWithParens)).toBe(true);
+    expect(transcriptContainsWholeSentPrompt(seen, sentWithParens)).toBe(true);
+  });
+
+  // Measured 2026-10-28: a link to a url with a query string was stored with
+  // "&" in the link text but "\\&" in the href. The halves differed, so the
+  // autolink was never folded back and the send, which had posted and been
+  // answered, was refused as request_mismatch.
+  const queryUrlSent = `- [one](https://example.com/a?id=3&q=x%20y)\n- bare https://example.org/d\n\n[prodex-request:${id}]`;
+  const queryUrlSeen =
+    "- [one]\\([https://example.com/a?id=3&q=x%20y](https://example.com/a?id=3\\&q=x%20y))\n- bare https://example.org/d\n\n\n\n\n" +
+    `[prodex-request:${id}]`;
+
+  it("recognizes an autolinked url whose href escaped an ampersand", () => {
+    expect(chatGptRequestMatchesUserTurn(queryUrlSeen, queryUrlSent, id)).toBe(true);
+    expect(transcriptMatchesSentPrompt(queryUrlSeen, queryUrlSent)).toBe(true);
+    expect(transcriptContainsWholeSentPrompt(queryUrlSeen, queryUrlSent)).toBe(true);
+  });
+
+  it("still refuses a url with a different query", () => {
+    const otherQuery = queryUrlSent.replace("id=3", "id=4");
+    expect(chatGptRequestMatchesUserTurn(queryUrlSeen, otherQuery, id)).toBe(false);
+    expect(transcriptContainsWholeSentPrompt(queryUrlSeen, otherQuery)).toBe(false);
   });
 });
