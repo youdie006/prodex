@@ -4,7 +4,7 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 0.40.46
 
 ### Fixed
 - The interactive picker (`prodex ui`) measured rows in UTF-16 units, so a Korean conversation or project name took twice the room it was given and wrapped into the next row: measured at width 40, a row came out 94 columns wide. When a colored row was cut, the cut could fall inside the color and drop its reset, so the color ran on into the rows below; an emoji could be cut in half; and hints and the settings frame went out of line after wide names. Found 2026-10-28 rendering a Korean title. Rows are now measured in terminal columns, color codes are kept whole and closed after a cut, characters are never split, and hints and the frame line up.
