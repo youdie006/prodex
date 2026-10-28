@@ -205,6 +205,22 @@ describe("attachments", () => {
     expect(parseAttachmentLine('"my notes.pdf" plain.txt')).toEqual(["my notes.pdf", "plain.txt"]);
     expect(parseAttachmentLine("'q1 report.xlsx'")).toEqual(["q1 report.xlsx"]);
   });
+
+  it("reads a path dragged in from a macOS terminal, where spaces come backslash-escaped", () => {
+    // Dropping a file onto Terminal or iTerm types `My\ File.pdf`; the line
+    // used to split into "My\" and "File.pdf", neither of which exists.
+    expect(parseAttachmentLine(String.raw`/repo/docs/My\ File\ (v2).pdf notes.txt`)).toEqual([
+      "/repo/docs/My File (v2).pdf",
+      "notes.txt"
+    ]);
+    // An apostrophe inside a word is part of the name, as it always was.
+    expect(parseAttachmentLine("it's.txt b.md")).toEqual(["it's.txt", "b.md"]);
+    // A Windows separator is a backslash before a letter, not an escape.
+    expect(parseAttachmentLine(String.raw`docs\report.pdf C:\\share\x.txt`)).toEqual([
+      String.raw`docs\report.pdf`,
+      String.raw`C:\\share\x.txt`
+    ]);
+  });
 });
 
 describe("reasoning choices", () => {

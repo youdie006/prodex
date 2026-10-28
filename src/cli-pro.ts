@@ -103,7 +103,7 @@ import {
   sourceAwareSetupMessage
 } from "./cli-shared.js";
 import { getTokenExpiryStatus, loadBrowserDefaults, loadLocalConfig } from "./config.js";
-import { withBrowserSendLock } from "./browser-send-lock.js";
+import { sendPacingMarkerPath, withBrowserSendLock } from "./browser-send-lock.js";
 import { blockerCause, buildBlockerReport, CATCH_ALL_CODES, type BlockerConsult } from "./blocker-report.js";
 import { isChatGptConversationUrl, projectIdFromSidebar, resolveContinuationThread } from "./continue-thread.js";
 import { FollowupApprovalRequired, reserveFollowup, resolveMaxAutoFollowups, type FollowupBudget } from "./followup-budget.js";
@@ -991,10 +991,13 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
         });
         if (!target.ok) throw new Error(target.reason);
         // Deleting a project is not undoable from here, so the default is a
-        // preview: say exactly what would go, and delete nothing.
+        // preview: say exactly what would go, and delete nothing. The browser
+        // layer does not automate deletion at all, so the preview must not
+        // promise that --confirm-delete would carry it out - it used to, and
+        // the confirmed run then failed as unsupported.
         if (!browserArgs.includes("--confirm-delete")) {
-          io.stdout(`Would delete project "${target.name}" (${target.id}) and everything filed under it.`);
-          io.stdout("Nothing was deleted. Re-run with --confirm-delete to go ahead.");
+          io.stdout(`Deleting project "${target.name}" (${target.id}) would remove everything filed under it.`);
+          io.stdout("Nothing was deleted. prodex does not delete projects itself: delete it from its menu in the ChatGPT UI.");
           return 0;
         }
         await deleteChatGptProject({
@@ -1254,11 +1257,14 @@ function legacyBrowserSubcommandReplacement(subcommand: string): string {
 }
 
 // File marker + human-pacing gate for visible-browser sends. Reads the previous
-// send's start time from .bridge/last-browser-send, waits out any remaining
-// minimum interval (auto-throttle, not an error), then stamps the new send.
-async function enforceVisibleBrowserSendPacing(cwd: string, stderr: (line: string) => void): Promise<void> {
+// send's start time from the machine-wide marker beside the send lock, waits
+// out any remaining minimum interval (auto-throttle, not an error), then stamps
+// the new send. Runs while the send lock is held: run before it, a send queued
+// behind another posted the moment the lock freed, and the start it stamped was
+// when it began waiting rather than when it sent.
+async function enforceVisibleBrowserSendPacing(stderr: (line: string) => void): Promise<void> {
   const intervalMs = resolveMinSendIntervalMs();
-  const markerPath = path.join(cwd, ".bridge", "last-browser-send");
+  const markerPath = sendPacingMarkerPath();
   let lastSendAtMs: number | undefined;
   try {
     const parsed = Date.parse((await readFile(markerPath, "utf8")).trim());
@@ -1468,6 +1474,7 @@ export async function runAskProCommand(
       // Scope by the project this send would have used, so a follow-up cannot
       // land in another project's conversation.
       const continuationProject = explicitProject ?? (suppressProject ? undefined : browserDefaults?.project);
+      assertSavedProjectNotBlank(continuationProject);
       // The name alone cannot identify a project written in another script -
       // measured, two of this account's projects slug to nothing - so the id
       // is read off the live sidebar. A sidebar that cannot be read leaves
@@ -1575,6 +1582,7 @@ export async function runAskProCommand(
       (normalizedTargetUrl || selectionProjectNew !== undefined || suppressProject || temporary
         ? undefined
         : browserDefaults?.project);
+    assertSavedProjectNotBlank(selectionProject);
     const selectionProMode = selectionAxes.proMode;
     const selectionEffort = selectionAxes.effort;
     const continuationScopeProject = continuedFromTaskId
@@ -1625,7 +1633,6 @@ export async function runAskProCommand(
         ...(normalizedTargetUrl ? { thread: normalizedTargetUrl } : {}),
         ...(continuedFromTaskId ? { continuedFrom: continuedFromTaskId } : {})
       });
-      await enforceVisibleBrowserSendPacing(targetCwd, io.stderr);
       const browserCommandOptions = {
         cwd: targetCwd,
         port: parsedAskPro.optionArgs.includes("--port") ? browserPort : undefined
@@ -1684,8 +1691,9 @@ export async function runAskProCommand(
       // caller had no way to follow; --busy-wait-ms 0 opts back into failing
       // fast. A dead holder is still reaped immediately.
       const sendOnce = () =>
-        withBrowserSendLock(busyWaitMs ?? browserTimeoutMs ?? 0, (detail) => io.stderr(`progress: ${detail}`), () =>
-        sendChatGptPrompt({
+        withBrowserSendLock(busyWaitMs ?? browserTimeoutMs ?? 0, (detail) => io.stderr(`progress: ${detail}`), async () => {
+        await enforceVisibleBrowserSendPacing(io.stderr);
+        return sendChatGptPrompt({
           port: browserPort,
           prompt: bundle.sendText,
           targetUrl: normalizedTargetUrl,
@@ -1706,7 +1714,8 @@ export async function runAskProCommand(
           effort: selectionEffort,
           ...(allowSelectionFallback ? { allowSelectionFallback: true } : {}),
           onProgress: createBrowserSendProgressPrinter(io.stderr)
-        }));
+        });
+        });
       // One-command recovery: interactive terminals (or explicit --auto-login)
       // launch the dedicated browser and retry once when no browser runs.
       // Scripts and agents keep the plain blocker unless they opt in.
@@ -2935,6 +2944,21 @@ export function resolveSelectionAxes<M extends string, P extends string, E exten
 }
 
 /**
+ * A blank project here can only be the repo's saved default: explicit flags are
+ * refused as blank before this. setup accepted one until 0.40.43, and a send
+ * then searched the shared browser's sidebar for a project with no name before
+ * failing as project_not_found (measured 2026-10-28).
+ */
+function assertSavedProjectNotBlank(project: string | undefined): void {
+  if (project !== undefined && !project.trim()) {
+    throw new Error(
+      "The default project saved for this repo in .bridge/config.local.json is blank, so there is no project to send into. " +
+        'Clear it with `prodex setup --clear-project` (or pin one with `prodex setup --project "name"`), or pass --project or --no-project for this send.'
+    );
+  }
+}
+
+/**
  * Scrub project names out of text that gets persisted.
  *
  * Both names count. A send that CREATES its project names it in exactly the
@@ -2946,9 +2970,16 @@ export function resolveSelectionAxes<M extends string, P extends string, E exten
 export function redactProjectNames(text: string, names: readonly (string | undefined)[]): string {
   let redacted = text;
   // Longest first: a project named "Notes" inside "Notes Archive" would
-  // otherwise leave "<project> Archive" behind.
-  for (const name of [...names].filter((name): name is string => Boolean(name)).sort((a, b) => b.length - a.length)) {
-    redacted = redacted.split(name).join("<project>");
+  // otherwise leave "<project> Archive" behind. A blank name names nothing;
+  // replacing it turned every space of a record into "<project>".
+  for (const name of [...names].filter((name): name is string => Boolean(name?.trim())).sort((a, b) => b.length - a.length)) {
+    // As a word: a plain substring replacement read "Go" inside "Google". The
+    // boundary applies only at an ASCII word character, since a name in a
+    // script like Korean takes its particles directly ("회의록에서").
+    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const before = /^[A-Za-z0-9_]/.test(name) ? "(?<![A-Za-z0-9_])" : "";
+    const after = /[A-Za-z0-9_]$/.test(name) ? "(?![A-Za-z0-9_])" : "";
+    redacted = redacted.replace(new RegExp(`${before}${escaped}${after}`, "g"), "<project>");
   }
   return redacted;
 }

@@ -14,6 +14,15 @@ function lockPath(): string {
 }
 
 /**
+ * When the last visible-browser send on this machine started. It sits beside
+ * the send lock because it paces the same shared browser: kept per repo, sends
+ * from two repos (or two worktrees of one) were never paced against each other.
+ */
+export function sendPacingMarkerPath(): string {
+  return path.join(path.dirname(lockPath()), "last-browser-send");
+}
+
+/**
  * Serialize visible-browser sends across processes. Waits up to waitMs for a
  * live holder to finish (0 = fail fast); a lock whose holder process is dead
  * is reaped immediately. budgetFlag is the option that sets waitMs for the

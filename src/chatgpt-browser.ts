@@ -1349,18 +1349,31 @@ export function chatStepNamedAsModel(model: string): ChatGptReasoningEffort | un
 export function chatGptBusyBlocker(state: {
   generating: boolean;
   awaitingResponseChoice?: boolean;
+  url?: string;
 }): ChatGptBrowserStatus["blocker"] | undefined {
   // Waiting for a choice is not generating. Conflating them turned a click
   // away from ready into a full send budget spent on "still generating".
   if (!state.generating || state.awaitingResponseChoice === true) return undefined;
+  // The thread on screen is the one generating. It goes into the advice only:
+  // `thread` on a blocker means where THIS send's prompt landed, and it landed
+  // nowhere.
+  let generatingThread = "<thread-url>";
+  try {
+    if (state.url) generatingThread = normalizeChatGptThreadUrl(state.url);
+  } catch {
+    // Not a conversation page; keep the placeholder.
+  }
   return {
     code: "response_in_progress",
     message: "ChatGPT is still generating a previous response in this thread.",
     retryable: true,
+    // It used to end "A new topic can go to a new chat instead", which a send
+    // already started with --new-chat had just done: every send waits for the
+    // shared tab, since leaving a thread mid-answer could lose that answer.
     next_step:
       "Wait for it to finish and retry (pass --busy-wait-ms to queue behind it longer). " +
-      "If that in-flight answer is the one you need, fetch it once it settles: `prodex pro browser recover --target-url <thread-url>`. " +
-      "A new topic can go to a new chat instead."
+      "A new chat waits as well: the browser tab is shared, and leaving a thread mid-answer could lose that answer. " +
+      `If that in-flight answer is the one you need, fetch it once it settles: \`prodex pro browser recover --target-url ${generatingThread}\`.`
   };
 }
 
