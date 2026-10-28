@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Unreleased
 
 ### Fixed
+- 0.40.43 could free a browser send lock that a live send still held, on WSL and in the Linux container. Its stale-lock check (added in 0.40.43) converted the holder's process start time to wall-clock time through the kernel's boot time, and on WSL2 that boot time keeps moving: measured 2026-10-27, about 3 to 4 seconds every 30 seconds, and 30 minutes over a day with the host sleeping. A few minutes into one send, the next send judged the holder's pid reused, removed its lock and drove the same tab mid-answer; a send of ours ran while another session's Pro consult was generating. Lock files now record the holder's start time in clock ticks since boot, and a holder counts as gone only when that pid's start ticks differ, which no clock step affects. A lock written by an older prodex is still freed only when it predates the last boot.
 - In the interactive picker (`prodex ui`), a file dragged onto a macOS terminal at the "attach files?" prompt arrives with its spaces backslash-escaped (`My\ File.pdf`), and the line was split into `My\` and `File.pdf`, neither of which exists. Found 2026-10-27 reading the attachment parser. A backslash before a space or shell punctuation is now read as an escape; a backslash before a letter, as in a Windows path, is still part of the path.
 
 ## 0.40.43
