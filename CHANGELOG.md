@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Fixed
+- Records of a failed consult redact the project name, and the redaction replaced it as a plain substring: with a project called "Go", "Google" was recorded as "<project>ogle", and a blank default project saved before blank names were refused turned every space of a recorded blocker into "<project>" (seen in `prodex pro blockers` on 2026-10-27). A name is now redacted only where it stands as a word at an ASCII letter or digit, a name in a script like Korean is still redacted with the particles that attach to it, and a blank name is ignored.
+
 ## 0.40.44
 
 ### Fixed
