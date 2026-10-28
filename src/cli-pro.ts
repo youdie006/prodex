@@ -1452,6 +1452,7 @@ export async function runAskProCommand(
       // Scope by the project this send would have used, so a follow-up cannot
       // land in another project's conversation.
       const continuationProject = explicitProject ?? (suppressProject ? undefined : browserDefaults?.project);
+      assertSavedProjectNotBlank(continuationProject);
       // The name alone cannot identify a project written in another script -
       // measured, two of this account's projects slug to nothing - so the id
       // is read off the live sidebar. A sidebar that cannot be read leaves
@@ -1559,6 +1560,7 @@ export async function runAskProCommand(
       (normalizedTargetUrl || selectionProjectNew !== undefined || suppressProject || temporary
         ? undefined
         : browserDefaults?.project);
+    assertSavedProjectNotBlank(selectionProject);
     const selectionProMode = selectionAxes.proMode;
     const selectionEffort = selectionAxes.effort;
     const continuationScopeProject = continuedFromTaskId
@@ -2965,6 +2967,21 @@ export function resolveSelectionAxes<M extends string, P extends string, E exten
     ...(proMode !== undefined ? { proMode } : {}),
     ...(effort !== undefined ? { effort } : {})
   };
+}
+
+/**
+ * A blank project here can only be the repo's saved default: explicit flags are
+ * refused as blank before this. setup accepted one until 0.40.43, and a send
+ * then searched the shared browser's sidebar for a project with no name before
+ * failing as project_not_found (measured 2026-10-28).
+ */
+function assertSavedProjectNotBlank(project: string | undefined): void {
+  if (project !== undefined && !project.trim()) {
+    throw new Error(
+      "The default project saved for this repo in .bridge/config.local.json is blank, so there is no project to send into. " +
+        'Clear it with `prodex setup --clear-project` (or pin one with `prodex setup --project "name"`), or pass --project or --no-project for this send.'
+    );
+  }
 }
 
 /**

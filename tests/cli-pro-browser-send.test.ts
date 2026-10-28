@@ -3549,6 +3549,22 @@ describe("blank project names", () => {
     expect(sendChatGptPromptMock).not.toHaveBeenCalled();
   });
 
+  it("refuses a blank default project saved before blank names were refused", async () => {
+    // Measured 2026-10-28: a repo whose config still held project " " (saved
+    // by an earlier setup) sent into the shared browser, which looked through
+    // the sidebar for a project with no name before failing as
+    // project_not_found. It has to stop before the browser, and say how out.
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-send-"));
+    await writeLocalConfig(cwd, { token: "test-token", browserDefaults: { project: " " } });
+    await expect(runCli(["pro", "browser", "ask", "--send", "Review this"], io(cwd))).rejects.toThrow(
+      /default project .*blank.*--clear-project/
+    );
+    expect(sendChatGptPromptMock).not.toHaveBeenCalled();
+    // An explicit project, or opting out, still gets past a saved blank one.
+    sendChatGptPromptMock.mockResolvedValueOnce({ url: "https://chatgpt.com/c/abc", title: "ChatGPT", answer: "ok", modelHints: [], warnings: [] });
+    await expect(runCli(["pro", "browser", "ask", "--send", "--no-project", "Review this"], io(cwd))).resolves.toBe(0);
+  });
+
   it("refuses to save a blank default project", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-send-"));
     await expect(runCli(["setup", "--project", "   "], io(cwd))).rejects.toThrow(/--project .*blank/);
