@@ -241,6 +241,8 @@ describe("emphasis in the newer renderer", () => {
   it("applies every marker one element carries", () => {
     const root = el("div", {}, [el("p", {}, [text({ "data-d-default-strong": "", "data-d-font-style": "italic" }, "both")])]);
     expect(render(root)).toBe("***both***");
+  });
+});
 
 // Measured 2026-10-28: ChatGPT's link component appends utm_source=chatgpt.com
 // to every link it renders. An answer whose source linked
