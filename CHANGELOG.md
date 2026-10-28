@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Send pacing (one visible-browser send per ten seconds by default) was tracked per repo, in `.bridge/last-browser-send`, although every repo on the machine drives the same browser. Sends from two repos, or two worktrees of one, followed each other at machine speed. The pause also ran before the send lock: a send queued behind another posted the moment the lock freed. Found 2026-10-27 reading the pacing code; reproduced with a test that sends from two repos. The marker now sits beside the machine-wide send lock, and the pause runs once the lock is held, right before the send.
+- A blank default project saved for a repo before 0.40.43 (`prodex setup --project "  "` was accepted then) was still used by every send from that repo: the send searched the shared browser's sidebar for a project with no name and failed as project_not_found. Found 2026-10-28 when a send from such a repo did exactly that. A send that would use a blank saved default now stops before the browser and says to clear it with `prodex setup --clear-project`; `--project` or `--no-project` still send.
 
 ## 0.40.44
 
