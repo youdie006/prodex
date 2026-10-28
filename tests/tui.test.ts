@@ -399,6 +399,50 @@ describe("readability", () => {
     for (const line of rendered.split("\n")) expect(line.length).toBeLessThanOrEqual(40);
   });
 
+  // Measured with a Korean conversation title at width 40: the row came out
+  // 94 columns wide (two per Hangul syllable, plus 64 characters allowed for
+  // color codes), the cut fell inside the bold label so its reset was lost and
+  // the color ran on into the rows below, and an emoji could be cut in half.
+  const columns = (text: string) =>
+    [...text.replace(/\u001b\[[0-9;]*m/g, "")].reduce(
+      (sum, ch) => sum + (/[\u1100-\u115f\u2e80-\ua4cf\uac00-\ud7a3\uf900-\ufaff\uff00-\uff60\u{1f300}-\u{1faff}]/u.test(ch) ? 2 : 1),
+      0
+    );
+
+  it("fits a row of wide characters into the terminal's columns, colors included", () => {
+    const title = "프로젝트 회의록 정리와 다음 분기 계획 수립에 관한 긴 대화 제목입니다 정말 길어요";
+    const rendered = renderSelectList({
+      title: "T",
+      options: [{ label: title, hint: "2026-10-27" }, { label: "short" }],
+      cursor: 0,
+      width: 40,
+      color: true
+    });
+    const row = rendered.split("\n")[2]!;
+    expect(columns(row)).toBeLessThanOrEqual(40);
+    // A cut inside colored text closes the color again.
+    expect(row.endsWith("\u001b[0m")).toBe(true);
+  });
+
+  it("never splits a character when it cuts", () => {
+    const cut = truncateToWidth("ab\u{1F600}cdefgh", 6);
+    expect(cut).toBe("ab...");
+    expect(/[\ud800-\udbff](?![\udc00-\udfff])/.test(cut)).toBe(false);
+    expect(columns(truncateToWidth("한국어제목입니다", 9))).toBeLessThanOrEqual(9);
+  });
+
+  it("lines up hints after wide labels", () => {
+    const rendered = renderSelectList({
+      title: "T",
+      options: [{ label: "회의록", hint: "A" }, { label: "notes", hint: "B" }],
+      cursor: 5,
+      width: 80,
+      color: false
+    });
+    const [first, second] = rendered.split("\n").slice(2);
+    expect(columns(first!.slice(0, first!.indexOf("A")))).toBe(columns(second!.slice(0, second!.indexOf("B"))));
+  });
+
   it("frames the settings a send will use, so nothing is chosen blind", () => {
     const panel = renderContextPanel(
       [
