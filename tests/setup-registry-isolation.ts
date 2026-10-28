@@ -24,6 +24,9 @@ const isolated = {
 
 function restoreIsolation(): void {
   Object.assign(process.env, isolated);
+  // The send-pacing marker sits beside the send lock, so one test's send would
+  // otherwise make the next test's send wait out the pacing interval.
+  fs.rmSync(path.join(root, "last-browser-send"), { force: true });
 }
 
 // Set this before module imports and at every test boundary. A test that

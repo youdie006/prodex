@@ -102,7 +102,7 @@ import {
   sourceAwareSetupMessage
 } from "./cli-shared.js";
 import { getTokenExpiryStatus, loadBrowserDefaults, loadLocalConfig } from "./config.js";
-import { withBrowserSendLock } from "./browser-send-lock.js";
+import { sendPacingMarkerPath, withBrowserSendLock } from "./browser-send-lock.js";
 import { blockerCause, buildBlockerReport, CATCH_ALL_CODES, type BlockerConsult } from "./blocker-report.js";
 import { isChatGptConversationUrl, projectIdFromSidebar, resolveContinuationThread } from "./continue-thread.js";
 import { FollowupApprovalRequired, reserveFollowup, resolveMaxAutoFollowups, type FollowupBudget } from "./followup-budget.js";
@@ -1235,11 +1235,14 @@ function legacyBrowserSubcommandReplacement(subcommand: string): string {
 }
 
 // File marker + human-pacing gate for visible-browser sends. Reads the previous
-// send's start time from .bridge/last-browser-send, waits out any remaining
-// minimum interval (auto-throttle, not an error), then stamps the new send.
-async function enforceVisibleBrowserSendPacing(cwd: string, stderr: (line: string) => void): Promise<void> {
+// send's start time from the machine-wide marker beside the send lock, waits
+// out any remaining minimum interval (auto-throttle, not an error), then stamps
+// the new send. Runs while the send lock is held: run before it, a send queued
+// behind another posted the moment the lock freed, and the start it stamped was
+// when it began waiting rather than when it sent.
+async function enforceVisibleBrowserSendPacing(stderr: (line: string) => void): Promise<void> {
   const intervalMs = resolveMinSendIntervalMs();
-  const markerPath = path.join(cwd, ".bridge", "last-browser-send");
+  const markerPath = sendPacingMarkerPath();
   let lastSendAtMs: number | undefined;
   try {
     const parsed = Date.parse((await readFile(markerPath, "utf8")).trim());
@@ -1606,7 +1609,6 @@ export async function runAskProCommand(
         ...(normalizedTargetUrl ? { thread: normalizedTargetUrl } : {}),
         ...(continuedFromTaskId ? { continuedFrom: continuedFromTaskId } : {})
       });
-      await enforceVisibleBrowserSendPacing(targetCwd, io.stderr);
       const browserCommandOptions = {
         cwd: targetCwd,
         port: parsedAskPro.optionArgs.includes("--port") ? browserPort : undefined
@@ -1665,8 +1667,9 @@ export async function runAskProCommand(
       // caller had no way to follow; --busy-wait-ms 0 opts back into failing
       // fast. A dead holder is still reaped immediately.
       const sendOnce = () =>
-        withBrowserSendLock(busyWaitMs ?? browserTimeoutMs ?? 0, (detail) => io.stderr(`progress: ${detail}`), () =>
-        sendChatGptPrompt({
+        withBrowserSendLock(busyWaitMs ?? browserTimeoutMs ?? 0, (detail) => io.stderr(`progress: ${detail}`), async () => {
+        await enforceVisibleBrowserSendPacing(io.stderr);
+        return sendChatGptPrompt({
           port: browserPort,
           prompt: bundle.sendText,
           targetUrl: normalizedTargetUrl,
@@ -1687,7 +1690,8 @@ export async function runAskProCommand(
           effort: selectionEffort,
           ...(allowSelectionFallback ? { allowSelectionFallback: true } : {}),
           onProgress: createBrowserSendProgressPrinter(io.stderr)
-        }));
+        });
+        });
       // One-command recovery: interactive terminals (or explicit --auto-login)
       // launch the dedicated browser and retry once when no browser runs.
       // Scripts and agents keep the plain blocker unless they opt in.
