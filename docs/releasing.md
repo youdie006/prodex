@@ -35,6 +35,26 @@ The release adds a guarded, opt-in transition and more accurate blocker reportin
 **Open**
 - A long-running headless browser ends up behind Cloudflare's check (also noted on WSL, where the Xvfb display is used instead). On macOS there is no virtual display, and a minimized window counts as hidden, so the remaining no-headless option there is a window kept behind others. Changing the headless preference is a design decision that was not made here.
 
+## 0.40.47 Release Record
+
+Release commit `609b1c9` on `main` (cut after PRs #71-#73, last merge `40d7eee`); tag `v0.40.47`. Released promptly because of #72: on 0.40.46 any prompt carrying a url with "&" (a query string, bare or in a markdown link) was answered and then refused as `request_mismatch`, so the answer was not returned. #71 (italic and strikethrough in the newer renderer) and #73 (the `utm_source=chatgpt.com` parameter ChatGPT appends to rendered links) went out with it.
+
+**Publishing**
+- `npm run release:verify` passed on the release commit after a build, with nothing else running on the machine.
+- `publish.yml` run 40656237042 passed all six platforms, then npm publish with SLSA v1 provenance and the GitHub Release, which lists the three entries from `CHANGELOG.md`.
+
+**Installed**
+- WSL, M3, Mac mini: `prodex --version` reports 0.40.47. Running services were not restarted: no host stdio MCP servers on WSL, 1 on M3, none on the Mac mini.
+- The maintainer watchdog checkout was pulled to `609b1c9` and rebuilt.
+
+**Container**
+- `container/redesign-patches` `63b060c` ports #71, `62376fa` #72 and `facbd9d` #73 (#71 and #73 did not cherry-pick cleanly and their hunks were applied by exact replacement; tsc, build, the full suite, 2128 tests, and `release:verify` pass on `facbd9d`).
+- The images were still not rebuilt: `docker compose build` is refused by the agent's permission classifier on WSL and over ssh on M3. The running WSL container is the #49-#58 port and the M3 container the 0.40.42 port.
+
+**Verified live on installed 0.40.47 (WSL, scratch repo, Instant)**
+- A send whose prompt linked `https://example.com/s?q=a&page=2` returned status done. The user turn was stored with `\&` in the autolink's href half, the shape 0.40.46 refused.
+- Its answer came back as "The ~~old~~ *new* [search](https://example.com/s?q=a&page=2) page." while the page's anchor href was `https://example.com/s?q=a&page=2&utm_source=chatgpt.com`.
+
 ## 0.40.46 Release Record
 
 Release commit `807f245` on `main` (cut after PRs #69 and #70, last merge `9253ee9`); tag `v0.40.46`. A batch released on the user's go-ahead: terminal-column widths in the interactive picker (#69) and line breaks kept inside answers from ChatGPT's newer `white-space: pre-line` renderer (#70).
