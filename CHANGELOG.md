@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Answers lost their italic and strikethrough. ChatGPT's newer answer renderer marks them as `span[data-d-font-style=italic]` and `span[data-d-text-decoration=line-through]`, and prodex read only that renderer's bold marker, so "*better*" and "~~old~~" came back as plain words and bold italic as bold. Found 2026-10-28 with live Instant sends; on the same answer prodex now returns "The ~~old~~ idea became a *better* and ***brilliant*** solution."
+- A prompt containing a url with "&" in it (a query string such as `?q=a&page=2`, bare or inside a markdown link) was sent and answered, then refused as `request_mismatch` ("may belong to another session"), and the answer was not returned. The composer stores such a url as `[url](url)` and escapes the "&" only in the second half, and prodex undid only some markdown escapes before comparing, so the two halves never matched. Found 2026-10-28 with live Instant sends; a send with both forms now returns its answer. Every markdown escape is now undone before the comparison. The stricter check used to tell apart conversations that open the same way also undid escapes only after folding links, so it missed links whose halves the composer escaped differently; it now undoes them first.
 
 ## 0.40.46
 
