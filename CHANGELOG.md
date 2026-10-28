@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Send pacing (one visible-browser send per ten seconds by default) was tracked per repo, in `.bridge/last-browser-send`, although every repo on the machine drives the same browser. Sends from two repos, or two worktrees of one, followed each other at machine speed. The pause also ran before the send lock: a send queued behind another posted the moment the lock freed. Found 2026-10-27 reading the pacing code; reproduced with a test that sends from two repos. The marker now sits beside the machine-wide send lock, and the pause runs once the lock is held, right before the send.
+- `prodex setup --host ::1` was refused with "HTTP MCP host must be loopback-only", although `::1` is the IPv6 loopback address. Found 2026-10-27 probing `setup`. The listener and every URL prodex prints are IPv4-shaped, so `::1` stays unsupported, and the refusal now says so and to use `127.0.0.1` or `localhost`.
 
 ## 0.40.44
 
