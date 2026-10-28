@@ -71,10 +71,15 @@ export function consultArgsFromChoices(choices: ConsultChoices): string[] {
  */
 export function parseAttachmentLine(line: string): string[] {
   const out: string[] = [];
-  const pattern = /"([^"]*)"|'([^']*)'|(\S+)/g;
+  // An unquoted word may carry backslash escapes: dropping a file onto a macOS
+  // terminal types `My\ File.pdf`, which used to split into two paths that do
+  // not exist. Only a space or shell punctuation counts as escaped, so a
+  // Windows separator (a backslash before a letter or another backslash) stays.
+  const pattern = /"([^"]*)"|'([^']*)'|((?:\\[ ()\[\]{}'"&;!$`*?#~<>|]|\S)+)/g;
   let match: RegExpExecArray | null;
   while ((match = pattern.exec(line)) !== null) {
-    const value = (match[1] ?? match[2] ?? match[3] ?? "").trim();
+    const unquoted = match[3]?.replace(/\\([ ()\[\]{}'"&;!$`*?#~<>|])/g, "$1");
+    const value = (match[1] ?? match[2] ?? unquoted ?? "").trim();
     if (value.length > 0) out.push(value);
   }
   return out;
