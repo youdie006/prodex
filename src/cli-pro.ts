@@ -2996,9 +2996,16 @@ function assertSavedProjectNotBlank(project: string | undefined): void {
 export function redactProjectNames(text: string, names: readonly (string | undefined)[]): string {
   let redacted = text;
   // Longest first: a project named "Notes" inside "Notes Archive" would
-  // otherwise leave "<project> Archive" behind.
-  for (const name of [...names].filter((name): name is string => Boolean(name)).sort((a, b) => b.length - a.length)) {
-    redacted = redacted.split(name).join("<project>");
+  // otherwise leave "<project> Archive" behind. A blank name names nothing;
+  // replacing it turned every space of a record into "<project>".
+  for (const name of [...names].filter((name): name is string => Boolean(name?.trim())).sort((a, b) => b.length - a.length)) {
+    // As a word: a plain substring replacement read "Go" inside "Google". The
+    // boundary applies only at an ASCII word character, since a name in a
+    // script like Korean takes its particles directly ("회의록에서").
+    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const before = /^[A-Za-z0-9_]/.test(name) ? "(?<![A-Za-z0-9_])" : "";
+    const after = /[A-Za-z0-9_]$/.test(name) ? "(?![A-Za-z0-9_])" : "";
+    redacted = redacted.replace(new RegExp(`${before}${escaped}${after}`, "g"), "<project>");
   }
   return redacted;
 }
