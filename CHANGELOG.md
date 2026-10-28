@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Unreleased
 
 ### Fixed
+- Fix from `main` PR #72: a prompt with a url containing "&" is no longer refused as `request_mismatch` after it was answered; the composer escapes "&" only in the href half of the `[url](url)` it stores, and every markdown escape is now undone before comparing.
 - Fix from `main` PR #71: answers keep the italic and strikethrough of the newer renderer (span[data-d-font-style=italic] and span[data-d-text-decoration=line-through]); only its bold was read, so they came back as plain words and bold italic as bold.
 - Fix from `main` PR #70: answers keep the line breaks the page shows inside a paragraph (the newer renderer's white-space: pre-line); they were collapsed into spaces, so multi-line answers came back as one line.
 - Fix from `main` PR #69: the interactive picker measures rows in terminal columns, so Korean names no longer wrap, a cut keeps its color codes whole and closes them, characters are never split, and hints and the settings frame line up.
