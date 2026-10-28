@@ -35,6 +35,25 @@ The release adds a guarded, opt-in transition and more accurate blocker reportin
 **Open**
 - A long-running headless browser ends up behind Cloudflare's check (also noted on WSL, where the Xvfb display is used instead). On macOS there is no virtual display, and a minimized window counts as hidden, so the remaining no-headless option there is a window kept behind others. Changing the headless preference is a design decision that was not made here.
 
+## 0.40.44 Release Record
+
+Release commit `060d71c` on `main` (cut after PRs #60-#62, last merge `95c5ddc`); tag `v0.40.44`. Released promptly because of #61: 0.40.43's stale-lock check (#54) derived a holder's wall-clock start from `/proc/stat` btime, which drifts on WSL2 (measured 2026-10-27: 3 to 4 seconds every 30 seconds, 30 minutes over a day), so a send a few minutes into another session's consult freed the live lock and drove the same tab. #60 (picker paths with escaped spaces) went out with it; #62 changes CI only. #59 (machine-wide send pacing) was not ready and is not in this release.
+
+**Publishing**
+- The first local `release:verify` failed on `tests/browser-slow-vs-dead.test.ts` "tiny timeout on a closed port" while other tests loaded the machine; it passed alone (8/8), the uncommitted release edits were discarded and the release rerun passed `release:verify`.
+- `publish.yml` run 40618706024 passed all six platforms, then npm publish with SLSA v1 provenance and the GitHub Release, which lists the two entries from `CHANGELOG.md`.
+
+**Installed**
+- WSL, M3, Mac mini: `prodex --version` reports 0.40.44. Running services were not restarted: no host stdio MCP servers on WSL, 1 on M3, none on the Mac mini.
+- The maintainer watchdog checkout was pulled to `060d71c` and rebuilt.
+
+**Container**
+- `container/redesign-patches` `1258052` ports #61 (tsc, build, lock/send/follow-up tests and `release:verify` pass on it).
+- The images were not rebuilt: the agent's permission classifier refused the `docker compose build` on WSL and the build over ssh on M3. The WSL container still runs image `1d48d753fbf7` (the #49-#58 port, with the drifting check) and the M3 container the 0.40.42 port, until someone with access rebuilds them.
+
+**Verified live on installed 0.40.44 (WSL)**
+- A live `sleep` holding a lock that records its start ticks, with `started_at` set 40 minutes back to stand in for a clock step: the send waited ("another prodex send holds the browser"); installed 0.40.43 had reaped the same lock and sent.
+
 ## 0.40.43 Release Record
 
 Release commit `834e3e2` on `main` (cut after PRs #49-#58, last merge `a6bbf85`); tag `v0.40.43`. Ten fixes, including two that block or corrupt work: a send lock left by a dead send whose pid was reused blocked every later send (#54), and two processes opening a fresh repo could fail one with a false "receipt-key.local is corrupt" (#58).
