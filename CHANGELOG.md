@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Fixed
+- A send that stopped because the browser tab was still generating another answer advised "A new topic can go to a new chat instead", even when it had been started with `--new-chat`. Every send waits for the shared tab, since leaving a thread mid-answer could lose that answer, so the advice sent callers into the same wait. Its recover command also read `--target-url <thread-url>` while the generating thread was on screen. Found 2026-10-27 when a `--new-chat` send waited five minutes behind another session's Pro answer. The advice now says that a new chat waits as well, and names the generating thread in the recover command.
+
 ## 0.40.44
 
 ### Fixed
