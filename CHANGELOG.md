@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Unreleased
 
 ### Fixed
+- Fix from `main` PR #71: answers keep the italic and strikethrough of the newer renderer (span[data-d-font-style=italic] and span[data-d-text-decoration=line-through]); only its bold was read, so they came back as plain words and bold italic as bold.
 - Fix from `main` PR #70: answers keep the line breaks the page shows inside a paragraph (the newer renderer's white-space: pre-line); they were collapsed into spaces, so multi-line answers came back as one line.
 - Fix from `main` PR #69: the interactive picker measures rows in terminal columns, so Korean names no longer wrap, a cut keeps its color codes whole and closes them, characters are never split, and hints and the settings frame line up.
 - Fixes from `main` PRs #59, #60 and #63-#68 (released in 0.40.45 and 0.40.44): send pacing is kept per machine beside the send lock and runs once the lock is held; picker attachment paths read backslash-escaped spaces; busy-tab advice names the generating thread and no longer offers a new chat as the way around the wait; project names are redacted as words and a blank one is ignored; `setup --host ::1` says IPv6 loopback is unsupported; a finished session is not cancelled; a blank saved default project stops the send before the browser; the project-delete preview no longer promises a deletion it cannot do.

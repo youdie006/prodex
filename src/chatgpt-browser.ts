@@ -6104,10 +6104,22 @@ export const CHATGPT_RENDERED_MESSAGE_TEXT_JS = `
         if (attr(node, "data-markdown-copy") === "inline-code" || tag === "code") return BT + (node.textContent || "") + BT;
         if (tag === "br") return NL;
         const inner = inline(node, keep);
-        // The newer renderer marks bold as span[data-d-default-strong].
-        if (tag === "strong" || tag === "b" || attr(node, "data-d-default-strong") !== null) return inner.trim() ? "**" + inner.trim() + "**" : "";
-        if (tag === "em" || tag === "i") return inner.trim() ? "*" + inner.trim() + "*" : "";
-        if (tag === "del" || tag === "s") return inner.trim() ? "~~" + inner.trim() + "~~" : "";
+        // The newer renderer marks bold as span[data-d-default-strong], italic
+        // as span[data-d-font-style=italic] and strikethrough as
+        // span[data-d-text-decoration=line-through] (measured 2026-10-28; only
+        // bold was read, so the other two came back as plain words). One
+        // element can carry several, so each applies in turn.
+        const strong = tag === "strong" || tag === "b" || attr(node, "data-d-default-strong") !== null;
+        const italic = tag === "em" || tag === "i" || attr(node, "data-d-font-style") === "italic";
+        const struck = tag === "del" || tag === "s" || (attr(node, "data-d-text-decoration") || "").includes("line-through");
+        if (strong || italic || struck) {
+          let marked = inner.trim();
+          if (!marked) return "";
+          if (strong) marked = "**" + marked + "**";
+          if (italic) marked = "*" + marked + "*";
+          if (struck) marked = "~~" + marked + "~~";
+          return marked;
+        }
         if (tag === "a") {
           const href = attr(node, "href") || "";
           return href.startsWith("http") && inner.trim() ? "[" + inner.trim() + "](" + href + ")" : inner;
