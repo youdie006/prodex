@@ -49,7 +49,8 @@ Release commit `609b1c9` on `main` (cut after PRs #71-#73, last merge `40d7eee`)
 
 **Container**
 - `container/redesign-patches` `63b060c` ports #71, `62376fa` #72 and `facbd9d` #73 (#71 and #73 did not cherry-pick cleanly and their hunks were applied by exact replacement; tsc, build, the full suite, 2128 tests, and `release:verify` pass on `facbd9d`).
-- The images were still not rebuilt: `docker compose build` is refused by the agent's permission classifier on WSL and over ssh on M3. The running WSL container is the #49-#58 port and the M3 container the 0.40.42 port.
+- WSL, on the user's request after the release: the image was built from `facbd9d` (`c03be48c060d`) and the container swapped while its send lock was idle. The old container had been `unhealthy` (its health check's fetch failed) and its last consult, from another session at 03:41 UTC, was blocked as `browser_unreachable`; that consult was left for its owner to recover. The new container came up healthy, `pro browser check` reported logged in with a composer, and an Instant smoke whose prompt linked `https://example.com/s?q=a&page=2` returned `PRODEX_PRO_SMOKE_OK`, status done. Its `prodex --version` still prints 0.40.18 because the branch never bumps its version.
+- M3 was not rebuilt: the build over ssh was refused by the agent's permission classifier, and the M3 container still runs the 0.40.42 port.
 
 **Verified live on installed 0.40.47 (WSL, scratch repo, Instant)**
 - A send whose prompt linked `https://example.com/s?q=a&page=2` returned status done. The user turn was stored with `\&` in the autolink's href half, the shape 0.40.46 refused.
