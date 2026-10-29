@@ -52,6 +52,17 @@ describe("page-read answers as markdown", () => {
     );
   });
 
+  it("keeps a horizontal rule the newer renderer draws as an empty divider", () => {
+    // Measured 2026-10-29: "---" renders as div[data-d-component=divider]
+    // with no children, and the answer came back without it.
+    const root = el("div", {}, [
+      el("p", { "data-d-component": "text" }, ["Above."]),
+      el("div", { "data-d-component": "divider" }, []),
+      el("p", { "data-d-component": "text" }, ["Below."])
+    ]);
+    expect(render(root)).toBe("Above.\n\n---\n\nBelow.");
+  });
+
   it("keeps a task list's checkboxes", () => {
     // Measured 2026-10-07: a checkbox is a button[role=checkbox] with
     // aria-checked, and leaving buttons out dropped every [x] and [ ].
