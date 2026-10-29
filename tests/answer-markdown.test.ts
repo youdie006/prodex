@@ -81,6 +81,62 @@ describe("page-read answers as markdown", () => {
     expect(render(root)).toBe("3. Third\n   - detail\n4. Fourth");
   });
 
+  describe("block content inside a list item", () => {
+    // Measured 2026-10-29: the newer renderer puts an item's content in
+    // li > div > div[data-d-list-item-content], code blocks and nested lists
+    // included, and every line after the first came back at column 0 (or
+    // three spaces in), where markdown ends the item.
+    const item = (...content: FakeNode[]) =>
+      el("li", { "data-d-component": "list-item" }, [el("div", {}, [el("div", { "data-d-list-item-content": "" }, content)])]);
+    const para = (value: string) => el("p", { "data-d-component": "text" }, [value]);
+    const code = (language: string, line: string) =>
+      el("div", { "data-client-defined-widget": "code_block" }, [
+        el("div", { "data-markdown-copy": "code-block" }, [
+          el("div", { class: "cm-content", "data-language": language }, [el("div", { class: "cm-line" }, [line])])
+        ])
+      ]);
+
+    it("keeps a code block under its step", () => {
+      const root = el("div", {}, [
+        el("ol", { "data-d-component": "list" }, [
+          item(para("Install the package:"), code("bash", "npm i left-pad")),
+          item(para("Run the tests:"), code("bash", "npm test"))
+        ])
+      ]);
+      expect(render(root)).toBe(
+        "1. Install the package:\n\n   ```bash\n   npm i left-pad\n   ```\n2. Run the tests:\n\n   ```bash\n   npm test\n   ```"
+      );
+    });
+
+    it("keeps a second paragraph, a table and a quote in their items", () => {
+      const root = el("div", {}, [
+        el("ul", { "data-d-component": "list" }, [
+          item(para("Item with two paragraphs."), para("The second paragraph.")),
+          item(
+            para("Item holding a table:"),
+            el("table", {}, [el("tr", {}, [el("th", {}, ["k"]), el("th", {}, ["v"])]), el("tr", {}, [el("td", {}, ["x"]), el("td", {}, ["1"])])])
+          ),
+          item(para("Item with a quote:"), el("blockquote", {}, [para("quoted inside an item")]))
+        ])
+      ]);
+      expect(render(root)).toBe(
+        "- Item with two paragraphs.\n\n  The second paragraph.\n- Item holding a table:\n\n  | k | v |\n  | --- | --- |\n  | x | 1 |\n- Item with a quote:\n\n  > quoted inside an item"
+      );
+    });
+
+    it("nests a list under an item numbered 10 or more", () => {
+      const root = el("div", {}, [
+        el("ol", { start: "9" }, [item(para("Nine")), item(para("Ten"), el("ul", {}, [item(para("under ten"))]))])
+      ]);
+      expect(render(root)).toBe("9. Nine\n10. Ten\n\n    - under ten");
+    });
+
+    it("starts a code block on its own line when the item has no content wrapper", () => {
+      const root = el("div", {}, [el("ol", {}, [el("li", {}, [el("p", {}, ["Install:"]), el("pre", {}, [el("code", {}, ["npm i"])])])])]);
+      expect(render(root)).toBe("1. Install:\n\n   ```\n   npm i\n   ```");
+    });
+  });
+
   it("writes math from its TeX source instead of the rendered glyphs", () => {
     const root = el("div", {}, [
       el("span", { "data-math-display": "true", "data-math-source": "x = \\frac{-b}{2a}" }, [el("span", { class: "katex-display" }, ["x", "=", "-b"])]),
@@ -206,7 +262,7 @@ describe("line breaks the page shows", () => {
       el("p", {}, [el("span", {}, ["Pros:  \n"]), el("span", {}, ["fast\n"]), el("span", {}, ["cheap"])]),
       el("ul", {}, [el("li", {}, ["one\ntwo"])])
     ]);
-    expect(render(root)).toBe("Pros:\nfast\ncheap\n\n- one\ntwo");
+    expect(render(root)).toBe("Pros:\nfast\ncheap\n\n- one\n  two");
   });
 
   it("keeps a blank line between paragraphs held in one pre-line block", () => {
