@@ -35,6 +35,26 @@ The release adds a guarded, opt-in transition and more accurate blocker reportin
 **Open**
 - A long-running headless browser ends up behind Cloudflare's check (also noted on WSL, where the Xvfb display is used instead). On macOS there is no virtual display, and a minimized window counts as hidden, so the remaining no-headless option there is a window kept behind others. Changing the headless preference is a design decision that was not made here.
 
+## 0.40.48 Release Record
+
+Release commit `406ae25` on `main` (cut after PRs #74-#78, last merge `7a88f85`); tag `v0.40.48`. Released on the user's go-ahead, promptly because of #76: on 0.40.47, with the machine under load, the page often ignored the press on the model selector and the send was blocked as "ChatGPT model menu did not open after clicking the selector" (9 of 23 sends across five runs, every one starting from a conversation; also twice the same day without added load). #74 (horizontal rules), #75 (block content inside list items), #77 (inline code holding backticks) and #78 (table column alignment), found comparing live answers with the page, went out with it.
+
+**Publishing**
+- `npm run release:verify` passed on the release commit after a build, with nothing else running on the machine.
+- `publish.yml` run 40819980786 passed all six platforms, then npm publish with SLSA v1 provenance and the GitHub Release, which lists the five entries from `CHANGELOG.md`.
+
+**Installed**
+- WSL, M3, Mac mini: `prodex --version` reports 0.40.48. Running services were not restarted: no host stdio MCP servers on WSL, 1 on M3, none on the Mac mini.
+- The maintainer watchdog checkout was pulled to `406ae25` and rebuilt.
+
+**Container**
+- `container/redesign-patches` `7f1a7b9` ports #74, `e8b970d` #75, `4f1670e` #76, `3b947c7` #77 and `e30e649` #78. That branch recognises the picker only through its trigger, so #76's test case for a stray picker beside a closed trigger is left out there. tsc, build, the full suite (2144 tests) and `release:verify` pass on `e30e649`.
+- The images were not rebuilt: the WSL container still runs the `facbd9d` image (`c03be48c060d`) and the M3 container `cfaf881d2fd6`.
+
+**Verified live on installed 0.40.48 (WSL, scratch repo, Instant)**
+- One answer holding a numbered step with a code block, the inline code ``a`b``, a rule and a table aligned left and right came back as written: the code block indented under its step, ``a`b`` intact, `---`, and `| :--- | ---: |`.
+- Six sends with two test suites running on the machine (load average up to 9.4) all went through; a read-only page watcher showed one of them pressing the model selector twice before its menu opened.
+
 ## 0.40.47 Release Record
 
 Release commit `609b1c9` on `main` (cut after PRs #71-#73, last merge `40d7eee`); tag `v0.40.47`. Released promptly because of #72: on 0.40.46 any prompt carrying a url with "&" (a query string, bare or in a markdown link) was answered and then refused as `request_mismatch`, so the answer was not returned. #71 (italic and strikethrough in the newer renderer) and #73 (the `utm_source=chatgpt.com` parameter ChatGPT appends to rendered links) went out with it.
