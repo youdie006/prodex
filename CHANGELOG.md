@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Unreleased
 
 ### Fixed
+- Answers lost their horizontal rules. ChatGPT's newer answer renderer draws a `---` rule as an empty `div[data-d-component=divider]`, and prodex read only `<hr>`, so an answer showing a rule between two sections came back with the sections run together. The rule now comes back as `---`. Found 2026-10-29 comparing a live answer with the page.
 - In an answer's list, everything after an item's first line came back at the left margin: a code block under a numbered step, a table, a quote or a second paragraph inside an item, so in the returned markdown it was no longer part of the list (the steps after it started a new list), and a list nested under item 10 or later was indented three spaces where it needs four, so it was not nested. An item's later lines now sit under the item's text. Found 2026-10-29 comparing live answers with the page.
 
 ## 0.40.47

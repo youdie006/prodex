@@ -675,7 +675,9 @@ export const CHATGPT_RENDERED_MESSAGE_TEXT_JS = `
         if (tag === "table") return table(node);
         if (/^h[1-6]$/.test(tag)) return "#".repeat(Number(tag[1])) + " " + inline(node).trim();
         if (tag === "ul" || tag === "ol") return list(node, keepsLineBreaks(node, keep === true));
-        if (tag === "hr") return "---";
+        // The newer renderer draws a rule as an empty
+        // div[data-d-component=divider] (measured 2026-10-29).
+        if (tag === "hr" || attr(node, "data-d-component") === "divider") return "---";
         if (tag === "blockquote") return blocks(node, keep).split(NL).map((line) => "> " + line).join(NL);
         if (tag === "p") return inline(node, keep).trim();
         return blocks(node, keep);
