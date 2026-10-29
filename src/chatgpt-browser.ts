@@ -638,10 +638,18 @@ export const CHATGPT_RENDERED_MESSAGE_TEXT_JS = `
       };
       const table = (node) => {
         const cell = (value) => collapse(value).trim().split("|").join(String.fromCharCode(92) + "|");
-        const rows = findAll(node, (n) => tagOf(n) === "tr").map((row) => children(row).filter((c) => c.nodeType === 1).map((c) => cell(inline(c))));
+        const cellNodes = findAll(node, (n) => tagOf(n) === "tr").map((row) => children(row).filter((c) => c.nodeType === 1));
+        const rows = cellNodes.map((cells) => cells.map((c) => cell(inline(c))));
         if (rows.length === 0) return "";
+        // The newer renderer marks a column written :---, :---: or ---: with
+        // data-d-align start, center or end on its cells, and a plain column
+        // with none (measured 2026-10-29); every column came back as ---.
+        const rule = (c) => {
+          const align = attr(c, "data-d-align");
+          return align === "start" ? ":---" : align === "center" ? ":---:" : align === "end" ? "---:" : "---";
+        };
         const line = (cells) => "| " + cells.join(" | ") + " |";
-        return [line(rows[0]), line(rows[0].map(() => "---")), ...rows.slice(1).map(line)].join(NL);
+        return [line(rows[0]), line(cellNodes[0].map(rule)), ...rows.slice(1).map(line)].join(NL);
       };
       const list = (node, keep) => {
         const ordered = tagOf(node) === "ol";
