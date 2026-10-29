@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Fixed
+- In an answer's list, everything after an item's first line came back at the left margin: a code block under a numbered step, a table, a quote or a second paragraph inside an item, so in the returned markdown it was no longer part of the list (the steps after it started a new list), and a list nested under item 10 or later was indented three spaces where it needs four, so it was not nested. An item's later lines now sit under the item's text. Found 2026-10-29 comparing live answers with the page.
+
 ## 0.40.47
 
 ### Fixed
