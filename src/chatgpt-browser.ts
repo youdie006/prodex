@@ -552,6 +552,17 @@ export const CHATGPT_RENDERED_MESSAGE_TEXT_JS = `
         const link = findAll(node, (n) => tagOf(n) === "a" && (attr(n, "href") || "").startsWith("http"))[0];
         return link ? "[" + label + "](" + untracked(attr(link, "href")) + ")" : "[" + label + "]";
       };
+      // Inline code goes in a backtick run longer than any inside it, padded
+      // with a space when it starts or ends with a backtick, or has a space at
+      // both ends that markdown would strip. One backtick each side turned the
+      // code a\`b into a one-letter span and a stray backtick (measured
+      // 2026-10-29).
+      const inlineCode = (value) => {
+        const longestRun = (value.match(new RegExp(BT + "+", "g")) || []).reduce((most, run) => Math.max(most, run.length), 0);
+        const ticks = BT.repeat(longestRun + 1);
+        const pad = value.startsWith(BT) || value.endsWith(BT) || (value.startsWith(" ") && value.endsWith(" ") && value.trim() !== "") ? " " : "";
+        return ticks + pad + value + pad + ticks;
+      };
       const inline = (node, keep) => {
         const keepLines = keepsLineBreaks(node, keep === true);
         let out = "";
@@ -572,7 +583,7 @@ export const CHATGPT_RENDERED_MESSAGE_TEXT_JS = `
         if (isCheckbox(node)) return (attr(node, "aria-checked") === "true" || attr(node, "checked") !== null ? "[x]" : "[ ]") + " ";
         if (isMath(node)) return isDisplayMath(node) ? "$$" + mathSource(node) + "$$" : "$" + mathSource(node) + "$";
         if (attr(node, "data-chatgpt-copy-reference") !== null || isSourceBadge(node)) return pill(node);
-        if (attr(node, "data-markdown-copy") === "inline-code" || tag === "code") return BT + (node.textContent || "") + BT;
+        if (attr(node, "data-markdown-copy") === "inline-code" || tag === "code") return inlineCode(node.textContent || "");
         if (tag === "br") return NL;
         const inner = inline(node, keep);
         // The newer renderer marks bold as span[data-d-default-strong], italic
@@ -640,11 +651,10 @@ export const CHATGPT_RENDERED_MESSAGE_TEXT_JS = `
         const line = (cells) => "| " + cells.join(" | ") + " |";
         return [line(rows[0]), line(cellNodes[0].map(rule)), ...rows.slice(1).map(line)].join(NL);
       };
-      const list = (node, depth, keep) => {
+      const list = (node, keep) => {
         const ordered = tagOf(node) === "ol";
         let number = parseInt(attr(node, "start") || "1", 10);
         if (!Number.isFinite(number)) number = 1;
-        const indent = "   ".repeat(depth);
         const items = [];
         for (const item of children(node)) {
           if (item.nodeType !== 1 || tagOf(item) !== "li") continue;
@@ -656,16 +666,25 @@ export const CHATGPT_RENDERED_MESSAGE_TEXT_JS = `
           const keepItemLines = keepsLineBreaks(item, keep === true);
           for (const child of children(item)) {
             const tag = child.nodeType === 1 ? tagOf(child) : "";
-            if (tag === "ul" || tag === "ol") { nested.push(list(child, depth + 1, keepItemLines)); continue; }
-            if (isBlock(child)) { if (buffer.trim()) words.push(buffer.trim()); buffer = ""; const b = block(child, depth + 1, keepItemLines); if (b) words.push(b); continue; }
+            if (tag === "ul" || tag === "ol") { nested.push(list(child, keepItemLines)); continue; }
+            if (isBlock(child)) { if (buffer.trim()) words.push(buffer.trim()); buffer = ""; const b = block(child, keepItemLines); if (b) words.push(b); continue; }
             buffer += inlineNode(child, keepItemLines);
           }
           if (buffer.trim()) words.push(buffer.trim());
-          items.push(indent + marker + " " + words.join(" ") + (nested.length ? NL + nested.join(NL) : ""));
+          // A block spanning lines (a code block, a table) is a paragraph of its own.
+          const body = words.reduce((text, word) => (!text ? word : text + (text.includes(NL) || word.includes(NL) ? NL + NL : " ") + word), "");
+          // An item's later lines sit at its content column, after the marker
+          // and its space. They came back at column 0, or three spaces in for a
+          // nested list, so a code block, table, quote or second paragraph
+          // ended the item and a list under item 10 was not nested (measured
+          // 2026-10-29). Nested content is laid out from column 0 and shifted.
+          const pad = " ".repeat(marker.length + 1);
+          const lines = (body + (nested.length ? NL + nested.join(NL) : "")).split(NL);
+          items.push(marker + " " + lines.map((line, at) => (at === 0 || !line ? line : pad + line)).join(NL));
         }
         return items.join(NL);
       };
-      const block = (node, depth, keep) => {
+      const block = (node, keep) => {
         if (node.nodeType === 3) return (keep === true ? collapseKeepingLines(node.textContent || "") : collapse(node.textContent || "")).trim();
         if (node.nodeType !== 1 || skipped(node)) return "";
         const tag = tagOf(node);
@@ -674,27 +693,27 @@ export const CHATGPT_RENDERED_MESSAGE_TEXT_JS = `
         if (isMermaidPreview(node)) return mermaidBlock(node);
         if (tag === "table") return table(node);
         if (/^h[1-6]$/.test(tag)) return "#".repeat(Number(tag[1])) + " " + inline(node).trim();
-        if (tag === "ul" || tag === "ol") return list(node, depth, keepsLineBreaks(node, keep === true));
+        if (tag === "ul" || tag === "ol") return list(node, keepsLineBreaks(node, keep === true));
         // The newer renderer draws a rule as an empty
         // div[data-d-component=divider] (measured 2026-10-29).
         if (tag === "hr" || attr(node, "data-d-component") === "divider") return "---";
-        if (tag === "blockquote") return blocks(node, depth, keep).split(NL).map((line) => "> " + line).join(NL);
+        if (tag === "blockquote") return blocks(node, keep).split(NL).map((line) => "> " + line).join(NL);
         if (tag === "p") return inline(node, keep).trim();
-        return blocks(node, depth, keep);
+        return blocks(node, keep);
       };
-      const blocks = (node, depth, keep) => {
+      const blocks = (node, keep) => {
         const keepLines = keepsLineBreaks(node, keep === true);
         const parts = [];
         let buffer = "";
         const flush = () => { if (buffer.trim()) parts.push(buffer.trim()); buffer = ""; };
         for (const child of children(node)) {
-          if (isBlock(child)) { flush(); const b = block(child, depth, keepLines); if (b) parts.push(b); continue; }
+          if (isBlock(child)) { flush(); const b = block(child, keepLines); if (b) parts.push(b); continue; }
           buffer += inlineNode(child, keepLines);
         }
         flush();
         return parts.join(NL + NL);
       };
-      const markdown = blocks(root, 0).trim();
+      const markdown = blocks(root).trim();
       return markdown || root.innerText || "";
     };
     // A sent user turn renders inline code as <code>, dropping its backticks
@@ -2684,6 +2703,14 @@ export function menuClosedExpression(): string {
   return `!document.querySelector('[data-testid="composer-intelligence-picker-content"],[role="menu"]:has([role="slider"])')`;
 }
 
+/** One visible model selector, marked closed, with no picker on the page. */
+export function modelSelectorReadsClosedExpression(): string {
+  return `(() => {
+    const triggers = [...document.querySelectorAll('button[aria-label="Select ChatGPT model"][aria-haspopup="menu"],[data-codex-intelligence-trigger="true"][aria-haspopup="menu"]')].filter((el) => el.getClientRects().length > 0);
+    return triggers.length === 1 && triggers[0].getAttribute("aria-expanded") === "false" && !${menuOpenExpression()};
+  })()`;
+}
+
 function toLabelCandidates(label: string | readonly string[]): string[] {
   return typeof label === "string" ? [label] : [...label];
 }
@@ -2764,6 +2791,28 @@ async function verifiedClickAt(cdp: CdpConnection, x: number, y: number, label: 
   await cdp.send("Input.dispatchMouseEvent", { type: "mouseReleased", x, y, button: "left", clickCount: 1 });
 }
 
+
+const MODEL_MENU_FIRST_PRESS_MS = 1_500;
+
+/**
+ * Waits for the model picker after the selector was pressed, pressing it once
+ * more if the page ignored that press.
+ *
+ * Measured 2026-10-29 with the host under load: in two of every four sends
+ * that started from a conversation, a trusted pointerdown and pointerup reached
+ * the selector while it read closed and nothing happened - aria-expanded stayed
+ * false and no menu was added - so the send failed as "model menu did not
+ * open". A selector that still reads closed is pressed again; one that reads
+ * open is left alone, since a press would shut it.
+ */
+export async function waitForModelMenu(cdp: CdpConnection): Promise<boolean> {
+  if (await waitForExpressionTrue(cdp, menuOpenExpression(), MODEL_MENU_FIRST_PRESS_MS)) return true;
+  if (await cdp.evaluate<boolean>(modelSelectorReadsClosedExpression())) {
+    const again = await cdp.evaluate<RectHit>(modelButtonRectExpression());
+    if (again.ok && again.x !== undefined && again.y !== undefined) await verifiedClickAt(cdp, again.x, again.y, "model selector");
+  }
+  return waitForExpressionTrue(cdp, menuOpenExpression(), MENU_OPEN_TIMEOUT_MS);
+}
 
 /**
  * Whether the model picker BUTTON already advertises the requested model, so
@@ -3929,7 +3978,7 @@ async function selectModelReasoning(
         if (fresh.ok && fresh.x !== undefined && fresh.y !== undefined) button = fresh;
       }
     }
-    const opened = await waitForExpressionTrue(cdp, menuOpenExpression(), MENU_OPEN_TIMEOUT_MS);
+    const opened = await waitForModelMenu(cdp);
     if (!opened) throw new Error("ChatGPT model menu did not open after clicking the selector");
 
     // Current ChatGPT: one power slider (Instant/Medium/High/Extra High/Pro on
@@ -5787,7 +5836,7 @@ export async function listChatGptModelOptions(
     }
     try {
       await verifiedClickAt(cdp, button.x, button.y, "model selector");
-      const opened = await waitForExpressionTrue(cdp, menuOpenExpression(), MENU_OPEN_TIMEOUT_MS);
+      const opened = await waitForModelMenu(cdp);
       if (!opened) throw new Error("ChatGPT model menu did not open after clicking the selector");
       const options = await cdp.evaluate<ChatGptModelOption[]>(modelMenuOptionsExpression());
       // Walking the ladder moves someone's slider and puts it back. That is
