@@ -157,6 +157,23 @@ describe("page-read answers as markdown", () => {
     expect(render(root)).toBe("| fruit | color |\n| --- | --- |\n| apple | red |\n| a\\|b | green |");
   });
 
+  it("keeps each column's alignment", () => {
+    // Measured 2026-10-29: the newer renderer marks a column written :---,
+    // :---: or ---: with data-d-align start, center or end on its cells, and
+    // a plain column with none. Every column came back as ---.
+    const cell = (tag: string, value: string, align?: string) =>
+      el(tag, { "data-d-component": "table-cell", ...(align ? { "data-d-align": align } : {}) }, [el("p", {}, [value])]);
+    const root = el("div", {}, [
+      el("table", {}, [
+        el("tbody", {}, [
+          el("tr", {}, [cell("th", "Plain"), cell("th", "Left", "start"), cell("th", "Center", "center"), cell("th", "Right", "end")]),
+          el("tr", {}, [cell("td", "a"), cell("td", "b", "start"), cell("td", "c", "center"), cell("td", "d", "end")])
+        ])
+      ])
+    ]);
+    expect(render(root)).toBe("| Plain | Left | Center | Right |\n| --- | :--- | :---: | ---: |\n| a | b | c | d |");
+  });
+
   it("spells out source pills: a web source as a link, a file source as a label", () => {
     const web = el("span", { "data-chatgpt-copy-reference": "0" }, [el("a", { href: "https://blog.rust-lang.org/x/" }, ["blog.rust-lang.org"])]);
     const file = el("span", { "data-chatgpt-copy-reference": "1" }, [el("button", { "aria-label": "cont-att" }, ["cont-att"])]);

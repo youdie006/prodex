@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Answers lost their horizontal rules. ChatGPT's newer answer renderer draws a `---` rule as an empty `div[data-d-component=divider]`, and prodex read only `<hr>`, so an answer showing a rule between two sections came back with the sections run together. The rule now comes back as `---`. Found 2026-10-29 comparing a live answer with the page.
+- Tables in answers lost their column alignment: a column written `:---`, `:---:` or `---:` came back as `---`, so a right-aligned column of numbers returned left-aligned. ChatGPT's newer answer renderer marks the alignment on each cell (`data-d-align` start, center or end), and the separator row now carries it. Found 2026-10-29 comparing a live answer with the page.
 
 ## 0.40.47
 
