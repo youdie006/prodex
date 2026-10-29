@@ -282,6 +282,28 @@ describe("line breaks the page shows", () => {
 // span[data-d-text-decoration=line-through], as it marks bold with
 // data-d-default-strong. Only bold was read, so "*better*" and "~~old~~" came
 // back as plain words and "***brilliant***" as "**brilliant**".
+describe("inline code holding backticks", () => {
+  // Measured 2026-10-29: the page showed the code ``a`b`` and ``echo `date` ``,
+  // and the answer came back as `a`b` and `echo `date` `, which markdown reads
+  // as different spans with stray backticks between them.
+  const code = (value: string) => el("code", { "data-d-component": "code" }, [value]);
+
+  it("wraps it in a longer backtick run", () => {
+    const root = el("div", {}, [el("p", {}, ["Run ", code("echo `date` "), " or ", code("a`b"), "."])]);
+    expect(render(root)).toBe("Run ``echo `date` `` or ``a`b``.");
+  });
+
+  it("pads code that starts or ends with a backtick, or with spaces on both sides", () => {
+    const root = el("div", {}, [el("p", {}, ["A lone ", code("`"), ", ", code("``x"), " and ", code(" x "), "."])]);
+    expect(render(root)).toBe("A lone `` ` ``, ``` ``x ``` and `  x  `.");
+  });
+
+  it("leaves plain inline code as it was", () => {
+    const root = el("div", {}, [el("p", {}, ["Call ", code("add(2, 3)"), "."])]);
+    expect(render(root)).toBe("Call `add(2, 3)`.");
+  });
+});
+
 describe("emphasis in the newer renderer", () => {
   const text = (attrs: Record<string, string>, value: string) => el("span", { "data-d-component": "text", ...attrs }, [value]);
 
