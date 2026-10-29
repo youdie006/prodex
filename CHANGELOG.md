@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Fixed
+- Sends failed as "ChatGPT model menu did not open after clicking the selector" when the page ignored the press on the model selector. Measured 2026-10-29 on WSL with the machine under load (load average 10-19): a send that started from a conversation pressed the selector after the new chat loaded, the press reached it while it read closed, and nothing happened, so the consult was blocked; across five runs 9 of 23 sends failed this way, every one of them a send that started from a conversation. prodex now presses a selector that still reads closed once more after a second and a half (one that reads open is left alone, as a press would shut it). The same wait serves `prodex pro browser models` and setup's model listing. With the fix, 18 of 18 sends under the same load went through, 4 of them on the second press.
+
 ## 0.40.47
 
 ### Fixed

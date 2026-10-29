@@ -2674,6 +2674,14 @@ export function menuClosedExpression(): string {
   return `!document.querySelector('[data-testid="composer-intelligence-picker-content"],[role="menu"]:has([role="slider"])')`;
 }
 
+/** One visible model selector, marked closed, with no picker on the page. */
+export function modelSelectorReadsClosedExpression(): string {
+  return `(() => {
+    const triggers = [...document.querySelectorAll('button[aria-label="Select ChatGPT model"][aria-haspopup="menu"],[data-codex-intelligence-trigger="true"][aria-haspopup="menu"]')].filter((el) => el.getClientRects().length > 0);
+    return triggers.length === 1 && triggers[0].getAttribute("aria-expanded") === "false" && !${menuOpenExpression()};
+  })()`;
+}
+
 function toLabelCandidates(label: string | readonly string[]): string[] {
   return typeof label === "string" ? [label] : [...label];
 }
@@ -2754,6 +2762,28 @@ async function verifiedClickAt(cdp: CdpConnection, x: number, y: number, label: 
   await cdp.send("Input.dispatchMouseEvent", { type: "mouseReleased", x, y, button: "left", clickCount: 1 });
 }
 
+
+const MODEL_MENU_FIRST_PRESS_MS = 1_500;
+
+/**
+ * Waits for the model picker after the selector was pressed, pressing it once
+ * more if the page ignored that press.
+ *
+ * Measured 2026-10-29 with the host under load: in two of every four sends
+ * that started from a conversation, a trusted pointerdown and pointerup reached
+ * the selector while it read closed and nothing happened - aria-expanded stayed
+ * false and no menu was added - so the send failed as "model menu did not
+ * open". A selector that still reads closed is pressed again; one that reads
+ * open is left alone, since a press would shut it.
+ */
+export async function waitForModelMenu(cdp: CdpConnection): Promise<boolean> {
+  if (await waitForExpressionTrue(cdp, menuOpenExpression(), MODEL_MENU_FIRST_PRESS_MS)) return true;
+  if (await cdp.evaluate<boolean>(modelSelectorReadsClosedExpression())) {
+    const again = await cdp.evaluate<RectHit>(modelButtonRectExpression());
+    if (again.ok && again.x !== undefined && again.y !== undefined) await verifiedClickAt(cdp, again.x, again.y, "model selector");
+  }
+  return waitForExpressionTrue(cdp, menuOpenExpression(), MENU_OPEN_TIMEOUT_MS);
+}
 
 /**
  * Whether the model picker BUTTON already advertises the requested model, so
@@ -3919,7 +3949,7 @@ async function selectModelReasoning(
         if (fresh.ok && fresh.x !== undefined && fresh.y !== undefined) button = fresh;
       }
     }
-    const opened = await waitForExpressionTrue(cdp, menuOpenExpression(), MENU_OPEN_TIMEOUT_MS);
+    const opened = await waitForModelMenu(cdp);
     if (!opened) throw new Error("ChatGPT model menu did not open after clicking the selector");
 
     // Current ChatGPT: one power slider (Instant/Medium/High/Extra High/Pro on
@@ -5777,7 +5807,7 @@ export async function listChatGptModelOptions(
     }
     try {
       await verifiedClickAt(cdp, button.x, button.y, "model selector");
-      const opened = await waitForExpressionTrue(cdp, menuOpenExpression(), MENU_OPEN_TIMEOUT_MS);
+      const opened = await waitForModelMenu(cdp);
       if (!opened) throw new Error("ChatGPT model menu did not open after clicking the selector");
       const options = await cdp.evaluate<ChatGptModelOption[]>(modelMenuOptionsExpression());
       // Walking the ladder moves someone's slider and puts it back. That is
