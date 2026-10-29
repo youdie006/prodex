@@ -552,6 +552,17 @@ export const CHATGPT_RENDERED_MESSAGE_TEXT_JS = `
         const link = findAll(node, (n) => tagOf(n) === "a" && (attr(n, "href") || "").startsWith("http"))[0];
         return link ? "[" + label + "](" + untracked(attr(link, "href")) + ")" : "[" + label + "]";
       };
+      // Inline code goes in a backtick run longer than any inside it, padded
+      // with a space when it starts or ends with a backtick, or has a space at
+      // both ends that markdown would strip. One backtick each side turned the
+      // code a\`b into a one-letter span and a stray backtick (measured
+      // 2026-10-29).
+      const inlineCode = (value) => {
+        const longestRun = (value.match(new RegExp(BT + "+", "g")) || []).reduce((most, run) => Math.max(most, run.length), 0);
+        const ticks = BT.repeat(longestRun + 1);
+        const pad = value.startsWith(BT) || value.endsWith(BT) || (value.startsWith(" ") && value.endsWith(" ") && value.trim() !== "") ? " " : "";
+        return ticks + pad + value + pad + ticks;
+      };
       const inline = (node, keep) => {
         const keepLines = keepsLineBreaks(node, keep === true);
         let out = "";
@@ -572,7 +583,7 @@ export const CHATGPT_RENDERED_MESSAGE_TEXT_JS = `
         if (isCheckbox(node)) return (attr(node, "aria-checked") === "true" || attr(node, "checked") !== null ? "[x]" : "[ ]") + " ";
         if (isMath(node)) return isDisplayMath(node) ? "$$" + mathSource(node) + "$$" : "$" + mathSource(node) + "$";
         if (attr(node, "data-chatgpt-copy-reference") !== null || isSourceBadge(node)) return pill(node);
-        if (attr(node, "data-markdown-copy") === "inline-code" || tag === "code") return BT + (node.textContent || "") + BT;
+        if (attr(node, "data-markdown-copy") === "inline-code" || tag === "code") return inlineCode(node.textContent || "");
         if (tag === "br") return NL;
         const inner = inline(node, keep);
         // The newer renderer marks bold as span[data-d-default-strong], italic

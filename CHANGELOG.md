@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Answers lost their horizontal rules. ChatGPT's newer answer renderer draws a `---` rule as an empty `div[data-d-component=divider]`, and prodex read only `<hr>`, so an answer showing a rule between two sections came back with the sections run together. The rule now comes back as `---`. Found 2026-10-29 comparing a live answer with the page.
+- Inline code that held a backtick came back as broken markdown. An answer showing the code ``a`b`` or ``echo `date` `` returned `` `a`b` `` and `` `echo `date` ` ``, which markdown reads as a different span followed by stray backticks. Inline code is now wrapped in a backtick run longer than any inside it, padded with a space where markdown needs one. Found 2026-10-29 comparing a live answer with the page.
 
 ## 0.40.47
 
