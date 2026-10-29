@@ -632,11 +632,10 @@ export const CHATGPT_RENDERED_MESSAGE_TEXT_JS = `
         const line = (cells) => "| " + cells.join(" | ") + " |";
         return [line(rows[0]), line(rows[0].map(() => "---")), ...rows.slice(1).map(line)].join(NL);
       };
-      const list = (node, depth, keep) => {
+      const list = (node, keep) => {
         const ordered = tagOf(node) === "ol";
         let number = parseInt(attr(node, "start") || "1", 10);
         if (!Number.isFinite(number)) number = 1;
-        const indent = "   ".repeat(depth);
         const items = [];
         for (const item of children(node)) {
           if (item.nodeType !== 1 || tagOf(item) !== "li") continue;
@@ -648,16 +647,25 @@ export const CHATGPT_RENDERED_MESSAGE_TEXT_JS = `
           const keepItemLines = keepsLineBreaks(item, keep === true);
           for (const child of children(item)) {
             const tag = child.nodeType === 1 ? tagOf(child) : "";
-            if (tag === "ul" || tag === "ol") { nested.push(list(child, depth + 1, keepItemLines)); continue; }
-            if (isBlock(child)) { if (buffer.trim()) words.push(buffer.trim()); buffer = ""; const b = block(child, depth + 1, keepItemLines); if (b) words.push(b); continue; }
+            if (tag === "ul" || tag === "ol") { nested.push(list(child, keepItemLines)); continue; }
+            if (isBlock(child)) { if (buffer.trim()) words.push(buffer.trim()); buffer = ""; const b = block(child, keepItemLines); if (b) words.push(b); continue; }
             buffer += inlineNode(child, keepItemLines);
           }
           if (buffer.trim()) words.push(buffer.trim());
-          items.push(indent + marker + " " + words.join(" ") + (nested.length ? NL + nested.join(NL) : ""));
+          // A block spanning lines (a code block, a table) is a paragraph of its own.
+          const body = words.reduce((text, word) => (!text ? word : text + (text.includes(NL) || word.includes(NL) ? NL + NL : " ") + word), "");
+          // An item's later lines sit at its content column, after the marker
+          // and its space. They came back at column 0, or three spaces in for a
+          // nested list, so a code block, table, quote or second paragraph
+          // ended the item and a list under item 10 was not nested (measured
+          // 2026-10-29). Nested content is laid out from column 0 and shifted.
+          const pad = " ".repeat(marker.length + 1);
+          const lines = (body + (nested.length ? NL + nested.join(NL) : "")).split(NL);
+          items.push(marker + " " + lines.map((line, at) => (at === 0 || !line ? line : pad + line)).join(NL));
         }
         return items.join(NL);
       };
-      const block = (node, depth, keep) => {
+      const block = (node, keep) => {
         if (node.nodeType === 3) return (keep === true ? collapseKeepingLines(node.textContent || "") : collapse(node.textContent || "")).trim();
         if (node.nodeType !== 1 || skipped(node)) return "";
         const tag = tagOf(node);
@@ -666,27 +674,27 @@ export const CHATGPT_RENDERED_MESSAGE_TEXT_JS = `
         if (isMermaidPreview(node)) return mermaidBlock(node);
         if (tag === "table") return table(node);
         if (/^h[1-6]$/.test(tag)) return "#".repeat(Number(tag[1])) + " " + inline(node).trim();
-        if (tag === "ul" || tag === "ol") return list(node, depth, keepsLineBreaks(node, keep === true));
+        if (tag === "ul" || tag === "ol") return list(node, keepsLineBreaks(node, keep === true));
         // The newer renderer draws a rule as an empty
         // div[data-d-component=divider] (measured 2026-10-29).
         if (tag === "hr" || attr(node, "data-d-component") === "divider") return "---";
-        if (tag === "blockquote") return blocks(node, depth, keep).split(NL).map((line) => "> " + line).join(NL);
+        if (tag === "blockquote") return blocks(node, keep).split(NL).map((line) => "> " + line).join(NL);
         if (tag === "p") return inline(node, keep).trim();
-        return blocks(node, depth, keep);
+        return blocks(node, keep);
       };
-      const blocks = (node, depth, keep) => {
+      const blocks = (node, keep) => {
         const keepLines = keepsLineBreaks(node, keep === true);
         const parts = [];
         let buffer = "";
         const flush = () => { if (buffer.trim()) parts.push(buffer.trim()); buffer = ""; };
         for (const child of children(node)) {
-          if (isBlock(child)) { flush(); const b = block(child, depth, keepLines); if (b) parts.push(b); continue; }
+          if (isBlock(child)) { flush(); const b = block(child, keepLines); if (b) parts.push(b); continue; }
           buffer += inlineNode(child, keepLines);
         }
         flush();
         return parts.join(NL + NL);
       };
-      const markdown = blocks(root, 0).trim();
+      const markdown = blocks(root).trim();
       return markdown || root.innerText || "";
     };
     // A sent user turn renders inline code as <code>, dropping its backticks
