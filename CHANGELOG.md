@@ -4,7 +4,7 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 0.40.48
 
 ### Fixed
 - Answers lost their horizontal rules. ChatGPT's newer answer renderer draws a `---` rule as an empty `div[data-d-component=divider]`, and prodex read only `<hr>`, so an answer showing a rule between two sections came back with the sections run together. The rule now comes back as `---`. Found 2026-10-29 comparing a live answer with the page.
