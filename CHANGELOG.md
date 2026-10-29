@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Unreleased
 
 ### Fixed
+- Fix from `main` PR #77: inline code that holds a backtick (``a`b``) comes back wrapped in a longer backtick run instead of as broken markdown.
 - Fix from `main` PR #76: a send no longer fails as "model menu did not open" when the page ignored the press on the model selector (measured under load on WSL: 9 of 23 sends); a selector that still reads closed after 1.5 s is pressed once more.
 - Fix from `main` PR #75: in an answer's list, a code block, table, quote or second paragraph inside an item, and a list nested under item 10 or later, stay under their item instead of coming back at the left margin.
 - Fix from `main` PR #74: answers keep their horizontal rules; the newer renderer draws a `---` rule as an empty `div[data-d-component=divider]`, which now reads as `---`.
