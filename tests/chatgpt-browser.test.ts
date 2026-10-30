@@ -40,6 +40,7 @@ import {
   getChatGptBrowserStatus,
   hasChatGptPromptAcceptance,
   hasFreshChatGptAnswer,
+  hasPartialChatGptAnswer,
   isFreshChatGptPage,
   menuItemLabelMatches,
   chunkComposerText,
@@ -215,6 +216,34 @@ Show more`;
     await vi.advanceTimersByTimeAsync(10_000);
 
     await expect(send).resolves.toMatchObject({ url: thread, answer: "the requested answer" });
+  });
+
+  it("stops on an answer the page failed to render instead of returning its error text", async () => {
+    // The prompt has posted and ChatGPT holds the answer, so this must not be
+    // retried; recovery reloads the thread and reads it again.
+    vi.useFakeTimers();
+    const thread = "https://chatgpt.com/c/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+    const failed = { ...fakeAnswerState(thread, "This response couldn’t load", false), answerRenderFailed: true };
+    installFakeChatGptSendCdp(thread, [
+      { ...fakeAnswerState(thread, "", false), assistantMessageCount: 0, userMessageCount: 0 },
+      { ...fakeAnswerState(thread, "", true), assistantMessageCount: 0, userMessageCount: 1 },
+      failed,
+      failed,
+      failed,
+      failed
+    ]);
+
+    const send = sendChatGptPrompt({ port: 19338, prompt: "answer this", targetUrl: thread, timeoutMs: 20_000 });
+    const rejection = expect(send).rejects.toMatchObject({
+      blocker: {
+        code: "answer_render_failed",
+        retryable: false,
+        thread,
+        next_step: expect.stringMatching(new RegExp(`prodex pro browser recover --target-url ${thread} --request-id [a-f0-9]{32}`))
+      }
+    });
+    await vi.advanceTimersByTimeAsync(20_000);
+    await rejection;
   });
 
   it("does not resend or navigate when the observed Cloudflare 502 appears after submit", async () => {
@@ -732,6 +761,40 @@ Show more`;
     expect(state.answer).toBe("");
   });
 
+  it("answerExpression reports an answer the page failed to render", async () => {
+    // Measured 2026-10-30 in the browser container: ChatGPT finished the answer
+    // ("OK", finished_successfully on its side), but the page drew
+    // div[role=status][data-dil-render-failed] reading "This response couldn’t
+    // load" in its place, and that sentence was saved as the answer.
+    const browser = await import("../src/chatgpt-browser.js");
+    const answerExpression = (browser as { answerExpression: () => string }).answerExpression;
+    type AnswerState = { answer: string; answerRenderFailed?: boolean };
+    const message = (role: string, text: string, renderFailed = false): FakeElement => {
+      const el = new FakeElement("div");
+      el.setAttribute("data-message-author-role", role);
+      el.innerText = text;
+      Object.assign(el, {
+        querySelector: (selector: string) => (renderFailed && selector === "[data-dil-render-failed]" ? new FakeElement("div") : null)
+      });
+      return el;
+    };
+    const doc = new FakeDocument([], []);
+    doc.messages = [message("user", "q"), message("assistant", "This response couldn’t load", true)];
+    expect(evaluateBrowserStatusExpression<AnswerState>(answerExpression(), doc).answerRenderFailed).toBe(true);
+    doc.messages = [message("user", "q"), message("assistant", "OK")];
+    expect(evaluateBrowserStatusExpression<AnswerState>(answerExpression(), doc).answerRenderFailed).toBe(false);
+    // An earlier answer that failed to render is not the answer to the new question.
+    doc.messages = [message("user", "q1"), message("assistant", "This response couldn’t load", true), message("user", "q2"), message("assistant", "OK")];
+    expect(evaluateBrowserStatusExpression<AnswerState>(answerExpression(), doc).answerRenderFailed).toBe(false);
+  });
+
+  it("never takes an answer the page failed to render for the answer, finished or partial", () => {
+    const failed = { answer: "This response couldn’t load", assistantMessageCount: 1, generating: false, answerRenderFailed: true };
+    expect(hasFreshChatGptAnswer(0, failed)).toBe(false);
+    expect(hasPartialChatGptAnswer(0, failed)).toBe(false);
+    expect(hasFreshChatGptAnswer(0, { ...failed, answer: "OK", answerRenderFailed: false })).toBe(true);
+  });
+
   it("does not mistake ChatGPT's interruption notice for an answer", () => {
     // Measured after killing the browser mid-stream: the thread rendered
     // "Pro thinking / Connection interrupted. Waiting for the complete answer",
@@ -886,6 +949,69 @@ Show more`;
         thread: target
       }
     });
+  });
+
+  it("reloads a thread whose answer failed to render and reads it again", async () => {
+    // Measured 2026-10-30: recovery of a thread showing "This response
+    // couldn’t load" left the tab where it was, since it was already on the
+    // thread, and saved the same sentence as the recovered answer.
+    vi.useFakeTimers();
+    const target = "https://chatgpt.com/c/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+    const requestId = "c".repeat(32);
+    const lastUserText = `our question\n[prodex-request:${requestId}]`;
+    const failed = { ...fakeAnswerState(target, "This response couldn’t load", false), lastUserText, answerRenderFailed: true };
+    const rendered = { ...fakeAnswerState(target, "OK", false), lastUserText };
+    const evaluations = installFakeChatGptCdp([failed], { url: target });
+    const base = FakeCdpWebSocket.evaluate;
+    let marked = false;
+    let reloaded = false;
+    FakeCdpWebSocket.evaluate = (expression) => {
+      if (expression.includes("__prodexReloadMark") && expression.includes("= true; return true")) {
+        marked = true;
+        return true;
+      }
+      if (expression.includes("location.assign(")) {
+        base(expression);
+        reloaded = marked;
+        return true;
+      }
+      if (expression.includes("__prodexReloadMark")) return reloaded;
+      if (expression.includes("assistantMessageCount")) {
+        evaluations.push(expression);
+        return reloaded ? rendered : failed;
+      }
+      return base(expression);
+    };
+
+    const recovery = recoverChatGptAnswerFromThread({ targetUrl: target, port: 19337, timeoutMs: 10_000, requestId });
+    void recovery.catch(() => undefined);
+    await vi.advanceTimersByTimeAsync(15_000);
+    await expect(recovery).resolves.toMatchObject({ answer: "OK", requestId, requestVerified: true });
+    expect(evaluations.filter((expression) => expression.includes(`location.assign(\"${target}\")`))).toHaveLength(1);
+  });
+
+  it("does not return a render failure as the recovered answer when a reload does not fix it", async () => {
+    vi.useFakeTimers();
+    const target = "https://chatgpt.com/c/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+    const failed = { ...fakeAnswerState(target, "This response couldn’t load", false), answerRenderFailed: true };
+    const evaluations = installFakeChatGptCdp([failed], { url: target });
+    const base = FakeCdpWebSocket.evaluate;
+    let marked = false;
+    FakeCdpWebSocket.evaluate = (expression) => {
+      if (expression.includes("__prodexReloadMark") && expression.includes("= true; return true")) {
+        marked = true;
+        return true;
+      }
+      if (expression.includes("__prodexReloadMark")) return marked;
+      return base(expression);
+    };
+
+    const recovery = recoverChatGptAnswerFromThread({ targetUrl: target, port: 19337, timeoutMs: 5_000 });
+    const rejection = expect(recovery).rejects.toMatchObject({ blocker: { code: "answer_render_failed", thread: target } });
+    await vi.advanceTimersByTimeAsync(10_000);
+    await rejection;
+    // One reload, not one per poll.
+    expect(evaluations.filter((expression) => expression.includes("location.assign("))).toHaveLength(1);
   });
 
   it("freezes canonical metadata to the accepted conversation identity", async () => {
