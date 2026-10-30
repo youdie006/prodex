@@ -16,6 +16,24 @@ Release target: `v0.40.13` on `main`. The GitHub Release records the resolved co
 
 The release adds a guarded, opt-in transition and more accurate blocker reporting. It does not claim that headless Pro consultation is verified on either deployment target or that authentication can be retained indefinitely.
 
+## Browser Incident 2026-10-30: WSL browser container out of threads
+
+**What happened**
+- A probe consult through the WSL container (`prodex-browser-browser-1`, branch build reporting 0.40.18) came back `done`, request verified, with the answer "This response couldn’t load". The conversation held the real answer ("OK"). The page had drawn its own error in its place (`div[role=status][data-dil-render-failed]`).
+- Cause: the container allowed 256 processes and threads. Chromium and the service used about 171 with one ChatGPT tab, and 17 stdio MCP servers (16 Claude Code sessions on the host, about 7 threads each) took the rest. Chromium logged `pthread_create: Resource temporarily unavailable` during the send.
+- A reload of that thread while diagnosing it failed the same way, and then `Zygote could not fork`. After that Chromium could start no renderer at all. The tab stayed `browser_tab_crashed`, and prodex's one same-address reload before a send crashed again within 300 ms, so every consult through the container failed.
+- M3's container was checked the same day: 151 of 256 in use, with 1 MCP server and no thread errors in 72 hours.
+
+**Recovery (maintainer approved each step)**
+- `docker update --pids-limit 1024 prodex-browser-browser-1` raised the limit in place. The thread errors stopped, but the browser still could not start renderers.
+- `docker restart prodex-browser-browser-1`, after the container's send lock was confirmed free. The limit stays 1024 across restarts. Health was `healthy` within seconds, `container-client.mjs status` reported `ready: true`, and a fresh-chat consult with markdown in its prompt answered "OK" with its request verified. No thread errors were logged after the restart.
+- The restart dropped every client's MCP connection to the container. Each WSL Claude Code session needs `/mcp` to reconnect.
+
+**Fixes**
+- `main` PR #79 (merge `eab9340`, not yet released): a send no longer saves the page's render error as the answer, and recovery loads the thread again to draw it. It was ported to `container/redesign-patches` as `f93b63f`.
+- `container/redesign-patches` `55f2f3e`: `compose.json` sets `pids_limit` to 1024. The running WSL container already has it through `docker update`. M3's container gets it on its next rebuild.
+- Neither container image has been rebuilt with these commits yet.
+
 ## Browser Incident 2026-10-20: M3 headless browser behind Cloudflare
 
 **What happened**
