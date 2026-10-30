@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Fixed
+- When ChatGPT's page could not draw an answer, prodex saved the page's own error, "This response couldn’t load", as the answer, and the consult reported done with its request verified. `pro browser recover` saved the same sentence again, because the tab was already on the thread and was not loaded again. Found 2026-10-30 in the browser container: Chromium could not start threads there, and ChatGPT held the finished answer ("OK") while the page showed the error in its place. A send now stops as `answer_render_failed` and names the `recover` command. Recovery loads the thread once more when it finds the error, and returns the answer drawn after that. If the error is still there, recovery stops as `answer_render_failed` instead of saving it. Checked live on WSL by marking an answer the way the failed page did: 0.40.48 recovered the error text; the fix blocked the send, then recovered "PROBE7731" once the page could draw it.
+
 ## 0.40.48
 
 ### Fixed
