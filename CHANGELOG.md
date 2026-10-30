@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Fixed
+- `--tool "  "` (a tool name of only spaces, such as an empty script variable) was accepted, and the prompt went out with no tool and no warning. Measured 2026-10-29. MCP `pro_consult` with a blank entry in `tools` did the same. Both now stop before the browser with "--tool is blank".
+
 ## 0.40.48
 
 ### Fixed
