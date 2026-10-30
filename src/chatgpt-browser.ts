@@ -361,6 +361,8 @@ interface ChatGptAnswerState {
   lastUserCollapsed?: boolean;
   /** A generated image follows the last user turn and no assistant turn does. */
   nonTextAnswer?: boolean;
+  /** The page could not draw the answer and shows its own error in its place. */
+  answerRenderFailed?: boolean;
   /** ChatGPT's own tag for the model that produced the last answer. */
   modelSlug?: string;
   textSample: string;
@@ -1490,9 +1492,10 @@ export function shouldRecoverThreadNavigation(args: {
 
 export function hasFreshChatGptAnswer(
   previousAssistantMessageCount: number,
-  state: Pick<ChatGptAnswerState, "answer" | "assistantMessageCount" | "generating">
+  state: Pick<ChatGptAnswerState, "answer" | "assistantMessageCount" | "generating" | "answerRenderFailed">
 ): boolean {
-  return state.assistantMessageCount > previousAssistantMessageCount && isUsableChatGptAnswer(state.answer) && !state.generating;
+  return state.assistantMessageCount > previousAssistantMessageCount && isUsableChatGptAnswer(state.answer) && !state.generating &&
+    state.answerRenderFailed !== true;
 }
 
 // Like hasFreshChatGptAnswer but WITHOUT requiring generation to have finished:
@@ -1551,9 +1554,10 @@ export function acceptanceTimeoutError(ctx: AcceptanceTimeoutContext): Error {
 
 export function hasPartialChatGptAnswer(
   previousAssistantMessageCount: number,
-  state: Pick<ChatGptAnswerState, "answer" | "assistantMessageCount">
+  state: Pick<ChatGptAnswerState, "answer" | "assistantMessageCount" | "answerRenderFailed">
 ): boolean {
-  return state.assistantMessageCount > previousAssistantMessageCount && isUsableChatGptAnswer(state.answer);
+  return state.assistantMessageCount > previousAssistantMessageCount && isUsableChatGptAnswer(state.answer) &&
+    state.answerRenderFailed !== true;
 }
 
 /**
@@ -2012,6 +2016,22 @@ export function chatGptBlockerFromAnswerState(state: {
   visibleButtonLabels: string[];
 }):ChatGptBrowserStatus["blocker"] | undefined {
   return detectChatGptPageBlocker(state);
+}
+
+/**
+ * The answer exists, but the page shows "This response couldn’t load" in
+ * its place. Measured 2026-10-30 in the browser container, where Chromium could
+ * not start threads: the conversation held the finished answer, and loading
+ * the thread again drew it.
+ */
+export function answerRenderFailedBlocker(thread?: string): NonNullable<ChatGptBrowserStatus["blocker"]> {
+  return {
+    code: "answer_render_failed",
+    message: "ChatGPT answered, but the page could not display the answer (it shows \"This response couldn’t load\"). No answer was returned.",
+    retryable: false,
+    next_step: "Recovery loads the conversation again and reads the answer.",
+    ...(thread ? { thread } : {})
+  };
 }
 
 function submittedRequestBlocker(
@@ -4580,6 +4600,8 @@ export async function recoverChatGptAnswerFromThread(
   let lastAnswer = "";
   let lastObservedUrl = "";
   let completed = false;
+  let renderFailed = false;
+  let reloadedForRenderFailure = false;
   try {
     await cdp.send("Runtime.enable");
     // In-tab navigation (location.assign, not Page.navigate which has crashed the
@@ -4629,6 +4651,21 @@ export async function recoverChatGptAnswerFromThread(
           thread: url
         });
       }
+      // The tab may already be on the thread with the page's error in place
+      // of the answer, so recovery loads the thread once more to draw it.
+      if (state.answerRenderFailed && !state.generating && state.assistantMessageCount > 0) {
+        renderFailed = true;
+        stableRuns = 0;
+        lastAnswer = "";
+        if (!reloadedForRenderFailure) {
+          reloadedForRenderFailure = true;
+          await evaluateOnPage(page.page, markDocumentForReloadExpression());
+          await navigateIdleChatGptPage(page.page, url);
+          await waitForReloadedDocument(page.page, deadline);
+        }
+        continue;
+      }
+      renderFailed = false;
       // Require a REAL assistant message, not answerExpression's page-chrome
       // fallback (empty assistant returns sidebar/nav text): the thread's
       // conversation loads asynchronously after navigation, so keep polling.
@@ -4651,6 +4688,13 @@ export async function recoverChatGptAnswerFromThread(
   }
   if (!completed) {
     const targetMatched = Boolean(state && chatGptUrlsReferToSameTarget(state.url, url));
+    if (targetMatched && renderFailed) {
+      throw new ChatGptBrowserBlockerError({
+        ...answerRenderFailedBlocker(url),
+        retryable: true,
+        next_step: "The page still could not display the answer after loading the conversation again. Check that the browser is not short of memory or processes, then rerun recovery."
+      });
+    }
     const hasUsableAnswer = Boolean(state && state.assistantMessageCount > 0 && isUsableChatGptAnswer(state.answer));
     const code = !targetMatched
       ? "thread_target_mismatch"
@@ -5185,6 +5229,7 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
   expandingPolls = 0;
   let nonTextPolls = 0;
   let nonTextSettled = false;
+  let renderFailedPolls = 0;
   const answerIsStable = createChatGptAnswerStabilityTracker();
   while (Date.now() - started < timeoutMs) {
     await sleep(1000);
@@ -5250,6 +5295,19 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
       continue;
     }
     nonTextPolls = 0;
+    // Two reads in a row, so a failure the renderer is about to replace does
+    // not end the send.
+    if (finalState.answerRenderFailed && !finalState.generating && finalState.assistantMessageCount > beforeSubmit.assistantMessageCount) {
+      renderFailedPolls += 1;
+      if (renderFailedPolls >= 2) {
+        throw attachSendWarnings(
+          new ChatGptBrowserBlockerError(submittedRequestBlocker(answerRenderFailedBlocker(pinnedThreadUrl), requestId, pinnedThreadUrl)),
+          sendWarnings
+        );
+      }
+      continue;
+    }
+    renderFailedPolls = 0;
     if (!hasFreshChatGptAnswer(beforeSubmit.assistantMessageCount, finalState)) continue;
     // A "fresh" answer must also be stable: ChatGPT can momentarily look done
     // mid-stream, and the streaming caret renders as a literal trailing
@@ -7548,6 +7606,12 @@ export function answerExpression(): string {
           return Boolean(lastUser.node.compareDocumentPosition(img) & Node.DOCUMENT_POSITION_FOLLOWING);
         });
       })(),
+      // The newer answer renderer, when it cannot draw an answer, puts
+      // div[role=status][data-dil-render-failed] reading "This response
+      // couldn’t load" in its place (measured 2026-10-30, while ChatGPT
+      // held the finished answer), and that sentence was saved as the answer.
+      answerRenderFailed: Boolean(assistant && [assistant.textNode, assistant.node].some((node) =>
+        node && typeof node.querySelector === "function" && node.querySelector("[data-dil-render-failed]"))),
       // ChatGPT tags each assistant message with the model that produced it -
       // the only ground truth for "did the Pro selection actually take".
       modelSlug: assistant ? assistant.modelSlug : undefined,
