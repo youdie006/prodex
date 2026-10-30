@@ -257,6 +257,21 @@ describe("matching a recorded thread to a project", () => {
     expect(threadMatchesProject(thread("aaa", "notes"), "Notes")).toBe(true);
   });
 
+  it("tells a project from another whose name ends the same way", () => {
+    // The name was matched as a suffix of the URL segment, so "Notes" also
+    // answered for "My Notes" (g-p-<id>-my-notes). When the sidebar could not
+    // be read, --continue --project Notes picked that project's conversation,
+    // and the follow-up went there: the pinned thread skips the project step.
+    expect(threadMatchesProject(thread("aaa", "my-notes"), "Notes")).toBe(false);
+    expect(threadMatchesProject(thread("aaa", "my-notes"), "My Notes")).toBe(true);
+    const resolved = resolveContinuationThread({
+      consults: [{ taskId: "task_other", sessionKey: "client-a", thread: thread("aaa", "my-notes"), status: "done", createdAt: "2026-10-30T00:00:00Z" }],
+      project: "Notes",
+      sessionKey: "client-a"
+    });
+    expect("error" in resolved).toBe(true);
+  });
+
   it("counts a root chat as belonging to no project", () => {
     expect(threadMatchesProject(thread("aaa"), undefined)).toBe(true);
     expect(threadMatchesProject(thread("aaa"), "Notes")).toBe(false);

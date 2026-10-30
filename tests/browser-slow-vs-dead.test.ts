@@ -60,7 +60,10 @@ describe("telling a slow browser from a dead one", () => {
     });
     await new Promise<void>((resolve) => server!.listen(0, "127.0.0.1", resolve));
     const port = (server.address() as AddressInfo).port;
-    const status = await getChatGptBrowserStatus({ port, timeoutMs: 300 });
+    // The server answers at once; the budget only has to outlast a stalled
+    // runner. At 300 ms it did not on macOS Intel CI (2026-10-28 and 10-29,
+    // three failures as browser_slow, the tests taking 336-1622 ms).
+    const status = await getChatGptBrowserStatus({ port, timeoutMs: 10_000 });
     expect(status.blocker?.code).toBe("browser_control_unavailable");
     expect(statusMeansBrowserDead(status)).toBe(false);
     expect(status.blocker?.next_step).not.toContain("login");
