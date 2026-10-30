@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Fixed
+- `--continue` (and MCP `continue_thread`) matched the project by the end of a recorded thread's address, so `--project Notes` also accepted a conversation of a project called "My Notes" (`g-p-<id>-my-notes`). The project's id is read from the sidebar first; when the sidebar could not be read and no recorded thread carried exactly that name, the follow-up continued the other project's conversation. The thread it continues skips the project step, so the prompt went into that project. Found 2026-10-30 reading the matcher. The name must now be all of what follows the project id.
+
 ## 0.40.48
 
 ### Fixed
