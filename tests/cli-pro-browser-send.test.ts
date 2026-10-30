@@ -3567,3 +3567,21 @@ describe("blank project names", () => {
     await expect(runCli(["setup", "--project", "   "], io(cwd))).rejects.toThrow(/--project .*blank/);
   });
 });
+
+describe("blank composer tools", () => {
+  // Measured 2026-10-29: `--tool "  "` (a script's empty variable, say) was
+  // accepted and the prompt went out with no tool at all, so a send that asked
+  // for a tool got none without a word. MCP pro_consult passes its tools here.
+  const io = (cwd: string) => ({ cwd, stdout: () => {}, stderr: () => {} });
+  beforeEach(() => {
+    sendChatGptPromptMock.mockClear();
+  });
+
+  it.each(["   ", "\t"])("refuses --tool %j before touching the browser", async (value) => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-send-"));
+    await expect(runCli(["pro", "browser", "ask", "--send", "--tool", "web-search", "--tool", value, "Review this"], io(cwd))).rejects.toThrow(
+      /--tool .*blank/
+    );
+    expect(sendChatGptPromptMock).not.toHaveBeenCalled();
+  });
+});

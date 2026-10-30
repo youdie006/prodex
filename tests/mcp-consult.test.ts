@@ -271,6 +271,12 @@ describe("pro_consult MCP tool registration", () => {
 });
 
 describe("performBrowserConsultForMcp", () => {
+  it("refuses a blank tool before sending", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-consult-"));
+    await expect(performBrowserConsultForMcp(cwd, { prompt: "Question", tools: ["  "] })).rejects.toThrow(/--tool .*blank/);
+    expect(sendChatGptPromptMock).not.toHaveBeenCalled();
+  });
+
   it("threads selection options into the send and returns structured fields", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-consult-"));
     sendChatGptPromptMock.mockResolvedValueOnce({
