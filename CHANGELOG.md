@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `--tool "  "` (a tool name of only spaces, such as an empty script variable) was accepted, and the prompt went out with no tool and no warning. Measured 2026-10-29. MCP `pro_consult` with a blank entry in `tools` did the same. Both now stop before the browser with "--tool is blank".
 - `--continue` (and MCP `continue_thread`) matched the project by the end of a recorded thread's address, so `--project Notes` also accepted a conversation of a project called "My Notes" (`g-p-<id>-my-notes`). The project's id is read from the sidebar first; when the sidebar could not be read and no recorded thread carried exactly that name, the follow-up continued the other project's conversation. The thread it continues skips the project step, so the prompt went into that project. Found 2026-10-30 reading the matcher. The name must now be all of what follows the project id.
 
+## Unreleased
+
+### Fixed
+- `--project` could not reach a project that the ChatGPT sidebar keeps behind "Show more". The sidebar lists only its first projects, and the rest are not in the page until that button is pressed. Measured 2026-10-30: 9 of 25 projects listed. A send to any of the other 16 failed as "project not found in sidebar (9 projects visible)". `pro browser projects` listed the same 9, and `--continue` could not read the other projects' ids. A send now presses "Show more" once when the project is not among those listed. The listing does the same, so it shows all 25. The sidebar has no control to fold the list again, so it stays expanded. Checked live on WSL: 0.40.48 listed 9 projects and this build 25. In the page, a project that had been hidden went from "not found" to found once the list was shown. No message was sent to a real project.
+
 ## 0.40.48
 
 ### Fixed
