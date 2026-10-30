@@ -3041,6 +3041,63 @@ export function projectItemRectExpression(name: string): string {
   })()`;
 }
 
+/**
+ * Show the projects the sidebar keeps behind "Show more".
+ *
+ * Measured 2026-10-30 on WSL: the sidebar listed 9 project rows (4 pinned, 5
+ * under Projects) and a "Show more" button under the Projects section;
+ * pressing it added 16 more rows that were not in the page at all before. A
+ * --project send for any of them failed as "project not found in sidebar (9
+ * projects visible)". The button has no label of its own, so it is found as
+ * the ghost button of a section that lists projects, outside every row, and
+ * not the section's toggle; its English text is the fallback. The sidebar
+ * offers nothing to fold the list again, so it stays shown.
+ */
+export function expandSidebarProjectsExpression(): string {
+  return `(async () => {
+    const projectRows = (root) => root.querySelectorAll("[data-app-action-sidebar-project-row]").length;
+    const before = projectRows(document);
+    const showMore = (button) =>
+      !button.closest("[data-app-action-sidebar-project-row],[data-sidebar-project-container-id^='project:']") &&
+      !button.hasAttribute("data-app-action-sidebar-section-toggle") &&
+      !button.getAttribute("aria-label") &&
+      (button.getAttribute("data-variant") === "ghost" || /^show more$/i.test((button.innerText || "").trim())) &&
+      button.getClientRects().length > 0;
+    const sections = [...document.querySelectorAll("section[data-app-action-sidebar-section]")].filter((section) => projectRows(section) > 0);
+    const more = sections.flatMap((section) => [...section.querySelectorAll("button")]).find(showMore);
+    if (!more) return { clicked: false, before, after: before };
+    more.click();
+    for (let waited = 0; waited < 3000 && projectRows(document) <= before; waited += 100) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    return { clicked: true, before, after: projectRows(document) };
+  })()`;
+}
+
+/**
+ * The navigation target of an existing project, shown first if its row is
+ * behind "Show more". Polls, because right after a --new-chat navigation the
+ * sidebar's Projects section has not hydrated yet (measured live: "0 projects
+ * visible" on the first read, rows appear moments later) - the same class of
+ * race as the model-selector button after new-chat (0.15.7).
+ */
+export async function findSidebarProjectRow(cdp: CdpConnection, project: string, timeoutMs = 6_000): Promise<RectHit> {
+  let hit: RectHit = { ok: false };
+  let expanded = false;
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    hit = await locateProjectNavigationTarget(cdp, project);
+    if (hit.ok && hit.x !== undefined && hit.y !== undefined) return hit;
+    if (!expanded && /project not found in sidebar/.test(hit.reason ?? "")) {
+      const shown = await cdp.evaluate<{ clicked?: boolean }>(expandSidebarProjectsExpression());
+      expanded = shown?.clicked === true;
+      if (expanded) continue;
+    }
+    if (Date.now() >= deadline) return hit;
+    await sleep(300);
+  }
+}
+
 export async function locateProjectNavigationTarget(cdp: CdpConnection, project: string): Promise<RectHit> {
   const deadline = Date.now() + 2_000;
   let covered: RectHit = { ok: false, reason: "project navigation target is covered or not hit-testable" };
@@ -3925,19 +3982,7 @@ async function waitForComposerProjectBinding(
 // question, not this one's.
 async function navigateToExistingProject(cdp: CdpConnection, project: string): Promise<void> {
   const hrefBefore = await cdp.evaluate<string>("location.href");
-  // Poll for the project row instead of a single check: right after a
-  // --new-chat navigation the sidebar's Projects section has not hydrated yet
-  // (measured live: "0 projects visible" on the first read, rows appear
-  // moments later) - the same class of race as the model-selector button
-  // after new-chat (0.15.7).
-  let hit: RectHit = { ok: false };
-  const projectDeadline = Date.now() + 6_000;
-  for (;;) {
-    hit = await locateProjectNavigationTarget(cdp, project);
-    if (hit.ok && hit.x !== undefined && hit.y !== undefined) break;
-    if (Date.now() >= projectDeadline) break;
-    await sleep(300);
-  }
+  const hit = await findSidebarProjectRow(cdp, project);
   if (!hit.ok || hit.x === undefined || hit.y === undefined) {
     const detail = hit.reason && hit.reason !== "project not found in sidebar" ? ` (${hit.reason})` : "";
     throw new Error(
@@ -5281,7 +5326,10 @@ export function resolveProjectToDelete(
 export async function listChatGptProjectsWithIds(input: { port?: number; timeoutMs?: number } = {}): Promise<
   Array<{ id: string; name: string }>
 > {
-  return listVisibleChatGptNavigation(input, projectsWithIdsExpression());
+  return listVisibleChatGptNavigation(input, `(async () => {
+    await ${expandSidebarProjectsExpression()};
+    return ${projectsWithIdsExpression()};
+  })()`);
 }
 
 /** Project deletion has no bounded visible-DOM implementation. */
@@ -5335,6 +5383,10 @@ export async function listChatGptSidebarProjects(input: { port?: number; timeout
     projects = await evaluateOnPage<string[]>(page, sidebarProjectNamesExpression());
     if (projects.length > 0 || Date.now() >= deadline) break;
     await sleep(300);
+  }
+  if (projects.length > 0) {
+    const shown = await evaluateOnPage<{ clicked?: boolean }>(page, expandSidebarProjectsExpression());
+    if (shown?.clicked) projects = await evaluateOnPage<string[]>(page, sidebarProjectNamesExpression());
   }
   return { url: status.url, projects };
 }

@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Unreleased
 
 ### Fixed
+- Fix from `main` PR #83: `--project` reaches projects the sidebar keeps behind "Show more" (measured 9 of 25 listed): the send presses "Show more" once when the name is not among those listed, and `pro browser projects` and the `--continue` id lookup list them all. Adapted to this branch, whose project step hover-tests its target; the selector check still reports a hidden project as missing.
 - Fix from `main` PR #81: `--continue` (and MCP `continue_thread`) matches a recorded thread to the project by its whole name, so `--project Notes` no longer continues a conversation of a project called "My Notes" when the sidebar gives no id.
 - Fix from `main` PR #80: a blank `--tool "  "` (or a blank entry in MCP `pro_consult` `tools`) stops before the browser with "--tool is blank" instead of sending with no tool.
 - Fix from `main` PR #79: an answer the page could not draw is no longer saved. The page shows "This response couldn’t load" in its place (`div[role=status][data-dil-render-failed]`), as it did in this container on 2026-10-30. A send now stops as `answer_render_failed` and names the `recover` command. Recovery loads the thread once more and returns the answer drawn then, or stops as `answer_render_failed` if the page still shows the error.
