@@ -72,6 +72,14 @@ docker compose -f containers/browser/compose.json up -d --no-build browser
 docker compose -f containers/browser/compose.json ps
 ```
 
+The service allows 1024 processes and threads (`pids_limit`). Measured
+2026-10-30 on WSL: Chromium and the service used about 171 with one ChatGPT tab,
+and each connected stdio MCP client's server about 7 more. At the earlier limit
+of 256, 16 connected clients left Chromium unable to start renderer threads, and
+answers were drawn as "This response couldn’t load". A container created
+before the change keeps its old limit until it is recreated;
+`docker update --pids-limit 1024 <container>` raises it in place.
+
 After the service is running, use the guided login on that same computer:
 
 ```sh

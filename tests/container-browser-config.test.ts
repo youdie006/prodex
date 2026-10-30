@@ -27,6 +27,16 @@ describe("experimental container browser isolation", () => {
     expect(service.environment.PRODEX_CHROME).toBe("/usr/lib/chromium/chromium");
   });
 
+  it("leaves the browser room to start renderer threads beside every connected client", () => {
+    // Measured 2026-10-30 on WSL: Chromium and the service used 171 threads
+    // with one ChatGPT tab, and each stdio MCP client's server 7 more. With 16
+    // clients the container sat at its 256-pid limit, a send's answer was drawn
+    // as "This response couldn't load" (pthread_create failed), and a reload
+    // left the browser unable to start any renderer until a restart.
+    const config = JSON.parse(readFileSync(new URL("compose.json", root), "utf8"));
+    expect(config.services.browser.pids_limit).toBeGreaterThanOrEqual(1024);
+  });
+
   it("retains syscall filtering and enables only an attributed upstream profile", () => {
     const profile = JSON.parse(readFileSync(new URL("seccomp.json", root), "utf8"));
     expect(profile.defaultAction).toBe("SCMP_ACT_ERRNO");

@@ -12,7 +12,7 @@
       "read_only": true,
       "tmpfs": ["/tmp:rw,nosuid,nodev,mode=1777,size=256m"],
       "shm_size": "1gb",
-      "pids_limit": 256,
+      "pids_limit": 1024,
       "mem_limit": "2g",
       "cpus": 2,
       "environment": {

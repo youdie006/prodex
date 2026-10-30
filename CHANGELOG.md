@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Unreleased
 
 ### Fixed
+- The container allowed 256 processes and threads, and a WSL host with 16 Claude Code sessions connected to its MCP filled them. Chromium and the service use about 171 with one ChatGPT tab, and each connected client's MCP server about 7 more. Found 2026-10-30: Chromium logged `pthread_create: Resource temporarily unavailable` during a send, and the answer was drawn as "This response couldn’t load" and saved as the answer. Reloading the thread then left Chromium unable to start any renderer (`Zygote could not fork`), so every send failed as `browser_tab_crashed` until the container restarted. `compose.json` now sets `pids_limit` to 1024. A container created before this change keeps 256 until it is recreated; `docker update --pids-limit 1024 prodex-browser-browser-1` raises it in place, but a browser that has already lost its zygote still needs a restart.
 - Fix from `main` PR #78: tables in answers keep their column alignment; the separator row follows the cells' `data-d-align` (start, center, end).
 - Fix from `main` PR #77: inline code that holds a backtick (``a`b``) comes back wrapped in a longer backtick run instead of as broken markdown.
 - Fix from `main` PR #76: a send no longer fails as "model menu did not open" when the page ignored the press on the model selector (measured under load on WSL: 9 of 23 sends); a selector that still reads closed after 1.5 s is pressed once more.
