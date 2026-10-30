@@ -114,9 +114,11 @@ export function threadMatchesProject(
   // of them slug to "". The id is the only thing that identifies those, and
   // the caller reads it off the live sidebar.
   const slug = chatGptProjectSlug(project);
-  // The id comes first and the name follows it, so an exact suffix match keeps
-  // "notes" from answering for "notes-archive".
-  if (slug && projectSegment.toLowerCase().endsWith(`-${slug}`)) return true;
+  // The segment is "g-p-", the id, a dash and the name, so the name has to be
+  // all that follows the id. A suffix test let "notes" answer for "my-notes";
+  // a prefix test would let it answer for "notes-archive".
+  const named = /^g-p-[0-9a-f]+-(.+)$/i.exec(projectSegment)?.[1]?.toLowerCase();
+  if (slug && named === slug) return true;
   // No name in the URL: fall back to the id this project has been seen using.
   // Nothing is guessed - the id came from another record of the same project -
   // and it survives a rename, which the name comparison cannot.

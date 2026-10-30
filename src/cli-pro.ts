@@ -1371,6 +1371,11 @@ export async function runAskProCommand(
     // --tool turns on a composer tool (deep-research, web-search,
     // create-image, or any label the menu shows) for this send.
     const tools = readRepeatedFlag(parsedAskPro.optionArgs, "--tool");
+    // A tool is opened by its label, so a value that is only spaces names none:
+    // the prompt went out with no tool and nothing said so.
+    if (tools.some((tool) => !tool.trim())) {
+      throw new Error("--tool is blank; name a composer tool (web-search, create-image), or leave the option out.");
+    }
     if (tools.length > 0 && !hasSendMode) {
       throw new Error("--tool only applies when sending (`prodex pro browser ask`); the dry-run preview cannot open ChatGPT's tools menu.");
     }
