@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Unreleased
 
 ### Fixed
+- Fix from `main` PR #84: a consult's session id no longer carries the start of its prompt (`sess_<date>_<time>_<random>-reply-with-only-the-word-...`). The id is listed by `prodex sessions`, written into receipts and returned by MCP `bridge_list_sessions`; it is now the date, the time and a random part. Ids already recorded are read as before.
 - Fix from `main` PR #83: `--project` reaches projects the sidebar keeps behind "Show more" (measured 9 of 25 listed): the send presses "Show more" once when the name is not among those listed, and `pro browser projects` and the `--continue` id lookup list them all. Adapted to this branch, whose project step hover-tests its target; the selector check still reports a hidden project as missing.
 - Fix from `main` PR #81: `--continue` (and MCP `continue_thread`) matches a recorded thread to the project by its whole name, so `--project Notes` no longer continues a conversation of a project called "My Notes" when the sidebar gives no id.
 - Fix from `main` PR #80: a blank `--tool "  "` (or a blank entry in MCP `pro_consult` `tools`) stops before the browser with "--tool is blank" instead of sending with no tool.
