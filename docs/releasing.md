@@ -62,6 +62,29 @@ Release commit `74b9c4d` on `main` (cut after PRs #79-#83, last merge `be947df`,
   - The swap dropped every MCP client of the WSL container, so each WSL Claude Code session needs `/mcp`.
 - Both containers' `prodex --version` still prints 0.40.18, because the container branch never bumps its version.
 
+**MCP clients kept connected across container swaps (2026-11-01, after the swaps)**
+- Both swaps had dropped every MCP client of their container: `scripts/container-client.mjs mcp` piped the client into `docker exec` and ended with it, so each Claude Code session needed `/mcp` typed by hand.
+- `container/redesign-patches` `964b847` turns that command into a relay that reconnects:
+  - it answers requests in flight with an error that names `pro_recover`;
+  - it runs `docker exec` again until the container is back, holding new requests for up to 60 seconds;
+  - it replays the client's handshake, tells the client its tools may have changed, and then passes the held requests on.
+- Verified:
+  - 6 new tests; suite 2167 passed; `release:verify` ok.
+  - On a throwaway container from the same image, one client connection listed 20 tools, survived a restart and then a delete-and-recreate, and listed 20 tools again each time.
+- WSL deployment:
+  - The prodex MCP entries used to run the script from `/mnt/d/myproject/gptprouse`, a checkout another task keeps on its own branch.
+  - Three Claude configs now run it from a checkout pinned for this purpose, `~/.local/share/prodex-maint/container-src` at `964b847`: `~/.claude.json` and the two swapdex slot configs that had the entry.
+  - The Codex config (`~/.codex/config.toml`) was changed the same way.
+  - `claude mcp get prodex` reports Connected. A handshake through it reached the WSL container (server 0.40.18, 20 tools).
+- M3 deployment:
+  - Its Claude and Codex configs run an installed copy, `~/.local/share/prodex/container-installed-8d7a094-wP3RK2/container-client.mjs`.
+  - That file was replaced in place with `964b847`'s; the old one is kept beside it as `container-client.mjs.8d7a094.bak`. The configs are unchanged.
+  - A handshake through it reached the M3 container.
+- Sessions that were open during the swaps still need one `/mcp`. After that, a container restart or swap no longer disconnects them.
+- When `container-client.mjs` changes again, both copies must be updated:
+  - WSL: move the pinned checkout to the new commit;
+  - M3: replace the installed copy.
+
 ## Browser Incident 2026-10-30: WSL browser container out of threads
 
 **What happened**
