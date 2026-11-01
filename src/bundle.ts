@@ -92,7 +92,9 @@ export async function buildDryRunBundle(root: string, input: DryRunBundleInput):
   }
   return {
     schema_version: SCHEMA_VERSION,
-    id: makeBridgeId("sess", `${randomUUID().slice(0, 8)}-${input.prompt}`),
+    // The id is listed wherever sessions are (MCP bridge_list_sessions among
+    // them), so it carries no words from the prompt.
+    id: makeBridgeId("sess", randomUUID().slice(0, 8)),
     mode: "manual_copy",
     prompt: input.prompt,
     files,

@@ -80,11 +80,25 @@ describe("buildDryRunBundle", () => {
       const first = await buildDryRunBundle(root, { prompt: "Review this", files: [] });
       const second = await buildDryRunBundle(root, { prompt: "Review this", files: [] });
 
-      expect(first.id).toMatch(/^sess_\d{8}_\d{6}_[a-z0-9]{8}-review-this$/);
-      expect(second.id).toMatch(/^sess_\d{8}_\d{6}_[a-z0-9]{8}-review-this$/);
+      expect(first.id).toMatch(/^sess_\d{8}_\d{6}_[a-z0-9]{8}$/);
+      expect(second.id).toMatch(/^sess_\d{8}_\d{6}_[a-z0-9]{8}$/);
       expect(second.id).not.toBe(first.id);
     } finally {
       vi.useRealTimers();
+    }
+  });
+
+  // The id names the session's files and is listed wherever sessions are:
+  // `prodex sessions`, receipts, and MCP bridge_list_sessions, which the HTTP
+  // MCP server returns to any client with the token. Session records leave the
+  // prompt out, so the id must not carry it either.
+  it("keeps the prompt's words out of the session id", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-bundle-"));
+    const bundle = await buildDryRunBundle(root, { prompt: "Draft the payroll memo for Acme layoffs", files: [] });
+
+    expect(bundle.id).toMatch(/^sess_\d{8}_\d{6}_[a-z0-9]{8}$/);
+    for (const word of ["draft", "payroll", "memo", "acme", "layoffs"]) {
+      expect(bundle.id).not.toContain(word);
     }
   });
 
@@ -97,8 +111,8 @@ describe("buildDryRunBundle", () => {
       const first = await buildDryRunBundle(root, { prompt, files: [] });
       const second = await buildDryRunBundle(root, { prompt, files: [] });
 
-      expect(first.id).toMatch(/^sess_\d{8}_\d{6}_[a-z0-9]{8}-/);
-      expect(second.id).toMatch(/^sess_\d{8}_\d{6}_[a-z0-9]{8}-/);
+      expect(first.id).toMatch(/^sess_\d{8}_\d{6}_[a-z0-9]{8}$/);
+      expect(second.id).toMatch(/^sess_\d{8}_\d{6}_[a-z0-9]{8}$/);
       expect(second.id).not.toBe(first.id);
     } finally {
       vi.useRealTimers();
