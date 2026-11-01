@@ -93,8 +93,26 @@ function contextArgs(target) {
   return target.context ? ["--context", target.context] : [];
 }
 
-export function buildDockerExecArgs(target, argv) {
-  return [...contextArgs(target), "exec", "-i", "--workdir", "/app", "-e", "PRODEX_NO_AUTO_LOGIN=1", target.container, ...argv];
+export function buildDockerExecArgs(target, argv, env = []) {
+  return [...contextArgs(target), "exec", "-i", "--workdir", "/app", "-e", "PRODEX_NO_AUTO_LOGIN=1", ...env, target.container, ...argv];
+}
+
+const BROWSER_DEFAULTS = ["PRODEX_DEFAULT_MODEL", "PRODEX_DEFAULT_EFFORT", "PRODEX_DEFAULT_PRO_MODE", "PRODEX_DEFAULT_PROJECT"];
+
+// The MCP server runs inside the container, so the env block of the client's
+// MCP entry never reached it, and a consult that named no model ran on whatever
+// another session had left selected in the shared browser. Pass the client's
+// browser defaults on, and ask for Pro, as `pro` does, when none of them names
+// a model or a reasoning step.
+export function buildMcpServerArgs(target, env = process.env) {
+  const value = key => {
+    const raw = typeof env[key] === "string" ? env[key].trim() : "";
+    return raw && !/[\r\n\0]/.test(raw) ? raw : undefined;
+  };
+  const pass = BROWSER_DEFAULTS.filter(value).flatMap(key => ["-e", `${key}=${value(key)}`]);
+  const selects = value("PRODEX_DEFAULT_MODEL") !== undefined || value("PRODEX_DEFAULT_EFFORT") !== undefined;
+  return buildDockerExecArgs(target, ["node", "/app/dist/cli.js", "mcp", "--cwd", BRIDGE_CWD],
+    selects ? pass : [...pass, "-e", "PRODEX_DEFAULT_MODEL=Pro"]);
 }
 
 function oneShotExecBody(target, expression) {
@@ -570,7 +588,7 @@ export async function runClient(argv = process.argv.slice(2)) {
   const target = freezeTarget(parsed, activeContext);
   const inspect = await inspectContainer(target);
   if (parsed.command === "mcp") {
-    return runMcpRelay(buildDockerExecArgs(target, ["node", "/app/dist/cli.js", "mcp", "--cwd", BRIDGE_CWD]));
+    return runMcpRelay(buildMcpServerArgs(target));
   }
   if (parsed.command === "pro") {
     return runStreaming(buildDockerExecArgs(target, proArgs));

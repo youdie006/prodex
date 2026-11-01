@@ -258,6 +258,13 @@ reaches; establish and check the tunnel first. TCP Docker endpoints are treated
 as remote even when their hostname is localhost. Without password copying,
 `viewer` prints only the URL to stdout and target identity to stderr.
 
+`mcp` passes the client's `PRODEX_DEFAULT_MODEL`, `PRODEX_DEFAULT_EFFORT`,
+`PRODEX_DEFAULT_PRO_MODE` and `PRODEX_DEFAULT_PROJECT` (for example from the env
+block of the MCP entry) to the server in the container. When none of them names a
+model or a reasoning step, it asks for Pro, as `pro` does. A consult's own
+`model` or `effort` still wins. Without this, a consult that named no model ran
+on whatever another session had left selected in the shared browser.
+
 `mcp` keeps the client's connection across a container restart or swap. When its
 `docker exec` ends while the client is still connected, it:
 

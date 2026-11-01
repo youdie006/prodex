@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   buildDockerExecArgs,
+  buildMcpServerArgs,
   buildProArgs,
   parseClientArgs,
   parseStatus,
@@ -71,6 +72,38 @@ describe("container client arguments", () => {
       context: undefined, contextLabel: "DOCKER_HOST", container: "browser-2"
     });
     expect(() => freezeTarget({ context: undefined, container: "browser-2" }, "unknown context!", {})).toThrow(/context/i);
+  });
+});
+
+// Measured 2026-11-01 in the WSL container's results: 20 of the consults since
+// 2026-10-10 were sent with no model selected, and so ran on whatever model
+// another session had left selected in the shared browser. The MCP server runs
+// inside the container, so the env block of the client's MCP entry never
+// reached it, and the bridge there saves no defaults.
+describe("browser defaults for the MCP server in the container", () => {
+  const server = ["node", "/app/dist/cli.js", "mcp", "--cwd", "/home/node/bridge"];
+  const base = ["--context", "lab", "exec", "-i", "--workdir", "/app", "-e", "PRODEX_NO_AUTO_LOGIN=1"];
+
+  it("asks for Pro when the client names no model, as the pro command does", () => {
+    expect(buildMcpServerArgs(target, {})).toEqual([...base, "-e", "PRODEX_DEFAULT_MODEL=Pro", "browser-2", ...server]);
+  });
+
+  it("passes the client's own defaults on instead", () => {
+    expect(buildMcpServerArgs(target, { PRODEX_DEFAULT_MODEL: " Thinking ", PRODEX_DEFAULT_PROJECT: "Codex", HOME: "/home/x" })).toEqual([
+      ...base, "-e", "PRODEX_DEFAULT_MODEL=Thinking", "-e", "PRODEX_DEFAULT_PROJECT=Codex", "browser-2", ...server
+    ]);
+    // An effort is its own selection, so Pro is not added next to it.
+    expect(buildMcpServerArgs(target, { PRODEX_DEFAULT_EFFORT: "높음" })).toEqual([...base, "-e", "PRODEX_DEFAULT_EFFORT=높음", "browser-2", ...server]);
+    // A Pro mode only refines Pro.
+    expect(buildMcpServerArgs(target, { PRODEX_DEFAULT_PRO_MODE: "확장" })).toEqual([
+      ...base, "-e", "PRODEX_DEFAULT_PRO_MODE=확장", "-e", "PRODEX_DEFAULT_MODEL=Pro", "browser-2", ...server
+    ]);
+  });
+
+  it("ignores blank values and values that are not one line", () => {
+    expect(buildMcpServerArgs(target, { PRODEX_DEFAULT_MODEL: "  ", PRODEX_DEFAULT_PROJECT: "a\nb" })).toEqual([
+      ...base, "-e", "PRODEX_DEFAULT_MODEL=Pro", "browser-2", ...server
+    ]);
   });
 });
 
