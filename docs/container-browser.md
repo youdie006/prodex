@@ -265,6 +265,13 @@ model or a reasoning step, it asks for Pro, as `pro` does. A consult's own
 `model` or `effort` still wins. Without this, a consult that named no model ran
 on whatever another session had left selected in the shared browser.
 
+A default saved in the container's own bridge
+(`node /app/dist/cli.js setup --cwd /home/node/bridge --model Pro` inside the
+container) applies at once to every client already connected, since each consult
+reads it. It takes precedence over the client's variables for the model and the
+reasoning step, while the client's `PRODEX_DEFAULT_PROJECT` still fills a project it
+leaves unset. Remove it with `setup --clear-model`.
+
 `mcp` keeps the client's connection across a container restart or swap. When its
 `docker exec` ends while the client is still connected, it:
 
