@@ -258,6 +258,22 @@ reaches; establish and check the tunnel first. TCP Docker endpoints are treated
 as remote even when their hostname is localhost. Without password copying,
 `viewer` prints only the URL to stdout and target identity to stderr.
 
+`mcp` keeps the client's connection across a container restart or swap. When its
+`docker exec` ends while the client is still connected, it:
+
+- answers each request that was in flight with an error. A consult in flight may
+  already be posted, so run `pro_recover` with its request id before sending it
+  again;
+- runs `docker exec` again until the container is back, holding new requests
+  meanwhile (each one is answered with an error after 60 seconds);
+- replays the client's `initialize` and `notifications/initialized` to the new
+  server, sends the client `notifications/tools/list_changed`, and passes the held
+  requests on.
+
+The client does not need `/mcp` or a restart. Point the client at a checkout
+that stays on this branch (not one another task switches), because the client
+runs the helper from that path every time it connects.
+
 Register the same helper with your client using absolute executable and checkout
 paths. Keep Docker on that client's PATH:
 

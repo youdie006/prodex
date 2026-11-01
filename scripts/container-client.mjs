@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { execFile as execFileCallback, spawn as nodeSpawn } from "node:child_process";
+import { StringDecoder } from "node:string_decoder";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 
@@ -258,6 +259,211 @@ export function runStreaming(args, { parent = process, spawn = nodeSpawn, closeI
   });
 }
 
+const RELAY_ERROR = -32000;
+const LOST_IN_FLIGHT = "The prodex browser container restarted while this request was in flight, so its answer was lost. " +
+  "If it was a consult, its prompt may already be posted: run pro_recover with its request id before sending it again.";
+const STILL_AWAY = "The prodex browser container is not reachable yet; the MCP relay keeps reconnecting. Retry shortly.";
+
+function lineSplitter(onLine) {
+  const decoder = new StringDecoder("utf8");
+  let buffer = "";
+  return chunk => {
+    buffer += typeof chunk === "string" ? chunk : decoder.write(chunk);
+    for (let index = buffer.indexOf("\n"); index >= 0; index = buffer.indexOf("\n")) {
+      const line = buffer.slice(0, index).replace(/\r$/, "");
+      buffer = buffer.slice(index + 1);
+      if (line.trim()) onLine(line);
+    }
+  };
+}
+
+function parseMessage(line) {
+  try {
+    const message = JSON.parse(line);
+    return message && typeof message === "object" && !Array.isArray(message) ? message : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+// MCP over stdio carries one JSON-RPC message per line. A plain pipe ended with
+// its `docker exec`, so a container restart or swap disconnected every client
+// until someone reconnected it by hand. The relay keeps the client's side open:
+// when `docker exec` ends while the client is still connected, it answers the
+// requests that were in flight with an error, starts `docker exec` again until
+// the container is back, replays the client's initialize and initialized
+// messages to the new server, and then passes on what the client sent meanwhile.
+export function runMcpRelay(args, { parent = process, spawn = nodeSpawn, retryDelaysMs = [250, 500, 1000, 2000, 5000],
+  queueTimeoutMs = 60000, log = line => parent.stderr?.write(`${line}\n`) } = {}) {
+  if (parent.stdin.isTTY === true) return runStreaming(args, { parent, spawn, closeInputStopsChild: true });
+  return new Promise((resolve, reject) => {
+    const ended = new WeakSet();
+    const pending = new Map();
+    const held = [];
+    let child;
+    let generation = 0;
+    let attempts = 0;
+    let ready = false;
+    let replayId;
+    let initializeLine;
+    let initializeId;
+    let initializeAnswered = false;
+    let initializedLine;
+    let stopping;
+    let settled = false;
+    let retryTimer;
+    let inputTimer;
+    let stopTimer;
+
+    const toClient = message => parent.stdout.write(`${typeof message === "string" ? message : JSON.stringify(message)}\n`);
+    const answerError = (id, text) => toClient({ jsonrpc: "2.0", id, error: { code: RELAY_ERROR, message: text } });
+    const hold = (line, id, { first = false } = {}) => {
+      const entry = { line, id };
+      if (id !== undefined) {
+        entry.timer = setTimeout(() => {
+          const index = held.indexOf(entry);
+          if (index >= 0) held.splice(index, 1);
+          answerError(id, STILL_AWAY);
+        }, queueTimeoutMs);
+        entry.timer.unref?.();
+      }
+      if (first) held.unshift(entry);
+      else held.push(entry);
+    };
+    const send = (line, id) => {
+      if (id !== undefined) pending.set(JSON.stringify(id), id);
+      child.stdin.write(`${line}\n`);
+    };
+    const becomeReady = () => {
+      ready = true;
+      attempts = 0;
+      for (const entry of held.splice(0)) {
+        clearTimeout(entry.timer);
+        send(entry.line, entry.id);
+      }
+    };
+    const finish = (error, code) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(retryTimer);
+      clearTimeout(inputTimer);
+      clearTimeout(stopTimer);
+      for (const entry of held) clearTimeout(entry.timer);
+      parent.removeListener("SIGINT", onSigint);
+      parent.removeListener("SIGTERM", onSigterm);
+      parent.stdin.removeListener("data", onInput);
+      parent.stdin.removeListener("end", onInputEnd);
+      if (error) reject(error);
+      else resolve(code);
+    };
+    const scheduleRetry = () => {
+      if (stopping) return;
+      retryTimer = setTimeout(start, retryDelaysMs[Math.min(attempts, retryDelaysMs.length - 1)]);
+      attempts += 1;
+    };
+    const fromServer = own => line => {
+      if (own !== child) return;
+      const message = parseMessage(line);
+      const response = message && "id" in message && !("method" in message);
+      if (response && replayId !== undefined && message.id === replayId) {
+        replayId = undefined;
+        if (initializedLine) child.stdin.write(`${initializedLine}\n`);
+        // The new server may be a newer build with different tools.
+        if (message.result?.capabilities?.tools?.listChanged === true) toClient({ jsonrpc: "2.0", method: "notifications/tools/list_changed" });
+        log("prodex container-client: reconnected to the browser container.");
+        becomeReady();
+        return;
+      }
+      if (response) {
+        pending.delete(JSON.stringify(message.id));
+        if (message.id === initializeId) initializeAnswered = true;
+      }
+      toClient(line);
+    };
+    const onChildClose = (own, code, signal, error) => {
+      if (ended.has(own)) return;
+      ended.add(own);
+      if (own !== child) return;
+      const wasReady = ready;
+      child = undefined;
+      ready = false;
+      replayId = undefined;
+      if (error) return finish(error);
+      if (stopping === "input") return finish(undefined, wasReady ? code ?? 1 : 0);
+      if (stopping) return finish(undefined, stopping === "SIGINT" ? 130 : 143);
+      for (const id of pending.values()) {
+        if (id === initializeId && !initializeAnswered) hold(initializeLine, id, { first: true });
+        else answerError(id, LOST_IN_FLIGHT);
+      }
+      pending.clear();
+      if (wasReady) log("prodex container-client: the browser container connection ended; reconnecting.");
+      scheduleRetry();
+    };
+    function start() {
+      generation += 1;
+      let own;
+      try {
+        own = spawn("docker", args, { shell: false, stdio: ["pipe", "pipe", "inherit"] });
+      } catch {
+        return finish(new Error("Docker helper could not start."));
+      }
+      child = own;
+      own.stdin?.on("error", () => {});
+      own.stdout?.on("data", lineSplitter(fromServer(own)));
+      own.once("error", () => {
+        if (own.pid) own.kill("SIGTERM");
+        else onChildClose(own, undefined, undefined, new Error("Docker helper could not start."));
+      });
+      own.once("close", (code, signal) => onChildClose(own, code, signal));
+      if (initializeAnswered) {
+        replayId = `prodex-relay-replay-${generation}`;
+        own.stdin.write(`${JSON.stringify({ ...parseMessage(initializeLine), id: replayId })}\n`);
+      } else {
+        becomeReady();
+      }
+    }
+    const onInput = lineSplitter(line => {
+      const message = parseMessage(line);
+      const request = message && "id" in message && typeof message.method === "string";
+      if (request && message.method === "initialize") {
+        initializeLine = line;
+        initializeId = message.id;
+        initializeAnswered = false;
+      }
+      if (message?.method === "notifications/initialized") initializedLine = line;
+      if (ready) return send(line, request ? message.id : undefined);
+      // A reply to a request from the server that went away has nowhere to go.
+      if (message && !("method" in message)) return;
+      hold(line, request ? message.id : undefined);
+    });
+    const onInputEnd = () => {
+      stopping = "input";
+      clearTimeout(retryTimer);
+      if (!child) return finish(undefined, 0);
+      child.stdin?.end();
+      if (!ready) return child.kill("SIGTERM");
+      inputTimer = setTimeout(() => child?.kill("SIGTERM"), 1000);
+      inputTimer.unref?.();
+    };
+    const stop = signal => {
+      if (stopping === "SIGINT" || stopping === "SIGTERM") return;
+      stopping = signal;
+      clearTimeout(retryTimer);
+      if (!child) return finish(undefined, signal === "SIGINT" ? 130 : 143);
+      stopTimer = setTimeout(() => child?.kill("SIGKILL"), 3000);
+      stopTimer.unref?.();
+      child.kill(signal);
+    };
+    const onSigint = () => stop("SIGINT");
+    const onSigterm = () => stop("SIGTERM");
+    parent.on("SIGINT", onSigint);
+    parent.on("SIGTERM", onSigterm);
+    parent.stdin.on("data", onInput);
+    parent.stdin.on("end", onInputEnd);
+    start();
+  });
+}
+
 async function docker(target, args, options = {}) {
   try {
     const result = await execFile("docker", [...contextArgs(target), ...args], { timeout: 12000, maxBuffer: 1024 * 1024, ...options });
@@ -364,7 +570,7 @@ export async function runClient(argv = process.argv.slice(2)) {
   const target = freezeTarget(parsed, activeContext);
   const inspect = await inspectContainer(target);
   if (parsed.command === "mcp") {
-    return runStreaming(buildDockerExecArgs(target, ["node", "/app/dist/cli.js", "mcp", "--cwd", BRIDGE_CWD]), { closeInputStopsChild: true });
+    return runMcpRelay(buildDockerExecArgs(target, ["node", "/app/dist/cli.js", "mcp", "--cwd", BRIDGE_CWD]));
   }
   if (parsed.command === "pro") {
     return runStreaming(buildDockerExecArgs(target, proArgs));
