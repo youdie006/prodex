@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Fixed
+- A consult's session id carried the start of its prompt, lowercased: a prompt beginning "Reply with only the word" became `sess_<date>_<time>_<random>-reply-with-only-the-word-...`, its first 31 characters. The session record itself does not keep the prompt, but the id is listed by `prodex sessions`, written into receipts, and returned by MCP `bridge_list_sessions`, which the HTTP MCP server answers for any client holding its token. Found 2026-10-30 reading a session listing. A new session id is the date, the time and a random part only. Ids already recorded are read as before.
+
 ## 0.40.49
 
 ### Fixed
