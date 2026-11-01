@@ -16,6 +16,40 @@ Release target: `v0.40.13` on `main`. The GitHub Release records the resolved co
 
 The release adds a guarded, opt-in transition and more accurate blocker reporting. It does not claim that headless Pro consultation is verified on either deployment target or that authentication can be retained indefinitely.
 
+## 0.40.49 Release Record
+
+Release commit `74b9c4d` on `main` (cut after PRs #79-#83, last merge `be947df`, docs `7b6a3bd`); tag `v0.40.49`, published 2026-11-01. Released on the user's go-ahead as a batch: #79 (the page's render error saved as the answer), #80 (blank `--tool`), #81 (`--continue` matching a project by the end of its name) and #83 (projects behind the sidebar's "Show more"). #82 changed a test only and has no changelog entry.
+
+**Before the cut**
+- `main` CI on `7b6a3bd` (docs only) failed on macOS Intel: `npm test` ran past the release check's 15-minute budget on a slow runner, with no failing test. On the four runs before it that step took 10.5 to 11.8 minutes. The failed job was rerun and passed.
+
+**Publishing**
+- `npm run release:verify` passed on the release commit after a build.
+- `publish.yml` run 41283791768 passed all six platforms, then npm publish with SLSA v1 provenance and the GitHub Release, which lists the four entries from `CHANGELOG.md`.
+
+**Installed**
+- WSL, M3, Mac mini: `prodex --version` reports 0.40.49.
+- The maintainer watchdog checkout was pulled to `74b9c4d` and rebuilt.
+- MacBook M4 (`m4`), added to the install targets this release. It had two copies:
+  - `~/.local/bin/prodex`, which its Codex MCP entry runs directly, links into `~/.gemini/harness-antigravity/runtime-prodex` (an npm project, 0.40.32). It was updated there with `npm i @youdie006/prodex@0.40.49`.
+  - A global copy under `/opt/homebrew` (0.40.0) was updated with `npm i -g --prefix /opt/homebrew`.
+  - The link pointed at `dist/cli.js`, which is not executable in the new install, because the package's executable has been `prodex.mjs` since 0.40.18. Run directly, it failed with "permission denied", so Codex could not have started the MCP server again. The link now points at the runtime's `node_modules/.bin/prodex`. Through it, `--version` reports 0.40.49 and `prodex mcp` answers `initialize` as 0.40.49.
+- Running services were not restarted. They keep the old code until their client starts them again:
+  - M4: Codex's `prodex mcp`, started before the install.
+  - M3: a `prodex mcp` running since 2026-09-15.
+  - Mac mini and WSL: none on the host. WSL's MCP entry goes through the browser container.
+
+**Verified live on installed 0.40.49 (WSL host browser, scratch repo)**
+- `pro browser projects` listed 25 projects; 0.40.48 listed 9 of the same 25.
+- `pro browser smoke` returned `requestVerified: true`.
+
+**After the release**
+- PR #84 (merge `b7b5d61`, unreleased): session ids no longer carry the start of the prompt.
+
+**Container**
+- `container/redesign-patches` `f2d13e6` ports #84 on top of the ports of #79-#83 (`f93b63f`, `661b2c6`, `106bd0a`, `facd4fd`) and the 1024 process limit (`55f2f3e`). tsc, the full suite (2161 tests) and `release:verify` pass on it.
+- The agent's permission classifier refused the WSL `docker compose build`. The build and swap scripts were handed to the user. Until they run, the WSL container is still on the `facbd9d` image (`c03be48c060d`) and the M3 container on `cfaf881d2fd6`.
+
 ## Browser Incident 2026-10-30: WSL browser container out of threads
 
 **What happened**
