@@ -48,7 +48,19 @@ Release commit `74b9c4d` on `main` (cut after PRs #79-#83, last merge `be947df`,
 
 **Container**
 - `container/redesign-patches` `f2d13e6` ports #84 on top of the ports of #79-#83 (`f93b63f`, `661b2c6`, `106bd0a`, `facd4fd`) and the 1024 process limit (`55f2f3e`). tsc, the full suite (2161 tests) and `release:verify` pass on it.
-- The agent's permission classifier refused the WSL `docker compose build`. The build and swap scripts were handed to the user. Until they run, the WSL container is still on the `facbd9d` image (`c03be48c060d`) and the M3 container on `cfaf881d2fd6`.
+- The agent's permission classifier refused the WSL `docker compose build`, so the user ran the build-and-swap scripts. Both images were built from `f2d13e6`. Both swaps waited for the container's send lock to be free.
+- M3 (colima `prodex-check`): image `4bc8fac19752`, started 07:57 UTC.
+  - It came up healthy with the 1024 process limit, using 146.
+  - `pro browser check` reported logged in with a composer.
+  - `pro browser smoke` answered `PRODEX_PRO_SMOKE_OK` with its request verified.
+  - A dry-run `pro ask "Draft the payroll memo"` (nothing sent) got the id `sess_20261101_075935_93598ff4`, with no prompt words in it.
+- WSL: image `e2e3523b640a`.
+  - The first run built the image but did not swap, because a Pro consult from another session had held the send lock since 07:54 UTC.
+  - The swap waited for that consult, which finished `done`. The lock cleared at 08:06:32, and the container was recreated at 08:06:35.
+  - It came up healthy with the 1024 process limit, using 177, and logged no thread errors.
+  - `pro browser check`, `smoke` and the dry-run id check gave the same results as on M3 (id `sess_20261101_080804_33e445d8`).
+  - The swap dropped every MCP client of the WSL container, so each WSL Claude Code session needs `/mcp`.
+- Both containers' `prodex --version` still prints 0.40.18, because the container branch never bumps its version.
 
 ## Browser Incident 2026-10-30: WSL browser container out of threads
 
