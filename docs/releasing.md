@@ -85,6 +85,31 @@ Release commit `74b9c4d` on `main` (cut after PRs #79-#83, last merge `be947df`,
   - WSL: move the pinned checkout to the new commit;
   - M3: replace the installed copy.
 
+## Container consults ran on the last model selected (2026-11-01)
+
+**What happened**
+- The user reported that some sessions' consults did not use Pro but whatever model the browser last had.
+- In the WSL container's results, 20 consults since 2026-10-10 carry `model_selection_warning: no model/effort was selected`. Today's 07:54 UTC Pro consult from another session is one of them.
+- Cause: a consult that names no model, with no saved or environment default, keeps the picker's current selection. That is the designed fallback, but in a shared browser the current selection is whatever another session (or an Instant smoke test) picked last.
+  - The container's MCP server had neither default. `container-client.mjs mcp` passed no variables into the container, so an MCP entry's env block could not reach it, and the bridge in the container had no saved config.
+  - The host entries on WSL that run `prodex mcp` directly set `PRODEX_DEFAULT_MODEL=Pro` and were not affected.
+
+**Fixes**
+- `container/redesign-patches` `cd3b671`: `mcp` passes the client's `PRODEX_DEFAULT_MODEL`, `_EFFORT`, `_PRO_MODE` and `_PROJECT` into the container, and adds `PRODEX_DEFAULT_MODEL=Pro` when none of them names a model or a reasoning step. A consult's own `model` or `effort` still wins.
+  - Verified: 3 new tests, suite 2170 passed, `release:verify` ok.
+  - In the container, the resolved defaults went from `null` to `{"model":"Pro"}`.
+  - A consult that named no model, sent through the new client, came back done.
+- Deployed to the WSL pinned checkout (`~/.local/share/prodex-maint/container-src` at `cd3b671`) and to the M3 installed copy.
+- The 16 WSL sessions had reconnected (17:35-17:37 KST) before `cd3b671` was in place, so their relays still run the version without the default.
+  - So the bridge inside each container now saves Pro: `setup --cwd /home/node/bridge --model Pro` on WSL and M3. That writes `.bridge/config.local.json` with a loopback HTTP profile; no HTTP server runs there.
+  - Each consult reads this default, so it applies to connected clients at once. A consult through one of the old relays, naming no model, came back done from Pro.
+- Each such consult carries the warning `model_is_now_an_effort`, because the current picker has Pro as an effort step. The model default is kept because a model or effort the consult names itself overrides it. A saved effort default would be applied on top of a model the consult names.
+
+**Not changed**
+- The MacBook M4 and the Mac mini run host `prodex mcp` entries without `PRODEX_DEFAULT_MODEL`.
+  - Whether their consults fell back the same way depends on each repo's saved defaults, and was not measured: M4 was unreachable over ssh, and the mini scan was too slow and was stopped.
+- A WSL Codex session started on 2026-10-28 still runs the client from the old path until it restarts. Its config, `~/.codex/config.toml` (linked from every swapdex slot), already points at the pinned checkout.
+
 ## Browser Incident 2026-10-30: WSL browser container out of threads
 
 **What happened**
