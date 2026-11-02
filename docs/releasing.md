@@ -105,9 +105,13 @@ Release commit `74b9c4d` on `main` (cut after PRs #79-#83, last merge `be947df`,
   - Each consult reads this default, so it applies to connected clients at once. A consult through one of the old relays, naming no model, came back done from Pro.
 - Each such consult carries the warning `model_is_now_an_effort`, because the current picker has Pro as an effort step. The model default is kept because a model or effort the consult names itself overrides it. A saved effort default would be applied on top of a model the consult names.
 
-**Not changed**
-- The MacBook M4 and the Mac mini run host `prodex mcp` entries without `PRODEX_DEFAULT_MODEL`.
-  - Whether their consults fell back the same way depends on each repo's saved defaults, and was not measured: M4 was unreachable over ssh, and the mini scan was too slow and was stopped.
+**M4 and Mac mini (host `prodex mcp`, 2026-11-03)**
+- Neither machine's Claude or Codex entry set `PRODEX_DEFAULT_MODEL`. On M4, `.bridge/results` held one consult of five with the no-model warning (`~/.gemini/harness-antigravity/verification`).
+- M4:
+  - `~/.claude.json` now has `env: {PRODEX_DEFAULT_MODEL: Pro}`, set with `claude mcp remove` and `add-json`.
+  - `~/.codex/config.toml` `[mcp_servers.prodex]` now has `env = { PRODEX_DEFAULT_MODEL = "Pro" }`. A backup is kept as `config.toml.bak-prodex-default-20261103`, and `codex mcp get prodex` parses it.
+  - The three running `prodex mcp` processes keep their old environment until their clients restart them.
+- Mac mini: the same change was refused over ssh by the agent's permission classifier. The script was handed to the user.
 - A WSL Codex session started on 2026-10-28 still runs the client from the old path until it restarts. Its config, `~/.codex/config.toml` (linked from every swapdex slot), already points at the pinned checkout.
 
 ## Browser Incident 2026-10-30: WSL browser container out of threads
