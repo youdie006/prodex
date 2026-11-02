@@ -111,7 +111,10 @@ Release commit `74b9c4d` on `main` (cut after PRs #79-#83, last merge `be947df`,
   - `~/.claude.json` now has `env: {PRODEX_DEFAULT_MODEL: Pro}`, set with `claude mcp remove` and `add-json`.
   - `~/.codex/config.toml` `[mcp_servers.prodex]` now has `env = { PRODEX_DEFAULT_MODEL = "Pro" }`. A backup is kept as `config.toml.bak-prodex-default-20261103`, and `codex mcp get prodex` parses it.
   - The three running `prodex mcp` processes keep their old environment until their clients restart them.
-- Mac mini: the same change was refused over ssh by the agent's permission classifier. The script was handed to the user.
+- Mac mini: the same change, made on the user's explicit request after the first attempt was refused:
+  - Claude `~/.claude.json` now carries `env: {PRODEX_DEFAULT_MODEL: Pro}`.
+  - Codex `~/.codex/config.toml` has the same `env` line, with the backup `config.toml.bak-prodex-default-20261103`. `codex mcp get prodex` shows the variable set.
+  - No `prodex mcp` was running there, so the next client start uses it.
 - A WSL Codex session started on 2026-10-28 still runs the client from the old path until it restarts. Its config, `~/.codex/config.toml` (linked from every swapdex slot), already points at the pinned checkout.
 
 ## Browser Incident 2026-10-30: WSL browser container out of threads
