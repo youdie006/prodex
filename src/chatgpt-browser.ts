@@ -7154,11 +7154,15 @@ export function composerToolEntryRectExpression(label: string): string {
 /** Tool tokens currently sitting in the composer. */
 export function activeComposerToolsExpression(labels: readonly string[]): string {
   const labelsJson = JSON.stringify(labels);
-  return `(() => {
+  return `(() => {${composerExpressionHelpers()}
     // The token normally lands inside the editor, but some builds render it as
     // a pill in the surrounding composer form - check both before deciding a
     // selection did not take.
-    const el = document.querySelector('#prompt-textarea,[contenteditable="true"]');
+    // Read the composer a send types into. Measured 2026-11-03: a new chat
+    // leaves the home page's composer mounted in a hidden workspace ahead of
+    // the conversation's, and the first editor in the document was that one,
+    // so a follow-up's tool was on but read as off.
+    const el = findChatGptComposerCandidate();
     const form = el ? (el.closest("form") || el.parentElement) : null;
     const text = ((el ? el.innerText || "" : "") + String.fromCharCode(10) + (form ? form.innerText || "" : "")).toLowerCase();
     // Case-insensitively: prodex carries the label as the menu spells it
