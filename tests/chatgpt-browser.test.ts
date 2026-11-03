@@ -259,6 +259,70 @@ Show more`;
     await expect(send).resolves.toMatchObject({ url: thread, answer: "the requested answer" });
   });
 
+  // A follow-up's budget pays for a prompt ChatGPT receives. Measured
+  // 2026-11-02 in the browser container: two follow-ups refused as
+  // composer_not_ready before anything was typed still counted against it.
+  it("runs the pre-submit step after the prompt is typed and before it is submitted", async () => {
+    vi.useFakeTimers();
+    const thread = "https://chatgpt.com/c/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+    const answer = fakeAnswerState(thread, "the requested answer", false);
+    const evaluations = installFakeChatGptSendCdp(thread, [
+      { ...fakeAnswerState(thread, "", false), assistantMessageCount: 0, userMessageCount: 0 },
+      { ...fakeAnswerState(thread, "", true), assistantMessageCount: 0, userMessageCount: 1 },
+      answer,
+      answer,
+      answer
+    ]);
+    const sent = vi.spyOn(FakeCdpWebSocket.prototype, "send");
+    const enterPresses = () => sent.mock.calls.filter(([data]) => /"key":"Enter"/.test(String(data))).length;
+    const seen: Array<{ typed: boolean; enterPresses: number }> = [];
+
+    const send = sendChatGptPrompt({
+      port: 19338,
+      prompt: "answer this",
+      targetUrl: thread,
+      timeoutMs: 10_000,
+      beforePromptSubmit: async () => {
+        seen.push({ typed: evaluations.some((expression) => expression.includes("actualText: raw.slice")), enterPresses: enterPresses() });
+      }
+    });
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    try {
+      await expect(send).resolves.toMatchObject({ answer: "the requested answer" });
+      expect(seen).toEqual([{ typed: true, enterPresses: 0 }]);
+      expect(enterPresses()).toBeGreaterThan(0);
+    } finally {
+      sent.mockRestore();
+    }
+  });
+
+  it("does not submit a prompt whose pre-submit step refuses it", async () => {
+    vi.useFakeTimers();
+    const thread = "https://chatgpt.com/c/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+    installFakeChatGptSendCdp(thread, [{ ...fakeAnswerState(thread, "", false), assistantMessageCount: 0, userMessageCount: 0 }]);
+    const sent = vi.spyOn(FakeCdpWebSocket.prototype, "send");
+    const refusal = new Error("budget spent by another follow-up");
+
+    const send = sendChatGptPrompt({
+      port: 19338,
+      prompt: "answer this",
+      targetUrl: thread,
+      timeoutMs: 10_000,
+      beforePromptSubmit: async () => {
+        throw refusal;
+      }
+    });
+    const rejection = expect(send).rejects.toBe(refusal);
+    await vi.advanceTimersByTimeAsync(10_000);
+    try {
+      await rejection;
+      expect(sent.mock.calls.some(([data]) => /"key":"Enter"/.test(String(data)))).toBe(false);
+    } finally {
+      sent.mockRestore();
+    }
+  });
+
   it("stops on an answer the page failed to render instead of returning its error text", async () => {
     // The prompt has posted and ChatGPT holds the answer, so this must not be
     // retried; recovery reloads the thread and reads it again.

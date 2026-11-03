@@ -59,12 +59,17 @@ follow-up checkpoint (integer 0-1000; default 5). For example:
 PRODEX_MAX_AUTO_FOLLOWUPS = "8"
 ```
 
-The initial fresh consult is not a follow-up. Reservations are counted before sends
-and persist across reconnects, older task references, and different session keys in
-the same bridge and conversation. Failed/uncertain attempts count too. At the limit,
+The initial fresh consult is not a follow-up. A follow-up is reserved once its prompt
+is typed, right before it is submitted, and reservations persist across reconnects,
+older task references, and different session keys in the same bridge and
+conversation. A send refused before that point, such as `composer_not_ready`, does
+not count; an attempt that fails or is uncertain after submitting does. At the limit,
 the tool returns `status: "awaiting_user"`, `task_id: null`, the intended continuation
 arguments, and `followup_budget: {limit, used, remaining}` without creating a consult
-task or sending a prompt. This response-only status is not a ledger task status.
+task or sending a prompt. This response-only status is not a ledger task status. If
+another follow-up in the same conversation uses the last of the budget while this one
+waits for the browser, this one stops before submitting with the same response, and
+its consult task is recorded as blocked with `followup_approval_required`.
 
 Ask the user whether to continue. Only after an explicit user request/approval may
 the caller send that continuation with `user_approved: true`. This human-directed

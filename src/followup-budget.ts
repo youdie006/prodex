@@ -51,10 +51,38 @@ export function resolveMaxAutoFollowups(
   return value;
 }
 
+/**
+ * Refuse a follow-up the budget no longer covers, without spending any of it.
+ *
+ * The follow-up is reserved only once its prompt is about to be submitted.
+ * Measured 2026-11-02 in the browser container: two follow-ups in one
+ * conversation, refused as composer_not_ready before anything was typed, were
+ * recorded as its follow-ups 3 and 4 of 5. This check keeps an exhausted budget
+ * from creating a task or touching the browser at all.
+ */
+export async function assertFollowupAvailable(
+  store: BridgeStore,
+  input: { thread: string; userApproved?: boolean; limit: number }
+): Promise<void> {
+  await withFollowupBudgetLock(store, input, async (conversationKey) => {
+    await readConversationLedger(store, { conversationKey, ...input });
+  });
+}
+
 export async function reserveFollowup(
   store: BridgeStore,
   input: { thread: string; taskId: string; userApproved?: boolean; limit: number }
 ): Promise<FollowupBudget> {
+  return withFollowupBudgetLock(store, input, async (conversationKey) =>
+    reserveFollowupUnderLock(store, { ...input, conversationKey })
+  );
+}
+
+async function withFollowupBudgetLock<T>(
+  store: BridgeStore,
+  input: { thread: string; limit: number },
+  run: (conversationKey: string) => Promise<T>
+): Promise<T> {
   assertFollowupLimit(input.limit);
   const conversationKey = conversationKeyFromThread(input.thread);
   await store.ensure();
@@ -73,19 +101,15 @@ export async function reserveFollowup(
           "The follow-up budget lock could not be recovered. Stop all prodex processes before removing the lock and its matching .reap claim, then retry."
         )
     },
-    async () => reserveFollowupUnderLock(store, { ...input, conversationKey })
+    async () => run(conversationKey)
   );
 }
 
-async function reserveFollowupUnderLock(
+/** The conversation's ledger so far; throws when the budget does not cover another follow-up. */
+async function readConversationLedger(
   store: BridgeStore,
-  input: {
-    conversationKey: string;
-    taskId: string;
-    userApproved?: boolean;
-    limit: number;
-  }
-): Promise<FollowupBudget> {
+  input: { conversationKey: string; userApproved?: boolean; limit: number }
+): Promise<{ sequence: number; used: number }> {
   const reservations = await readTrustedReservations(store);
   const conversationReservations = reservations
     .filter((reservation) => reservation.metadata.conversation_key === input.conversationKey)
@@ -99,6 +123,19 @@ async function reserveFollowupUnderLock(
       remaining: 0
     });
   }
+  return previous;
+}
+
+async function reserveFollowupUnderLock(
+  store: BridgeStore,
+  input: {
+    conversationKey: string;
+    taskId: string;
+    userApproved?: boolean;
+    limit: number;
+  }
+): Promise<FollowupBudget> {
+  const previous = await readConversationLedger(store, input);
 
   const budget: FollowupBudget = input.userApproved === true
     ? { limit: input.limit, used: 0, remaining: input.limit }
