@@ -3219,12 +3219,19 @@ export function focusPowerSliderExpression(): string {
  * only (the exact "Select ChatGPT model" control first, the older heuristic
  * second), and an unrendered composer is reported as not found, which the
  * caller's poll waits out.
+ *
+ * An open "Edit message" editor is a form inside the transcript, ahead of the
+ * composer in the document, and has no trigger. Measured 2026-11-03: taking it
+ * refused every follow-up that selected a model until the page was reloaded,
+ * so editors inside a message are skipped. Only message ancestors exclude one
+ * here, not aria-hidden as in the typing lookup: an open menu aria-hides the
+ * composer itself.
  */
 export function modelButtonRectExpression(): string {
   return `(() => {${CLICK_POINT_SNIPPET}
     const composer = [...document.querySelectorAll('#prompt-textarea,[contenteditable="true"],textarea')].find((el) => {
       const r = el.getBoundingClientRect();
-      return r.width > 0 && r.height > 0;
+      return r.width > 0 && r.height > 0 && !(el.parentElement && el.parentElement.closest('[data-message-author-role],[data-chatgpt-search-unit-key]'));
     });
     if (!composer) return { ok: false, reason: "model selector button not found: the composer has not rendered" };
     const scope = composer.closest('form');

@@ -66,4 +66,21 @@ describe("finding the model trigger", () => {
     const result = run(page({ composer: true, triggerInForm: false }).document);
     expect(result.ok).toBe(false);
   });
+
+  // Measured 2026-11-03: "Edit message" on a user turn opens a form with its own
+  // editor inside the transcript, ahead of the composer. The lookup took that
+  // editor, found no trigger in its form, and every follow-up that selected a
+  // model was refused as composer_not_ready until the page was reloaded.
+  it("skips an open message editor in the transcript", () => {
+    const { document } = page({ composer: true, triggerInForm: true });
+    const editorForm: Fake = { querySelectorAll: () => [] };
+    const userTurn = { getAttribute: (n: string) => (n === "data-chatgpt-search-unit-key" ? "fallback-turn-1:0:user" : null) };
+    const editor = el({ width: 766, form: editorForm });
+    editor.parentElement = { closest: (s: string) => (s.includes("[data-chatgpt-search-unit-key]") ? userTurn : null) };
+    const composers = document.querySelectorAll("prompt-textarea");
+    document.querySelectorAll = (s: string) => (s.includes("prompt-textarea") ? [editor, ...composers] : []);
+    const result = run(document);
+    expect(result.ok).toBe(true);
+    expect(result.label).toBe("Select ChatGPT model");
+  });
 });
