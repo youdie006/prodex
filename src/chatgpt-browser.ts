@@ -410,7 +410,13 @@ export const CHATGPT_RUNTIME_BLOCKER_TEXT_EXCLUDED_ANCESTORS =
 // "verify human" in the history list must not be matched as a live blocker.
 export const CHATGPT_BLOCKER_SCAN_EXCLUDED_ANCESTORS =
   `${`[data-message-author-role],${CHATGPT_USER_MESSAGE_BUBBLE_SELECTOR},script,style,noscript,[aria-hidden="true"],div[role="textbox"],textarea,[contenteditable="true"]`},nav,aside,[role="navigation"]`;
-export const CHATGPT_COMPOSER_CANDIDATE_EXCLUDED_ANCESTORS = '[data-message-author-role],script,style,noscript,[aria-hidden="true"]';
+// Messages no longer carry data-message-author-role; a turn is a search unit
+// (both attributes measured 2026-11-03). Without them an open "Edit message"
+// editor, a form with a Send button inside the turn, counted as a second
+// composer: model selection refused every follow-up as composer_not_ready, and
+// a send with nothing to select typed into that editor.
+export const CHATGPT_COMPOSER_CANDIDATE_EXCLUDED_ANCESTORS =
+  '[data-message-author-role],[data-content-search-unit-key],[data-chatgpt-search-unit-key],script,style,noscript,[aria-hidden="true"]';
 export const PRODEX_ACTIVE_COMPOSER_ATTRIBUTE = "data-prodex-active-composer";
 
 export interface DevtoolsPage {

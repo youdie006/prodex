@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  composerTextStateExpression,
   freshChatGptHomeReadyExpression,
   markDocumentForReloadExpression,
   modelButtonRectExpression
@@ -92,6 +93,9 @@ class FakeElement {
   private matchesOne(selector: string): boolean {
     if (selector === "*") return true;
     if (selector === "form") return this.tagName === "FORM";
+    if (selector === "button") return this.tagName === "BUTTON";
+    const presence = /^\[([\w-]+)\]$/.exec(selector);
+    if (presence) return this.getAttribute(presence[1]!) !== null;
     if (selector === "textarea") return this.tagName === "TEXTAREA";
     if (selector === '[contenteditable="true"]') return this.getAttribute("contenteditable") === "true";
     if (selector === 'div[role="textbox"]') return this.tagName === "DIV" && this.getAttribute("role") === "textbox";
@@ -226,7 +230,40 @@ describe("locating the model trigger in one rendered composer", () => {
 
     expect(locate(new FakeDocument([composer(modelTrigger)]))).toMatchObject({ ok: false });
   });
+
+  // Measured 2026-11-03: "Edit message" on a user turn opens a form with its own
+  // editor and a Send button inside the transcript, ahead of the composer. Four
+  // follow-ups in a row were refused as composer_not_ready on 2026-11-02, and a
+  // send with nothing to select typed into that editor instead.
+  it("skips an open message editor in the transcript", () => {
+    expect(locate(new FakeDocument([transcriptWithOpenEditor(), composer(trigger())]))).toMatchObject({
+      ok: true,
+      x: 741,
+      y: 726,
+      label: "Select ChatGPT model"
+    });
+  });
+
+  it("types into the composer, not an open message editor", () => {
+    const main = composer(trigger());
+    main.children[0]!.innerText = "new prompt";
+    const state = new Function("document", `return ${composerTextStateExpression()};`)(
+      new FakeDocument([transcriptWithOpenEditor(), main])
+    ) as { ok: boolean; actualText?: string };
+
+    expect(state).toMatchObject({ ok: true, actualText: "new prompt" });
+  });
 });
+
+/** A user turn as measured, both unit attributes set, with "Edit message" open. */
+function transcriptWithOpenEditor(): FakeElement {
+  const editing = editor({ x: 220, y: 300, width: 766, height: 133 });
+  editing.innerText = "earlier prompt";
+  const send = new FakeElement("BUTTON", { "aria-label": "Send" }, { x: 900, y: 400, width: 60, height: 32 });
+  const form = new FakeElement("FORM", {}, { x: 210, y: 290, width: 780, height: 160 }).append(editing, send);
+  const unit = new FakeElement("DIV", { "data-content-search-unit-key": "fallback-turn-1:0:user" }).append(form);
+  return new FakeElement("DIV", { "data-chatgpt-search-unit-key": "fallback-turn-1:0:user" }).append(unit);
+}
 
 function freshReady(document: FakeDocument, window: Record<string, unknown> = {}): boolean {
   return new Function("window", "document", "location", "getComputedStyle", `return ${freshChatGptHomeReadyExpression()};`)(
