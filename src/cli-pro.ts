@@ -105,7 +105,7 @@ import { getTokenExpiryStatus, loadBrowserDefaults, loadLocalConfig } from "./co
 import { sendPacingMarkerPath, withBrowserSendLock } from "./browser-send-lock.js";
 import { blockerCause, buildBlockerReport, CATCH_ALL_CODES, type BlockerConsult } from "./blocker-report.js";
 import { isChatGptConversationUrl, projectIdFromSidebar, resolveContinuationThread } from "./continue-thread.js";
-import { FollowupApprovalRequired, reserveFollowup, resolveMaxAutoFollowups, type FollowupBudget } from "./followup-budget.js";
+import { assertFollowupAvailable, FollowupApprovalRequired, reserveFollowup, resolveMaxAutoFollowups, type FollowupBudget } from "./followup-budget.js";
 import { readBridgeRoots } from "./registry.js";
 import { ProdexRequestIdSchema, SessionKeySchema } from "./schema.js";
 import { BridgeStore, MAX_FETCHABLE_RESULT_ARTIFACT_BYTES } from "./store.js";
@@ -1301,7 +1301,9 @@ export function createBrowserSendProgressPrinter(
 export async function runAskProCommand(
   rest: string[],
   io: CliIO,
-  beforeSend?: (target: { store: BridgeStore; thread?: string; continuedFrom?: string }) => Promise<void>
+  // Runs before any task is created. The step it returns runs once the prompt
+  // is typed, right before it is submitted.
+  beforeSend?: (target: { store: BridgeStore; thread?: string; continuedFrom?: string }) => Promise<void | (() => Promise<void>)>
 ): Promise<number> {
     const parsedAskPro = parseAskProArgs(rest);
     const hasDryRunMode = parsedAskPro.optionArgs.includes("--dry-run");
@@ -1614,11 +1616,11 @@ export async function runAskProCommand(
     if (hasSendMode) {
       // MCP approval checkpoints run after target validation but before any
       // task creation, pacing, browser recovery, or prompt send.
-      await beforeSend?.({
+      const beforePromptSubmit = (await beforeSend?.({
         store: targetStore,
         ...(normalizedTargetUrl ? { thread: normalizedTargetUrl } : {}),
         ...(continuedFromTaskId ? { continuedFrom: continuedFromTaskId } : {})
-      });
+      })) || undefined;
       const browserCommandOptions = {
         cwd: targetCwd,
         port: parsedAskPro.optionArgs.includes("--port") ? browserPort : undefined
@@ -1699,6 +1701,7 @@ export async function runAskProCommand(
           proMode: selectionProMode,
           effort: selectionEffort,
           ...(allowSelectionFallback ? { allowSelectionFallback: true } : {}),
+          ...(beforePromptSubmit ? { beforePromptSubmit } : {}),
           onProgress: createBrowserSendProgressPrinter(io.stderr)
         });
         });
@@ -1734,12 +1737,16 @@ export async function runAskProCommand(
           if (recoveryNotes.length > 0) consult = { ...consult, warnings: [...recoveryNotes, ...consult.warnings] };
         }
       } catch (error) {
-        const blocker = await withManualStepForWindowMode(
-          sourceAwareBrowserBlocker(browserSendBlockerFromError(error), sourceCli, browserCommandOptions),
-          resolveCdpPort(browserPort),
-          sourceCli,
-          browserCommandOptions
-        );
+        // Another follow-up spent the budget while this one waited for the
+        // browser. Nothing was submitted; the caller asks the user instead.
+        const blocker = error instanceof FollowupApprovalRequired
+          ? { code: "followup_approval_required", message: error.message, retryable: false }
+          : await withManualStepForWindowMode(
+            sourceAwareBrowserBlocker(browserSendBlockerFromError(error), sourceCli, browserCommandOptions),
+            resolveCdpPort(browserPort),
+            sourceCli,
+            browserCommandOptions
+          );
         const message = blocker.next_step ? `${blocker.message} Next: ${blocker.next_step}` : errorMessage(error);
         // The blocker text can quote the requested/default project name (e.g. a
         // "project not found" error). Local stdout/stderr keep it (useful to the
@@ -1815,6 +1822,7 @@ export async function runAskProCommand(
             )
           );
         }
+        if (error instanceof FollowupApprovalRequired) throw error;
         throw new Error(formatBlockedConsultRecordedMessage(message, task.id, sourceCli, { cwd: targetCwd }));
       }
       const answerArtifactText = formatProConsultArtifact(consult);
@@ -2271,12 +2279,16 @@ export async function performBrowserConsultForMcp(
     }, async ({ store, thread, continuedFrom }) => {
       if (!thread || !continuedFrom) return;
       continuationTarget = { taskId: continuedFrom, thread };
-      followupBudget = await reserveFollowup(store, {
-        thread,
-        taskId: continuedFrom,
-        userApproved: input.user_approved === true,
-        limit
-      });
+      const reservation = { thread, taskId: continuedFrom, userApproved: input.user_approved === true, limit };
+      await assertFollowupAvailable(store, reservation);
+      // Spent only when the prompt is about to be submitted, and once: a retry
+      // after browser recovery is the same follow-up.
+      let reserved = false;
+      return async () => {
+        if (reserved) return;
+        followupBudget = await reserveFollowup(store, reservation);
+        reserved = true;
+      };
     });
   } catch (error) {
     if (error instanceof FollowupApprovalRequired && continuationTarget) {

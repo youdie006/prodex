@@ -320,6 +320,13 @@ export interface SendChatGptPromptOptions {
   /** Progress callback so long sends can report phase + elapsed instead of staying silent. */
   onProgress?: (event: SendChatGptProgressEvent) => void;
   /**
+   * Runs once the prompt is typed and checked, right before it is submitted.
+   * Throwing stops the send with nothing submitted; the typed prompt stays in
+   * the composer, and the next send clears it. The MCP follow-up budget is
+   * spent here, so a send refused earlier does not use it up.
+   */
+  beforePromptSubmit?: () => Promise<void>;
+  /**
    * Send even when the requested model/effort could not be applied. Off by
    * default: an answer from a step nobody asked for is not a lesser version of
    * the request, it is one the caller usually throws away.
@@ -5178,6 +5185,7 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
       if (last && expandCollapsedUserTurn(last.textNode)) return false;
       return Boolean(last && userMessageText(last.textNode).includes(${JSON.stringify(`[prodex-request:${requestId}]`)}));
     })()`;
+    await options.beforePromptSubmit?.();
     // A dispatch can reach Chrome even if its acknowledgement is lost.
     submissionAttempted = true;
     await cdp.send("Input.dispatchKeyEvent", enterKeyEvent("keyDown"));

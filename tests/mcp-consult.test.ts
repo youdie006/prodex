@@ -19,6 +19,8 @@ vi.mock("../src/chatgpt-browser.js", async (importOriginal) => {
 
 const { createServer } = await import("../src/mcp.js");
 const { performBrowserConsultForMcp, performBrowserRecoverForMcp } = await import("../src/cli-pro.js");
+const { ChatGptBrowserBlockerError } = await import("../src/chatgpt-browser.js");
+const { reserveFollowup } = await import("../src/followup-budget.js");
 
 type CreatedServer = ReturnType<typeof createServer>;
 
@@ -417,9 +419,17 @@ describe("MCP follow-up approval checkpoints", () => {
     warnings: []
   };
 
+  // A send that reaches its submit step, as the real one does before Enter.
+  const submits = (result: typeof answer, failure?: Error) =>
+    async (options: { beforePromptSubmit?: () => Promise<void> }) => {
+      await options.beforePromptSubmit?.();
+      if (failure) throw failure;
+      return result;
+    };
+
   async function start() {
     const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-followup-"));
-    sendChatGptPromptMock.mockResolvedValue(answer);
+    sendChatGptPromptMock.mockImplementation(submits(answer));
     const root = await performBrowserConsultForMcp(cwd, { prompt: "Width is 17", session_key: "caller-a", effort: "Pro" });
     return { cwd, root };
   }
@@ -428,7 +438,7 @@ describe("MCP follow-up approval checkpoints", () => {
     const { cwd, root } = await start();
     expect(root.continuation).toEqual({ continue_task: root.task_id, session_key: "caller-a", effort: "Pro" });
     expect(root.pro_verified).toBe(true);
-    sendChatGptPromptMock.mockResolvedValueOnce({ ...answer, answer: "391" });
+    sendChatGptPromptMock.mockImplementationOnce(submits({ ...answer, answer: "391" }));
     const next = await performBrowserConsultForMcp(cwd, { ...root.continuation, prompt: "The height is 23" });
     expect(next.answer).toBe("391");
     expect(next.continued_from).toBe(root.task_id);
@@ -472,16 +482,53 @@ describe("MCP follow-up approval checkpoints", () => {
     expect(sendChatGptPromptMock).toHaveBeenCalledTimes(2);
   });
 
-  it("consumes a failed attempt and never automatically retries it", async () => {
+  it("consumes an attempt that failed after submitting and never automatically retries it", async () => {
     vi.stubEnv("PRODEX_MAX_AUTO_FOLLOWUPS", "1");
     const { cwd, root } = await start();
-    sendChatGptPromptMock.mockRejectedValueOnce(new Error("send_timeout: answer is not finished"));
+    sendChatGptPromptMock.mockImplementationOnce(submits(answer, new Error("send_timeout: answer is not finished")));
     const failed = (await performBrowserConsultForMcp(cwd, { ...root.continuation, prompt: "Height is 23" })) as unknown as Record<string, unknown>;
     expect(failed.status).toBe("blocked");
     expect(JSON.stringify(failed)).toMatch(/send_timeout/);
     const outcome = await performBrowserConsultForMcp(cwd, { ...root.continuation, prompt: "Do not resend without approval" });
     expect(outcome.status).toBe("awaiting_user");
     expect(sendChatGptPromptMock).toHaveBeenCalledTimes(2);
+  });
+
+  // Measured 2026-11-02 in the browser container: two follow-ups in one
+  // conversation were refused as composer_not_ready before anything was typed,
+  // and were recorded as its follow-ups 3 and 4 of 5.
+  it("does not spend the budget on a follow-up refused before it was submitted", async () => {
+    vi.stubEnv("PRODEX_MAX_AUTO_FOLLOWUPS", "1");
+    const { cwd, root } = await start();
+    sendChatGptPromptMock.mockRejectedValueOnce(
+      new ChatGptBrowserBlockerError({ code: "composer_not_ready", message: "The composer is not ready.", retryable: true })
+    );
+    const refused = (await performBrowserConsultForMcp(cwd, { ...root.continuation, prompt: "Height is 23" })) as unknown as Record<string, unknown>;
+    expect(refused.status).toBe("blocked");
+    const retried = await performBrowserConsultForMcp(cwd, { ...root.continuation, prompt: "Height is 23" });
+    expect(retried.status).toBe("done");
+    expect(retried.followup_budget).toEqual({ limit: 1, used: 1, remaining: 0 });
+  });
+
+  it("stops at the checkpoint when another follow-up spent the budget while this one waited to submit", async () => {
+    vi.stubEnv("PRODEX_MAX_AUTO_FOLLOWUPS", "1");
+    const { cwd, root } = await start();
+    const { BridgeStore } = await import("../src/store.js");
+    const store = new BridgeStore(cwd);
+    let submitted = false;
+    sendChatGptPromptMock.mockImplementationOnce(async (options: { beforePromptSubmit?: () => Promise<void> }) => {
+      await reserveFollowup(store, { thread, taskId: root.task_id!, limit: 1 });
+      await options.beforePromptSubmit?.();
+      submitted = true;
+      return answer;
+    });
+    const outcome = await performBrowserConsultForMcp(cwd, { ...root.continuation, prompt: "Height is 23" });
+    expect(outcome.status).toBe("awaiting_user");
+    expect(outcome.blocker?.code).toBe("followup_approval_required");
+    expect(outcome.continuation?.continue_task).toBe(root.task_id);
+    expect(submitted).toBe(false);
+    const recorded = (await store.listTasks()).find((task) => task.blocker?.code === "followup_approval_required");
+    expect(recorded?.status).toBe("blocked");
   });
 
   it("renews only after user approval and spends the renewed budget normally", async () => {
