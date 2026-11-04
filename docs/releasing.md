@@ -16,6 +16,44 @@ Release target: `v0.40.13` on `main`. The GitHub Release records the resolved co
 
 The release adds a guarded, opt-in transition and more accurate blocker reporting. It does not claim that headless Pro consultation is verified on either deployment target or that authentication can be retained indefinitely.
 
+## 0.40.50 Release Record
+
+Release commit `759065f` on `main` (cut after PRs #84-#87, last merge `d8333f2`); tag `v0.40.50`, published 2026-11-04. Released on the user's go-ahead as a batch, together with the container swaps:
+- #84: session ids carried the start of the prompt.
+- #85: the model lookup took an open "Edit message" editor for the composer.
+- #86: the tool-state check read a hidden workspace's composer.
+- #87: an MCP follow-up refused before submitting still spent the automatic follow-up budget.
+
+**Publishing**
+- `npm run release:verify` passed on the release commit after a build.
+- `publish.yml` run 41746949557 passed. It published to npm with SLSA v1 provenance and created the GitHub Release, which lists the four entries from `CHANGELOG.md`.
+
+**Installed**
+- WSL, M3, Mac mini: `prodex --version` reports 0.40.50.
+- The maintainer watchdog checkout was pulled to `759065f` and rebuilt.
+- MacBook M4: not installed. `ssh m4` timed out before the cut and again after the publish, so it stays on 0.40.49 until it can be reached.
+- No host-side `prodex mcp` was found running on WSL, M3 or the Mac mini. The MCP entries on WSL and M3 relay into the browser containers. Those relays reconnected into the new containers when they were swapped, at 00:24:39 UTC on M3 and 00:50:51 UTC on WSL.
+
+**Container**
+- `container/redesign-patches` `c7c9f35` ports #87, on top of the ports of #85 (`8ce48b9`) and #86 (`e8e3c68`); #84 was ported in `f2d13e6`.
+  - tsc, the full suite (2179 passed, 3 skipped) and `release:verify` pass on it.
+- The agent ran both build-and-swap scripts this time; the user had asked for the swaps.
+- M3 (colima `prodex-check`): image `5760b1464db6`, started 00:24:41 UTC.
+  - It came up healthy with the 1024 process limit, using 193.
+  - `pro browser check` reported logged in with a composer, and the model selection was verified.
+  - `pro browser smoke` answered `PRODEX_PRO_SMOKE_OK` with its request verified.
+- WSL: image `ea56b6ee0f42`, recreated 00:51 UTC.
+  - Another session's send held the browser lock about 25 minutes before the swap. The swap script recreates the container only once the lock is free.
+  - It came up healthy with the 1024 process limit, using 298, and logged no thread errors.
+  - `pro browser check` reported logged in with a composer.
+
+**Verified live on the WSL container (#87)**
+- The check was run through `performBrowserConsultForMcp` in a fresh chat with no project, budget 5. It sent two prompts.
+  - Root: answered `ALPHA`.
+  - A follow-up naming a tool the menu does not offer was refused before anything was typed (`tool_not_offered`).
+  - The next follow-up answered `BETA` and reported `followup_budget` used 1 of 5.
+- The ledger holds a single reservation for that conversation, written at 00:52:49 UTC. That is three seconds after the second follow-up's task was created, right before it was submitted. Before #87 the refused follow-up would have been reservation 1, and this one reservation 2.
+
 ## 0.40.49 Release Record
 
 Release commit `74b9c4d` on `main` (cut after PRs #79-#83, last merge `be947df`, docs `7b6a3bd`); tag `v0.40.49`, published 2026-11-01. Released on the user's go-ahead as a batch: #79 (the page's render error saved as the answer), #80 (blank `--tool`), #81 (`--continue` matching a project by the end of its name) and #83 (projects behind the sidebar's "Show more"). #82 changed a test only and has no changelog entry.
