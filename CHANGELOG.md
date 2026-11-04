@@ -4,7 +4,7 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 0.40.50
 
 ### Fixed
 - An MCP follow-up (`pro_consult` with `continue_task` or `continue_thread`) used up one of the automatic follow-ups (`PRODEX_MAX_AUTO_FOLLOWUPS`, default 5) even when the browser refused it before anything was typed. Measured 2026-11-02 in the browser container: two follow-ups in one conversation refused as `composer_not_ready` were recorded as its follow-ups 3 and 4 of 5, so the agent had one left with no prompt sent. A follow-up is now reserved once its prompt is typed, right before it is submitted. A follow-up the budget no longer covers is still refused before any task is created or the browser is touched, and a send that fails or is uncertain after submitting still counts. If another follow-up uses the last of the budget while this one waits for the browser, it stops before submitting as `awaiting_user`.
