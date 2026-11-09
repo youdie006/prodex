@@ -1,3 +1,4 @@
+import { isUtf8 } from "node:buffer";
 import { randomUUID } from "node:crypto";
 import { constants, readFileSync } from "node:fs";
 import { chmod, link, lstat, mkdir, open, realpath, rename, rm, type FileHandle } from "node:fs/promises";
@@ -124,10 +125,23 @@ export async function withCrossProcessFileLock<T>(
   }
 }
 
+/**
+ * A file whose bytes are not UTF-8. Read as UTF-8, such bytes become U+FFFD,
+ * and writing the text back destroys them: measured 2026-11-09, an EUC-KR
+ * "한글" line came back as replacement characters through repo writes while
+ * the diff showed the line as unchanged. Writers ask for it to be refused.
+ */
+export class NotUtf8Error extends Error {
+  constructor() {
+    super("Target file is not UTF-8 text");
+    this.name = "NotUtf8Error";
+  }
+}
+
 export async function readVerifiedUtf8File(
   filePath: string,
   validate: () => Promise<void>,
-  options: { maxBytes?: number; mode?: number; decodeUtf16Bom?: boolean } = {}
+  options: { maxBytes?: number; mode?: number; decodeUtf16Bom?: boolean; requireUtf8?: boolean } = {}
 ): Promise<string> {
   await validate();
   const parentSnapshot = await captureParentSnapshot(filePath);
@@ -142,7 +156,7 @@ export async function readVerifiedUtf8File(
     if (options.maxBytes !== undefined && stat.size > options.maxBytes) {
       throw new Error(`Target file is too large (${stat.size} bytes)`);
     }
-    const content = await readHandleUtf8(handle, filePath, options.maxBytes, options.decodeUtf16Bom === true);
+    const content = await readHandleUtf8(handle, filePath, options.maxBytes, options.decodeUtf16Bom === true, options.requireUtf8 === true);
     if (options.mode !== undefined) {
       await testHooks.beforeChmod?.(filePath, "read");
       await assertSafeOpenFile(handle, filePath, "read");
@@ -214,18 +228,23 @@ export async function replaceVerifiedUtf8File(
   const parentSnapshot = await captureParentSnapshot(filePath);
   await testHooks.beforeOpen?.(filePath, "write");
   const handle = await openStableNoFollow(filePath, constants.O_RDWR, "write", parentSnapshot, options.mode);
+  // The replacement is a new file renamed into place, so it takes the mode of
+  // the file it replaces unless one is given: created with the default mode,
+  // an edited script lost its executable bit (found 2026-11-09).
+  let mode = options.mode;
   try {
     const currentContent = await readHandleUtf8(handle, filePath, options.maxBytes);
     await verifyCurrentContent(currentContent);
     await testHooks.beforeReplace?.(filePath);
     const latestContent = await readHandleUtf8(handle, filePath, options.maxBytes);
     await verifyCurrentContent(latestContent);
+    mode ??= (await handle.stat()).mode & 0o777;
     await testHooks.beforeWrite?.(filePath, "write");
   } finally {
     await handle.close();
   }
   // Windows cannot replace some files while their verification handle is open.
-  await replaceByVerifiedTempFile(filePath, content, validate, options, {
+  await replaceByVerifiedTempFile(filePath, content, validate, { ...options, mode }, {
     beforeOpenAlreadyRan: true,
     beforeWriteAlreadyRan: true,
     parentSnapshot,
@@ -283,7 +302,7 @@ async function replaceByVerifiedTempFile(
   }
 }
 
-async function readHandleUtf8(handle: FileHandle, filePath: string, maxBytes?: number, decodeUtf16Bom = false): Promise<string> {
+async function readHandleUtf8(handle: FileHandle, filePath: string, maxBytes?: number, decodeUtf16Bom = false, requireUtf8 = false): Promise<string> {
   await assertOpenFileMatchesPath(handle, filePath, "read");
   const stat = await handle.stat();
   if (!stat.isFile()) {
@@ -303,7 +322,9 @@ async function readHandleUtf8(handle: FileHandle, filePath: string, maxBytes?: n
       throw new Error(`Target file is too large (${offset} bytes)`);
     }
   }
-  return decodeFileText(buffer.subarray(0, offset), decodeUtf16Bom);
+  const bytes = buffer.subarray(0, offset);
+  if (requireUtf8 && !isUtf8(bytes)) throw new NotUtf8Error();
+  return decodeFileText(bytes, decodeUtf16Bom);
 }
 
 /**

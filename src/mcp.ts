@@ -292,7 +292,7 @@ export function createServer(cwd = process.cwd(), options: CreateMcpServerOption
   server.registerTool(
     "repo_write_file_dry_run",
     {
-      description: "Create a receipt-gated write preview for an existing repo-relative text file. Does not modify files. The file keeps its CRLF line endings and UTF-8 BOM when the new content leaves them out.",
+      description: "Create a receipt-gated write preview for an existing repo-relative text file. Does not modify files. The file keeps its CRLF line endings, UTF-8 BOM and final newline when the new content leaves them out, and keeps its file mode. A file that is not UTF-8 text is refused.",
       inputSchema: {
         path: McpShortTextSchema,
         content: z.string().max(1_000_000),
