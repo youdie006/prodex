@@ -313,9 +313,10 @@ describe("conversation list", () => {
       { id: "c3", title: "no project" }
     ];
     expect(conversationsInProject(conversations, "g-p-aaa")).toEqual([{ id: "c1", title: "in project", gizmoId: "g-p-aaa" }]);
-    // Without a project id the whole list stands, which is the plain
-    // "continue a recent chat" case.
-    expect(conversationsInProject(conversations, undefined)).toHaveLength(3);
+    // A project whose id is unknown cannot say which conversations are its
+    // own, so it claims none of them rather than all of them.
+    expect(conversationsInProject(conversations, undefined)).toEqual([]);
+    expect(conversationsInProject(conversations, "")).toEqual([]);
   });
 
   it("builds the thread url a picked conversation lives at", () => {
