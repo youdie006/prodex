@@ -14,6 +14,7 @@ import {
   consultArgsFromChoices,
   conversationsInProject,
   conversationThreadUrl,
+  displayWidth,
   moveCursor,
   parseAttachmentLine,
   progressLabel,
@@ -37,6 +38,15 @@ const ALT_SCREEN_OFF = `${ESC}[?1049l`;
 const CLEAR_LINE = `${ESC}[2K\r`;
 const HIDE_CURSOR = `${ESC}[?25l`;
 const SHOW_CURSOR = `${ESC}[?25h`;
+// Bracketed paste: the terminal wraps a paste in ESC[200~ ... ESC[201~, which
+// readline reports as "paste-start" and "paste-end" keys and otherwise ignores.
+const BRACKETED_PASTE_ON = `${ESC}[?2004h`;
+const BRACKETED_PASTE_OFF = `${ESC}[?2004l`;
+// How long an Enter at the prompt waits before it ends the prompt. A terminal
+// that does not mark pastes sends one as typed keys, its line breaks included,
+// and the rest of it follows in the same read or milliseconds later; a person
+// does not type the next key that fast.
+const PASTE_SETTLE_MS = 100;
 
 interface Key {
   name?: string;
@@ -168,18 +178,35 @@ function numericChoice(key: Key, length: number): number | undefined {
   return digit - 1;
 }
 
-/** Read one line with the terminal back in cooked mode, so editing works. */
-async function askLine(io: TuiIo, question: string): Promise<string | undefined> {
+/**
+ * Read one answer with the terminal back in line-editing mode, so editing works.
+ *
+ * `multiline` is for the prompt, which is often pasted. readline ends a line at
+ * every line break, so a pasted stack trace used to be sent as its first line
+ * and the rest dropped. With it, a paste's line breaks stay in the answer and
+ * only an Enter typed on its own ends it.
+ */
+async function askLine(io: TuiIo, question: string, options: { multiline?: boolean } = {}): Promise<string | undefined> {
   io.input.setRawMode?.(false);
-  const rl = readline.createInterface({ input: io.input, output: process.stdout, terminal: true });
+  const rl = readline.createInterface({ input: io.input, output: process.stdout, terminal: true, historySize: 0 });
+  // Later lines of a prompt sit under its first line, not at the margin.
+  const continuation = " ".repeat(displayWidth(question.slice(question.lastIndexOf("\n") + 1)));
   try {
+    if (options.multiline) io.write(BRACKETED_PASTE_ON);
     const answer = await new Promise<string | undefined>((resolve) => {
+      const lines: string[] = [];
+      let pasting = false;
+      let previousKey: string | undefined;
+      let ending: ReturnType<typeof setTimeout> | undefined;
       let settled = false;
       function settle(value: string | undefined): void {
         if (settled) return;
         settled = true;
+        clearTimeout(ending);
         rl.off("SIGINT", onInterrupt);
         rl.off("close", onClose);
+        rl.off("line", onLine);
+        io.input.off("keypress", onKey);
         resolve(value);
       }
       function onInterrupt(): void {
@@ -188,13 +215,44 @@ async function askLine(io: TuiIo, question: string): Promise<string | undefined>
       function onClose(): void {
         settle(undefined);
       }
+      // Sees each key before readline does.
+      function onKey(_text: string | undefined, key: Key | undefined): void {
+        const name = key?.name;
+        // A line feed straight after a carriage return is the same Enter.
+        const sameEnter = name === "enter" && previousKey === "return";
+        previousKey = name;
+        // Input right behind an Enter means the Enter was a line break inside a
+        // paste the terminal did not mark, so the prompt goes on.
+        if (ending !== undefined && !sameEnter) {
+          clearTimeout(ending);
+          ending = undefined;
+        }
+        if (name === "paste-start") pasting = true;
+        else if (name === "paste-end") pasting = false;
+      }
+      function onLine(line: string): void {
+        if (!options.multiline) {
+          settle(line);
+          return;
+        }
+        lines.push(line);
+        rl.setPrompt(continuation);
+        rl.prompt();
+        if (!pasting) ending = setTimeout(() => settle(lines.join("\n")), PASTE_SETTLE_MS);
+      }
       rl.once("SIGINT", onInterrupt);
       rl.once("close", onClose);
-      rl.question(question, (value) => settle(value));
+      rl.on("line", onLine);
+      if (options.multiline) io.input.prependListener("keypress", onKey);
+      rl.setPrompt(question);
+      rl.prompt();
     });
     return answer?.trim();
   } finally {
     rl.close();
+    // Turned off on every way out, ctrl-c and end of input included: left on,
+    // the shell would receive the markers around every later paste.
+    if (options.multiline) io.write(BRACKETED_PASTE_OFF);
     // Closing the line reader detaches the keypress plumbing and pauses the
     // stream, so the next picker would sit there ignoring every key. Re-arm both.
     io.input.setRawMode?.(true);
@@ -242,6 +300,18 @@ export async function runInteractiveConsult(io: TuiIo, deps: InteractiveDeps): P
   keys = new KeyQueue(io.input);
   io.write(ALT_SCREEN_ON + HIDE_CURSOR);
   let header = "";
+  // Why the picker stopped is written once the alternate screen is gone.
+  // Written while it was up, the reason vanished with it and the picker exited
+  // with nothing on screen.
+  let farewell = "";
+  const leave = (message: string, code: number): number => {
+    farewell = message;
+    return code;
+  };
+  const cancel = (): number => leave("Cancelled.\n", 130);
+  // Leaving it twice put the cursor back where the picker opened, and the
+  // shell prompt was drawn over the echoed command (found 2026-11-09).
+  let onAltScreen = true;
   try {
     // The logo is the program saying which program it is; the panel says what
     // this send will use. Both belong above the first question, not nowhere.
@@ -266,7 +336,7 @@ export async function runInteractiveConsult(io: TuiIo, deps: InteractiveDeps): P
       },
       banner
     );
-    if (kindChoice === undefined) return cancel(io);
+    if (kindChoice === undefined) return cancel();
     const tools = SEND_KINDS[kindChoice].tools;
 
     // Only an ordinary chat has a reasoning level to choose: the tool kinds
@@ -285,7 +355,7 @@ export async function runInteractiveConsult(io: TuiIo, deps: InteractiveDeps): P
         },
         banner
       );
-      if (chosen === undefined) return cancel(io);
+      if (chosen === undefined) return cancel();
       effort = efforts[chosen].effort;
     }
 
@@ -304,7 +374,7 @@ export async function runInteractiveConsult(io: TuiIo, deps: InteractiveDeps): P
       },
       header
     );
-    if (destinationChoice === undefined) return cancel(io);
+    if (destinationChoice === undefined) return cancel();
     const destination: DestinationId = destinations[destinationChoice].id;
 
     let projectMode: ProjectMode = "current";
@@ -312,39 +382,34 @@ export async function runInteractiveConsult(io: TuiIo, deps: InteractiveDeps): P
     let targetUrl: string | undefined;
     if (destination === "continue") {
       const conversations = (await conversationsPromise) ?? [];
-      if (conversations.length === 0) {
-        io.write("\nNo recent conversations were readable. Start a new chat instead.\n");
-        return 1;
-      }
+      if (conversations.length === 0) return leave("No recent conversations were readable. Start a new chat instead.\n", 1);
       const chosen = await pick(
         io,
         { title: "Which conversation?", options: conversations.map((entry) => ({ label: entry.title })) },
         header
       );
-      if (chosen === undefined) return cancel(io);
+      if (chosen === undefined) return cancel();
       targetUrl = conversationThreadUrl(conversations[chosen].id);
     } else if (destination === "project") {
       const detailed = (await deps.listProjectsWithIds?.()) ?? [];
       const projects = detailed.length > 0 ? detailed : (await deps.listProjects()).map((name) => ({ id: "", name }));
-      if (projects.length === 0) {
-        io.write("\nNo projects are visible in the ChatGPT sidebar.\n");
-        return 1;
-      }
+      if (projects.length === 0) return leave("No projects are visible in the ChatGPT sidebar.\n", 1);
       const chosen = await pick(io, { title: "Which project?", options: projects.map((entry) => ({ label: entry.name })) }, header);
-      if (chosen === undefined) return cancel(io);
+      if (chosen === undefined) return cancel();
       projectMode = "existing";
       projectName = projects[chosen].name;
 
       // Entering a project usually means going back to something in it, so
-      // offer its chats before starting yet another one.
-      const inside = conversationsInProject((await conversationsPromise) ?? [], projects[chosen].id || undefined);
+      // offer its chats before starting yet another one. A project listed by
+      // name alone has no id to match them by, so it goes straight to a new chat.
+      const inside = conversationsInProject((await conversationsPromise) ?? [], projects[chosen].id);
       if (inside.length > 0) {
         const options = [
           { label: "Start a new chat in this project" },
           ...inside.map((entry) => ({ label: entry.title }))
         ];
         const picked = await pick(io, { title: `${projects[chosen].name}`, options }, header);
-        if (picked === undefined) return cancel(io);
+        if (picked === undefined) return cancel();
         if (picked > 0) {
           targetUrl = conversationThreadUrl(inside[picked - 1].id);
           projectMode = "current";
@@ -353,8 +418,8 @@ export async function runInteractiveConsult(io: TuiIo, deps: InteractiveDeps): P
       }
     } else if (destination === "project-new") {
       projectName = await askLine(io, `${CLEAR}${header}New project\n\n  name: `);
-      if (projectName === undefined) return cancel(io);
-      if (!projectName) return cancel(io);
+      if (projectName === undefined) return cancel();
+      if (!projectName) return cancel();
       projectMode = "new";
     } else if (destination === "no-project") {
       projectMode = "none";
@@ -363,13 +428,10 @@ export async function runInteractiveConsult(io: TuiIo, deps: InteractiveDeps): P
     // The prompt comes last: what you type depends on what you just decided.
     io.write(CLEAR + header + SHOW_CURSOR);
     const kindLabel = SEND_KINDS[kindChoice].label;
-    const prompt = await askLine(io, `${kindLabel}   Step ${steps} of ${steps}\n\n  prompt: `);
+    const prompt = await askLine(io, `${kindLabel}   Step ${steps} of ${steps}\n\n  prompt: `, { multiline: true });
     io.write(HIDE_CURSOR);
-    if (prompt === undefined) return cancel(io);
-    if (prompt.length === 0) {
-      io.write("Nothing to ask.\n");
-      return 1;
-    }
+    if (prompt === undefined) return cancel();
+    if (prompt.length === 0) return leave("Nothing to ask.\n", 1);
 
     // Uploading a file is the only way ChatGPT can open a pdf, pptx, xlsx or
     // image, and the picker had no way to say so. Asked after the prompt, and
@@ -377,7 +439,7 @@ export async function runInteractiveConsult(io: TuiIo, deps: InteractiveDeps): P
     io.write(SHOW_CURSOR);
     const attachmentLine = await askLine(io, "\n  attach files? repo-relative paths, space separated, enter to skip\n  files: ");
     io.write(HIDE_CURSOR);
-    if (attachmentLine === undefined) return cancel(io);
+    if (attachmentLine === undefined) return cancel();
     const attachments = parseAttachmentLine(attachmentLine);
 
     const choices: ConsultChoices = {
@@ -395,6 +457,7 @@ export async function runInteractiveConsult(io: TuiIo, deps: InteractiveDeps): P
     // Leave the alternate screen before the send: the answer, the receipt id
     // and any blocker belong in the scrollback the user keeps.
     io.write(ALT_SCREEN_OFF + SHOW_CURSOR);
+    onAltScreen = false;
     // Hand the terminal back too. Raw mode is what let the pickers read single
     // keys, and it also turns off the terminal's own ctrl-c: the key arrives as
     // a keypress nothing is waiting for. The progress bar promises "ctrl-c to
@@ -429,15 +492,10 @@ export async function runInteractiveConsult(io: TuiIo, deps: InteractiveDeps): P
   } finally {
     keys?.dispose();
     keys = undefined;
-    io.write(ALT_SCREEN_OFF + SHOW_CURSOR);
+    io.write((onAltScreen ? ALT_SCREEN_OFF : "") + SHOW_CURSOR + farewell);
     io.input.setRawMode?.(false);
     io.input.pause();
   }
-}
-
-function cancel(io: TuiIo): number {
-  io.write("\nCancelled.\n");
-  return 130;
 }
 
 /** Quote only what a shell would need quoted, so the echo can be pasted. */
