@@ -44,9 +44,9 @@ describe("one result artifact path per result", () => {
   });
 
   it("refuses repeated --artifact paths before writing either one", async () => {
-    const { root, store } = await claimedTask();
+    const { root, store, taskId } = await claimedTask();
     await expect(
-      writeTaskCompleteArtifacts(store, [".bridge/artifacts/results/b.md=one", ".bridge/artifacts/results/./b.md=two"])
+      writeTaskCompleteArtifacts(store, taskId, [".bridge/artifacts/results/b.md=one", ".bridge/artifacts/results/./b.md=two"])
     ).rejects.toThrow(/--artifact .*b\.md.*more than once/);
     await expect(access(path.join(root, ".bridge", "artifacts", "results", "b.md"))).rejects.toThrow();
   });

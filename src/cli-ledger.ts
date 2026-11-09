@@ -100,7 +100,7 @@ export async function runTasksCommand(rest: string[], io: CliIO): Promise<number
         status: "done",
         summary,
         commands: readRepeatedFlag(taskArgs, "--command"),
-        artifacts: await writeTaskCompleteArtifacts(targetStore, readRepeatedFlag(taskArgs, "--artifact"))
+        artifacts: await writeTaskCompleteArtifacts(targetStore, taskId, readRepeatedFlag(taskArgs, "--artifact"))
       });
       io.stdout(`${result.task_id}\t${result.status}\t${result.summary}`);
       return 0;
@@ -367,7 +367,7 @@ export function receiptInspectionListSuffix(receipt: Receipt): string {
   return "";
 }
 
-export async function writeTaskCompleteArtifacts(store: BridgeStore, values: string[]): Promise<BridgeFile[]> {
+export async function writeTaskCompleteArtifacts(store: BridgeStore, taskId: string, values: string[]): Promise<BridgeFile[]> {
   const parsed: { artifactPath: string; content: string }[] = [];
   const seen = new Set<string>();
   for (const value of values) {
@@ -389,12 +389,10 @@ export async function writeTaskCompleteArtifacts(store: BridgeStore, values: str
     seen.add(key);
     parsed.push({ artifactPath, content });
   }
-  const artifacts: BridgeFile[] = [];
-  for (const { artifactPath, content } of parsed) {
-    const storedPath = await store.writeArtifactText(artifactPath, content);
-    artifacts.push({ path: storedPath, role: "result" });
-  }
-  return artifacts;
+  return store.writeResultArtifactTexts(
+    taskId,
+    parsed.map(({ artifactPath, content }) => ({ path: artifactPath, content }))
+  );
 }
 
 export async function listTasksForInspection(

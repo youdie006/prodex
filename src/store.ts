@@ -11,7 +11,7 @@ import { spawn } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { AnchoredWriteJob, AnchoredWriteOutcome } from "./store-writer.js";
 import { assertRepoRelativePath } from "./repo.js";
-import { readVerifiedUtf8File, writeVerifiedUtf8File } from "./safe-file.js";
+import { readVerifiedUtf8File, withCrossProcessFileLock, writeVerifiedUtf8File } from "./safe-file.js";
 import {
   type BridgeFile,
   type Blocker,
@@ -56,22 +56,10 @@ const SESSION_ID_PATTERN = /^sess_\d{8}_\d{6}_[a-z0-9-]+$/;
 const RECEIPT_ID_PATTERN = /^receipt_\d{8}_\d{6}_[a-z0-9-]+$/;
 const BRIDGE_DIRECTORY_MODE = 0o700;
 const BRIDGE_FILE_MODE = 0o600;
-// A claim is a sub-second read-modify-write; a claim lock older than this
-// belongs to a crashed holder, not a live claimer, so it can be reaped.
-const CLAIM_LOCK_STALE_MS = 60_000;
+// A task update is a sub-second read-modify-write; one waiting longer than
+// this for another is told to try again.
+const TASK_UPDATE_LOCK_WAIT_MS = 10_000;
 const RECEIPT_INTEGRITY_KEY_BYTES = 32;
-
-async function claimLockIsStale(lockPath: string): Promise<boolean> {
-  try {
-    const info = await stat(lockPath);
-    return Date.now() - info.mtimeMs > CLAIM_LOCK_STALE_MS;
-  } catch (error) {
-    // Vanished between the EEXIST and the stat (the holder just released it):
-    // treat as free so the retry can grab it.
-    if (isErrorCode(error, "ENOENT")) return true;
-    throw error;
-  }
-}
 const FETCHABLE_RESULT_ARTIFACT_PREFIXES = [".bridge/artifacts/pro-consults/", ".bridge/artifacts/results/"];
 export const MAX_FETCHABLE_RESULT_ARTIFACT_BYTES = 100_000;
 const MAX_BRIDGE_ARTIFACT_READ_BYTES = 1_000_000;
@@ -262,43 +250,38 @@ export class BridgeStore {
 
   async claimTask(taskId: string, claimedBy: string): Promise<Task> {
     // Claiming is check-then-write, so two agents that both read "new" would
-    // otherwise both write "claimed" (a silent double-claim). Serialize the
-    // whole read-modify-write behind an O_EXCL lock file so exactly one claim
-    // wins; a concurrent claimer sees the lock (or the already-claimed status
-    // after it releases) and is rejected.
-    const lockPath = path.join(this.dir("tasks"), `.${taskId}.claim.lock`);
-    let lockHandle: FileHandle;
-    try {
-      lockHandle = await open(lockPath, "wx", BRIDGE_FILE_MODE);
-    } catch (error) {
-      if (!isErrorCode(error, "EEXIST")) throw error;
-      // A claim is a fast read-modify-write, so a lock older than the staleness
-      // window belongs to a crashed holder (killed before its finally removed
-      // it), not a live claimer - otherwise it would wedge this task's claims
-      // forever. Reap the stale lock and retry the exclusive create once.
-      if (!(await claimLockIsStale(lockPath))) {
-        throw new Error(`Task ${taskId} is already being claimed by another process`);
-      }
-      await rm(lockPath, { force: true }).catch(() => undefined);
-      try {
-        lockHandle = await open(lockPath, "wx", BRIDGE_FILE_MODE);
-      } catch (retryError) {
-        if (isErrorCode(retryError, "EEXIST")) {
-          throw new Error(`Task ${taskId} is already being claimed by another process`);
-        }
-        throw retryError;
-      }
-    }
-    try {
+    // otherwise both write "claimed" (a silent double-claim). Under the task's
+    // update lock exactly one claim wins; the next one finds it claimed.
+    return this.withTaskUpdateLock(taskId, async () => {
       const task = await this.getTask(taskId);
       if (task.status !== "new") {
         throw new Error(`Task ${taskId} is ${task.status}, not new`);
       }
-      return await this.writeClaimedTask(taskId, task, claimedBy);
-    } finally {
-      await lockHandle.close().catch(() => undefined);
-      await rm(lockPath, { force: true }).catch(() => undefined);
-    }
+      return this.writeClaimedTask(taskId, task, claimedBy);
+    });
+  }
+
+  /**
+   * Every change to a task record is a read-modify-write, and only claims used
+   * to take a lock. Found 2026-11-09: a claim that read "new" while a
+   * completion ran wrote "claimed" over it, leaving a claimed task with no
+   * result_path next to a done result and its trusted receipt (11 of 30 tasks
+   * with real processes), and a claim lock left stale by a crashed claimer let
+   * two claimers both win, since each deleted it and made its own (6 of 15
+   * rounds). Claims and completions now share one lock per task, whose holder
+   * is a live process: a crashed holder's lock is taken over safely.
+   */
+  private async withTaskUpdateLock<T>(taskId: string, fn: () => Promise<T>): Promise<T> {
+    return withCrossProcessFileLock(
+      path.join(this.dir("tasks"), `.${taskId}.update.lock`),
+      {
+        waitMs: TASK_UPDATE_LOCK_WAIT_MS,
+        retryMs: 25,
+        busyError: (holder) => new Error(`Task ${taskId} is being updated by another process (pid ${holder.pid ?? "unknown"}); try again.`),
+        unavailableError: () => new Error(`Task ${taskId} could not be locked for an update; try again.`)
+      },
+      fn
+    );
   }
 
   private async writeClaimedTask(taskId: string, task: Task, claimedBy: string): Promise<Task> {
@@ -328,6 +311,10 @@ export class BridgeStore {
   }
 
   async completeTask(taskId: string, input: CompleteTaskInput): Promise<Result> {
+    return this.withTaskUpdateLock(taskId, () => this.completeTaskUnderLock(taskId, input));
+  }
+
+  private async completeTaskUnderLock(taskId: string, input: CompleteTaskInput): Promise<Result> {
     const task = await this.getTask(taskId);
     assertFetchableResultArtifacts(input.artifacts ?? []);
     assertDistinctArtifactPaths(input.artifacts ?? []);
@@ -825,7 +812,7 @@ export class BridgeStore {
     );
   }
 
-  async writeArtifactText(relativePath: string, content: string): Promise<string> {
+  async writeArtifactText(relativePath: string, content: string, options: { exclusive?: boolean } = {}): Promise<string> {
     await this.ensure();
     await this.assertBridgeDirIsRealDirectory();
     await this.assertArtifactsDirIsRealDirectory();
@@ -838,9 +825,38 @@ export class BridgeStore {
         await this.assertArtifactParentDirectory(path.dirname(artifactPath));
         await this.assertArtifactTargetInsideIfExists(artifactPath);
       },
-      { create: true, mode: BRIDGE_FILE_MODE }
+      { create: true, mode: BRIDGE_FILE_MODE, ...(options.exclusive ? { exclusive: true } : {}) }
     );
     return this.relativeToRoot(artifactPath);
+  }
+
+  /**
+   * The files of `tasks complete --artifact path=text`, written only once the
+   * completion is known to be possible. They used to be written first, so a
+   * completion refused afterwards had already replaced the file: found
+   * 2026-11-09, completing a finished task again, or a mistyped task id,
+   * overwrote a saved answer, and an open task completed with another task's
+   * artifact path replaced that task's answer. A finished task's files are not
+   * touched (completeTask then refuses, or accepts the same result again), and
+   * a path that already holds other text is refused.
+   */
+  async writeResultArtifactTexts(taskId: string, texts: { path: string; content: string }[]): Promise<BridgeFile[]> {
+    const task = await this.getTask(taskId);
+    const artifacts: BridgeFile[] = texts.map((text) => ({ path: this.relativeToRoot(this.resolveArtifactPath(text.path)), role: "result" }));
+    assertFetchableResultArtifacts(artifacts);
+    assertDistinctArtifactPaths(artifacts);
+    if (task.status === "done" || task.status === "blocked") return artifacts;
+    for (const [index, text] of texts.entries()) {
+      const stored = artifacts[index].path;
+      try {
+        await this.writeArtifactText(stored, text.content, { exclusive: true });
+      } catch (error) {
+        if (!isErrorCode(error, "EEXIST")) throw error;
+        if ((await this.readArtifactText(stored)) === text.content) continue;
+        throw new Error(`${stored} already exists with other content; give this result an artifact path of its own.`);
+      }
+    }
+    return artifacts;
   }
 
   async hasArtifactText(relativePath: string): Promise<boolean> {
@@ -1043,9 +1059,11 @@ export class BridgeStore {
   // receipts, later lines are legacy keys kept so pre-rotation receipts verify.
   private async readReceiptIntegrityKeys(): Promise<string[]> {
     const lines = (
-      await readVerifiedUtf8File(this.receiptIntegrityKeyPath(), () => this.assertReceiptIntegrityKeyTargetSafe({ allowMissing: false }), {
-        mode: BRIDGE_FILE_MODE
-      })
+      await readReplacedFileText(() =>
+        readVerifiedUtf8File(this.receiptIntegrityKeyPath(), () => this.assertReceiptIntegrityKeyTargetSafe({ allowMissing: false }), {
+          mode: BRIDGE_FILE_MODE
+        })
+      )
     )
       .split(/\r?\n/)
       .map((line) => line.trim())
@@ -1169,7 +1187,7 @@ export class BridgeStore {
       if (options.cleanupTempHardLinks ?? true) {
         await this.cleanupRecordTempHardLinks(kind, filePath);
       }
-      const raw = await readVerifiedUtf8File(filePath, () => this.assertRecordTargetInside(kind, filePath));
+      const raw = await readReplacedFileText(() => readVerifiedUtf8File(filePath, () => this.assertRecordTargetInside(kind, filePath)));
       try {
         return JSON.parse(raw);
       } catch (error) {
@@ -1653,6 +1671,26 @@ function recordLabel(kind: BridgeRecordKind): string {
       return "Session";
     case "receipts":
       return "Receipt";
+  }
+}
+
+// Records and the receipt key are replaced by renaming a new file over them,
+// and a read that opened the old file and then found the new one at the path
+// failed as "Target path changed during read file operation": found
+// 2026-11-09, 115 of 908 reads failed while another process rewrote a
+// session, and `tasks list` failed the same way during a consult. Reading
+// again opens the new file and runs every check again; any other failure,
+// a symlink swap among them, is not retried.
+const REPLACED_FILE_READ_ATTEMPTS = 5;
+
+export async function readReplacedFileText(read: () => Promise<string>): Promise<string> {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await read();
+    } catch (error) {
+      const replaced = error instanceof Error && error.message === "Target path changed during read file operation";
+      if (!replaced || attempt >= REPLACED_FILE_READ_ATTEMPTS) throw error;
+    }
   }
 }
 
