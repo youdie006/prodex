@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Unreleased
 
 ### Fixed
+- MCP `bridge_complete_task` naming an artifact that does not exist failed with the raw `ENOENT: no such file or directory, lstat '<absolute path>/.bridge/artifacts/results'`. Found 2026-11-09. The message named the parent directory rather than the missing file, and handed the machine's home and repo path to the MCP client, over HTTP as well. Reading a result whose artifact was deleted afterwards did the same. Both now say `Artifact not found: <repo path>`.
 - The "Model hints" a consult saves with its answer (and the `model_hints:` line of `prodex pro browser status`) could carry the prompt instead of the model. They were read from the first model selector in the page and from every visible form, and a page can hold more than the composer: with a message open for editing ("Edit message"), each line of that message naming a word such as "Pro", "latest", "high" or "auto" was saved as a hint, and after a new chat the home page's hidden composer, still mounted ahead of the conversation's, supplied its own model. Text left typed in the composer was read the same way. Hints now come only from the visible composer outside the messages, without the text typed into it.
 
 ## 0.40.50
