@@ -45,7 +45,10 @@ describe("reading a record that is being replaced", () => {
     expect(calls).toBe(5);
   });
 
-  it("lists sessions while another store keeps rewriting one", async () => {
+  // POSIX renames over a file another handle is reading. Windows refuses that
+  // rename with EPERM while the reader has the file open, so there the writer
+  // fails instead (a separate limitation, not this one).
+  it.skipIf(process.platform === "win32")("lists sessions while another store keeps rewriting one", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "prodex-record-replace-"));
     const writer = new BridgeStore(root, { registerRoot: false });
     const reader = new BridgeStore(root, { registerRoot: false });
