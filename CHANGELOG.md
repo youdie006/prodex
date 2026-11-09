@@ -4,6 +4,15 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Fixed
+- MCP `repo_search` never searched hidden files: `.github/` workflows, `.eslintrc.cjs`, `.husky/` and the like came back with no matches, even with a glob such as `.github/**`, although `repo_read_file` reads them. Found 2026-11-09. They are now searched; `.env` files, `.git`, `.bridge` and key material stay out of the results as before.
+- `repo_search` dropped a match on a line that is not UTF-8 (a Latin-1 `café`, say), and every match in a file whose name is not UTF-8. Such a line now comes back with the unreadable bytes shown as replacement characters.
+- One directory `repo_search` could not read (a database volume owned by another user, for one) failed the whole search with the raw ripgrep command line, and the matches found everywhere else were thrown away. Those matches are now returned.
+- A broad `repo_search` (a few thousand matching lines) failed as "returned too many matches" instead of returning its first 100 marked `truncated: true`. A query containing a line break failed with the raw ripgrep command line; it now says that a search matches one line at a time.
+- `repo_read_file` and the repo write tools refused a top-level file whose name starts with two dots, such as `..notes.md`, as escaping the repository.
+
 ## 0.40.50
 
 ### Fixed
