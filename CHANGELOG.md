@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Unreleased
 
 ### Fixed
+- `prodex tasks complete --artifact path=text` wrote the file before it looked at the task, so a completion that was then refused had already replaced it. Found 2026-11-09: completing a finished task again, or naming a task id that does not exist, overwrote that path's saved answer, and `prodex results artifact` for the task that owned it failed from then on with "Result artifact changed after finalization". Completing an open task with another task's artifact path replaced that task's answer and was accepted, and a path refused as not a result artifact was written anyway. The task and the paths are now checked first, a finished task's files are left alone, and a path that already holds other text is refused.
 - The "Model hints" a consult saves with its answer (and the `model_hints:` line of `prodex pro browser status`) could carry the prompt instead of the model. They were read from the first model selector in the page and from every visible form, and a page can hold more than the composer: with a message open for editing ("Edit message"), each line of that message naming a word such as "Pro", "latest", "high" or "auto" was saved as a hint, and after a new chat the home page's hidden composer, still mounted ahead of the conversation's, supplied its own model. Text left typed in the composer was read the same way. Hints now come only from the visible composer outside the messages, without the text typed into it.
 
 ## 0.40.50
