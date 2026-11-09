@@ -26,13 +26,15 @@ export function sendPacingMarkerPath(): string {
  * Serialize visible-browser sends across processes. Waits up to waitMs for a
  * live holder to finish (0 = fail fast); a lock whose holder process is dead
  * is reaped immediately. budgetFlag is the option that sets waitMs for the
- * command that is waiting, named when the wait runs out.
+ * command that is waiting, named when the wait runs out. A waiter whose signal
+ * aborts leaves the queue with cancelledError.
  */
 export async function withBrowserSendLock<T>(
   waitMs: number,
   onWait: (detail: string) => void,
   fn: () => Promise<T>,
-  budgetFlag = "--timeout-ms"
+  budgetFlag = "--timeout-ms",
+  cancel: { signal?: AbortSignal; cancelledError?: () => Error } = {}
 ): Promise<T> {
   const file = lockPath();
   const reapClaim = path.join(path.dirname(file), `.${path.basename(file)}.reap`);
@@ -50,7 +52,9 @@ export async function withBrowserSendLock<T>(
       unavailableError: () =>
         new Error(
           `A prodex browser send lock at ${file} is held by nothing and could not be removed, so no send can start. Stop all prodex senders and verify no request is active before deleting that file and the abandoned reaper claim at ${reapClaim}, then retry.`
-        )
+        ),
+      ...(cancel.signal ? { signal: cancel.signal } : {}),
+      ...(cancel.cancelledError ? { abortedError: cancel.cancelledError } : {})
     },
     fn
   );

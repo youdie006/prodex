@@ -238,6 +238,34 @@ describe("pro_consult MCP tool registration", () => {
     expect(seen[2]).not.toBe(seen[0]);
   });
 
+  // Measured 2026-11-09 with a stub: a pro_consult the client cancelled
+  // (notifications/cancelled, as Esc or a client timeout sends) went on and
+  // "submitted" its prompt 1.5s later, because the signal never left the handler.
+  it("hands the request's abort signal to the consult so a cancelled call can stop", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-consult-"));
+    let seen: AbortSignal | undefined;
+    let started!: () => void;
+    const consultStarted = new Promise<void>((resolve) => (started = resolve));
+    const server = createServer(cwd, {
+      browserConsult: async (_input, _onProgress, signal) => {
+        seen = signal;
+        started();
+        await new Promise((resolve) => setTimeout(resolve, 200));
+        return {};
+      }
+    });
+    const client = await connectClient(server);
+    const controller = new AbortController();
+
+    const call = client.callTool({ name: "pro_consult", arguments: { prompt: "question" } }, undefined, { signal: controller.signal });
+    await consultStarted;
+    controller.abort("user pressed Esc");
+    await call.catch(() => undefined);
+    await client.close();
+
+    expect(seen?.aborted).toBe(true);
+  });
+
   it("validates explicit MCP session keys", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-consult-"));
     const browserConsult = vi.fn(async () => ({}));
@@ -268,7 +296,7 @@ describe("pro_consult MCP tool registration", () => {
       arguments: { prompt: "User asked to continue", continue_task: "task_20260915_010000_parent", user_approved: true }
     });
     await client.close();
-    expect(browserConsult).toHaveBeenCalledWith(expect.objectContaining({ user_approved: true }), undefined);
+    expect(browserConsult).toHaveBeenCalledWith(expect.objectContaining({ user_approved: true }), undefined, expect.any(AbortSignal));
   });
 });
 
@@ -406,6 +434,100 @@ describe("performBrowserConsultForMcp", () => {
   });
 });
 
+describe("cancelled MCP consults", () => {
+  const answer = {
+    url: "https://chatgpt.com/c/cancelled-consult",
+    title: "ChatGPT",
+    answer: "kept answer",
+    modelHints: [],
+    requestId: "9cb9650622e74a62bd9074c42a311945",
+    requestVerified: true,
+    warnings: []
+  };
+
+  it("does not start a consult whose call was already cancelled", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-cancel-"));
+    const controller = new AbortController();
+    controller.abort("user pressed Esc");
+
+    await expect(performBrowserConsultForMcp(cwd, { prompt: "Question" }, undefined, controller.signal)).rejects.toThrow(/cancelled/);
+
+    expect(sendChatGptPromptMock).not.toHaveBeenCalled();
+    const { BridgeStore } = await import("../src/store.js");
+    expect(await new BridgeStore(cwd).listTasks()).toEqual([]);
+  });
+
+  it("submits nothing when the call is cancelled before the prompt is submitted, and records the consult as blocked", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-cancel-"));
+    const controller = new AbortController();
+    let submitted = false;
+    sendChatGptPromptMock.mockImplementationOnce(async (options: { beforePromptSubmit?: () => Promise<void> }) => {
+      // Cancelled while the prompt was being typed.
+      controller.abort("user pressed Esc");
+      await options.beforePromptSubmit?.();
+      submitted = true;
+      return answer;
+    });
+
+    const outcome = (await performBrowserConsultForMcp(cwd, { prompt: "Question" }, undefined, controller.signal)) as unknown as {
+      status: string;
+      task_id: string;
+      blocker: { code: string };
+    };
+
+    expect(submitted).toBe(false);
+    expect(outcome.status).toBe("blocked");
+    expect(outcome.blocker.code).toBe("consult_cancelled");
+    const { BridgeStore } = await import("../src/store.js");
+    const store = new BridgeStore(cwd);
+    const task = await store.getTask(outcome.task_id);
+    expect(task.status).toBe("blocked");
+    expect(task.blocker?.code).toBe("consult_cancelled");
+    const sessions = await store.listSessions();
+    expect(sessions.map((session) => session.status)).toEqual(["blocked"]);
+  });
+
+  it("stops waiting for the browser when the call is cancelled while queued behind another send", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-cancel-"));
+    const { withBrowserSendLock } = await import("../src/browser-send-lock.js");
+    const controller = new AbortController();
+
+    const outcome = (await withBrowserSendLock(20_000, () => undefined, async () => {
+      // Queued behind this holder with a 5s budget; the holder keeps the lock
+      // until the queued consult gives up.
+      const queued = performBrowserConsultForMcp(cwd, { prompt: "Question", timeout_ms: 5_000 }, undefined, controller.signal);
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      controller.abort("client timeout");
+      return queued;
+    })) as unknown as { status: string; blocker: { code: string } };
+
+    expect(sendChatGptPromptMock).not.toHaveBeenCalled();
+    expect(outcome.status).toBe("blocked");
+    // Had the cancel not ended the wait, the 5s budget would have, as
+    // browser_busy. No timing bound: CI on Windows and macOS Intel took 6-8s
+    // for the whole test, record writing included.
+    expect(outcome.blocker.code).toBe("consult_cancelled");
+  });
+
+  it("keeps and records the answer when the call is cancelled after the prompt was submitted", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-cancel-"));
+    const controller = new AbortController();
+    sendChatGptPromptMock.mockImplementationOnce(async (options: { beforePromptSubmit?: () => Promise<void> }) => {
+      await options.beforePromptSubmit?.();
+      controller.abort("user pressed Esc");
+      return answer;
+    });
+
+    const outcome = await performBrowserConsultForMcp(cwd, { prompt: "Question" }, undefined, controller.signal);
+
+    expect(outcome.status).toBe("done");
+    expect(outcome.answer).toBe("kept answer");
+    const { BridgeStore } = await import("../src/store.js");
+    const receipts = await new BridgeStore(cwd).listReceipts({ kind: "consult_answer_saved", task_id: outcome.task_id });
+    expect(receipts).toHaveLength(1);
+  });
+});
+
 describe("MCP follow-up approval checkpoints", () => {
   const thread = "https://chatgpt.com/c/dialogue-budget";
   const answer = {
@@ -505,6 +627,25 @@ describe("MCP follow-up approval checkpoints", () => {
     );
     const refused = (await performBrowserConsultForMcp(cwd, { ...root.continuation, prompt: "Height is 23" })) as unknown as Record<string, unknown>;
     expect(refused.status).toBe("blocked");
+    const retried = await performBrowserConsultForMcp(cwd, { ...root.continuation, prompt: "Height is 23" });
+    expect(retried.status).toBe("done");
+    expect(retried.followup_budget).toEqual({ limit: 1, used: 1, remaining: 0 });
+  });
+
+  it("does not spend the budget on a follow-up cancelled before it was submitted", async () => {
+    vi.stubEnv("PRODEX_MAX_AUTO_FOLLOWUPS", "1");
+    const { cwd, root } = await start();
+    const controller = new AbortController();
+    let submitted = false;
+    sendChatGptPromptMock.mockImplementationOnce(async (options: { beforePromptSubmit?: () => Promise<void> }) => {
+      controller.abort("user pressed Esc");
+      await options.beforePromptSubmit?.();
+      submitted = true;
+      return answer;
+    });
+    const cancelled = (await performBrowserConsultForMcp(cwd, { ...root.continuation, prompt: "Height is 23" }, undefined, controller.signal)) as unknown as Record<string, unknown>;
+    expect(submitted).toBe(false);
+    expect(cancelled.status).toBe("blocked");
     const retried = await performBrowserConsultForMcp(cwd, { ...root.continuation, prompt: "Height is 23" });
     expect(retried.status).toBe("done");
     expect(retried.followup_budget).toEqual({ limit: 1, used: 1, remaining: 0 });

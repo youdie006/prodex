@@ -14,6 +14,12 @@ export interface StartHttpMcpServerOptions {
   requestBodyLimitBytes?: number;
   /** False for a throwaway bridge that must not enter the machine-wide registry. */
   registerRoot?: boolean;
+  /** Close a session after this long with no request and no open stream. */
+  sessionIdleTimeoutMs?: number;
+  /** Most sessions kept at once; initializing one more closes the least recently used. */
+  maxSessions?: number;
+  /** The clock session idleness is measured on; replaced in tests. */
+  now?: () => number;
 }
 
 export interface RunningHttpMcpServer {
@@ -31,16 +37,112 @@ export interface CloseHttpMcpServerOptions {
 
 interface TransportEntry {
   transport: StreamableHTTPServerTransport;
+  lastActiveMs: number;
+  openRequests: number;
 }
 
 const DEFAULT_REQUEST_BODY_LIMIT_BYTES = 1_048_576;
 const TRANSPORT_CLOSE_TIMEOUT_MS = 5_000;
+/**
+ * Every initialize used to keep its MCP server and transport until a DELETE
+ * that clients rarely send, about 170 KB each: measured 2026-11-09, RSS went
+ * from 92 MB to 1 GB over 5,000 initializes. The bridge tools answer in
+ * seconds, so a session with no request for half an hour and no stream open
+ * has been left behind; a client that does come back gets 404, which MCP
+ * clients answer by initializing again, at the cost of one round trip.
+ */
+const DEFAULT_SESSION_IDLE_TIMEOUT_MS = 30 * 60_000;
+/**
+ * A personal server sees a few clients at a time (a ChatGPT project, Codex, a
+ * Claude session), so 100 live sessions is far above real use while holding
+ * at most about 17 MB, also against a client that initializes in a loop.
+ */
+const DEFAULT_MAX_SESSIONS = 100;
+const SESSION_SWEEP_INTERVAL_MAX_MS = 60_000;
+
+/**
+ * The live MCP sessions, kept in least-recently-used order. A session is in
+ * use while a request of its own is open (a GET stream stays open for as long
+ * as the client listens), and idle from when its last request ended.
+ */
+class HttpMcpSessions {
+  private readonly entries = new Map<string, TransportEntry>();
+
+  constructor(
+    private readonly limits: { idleTimeoutMs: number; maxSessions: number; now: () => number }
+  ) {}
+
+  /** The session's transport, counted as in use until res closes; undefined when unknown or closed. */
+  use(sessionId: string, res: ServerResponse): StreamableHTTPServerTransport | undefined {
+    const entry = this.entries.get(sessionId);
+    if (!entry) return undefined;
+    this.entries.delete(sessionId);
+    this.entries.set(sessionId, entry);
+    entry.openRequests += 1;
+    entry.lastActiveMs = this.limits.now();
+    res.once("close", () => {
+      entry.openRequests -= 1;
+      entry.lastActiveMs = this.limits.now();
+    });
+    return entry.transport;
+  }
+
+  add(sessionId: string, transport: StreamableHTTPServerTransport): void {
+    this.entries.set(sessionId, { transport, lastActiveMs: this.limits.now(), openRequests: 0 });
+    while (this.entries.size > this.limits.maxSessions) {
+      // The least recently used session without an open request, else the
+      // least recently used of all; never the one just added, which is last.
+      let victim: string | undefined;
+      for (const [id, entry] of this.entries) {
+        if (entry.openRequests === 0) {
+          victim = id;
+          break;
+        }
+      }
+      this.close(victim ?? this.entries.keys().next().value!);
+    }
+  }
+
+  remove(sessionId: string, transport: StreamableHTTPServerTransport): void {
+    if (this.entries.get(sessionId)?.transport === transport) this.entries.delete(sessionId);
+  }
+
+  sweep(): void {
+    const now = this.limits.now();
+    for (const [id, entry] of this.entries) {
+      if (entry.openRequests === 0 && now - entry.lastActiveMs >= this.limits.idleTimeoutMs) this.close(id);
+    }
+  }
+
+  async closeAll(): Promise<void> {
+    const transports = Array.from(this.entries.values(), (entry) => entry.transport);
+    this.entries.clear();
+    await Promise.all(transports.map((transport) => closeTransport(transport)));
+  }
+
+  /** Forgotten at once, so the id answers 404 like any unknown session. */
+  private close(sessionId: string): void {
+    const entry = this.entries.get(sessionId);
+    if (!entry) return;
+    this.entries.delete(sessionId);
+    void closeTransport(entry.transport);
+  }
+}
+
+function closeTransport(transport: StreamableHTTPServerTransport): Promise<void> {
+  return withTimeout(transport.close(), TRANSPORT_CLOSE_TIMEOUT_MS, "timed out closing HTTP MCP transport").catch(() => undefined);
+}
 
 export async function startHttpMcpServer(options: StartHttpMcpServerOptions): Promise<RunningHttpMcpServer> {
   const host = normalizeLoopbackHttpHost(options.host ?? "127.0.0.1");
   const token = options.token;
   const requestBodyLimitBytes = options.requestBodyLimitBytes ?? DEFAULT_REQUEST_BODY_LIMIT_BYTES;
-  const transports = new Map<string, TransportEntry>();
+  const sessionIdleTimeoutMs = Math.max(1, options.sessionIdleTimeoutMs ?? DEFAULT_SESSION_IDLE_TIMEOUT_MS);
+  const sessions = new HttpMcpSessions({
+    idleTimeoutMs: sessionIdleTimeoutMs,
+    maxSessions: Math.max(1, options.maxSessions ?? DEFAULT_MAX_SESSIONS),
+    now: options.now ?? Date.now
+  });
 
   const server = http.createServer(async (req, res) => {
     try {
@@ -71,11 +173,11 @@ export async function startHttpMcpServer(options: StartHttpMcpServerOptions): Pr
         return;
       }
       if (req.method === "POST") {
-        await handlePost(req, res, transports, options.cwd, requestBodyLimitBytes, options.registerRoot);
+        await handlePost(req, res, sessions, options.cwd, requestBodyLimitBytes, options.registerRoot);
         return;
       }
       if (req.method === "GET" || req.method === "DELETE") {
-        await handleSessionRequest(req, res, transports);
+        await handleSessionRequest(req, res, sessions);
         return;
       }
       writeJson(res, 405, { error: "method_not_allowed" });
@@ -116,6 +218,10 @@ export async function startHttpMcpServer(options: StartHttpMcpServerOptions): Pr
     });
   });
 
+  // Unref'd: an idle sweep is no reason for the process to stay up.
+  const sweepTimer = setInterval(() => sessions.sweep(), Math.min(SESSION_SWEEP_INTERVAL_MAX_MS, sessionIdleTimeoutMs));
+  sweepTimer.unref();
+
   const address = server.address();
   const port = typeof address === "object" && address ? address.port : options.port ?? 8787;
   const url = `http://${host}:${port}`;
@@ -125,12 +231,8 @@ export async function startHttpMcpServer(options: StartHttpMcpServerOptions): Pr
     url,
     mcp_url: token ? `${url}/mcp?prodex_token=${encodeURIComponent(token)}` : `${url}/mcp`,
     close: async (closeOptions = {}) => {
-      await Promise.all(
-        Array.from(transports.values()).map((entry) =>
-          withTimeout(entry.transport.close(), TRANSPORT_CLOSE_TIMEOUT_MS, "timed out closing HTTP MCP transport").catch(() => undefined)
-        )
-      );
-      transports.clear();
+      clearInterval(sweepTimer);
+      await sessions.closeAll();
       await closeHttpServer(server, closeOptions);
     }
   };
@@ -182,7 +284,7 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: s
 async function handlePost(
   req: IncomingMessage,
   res: ServerResponse,
-  transports: Map<string, TransportEntry>,
+  sessions: HttpMcpSessions,
   cwd: string,
   requestBodyLimitBytes: number,
   registerRoot: boolean | undefined
@@ -190,12 +292,12 @@ async function handlePost(
   const body = await readJsonBody(req, requestBodyLimitBytes);
   const sessionId = headerValue(req.headers["mcp-session-id"]);
   if (sessionId) {
-    const entry = transports.get(sessionId);
-    if (!entry) {
+    const transport = sessions.use(sessionId, res);
+    if (!transport) {
       writeJson(res, 404, { error: "session_not_found" });
       return;
     }
-    await entry.transport.handleRequest(req, res, body);
+    await transport.handleRequest(req, res, body);
     return;
   }
   if (!sessionId && isInitializeRequest(body)) {
@@ -205,12 +307,12 @@ async function handlePost(
       enableJsonResponse: true,
       onsessioninitialized: (newSessionId) => {
         initializedSessionId = newSessionId;
-        transports.set(newSessionId, { transport });
+        sessions.add(newSessionId, transport);
       }
     });
     transport.onclose = () => {
       const id = transport.sessionId || initializedSessionId;
-      if (id) transports.delete(id);
+      if (id) sessions.remove(id, transport);
     };
     const mcpServer = createMcpServer(cwd, {
       source: "chatgpt_project",
@@ -231,18 +333,19 @@ async function handlePost(
 async function handleSessionRequest(
   req: IncomingMessage,
   res: ServerResponse,
-  transports: Map<string, TransportEntry>
+  sessions: HttpMcpSessions
 ): Promise<void> {
   const sessionId = headerValue(req.headers["mcp-session-id"]);
   if (!sessionId) {
     writeJson(res, 400, { error: "invalid_or_missing_session" });
     return;
   }
-  if (!transports.has(sessionId)) {
+  const transport = sessions.use(sessionId, res);
+  if (!transport) {
     writeJson(res, 404, { error: "session_not_found" });
     return;
   }
-  await transports.get(sessionId)!.transport.handleRequest(req, res);
+  await transport.handleRequest(req, res);
 }
 
 async function readJsonBody(req: IncomingMessage, limitBytes: number): Promise<unknown> {
