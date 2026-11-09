@@ -5,7 +5,7 @@ import { request as httpRequest } from "node:http";
 import net from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { startHttpMcpServer, type RunningHttpMcpServer } from "../src/http-mcp.js";
 import { BridgeStore } from "../src/store.js";
 
@@ -15,6 +15,8 @@ describe("HTTP MCP server", () => {
   afterEach(async () => {
     await running?.close();
     running = undefined;
+    vi.restoreAllMocks();
+    vi.useRealTimers();
   });
 
   it("serves the existing bridge tools over Streamable HTTP with a URL token", async () => {
@@ -301,6 +303,103 @@ describe("HTTP MCP server", () => {
     expect(del.status).toBe(404);
   });
 
+  // Measured 2026-11-09: every initialize kept its MCP server and transport
+  // until DELETE or shutdown, about 170 KB each; RSS went from 92 MB to 1 GB
+  // over 5,000 initializes.
+  it("closes a session left idle past the idle timeout and answers its id as unknown", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    let now = 1_000_000;
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-http-mcp-"));
+    running = await startHttpMcpServer({
+      cwd,
+      host: "127.0.0.1",
+      port: 0,
+      token: "test-token",
+      sessionIdleTimeoutMs: 30 * 60_000,
+      now: () => now
+    });
+    const idle = await initializeSession(running.url);
+    const active = await initializeSession(running.url);
+
+    now += 20 * 60_000;
+    expect(await pingSession(running.url, active)).toBe(200);
+    now += 15 * 60_000;
+    vi.advanceTimersByTime(60_000);
+
+    expect(await pingSession(running.url, idle)).toBe(404);
+    expect(await pingSession(running.url, active)).toBe(200);
+    expect(await initializeSession(running.url)).toMatch(/^[0-9a-f-]{36}$/);
+  });
+
+  it("keeps a quiet session whose client holds a stream open, and closes it once the stream ends", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    let now = 1_000_000;
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-http-mcp-"));
+    running = await startHttpMcpServer({
+      cwd,
+      host: "127.0.0.1",
+      port: 0,
+      token: "test-token",
+      sessionIdleTimeoutMs: 30 * 60_000,
+      now: () => now
+    });
+    const sessionId = await initializeSession(running.url);
+    const stream = new AbortController();
+    const opened = await fetch(`${running.url}/mcp?prodex_token=test-token`, {
+      method: "GET",
+      headers: { accept: "text/event-stream", "mcp-session-id": sessionId, "mcp-protocol-version": "2025-06-18" },
+      signal: stream.signal
+    });
+    expect(opened.status).toBe(200);
+
+    now += 60 * 60_000;
+    vi.advanceTimersByTime(60_000);
+    expect(await pingSession(running.url, sessionId)).toBe(200);
+
+    stream.abort();
+    // The server sees the stream end a moment later; each 200 here was a
+    // request, so the next round moves the clock past the timeout again.
+    let status = 200;
+    for (let attempt = 0; attempt < 50 && status === 200; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      now += 60 * 60_000;
+      vi.advanceTimersByTime(60_000);
+      status = await pingSession(running.url, sessionId);
+    }
+    expect(status).toBe(404);
+  });
+
+  it("closes the least recently used session when the session cap is reached", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-http-mcp-"));
+    running = await startHttpMcpServer({ cwd, host: "127.0.0.1", port: 0, token: "test-token", maxSessions: 2 });
+    const first = await initializeSession(running.url);
+    const second = await initializeSession(running.url);
+    expect(await pingSession(running.url, first)).toBe(200);
+
+    const third = await initializeSession(running.url);
+
+    expect(await pingSession(running.url, second)).toBe(404);
+    expect(await pingSession(running.url, first)).toBe(200);
+    expect(await pingSession(running.url, third)).toBe(200);
+  });
+
+  it("sweeps idle sessions on a timer that does not hold the process open and stops on close", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    const intervals = vi.spyOn(globalThis, "setInterval");
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-http-mcp-"));
+    // Swept as often as the timeout itself when that is under a minute.
+    running = await startHttpMcpServer({ cwd, host: "127.0.0.1", port: 0, token: "test-token", sessionIdleTimeoutMs: 45_000 });
+    const sweep = intervals.mock.results[intervals.mock.calls.findIndex((call) => call[1] === 45_000)]?.value as
+      | { hasRef(): boolean }
+      | undefined;
+
+    expect(sweep).toBeDefined();
+    expect(sweep!.hasRef()).toBe(false);
+    await running.close();
+    running = undefined;
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it("rejects requests that use an expired configured URL token", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "prodex-http-mcp-"));
     running = await startHttpMcpServer({
@@ -319,6 +418,37 @@ describe("HTTP MCP server", () => {
     expect(body.hint).toContain("restart");
   });
 });
+
+async function initializeSession(baseUrl: string): Promise<string> {
+  const response = await fetch(`${baseUrl}/mcp?prodex_token=test-token`, {
+    method: "POST",
+    headers: { "content-type": "application/json", accept: "application/json, text/event-stream" },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "initialize",
+      params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "prodex-test", version: "0.1.0" } }
+    })
+  });
+  await response.text();
+  expect(response.status).toBe(200);
+  return response.headers.get("mcp-session-id") ?? "";
+}
+
+async function pingSession(baseUrl: string, sessionId: string): Promise<number> {
+  const response = await fetch(`${baseUrl}/mcp?prodex_token=test-token`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      accept: "application/json, text/event-stream",
+      "mcp-session-id": sessionId,
+      "mcp-protocol-version": "2025-06-18"
+    },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 2, method: "ping" })
+  });
+  await response.text();
+  return response.status;
+}
 
 async function callJsonTool<T>(client: Client, name: string, args: Record<string, unknown>): Promise<T> {
   const result = await client.callTool({ name, arguments: args });

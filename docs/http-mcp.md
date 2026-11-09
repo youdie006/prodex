@@ -19,6 +19,7 @@ Typical use:
 
 The server is personal and local-first. Do not expose it as a shared service.
 HTTP MCP requests are bounded: malformed JSON returns `400`, and request bodies over 1 MiB are rejected with `413`.
+Sessions are bounded too. A session with no request for 30 minutes and no stream open is closed, and at most 100 sessions are kept: initializing one more closes the least recently used. A request carrying a closed session's `Mcp-Session-Id` gets `404`, as an unknown id does, and MCP clients answer that by initializing a new session.
 
 ## Build And Prepare
 
