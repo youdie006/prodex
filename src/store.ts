@@ -1033,9 +1033,11 @@ export class BridgeStore {
   // receipts, later lines are legacy keys kept so pre-rotation receipts verify.
   private async readReceiptIntegrityKeys(): Promise<string[]> {
     const lines = (
-      await readVerifiedUtf8File(this.receiptIntegrityKeyPath(), () => this.assertReceiptIntegrityKeyTargetSafe({ allowMissing: false }), {
-        mode: BRIDGE_FILE_MODE
-      })
+      await readReplacedFileText(() =>
+        readVerifiedUtf8File(this.receiptIntegrityKeyPath(), () => this.assertReceiptIntegrityKeyTargetSafe({ allowMissing: false }), {
+          mode: BRIDGE_FILE_MODE
+        })
+      )
     )
       .split(/\r?\n/)
       .map((line) => line.trim())
@@ -1159,7 +1161,7 @@ export class BridgeStore {
       if (options.cleanupTempHardLinks ?? true) {
         await this.cleanupRecordTempHardLinks(kind, filePath);
       }
-      const raw = await readVerifiedUtf8File(filePath, () => this.assertRecordTargetInside(kind, filePath));
+      const raw = await readReplacedFileText(() => readVerifiedUtf8File(filePath, () => this.assertRecordTargetInside(kind, filePath)));
       try {
         return JSON.parse(raw);
       } catch (error) {
@@ -1643,6 +1645,26 @@ function recordLabel(kind: BridgeRecordKind): string {
       return "Session";
     case "receipts":
       return "Receipt";
+  }
+}
+
+// Records and the receipt key are replaced by renaming a new file over them,
+// and a read that opened the old file and then found the new one at the path
+// failed as "Target path changed during read file operation": found
+// 2026-11-09, 115 of 908 reads failed while another process rewrote a
+// session, and `tasks list` failed the same way during a consult. Reading
+// again opens the new file and runs every check again; any other failure,
+// a symlink swap among them, is not retried.
+const REPLACED_FILE_READ_ATTEMPTS = 5;
+
+export async function readReplacedFileText(read: () => Promise<string>): Promise<string> {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await read();
+    } catch (error) {
+      const replaced = error instanceof Error && error.message === "Target path changed during read file operation";
+      if (!replaced || attempt >= REPLACED_FILE_READ_ATTEMPTS) throw error;
+    }
   }
 }
 

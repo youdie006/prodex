@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Unreleased
 
 ### Fixed
+- Reading a task, session or receipt key while another prodex process updated it could fail as "Target path changed during read file operation", without naming the file. Records are replaced by renaming a new file over them, and the read refused when the file it had opened was no longer the one at the path. Found 2026-11-09: with one process rewriting a session, 171 of about 1,100 reads from another failed; `prodex tasks list`, `sessions show` and MCP `bridge_list_tasks` failed the same way while a consult was updating its records. Such a read is now made again, up to five times, with every check repeated; a file swapped for a symlink is still refused at once.
 - The "Model hints" a consult saves with its answer (and the `model_hints:` line of `prodex pro browser status`) could carry the prompt instead of the model. They were read from the first model selector in the page and from every visible form, and a page can hold more than the composer: with a message open for editing ("Edit message"), each line of that message naming a word such as "Pro", "latest", "high" or "auto" was saved as a hint, and after a new chat the home page's hidden composer, still mounted ahead of the conversation's, supplied its own model. Text left typed in the composer was read the same way. Hints now come only from the visible composer outside the messages, without the text typed into it.
 
 ## 0.40.50
