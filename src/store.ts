@@ -825,7 +825,7 @@ export class BridgeStore {
     );
   }
 
-  async writeArtifactText(relativePath: string, content: string): Promise<string> {
+  async writeArtifactText(relativePath: string, content: string, options: { exclusive?: boolean } = {}): Promise<string> {
     await this.ensure();
     await this.assertBridgeDirIsRealDirectory();
     await this.assertArtifactsDirIsRealDirectory();
@@ -838,9 +838,38 @@ export class BridgeStore {
         await this.assertArtifactParentDirectory(path.dirname(artifactPath));
         await this.assertArtifactTargetInsideIfExists(artifactPath);
       },
-      { create: true, mode: BRIDGE_FILE_MODE }
+      { create: true, mode: BRIDGE_FILE_MODE, ...(options.exclusive ? { exclusive: true } : {}) }
     );
     return this.relativeToRoot(artifactPath);
+  }
+
+  /**
+   * The files of `tasks complete --artifact path=text`, written only once the
+   * completion is known to be possible. They used to be written first, so a
+   * completion refused afterwards had already replaced the file: found
+   * 2026-11-09, completing a finished task again, or a mistyped task id,
+   * overwrote a saved answer, and an open task completed with another task's
+   * artifact path replaced that task's answer. A finished task's files are not
+   * touched (completeTask then refuses, or accepts the same result again), and
+   * a path that already holds other text is refused.
+   */
+  async writeResultArtifactTexts(taskId: string, texts: { path: string; content: string }[]): Promise<BridgeFile[]> {
+    const task = await this.getTask(taskId);
+    const artifacts: BridgeFile[] = texts.map((text) => ({ path: this.relativeToRoot(this.resolveArtifactPath(text.path)), role: "result" }));
+    assertFetchableResultArtifacts(artifacts);
+    assertDistinctArtifactPaths(artifacts);
+    if (task.status === "done" || task.status === "blocked") return artifacts;
+    for (const [index, text] of texts.entries()) {
+      const stored = artifacts[index].path;
+      try {
+        await this.writeArtifactText(stored, text.content, { exclusive: true });
+      } catch (error) {
+        if (!isErrorCode(error, "EEXIST")) throw error;
+        if ((await this.readArtifactText(stored)) === text.content) continue;
+        throw new Error(`${stored} already exists with other content; give this result an artifact path of its own.`);
+      }
+    }
+    return artifacts;
   }
 
   async hasArtifactText(relativePath: string): Promise<boolean> {
