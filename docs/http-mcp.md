@@ -193,8 +193,9 @@ The HTTP server exposes the same tool catalog as stdio MCP:
 Writes are deliberately gated and require a git worktree with a committed HEAD:
 
 1. `repo_write_file_dry_run` previews replacing an existing repo-relative text file. It records the diff, git HEAD, preimage hash, and a replacement-text artifact under `.bridge/artifacts/repo-writes/`.
+   The file keeps its CRLF line endings, UTF-8 BOM and final newline when the new content leaves them out, and apply keeps its file mode, so an edited script stays executable. A file that is not UTF-8 text (EUC-KR, Latin-1, UTF-16) is refused rather than re-encoded.
 2. `repo_write_file_apply` applies that exact receipt only if git HEAD, file path, preimage hash, and artifact content still match.
-3. `repo_stage_reviewed_paths` stages only files backed by matching applied write receipts.
+3. `repo_stage_reviewed_paths` stages only files backed by matching applied write receipts. Their paths reach git literally, so a name such as `pages/[id].tsx` stages that file and nothing it would match as a pattern.
 
 There is no direct ungated write tool and no shell execution tool.
 

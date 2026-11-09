@@ -4,6 +4,15 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Fixed
+- Editing a file through the MCP repo tools (`repo_write_file_dry_run`, then `repo_write_file_apply`) reset its file mode. The new content is written to a new file that replaces the old one, and that file got the default mode: found 2026-11-09, an edited `build.sh` lost its executable bit (755 became 644), and `repo_stage_reviewed_paths` then staged `mode change 100755 => 100644`, so the commit broke the script. A file kept at 600 became readable by everyone. The replacement now takes the mode of the file it replaces.
+- `repo_stage_reviewed_paths` passed the reviewed paths to git as patterns. Found 2026-11-09: with only `pages/[id].tsx` reviewed and applied, an unreviewed local edit of `pages/i.tsx` was staged too, while the receipt listed one path. A reviewed `x[0-9].txt` next to a modified `x1.txt` failed as "Staged content changed", and undoing the stage wrote x1.txt's content into the index under `x[0-9].txt`. A file named `:!draft.md` left every other modified and untracked file staged. Paths now reach git literally.
+- Writing back a file read with `repo_read_file` dropped its final newline. The read returns the lines without a newline after the last one, so the written content had none, and the dry run's diff showed it only as a removed line that is easy to miss. A file that ends with a newline now keeps it (CRLF for a CRLF file) unless the new content is empty.
+- A file that is not UTF-8 was corrupted by a repo write. It was read as UTF-8 with its other bytes replaced, then written back that way. Found 2026-11-09: in an EUC-KR file, editing only its last line destroyed the Korean text of the first, and the dry run's diff showed that line as unchanged. A UTF-16 file was rewritten as UTF-8 without its BOM. The dry run now refuses a file that is not UTF-8 text and says why.
+- `repo_write_file_dry_run` accepted content that `repo_write_file_apply` then refused as too large, blaming the target file. The size limit (1,000,000 bytes) was checked before the CRLF endings and BOM the file keeps were restored, which add bytes. It is now checked on the content that will be written.
+
 ## 0.40.50
 
 ### Fixed
