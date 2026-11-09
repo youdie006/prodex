@@ -13,10 +13,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Writing back a file read with `repo_read_file` dropped its final newline. The read returns the lines without a newline after the last one, so the written content had none, and the dry run's diff showed it only as a removed line that is easy to miss. A file that ends with a newline now keeps it (CRLF for a CRLF file) unless the new content is empty.
 - A file that is not UTF-8 was corrupted by a repo write. It was read as UTF-8 with its other bytes replaced, then written back that way. Found 2026-11-09: in an EUC-KR file, editing only its last line destroyed the Korean text of the first, and the dry run's diff showed that line as unchanged. A UTF-16 file was rewritten as UTF-8 without its BOM. The dry run now refuses a file that is not UTF-8 text and says why.
 - `repo_write_file_dry_run` accepted content that `repo_write_file_apply` then refused as too large, blaming the target file. The size limit (1,000,000 bytes) was checked before the CRLF endings and BOM the file keeps were restored, which add bytes. It is now checked on the content that will be written.
-
-## Unreleased
-
-### Fixed
 - `prodex doctor` printed `config: ok` when the configured port was held by a program `prodex start` could not share it with, so start then failed on the port doctor had called fine. Found 2026-11-09. Any server answering `/mcp` with 200, 400 or 401 was taken for prodex, which also covered another repo's `prodex start` on the default port 8787, and a program that does not speak HTTP, or accepts the connection and says nothing, was taken for a free port. Doctor now asks the holder's `/health` whether it is prodex and tries this repo's token on it; each of those cases prints a `config_warning:` naming what holds the port. A port where nothing accepts the connection still counts as free, including on WSL, where a free loopback port lets the attempt time out instead of refusing it.
 
 ## 0.40.50
