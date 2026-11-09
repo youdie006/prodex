@@ -812,7 +812,7 @@ export class BridgeStore {
     );
   }
 
-  async writeArtifactText(relativePath: string, content: string): Promise<string> {
+  async writeArtifactText(relativePath: string, content: string, options: { exclusive?: boolean } = {}): Promise<string> {
     await this.ensure();
     await this.assertBridgeDirIsRealDirectory();
     await this.assertArtifactsDirIsRealDirectory();
@@ -825,9 +825,38 @@ export class BridgeStore {
         await this.assertArtifactParentDirectory(path.dirname(artifactPath));
         await this.assertArtifactTargetInsideIfExists(artifactPath);
       },
-      { create: true, mode: BRIDGE_FILE_MODE }
+      { create: true, mode: BRIDGE_FILE_MODE, ...(options.exclusive ? { exclusive: true } : {}) }
     );
     return this.relativeToRoot(artifactPath);
+  }
+
+  /**
+   * The files of `tasks complete --artifact path=text`, written only once the
+   * completion is known to be possible. They used to be written first, so a
+   * completion refused afterwards had already replaced the file: found
+   * 2026-11-09, completing a finished task again, or a mistyped task id,
+   * overwrote a saved answer, and an open task completed with another task's
+   * artifact path replaced that task's answer. A finished task's files are not
+   * touched (completeTask then refuses, or accepts the same result again), and
+   * a path that already holds other text is refused.
+   */
+  async writeResultArtifactTexts(taskId: string, texts: { path: string; content: string }[]): Promise<BridgeFile[]> {
+    const task = await this.getTask(taskId);
+    const artifacts: BridgeFile[] = texts.map((text) => ({ path: this.relativeToRoot(this.resolveArtifactPath(text.path)), role: "result" }));
+    assertFetchableResultArtifacts(artifacts);
+    assertDistinctArtifactPaths(artifacts);
+    if (task.status === "done" || task.status === "blocked") return artifacts;
+    for (const [index, text] of texts.entries()) {
+      const stored = artifacts[index].path;
+      try {
+        await this.writeArtifactText(stored, text.content, { exclusive: true });
+      } catch (error) {
+        if (!isErrorCode(error, "EEXIST")) throw error;
+        if ((await this.readArtifactText(stored)) === text.content) continue;
+        throw new Error(`${stored} already exists with other content; give this result an artifact path of its own.`);
+      }
+    }
+    return artifacts;
   }
 
   async hasArtifactText(relativePath: string): Promise<boolean> {
@@ -1020,9 +1049,11 @@ export class BridgeStore {
   // receipts, later lines are legacy keys kept so pre-rotation receipts verify.
   private async readReceiptIntegrityKeys(): Promise<string[]> {
     const lines = (
-      await readVerifiedUtf8File(this.receiptIntegrityKeyPath(), () => this.assertReceiptIntegrityKeyTargetSafe({ allowMissing: false }), {
-        mode: BRIDGE_FILE_MODE
-      })
+      await readReplacedFileText(() =>
+        readVerifiedUtf8File(this.receiptIntegrityKeyPath(), () => this.assertReceiptIntegrityKeyTargetSafe({ allowMissing: false }), {
+          mode: BRIDGE_FILE_MODE
+        })
+      )
     )
       .split(/\r?\n/)
       .map((line) => line.trim())
@@ -1146,7 +1177,7 @@ export class BridgeStore {
       if (options.cleanupTempHardLinks ?? true) {
         await this.cleanupRecordTempHardLinks(kind, filePath);
       }
-      const raw = await readVerifiedUtf8File(filePath, () => this.assertRecordTargetInside(kind, filePath));
+      const raw = await readReplacedFileText(() => readVerifiedUtf8File(filePath, () => this.assertRecordTargetInside(kind, filePath)));
       try {
         return JSON.parse(raw);
       } catch (error) {
@@ -1630,6 +1661,26 @@ function recordLabel(kind: BridgeRecordKind): string {
       return "Session";
     case "receipts":
       return "Receipt";
+  }
+}
+
+// Records and the receipt key are replaced by renaming a new file over them,
+// and a read that opened the old file and then found the new one at the path
+// failed as "Target path changed during read file operation": found
+// 2026-11-09, 115 of 908 reads failed while another process rewrote a
+// session, and `tasks list` failed the same way during a consult. Reading
+// again opens the new file and runs every check again; any other failure,
+// a symlink swap among them, is not retried.
+const REPLACED_FILE_READ_ATTEMPTS = 5;
+
+export async function readReplacedFileText(read: () => Promise<string>): Promise<string> {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await read();
+    } catch (error) {
+      const replaced = error instanceof Error && error.message === "Target path changed during read file operation";
+      if (!replaced || attempt >= REPLACED_FILE_READ_ATTEMPTS) throw error;
+    }
   }
 }
 
