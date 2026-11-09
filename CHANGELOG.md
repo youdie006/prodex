@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Fixed
+- The "Model hints" a consult saves with its answer (and the `model_hints:` line of `prodex pro browser status`) could carry the prompt instead of the model. They were read from the first model selector in the page and from every visible form, and a page can hold more than the composer: with a message open for editing ("Edit message"), each line of that message naming a word such as "Pro", "latest", "high" or "auto" was saved as a hint, and after a new chat the home page's hidden composer, still mounted ahead of the conversation's, supplied its own model. Text left typed in the composer was read the same way. Hints now come only from the visible composer outside the messages, without the text typed into it.
+
 ## 0.40.50
 
 ### Fixed
