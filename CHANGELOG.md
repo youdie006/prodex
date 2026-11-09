@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Writing back a file read with `repo_read_file` dropped its final newline. The read returns the lines without a newline after the last one, so the written content had none, and the dry run's diff showed it only as a removed line that is easy to miss. A file that ends with a newline now keeps it (CRLF for a CRLF file) unless the new content is empty.
 - A file that is not UTF-8 was corrupted by a repo write. It was read as UTF-8 with its other bytes replaced, then written back that way. Found 2026-11-09: in an EUC-KR file, editing only its last line destroyed the Korean text of the first, and the dry run's diff showed that line as unchanged. A UTF-16 file was rewritten as UTF-8 without its BOM. The dry run now refuses a file that is not UTF-8 text and says why.
 - `repo_write_file_dry_run` accepted content that `repo_write_file_apply` then refused as too large, blaming the target file. The size limit (1,000,000 bytes) was checked before the CRLF endings and BOM the file keeps were restored, which add bytes. It is now checked on the content that will be written.
+- `prodex ask` (and `prodex pro ask`, `prodex pro browser ask`) took an unquoted prompt containing the word "help" for a help request: `prodex ask can you help me fix this` failed with "Unexpected argument for ask: can". Found 2026-11-09. Among a prompt's words, "help" now asks for help only on its own (`prodex ask help`); `--help` and `-h` still do anywhere before `--`.
+- `prodex pro ask -- what does --project do` was refused with "--project only applies when sending", although every word after `--` is the prompt. The check for send-only options now looks only before `--`.
 
 ## 0.40.50
 
