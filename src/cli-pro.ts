@@ -1621,11 +1621,23 @@ export async function runAskProCommand(
     if (hasSendMode) {
       // MCP approval checkpoints run after target validation but before any
       // task creation, pacing, browser recovery, or prompt send.
-      const beforePromptSubmit = (await beforeSend?.({
+      const beforeSubmitStep = (await beforeSend?.({
         store: targetStore,
         ...(normalizedTargetUrl ? { thread: normalizedTargetUrl } : {}),
         ...(continuedFromTaskId ? { continuedFrom: continuedFromTaskId } : {})
       })) || undefined;
+      // A cancelled call is stopped before its prompt is submitted: here, in
+      // the send queue, instead of a browser recovery, and right before the
+      // submit. After the submit it is not: an answer already on its way is
+      // waited for and recorded as usual. The last check runs ahead of the
+      // step, so a cancelled follow-up does not spend the budget it reserves.
+      throwIfConsultCancelled(io.signal);
+      const beforePromptSubmit = io.signal || beforeSubmitStep
+        ? async () => {
+          throwIfConsultCancelled(io.signal);
+          await beforeSubmitStep?.();
+        }
+        : undefined;
       const browserCommandOptions = {
         cwd: targetCwd,
         port: parsedAskPro.optionArgs.includes("--port") ? browserPort : undefined
@@ -1709,7 +1721,7 @@ export async function runAskProCommand(
           ...(beforePromptSubmit ? { beforePromptSubmit } : {}),
           onProgress: createBrowserSendProgressPrinter(io.stderr)
         });
-        });
+        }, "--timeout-ms", { ...(io.signal ? { signal: io.signal } : {}), cancelledError: consultCancelledError });
       // One-command recovery: interactive terminals (or explicit --auto-login)
       // launch the dedicated browser and retry once when no browser runs.
       // Scripts and agents keep the plain blocker unless they opt in.
@@ -1728,9 +1740,10 @@ export async function runAskProCommand(
         } catch (error) {
           const firstBlocker = browserSendBlockerFromError(error);
           // Loss while reading an already-submitted prompt must not send it again.
+          // Nor is a browser launched for a call that has been cancelled.
           if (
             !["browser_unreachable", "chatgpt_page_missing"].includes(firstBlocker.code) ||
-            !firstBlocker.retryable || firstBlocker.thread || !autoLoginAllowed
+            !firstBlocker.retryable || firstBlocker.thread || !autoLoginAllowed || io.signal?.aborted
           ) throw error;
           const recover = firstBlocker.code === "chatgpt_page_missing" ? attemptMissingChatGptTabRecovery : attemptBrowserAutoRecovery;
           const recovered = await recover(io.stderr, {
@@ -2175,6 +2188,19 @@ export async function performBrowserRecoverForMcp(cwd: string, input: BrowserRec
   };
 }
 
+function consultCancelledError(): ChatGptBrowserBlockerError {
+  return new ChatGptBrowserBlockerError({
+    code: "consult_cancelled",
+    message: "The client cancelled this consult before its prompt was submitted, so nothing was sent to ChatGPT.",
+    retryable: true,
+    next_step: "Nothing to recover. Send the consult again if it is still wanted."
+  });
+}
+
+function throwIfConsultCancelled(signal: AbortSignal | undefined): void {
+  if (signal?.aborted) throw consultCancelledError();
+}
+
 /** The marker the send prints before throwing, when the answer outlived its record. */
 const ANSWER_NOT_SAVED_MARKER = "consult_answer_received_but_not_saved:";
 
@@ -2232,7 +2258,8 @@ export function mcpBlockedConsultOutcome(stdoutLines: readonly string[], error: 
 export async function performBrowserConsultForMcp(
   cwd: string,
   input: BrowserConsultInput,
-  onProgress?: (message: string) => void
+  onProgress?: (message: string) => void,
+  signal?: AbortSignal
 ): Promise<BrowserConsultOutcome> {
   const stdoutLines: string[] = [];
   const stderrLines: string[] = [];
@@ -2280,7 +2307,8 @@ export async function performBrowserConsultForMcp(
         stderrLines.push(line);
         if (onProgress && line.startsWith("progress:")) onProgress(line);
       },
-      allowAskProBrowserSend: true
+      allowAskProBrowserSend: true,
+      ...(signal ? { signal } : {})
     }, async ({ store, thread, continuedFrom }) => {
       if (!thread || !continuedFrom) return;
       continuationTarget = { taskId: continuedFrom, thread };
