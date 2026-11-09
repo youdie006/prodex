@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { execFile } from "node:child_process";
 import { realpathSync, statSync } from "node:fs";
+import http from "node:http";
 import { lstat, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
@@ -441,29 +442,82 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
 }
 
 /**
- * Whether something other than prodex is sitting on the configured port.
+ * Whether something other than this repo's prodex server is sitting on the
+ * configured port, which `prodex start` then cannot bind.
  *
- * A prodex HTTP server answers /mcp - with 401 when the token is missing,
- * which is still an answer. Anything else holding the port means `prodex
- * start` cannot bind it, and the configured URL points at a stranger.
- * Silence (nothing listening) is the healthy case.
+ * A prodex server names itself on /health, without a token. Found
+ * 2026-11-09: the check used to take any server answering /mcp with 200, 400
+ * or 401 for prodex, and a program that does not speak HTTP, or accepts the
+ * connection and says nothing, for a free port. Another repo's prodex server
+ * is the likeliest holder, since every repo's setup defaults to port 8787; it
+ * refuses this repo's token. A refused connection is the healthy case.
  */
-export async function describeConfiguredPortHolder(host: string, port: number): Promise<string | undefined> {
-  let response: Response;
-  try {
-    response = await fetch(`http://${host}:${port}/mcp`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: "{}",
-      signal: AbortSignal.timeout(1_500)
-    });
-  } catch {
-    // Nothing is listening, or it refused the connection: the port is free for
-    // prodex to take, which is what this check is about.
-    return undefined;
+export async function describeConfiguredPortHolder(host: string, port: number, token?: string): Promise<string | undefined> {
+  const cannotBind = "so `prodex start` cannot bind it";
+  const health = await probeHttpEndpoint(host, port, "/health", { method: "GET" });
+  if (health.kind === "free") return undefined;
+  if (health.kind === "not-http") return `port ${port} on ${host} is held by a program that does not answer HTTP, ${cannotBind}.`;
+  if (!isProdexHealth(health.body)) {
+    return `port ${port} on ${host} is held by something that is not a prodex server (it answered /health with HTTP ${health.status}), ${cannotBind}.`;
   }
-  if (response.status === 401 || response.status === 200 || response.status === 400) return undefined;
-  return `port ${port} on ${host} is held by something that is not a prodex server (it answered /mcp with HTTP ${response.status}), so \`prodex start\` cannot bind it.`;
+  if (token === undefined) return undefined;
+  const mcp = await probeHttpEndpoint(host, port, "/mcp", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: "{}"
+  });
+  if (mcp.kind === "http" && mcp.status === 401) {
+    return `port ${port} on ${host} is held by another prodex server, one that refuses this repo's token (another repo's \`prodex start\`, or one started before this token was set), ${cannotBind} here.`;
+  }
+  return undefined;
+}
+
+type HttpProbe = { kind: "free" } | { kind: "not-http" } | { kind: "http"; status: number; body: string };
+
+function probeHttpEndpoint(
+  host: string,
+  port: number,
+  requestPath: string,
+  options: { method: string; headers?: Record<string, string>; body?: string }
+): Promise<HttpProbe> {
+  return new Promise((resolve) => {
+    let connected = false;
+    const request = http.request(
+      { host, port, path: requestPath, method: options.method, headers: options.headers, timeout: 1_500, agent: false },
+      (response) => {
+        let body = "";
+        response.setEncoding("utf8");
+        response.on("data", (chunk: string) => {
+          if (body.length < 4_096) body += chunk;
+        });
+        response.on("end", () => resolve({ kind: "http", status: response.statusCode ?? 0, body }));
+        response.on("error", () => resolve({ kind: "http", status: response.statusCode ?? 0, body }));
+      }
+    );
+    request.on("socket", (socket) => socket.once("connect", () => (connected = true)));
+    // A connection accepted and then left silent is a program holding the
+    // port. One never accepted is not: on WSL a free loopback port does not
+    // refuse a connection, it lets the attempt time out.
+    request.on("timeout", () => {
+      request.destroy();
+      resolve({ kind: connected ? "not-http" : "free" });
+    });
+    request.on("error", (error: NodeJS.ErrnoException) => {
+      request.destroy();
+      const nothingListening = !connected || ["ECONNREFUSED", "EADDRNOTAVAIL", "EHOSTUNREACH", "ENETUNREACH"].includes(error.code ?? "");
+      resolve({ kind: nothingListening ? "free" : "not-http" });
+    });
+    request.end(options.body);
+  });
+}
+
+function isProdexHealth(body: string): boolean {
+  try {
+    const parsed = JSON.parse(body) as { name?: unknown };
+    return parsed.name === "prodex";
+  } catch {
+    return false;
+  }
 }
 
 function defaultIo(): CliIO {
@@ -1291,7 +1345,7 @@ async function runDoctor(store: BridgeStore, io: CliIO, sourceCli?: string, setu
       // Measured here: the configured port was held by an unrelated program,
       // so `prodex start` could never bind it - and doctor called the config
       // ok anyway, which is the one line someone reads before believing it.
-      const portHolder = await describeConfiguredPortHolder(config.host, config.port);
+      const portHolder = await describeConfiguredPortHolder(config.host, config.port, config.token);
       if (portHolder) {
         io.stdout(
           `config_warning: ${portHolder} \`${formatSetupCommand(sourceCli, { cwd: setupHintCwd })} --port <free port>\` moves prodex off it.`
