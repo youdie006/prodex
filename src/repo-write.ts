@@ -4,7 +4,7 @@ import { realpath } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 import { assertResolvedRepoPathAllowed, resolveRepoPath } from "./repo.js";
-import { readVerifiedUtf8File, replaceVerifiedUtf8File, withCrossProcessFileLock } from "./safe-file.js";
+import { NotUtf8Error, readVerifiedUtf8File, replaceVerifiedUtf8File, withCrossProcessFileLock } from "./safe-file.js";
 import type { Receipt } from "./schema.js";
 import type { BridgeStore } from "./store.js";
 
@@ -93,11 +93,17 @@ interface GitIndexEntry {
  * a UTF-8 BOM was dropped the same way. Keep what the file already uses, as an
  * editor does: CRLF only when the file uses it throughout and the new content
  * carries no CR of its own, and a BOM only when the new content has none.
+ *
+ * repo_read_file also returns its lines without a newline after the last one,
+ * so writing back what was read dropped the file's final newline (found
+ * 2026-11-09). A file that ends with one keeps it unless the new content is
+ * empty.
  */
 export function keepFileConventions(current: string, next: string): string {
   let content = next;
   const crlf = current.includes("\r\n") && !/(^|[^\r])\n/.test(current);
   if (crlf && !content.includes("\r")) content = content.replace(/\n/g, "\r\n");
+  if (current.endsWith("\n") && content !== "" && !content.endsWith("\n")) content += crlf ? "\r\n" : "\n";
   if (current.startsWith("\uFEFF") && !content.startsWith("\uFEFF")) content = `\uFEFF${content}`;
   return content;
 }
@@ -114,6 +120,11 @@ export async function createRepoWriteDryRun(
 
   const current = await readWritableExistingFile(root, input.path);
   const content = keepFileConventions(current.content, input.content);
+  // Restoring CRLF and a BOM adds bytes, so the limit is checked again on what
+  // will be written: content that apply refuses used to pass the dry run.
+  if (Buffer.byteLength(content, "utf8") > MAX_WRITE_BYTES) {
+    throw new Error(`New content is too large to write through repo tools`);
+  }
   if (current.content === content) {
     throw new Error(`No changes for ${input.path}`);
   }
@@ -325,7 +336,10 @@ export async function stageReviewedPaths(
   try {
     await testHooks.beforeGitAdd?.(stagedPaths);
     await assertGitHead(root, input.expected_head);
-    await execFileAsync("git", ["add", "--", ...stagedPaths], { cwd: root });
+    // Literal: read as pathspecs, a reviewed "pages/[id].tsx" also staged an
+    // unreviewed "pages/i.tsx" (found 2026-11-09). Every git call here that
+    // takes a reviewed path reads it literally.
+    await execFileAsync("git", ["--literal-pathspecs", "add", "--", ...stagedPaths], { cwd: root });
     staged = true;
     await verifyStagedContent(root, expectedObjectIdByPath);
     await testHooks.beforeStageReceipt?.(stagedPaths);
@@ -382,7 +396,7 @@ async function verifyStagedContent(root: string, expectedObjectIdByPath: Map<str
 }
 
 async function gitObjectIdForStagedPath(root: string, gitPath: string): Promise<string> {
-  const { stdout } = await execFileAsync("git", ["ls-files", "--stage", "-z", "--", gitPath], {
+  const { stdout } = await execFileAsync("git", ["--literal-pathspecs", "ls-files", "--stage", "-z", "--", gitPath], {
     cwd: root,
     maxBuffer: MAX_WRITE_BYTES + 1024
   });
@@ -397,7 +411,7 @@ async function gitObjectIdForStagedPath(root: string, gitPath: string): Promise<
 async function readGitIndexEntries(root: string, paths: string[]): Promise<Map<string, GitIndexEntry | undefined>> {
   const entries = new Map<string, GitIndexEntry | undefined>();
   for (const gitPath of paths) {
-    const { stdout } = await execFileAsync("git", ["ls-files", "--stage", "-z", "--", gitPath], {
+    const { stdout } = await execFileAsync("git", ["--literal-pathspecs", "ls-files", "--stage", "-z", "--", gitPath], {
       cwd: root,
       encoding: "buffer",
       maxBuffer: MAX_WRITE_BYTES + 1024
@@ -422,7 +436,7 @@ async function restoreGitIndexEntries(root: string, entries: Map<string, GitInde
     if (entry) {
       await execFileAsync("git", ["update-index", "--add", "--cacheinfo", entry.mode, entry.objectId, gitPath], { cwd: root });
     } else {
-      await execFileAsync("git", ["rm", "--cached", "--ignore-unmatch", "--", gitPath], { cwd: root });
+      await execFileAsync("git", ["--literal-pathspecs", "rm", "--cached", "--ignore-unmatch", "--", gitPath], { cwd: root });
     }
   }
 }
@@ -502,10 +516,16 @@ async function readWritableExistingFile(root: string, repoPath: string): Promise
   const resolved = resolveRepoPath(root, repoPath);
   await assertResolvedRepoPathAllowed(root, resolved, repoPath);
   const content = await readVerifiedUtf8File(resolved, () => assertResolvedRepoPathAllowed(root, resolved, repoPath), {
-    maxBytes: MAX_WRITE_BYTES
+    maxBytes: MAX_WRITE_BYTES,
+    requireUtf8: true
   }).catch((error) => {
     if (error instanceof Error && /too large/.test(error.message)) {
       throw new Error(`Path ${repoPath} is too large to write through repo tools`);
+    }
+    if (error instanceof NotUtf8Error) {
+      throw new Error(
+        `Path ${repoPath} is not UTF-8 text. Repo tools write UTF-8 only, so writing it would change its encoding; edit it with a tool that keeps its encoding.`
+      );
     }
     throw error;
   });
