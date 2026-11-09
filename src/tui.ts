@@ -408,6 +408,8 @@ export interface ProgressBarInput {
   width?: number;
   /** Advances the spinner; a still frame reads as a hang. */
   tick?: number;
+  /** The terminal's width; the line is kept narrower than it. */
+  columns?: number;
 }
 
 const SPINNER = ["|", "/", "-", "\\"];
@@ -423,11 +425,24 @@ export function renderProgressBar(input: ProgressBarInput): string {
   // Saying how to abort belongs on the waiting line itself: a consult can run
   // for many minutes and the only other thing on screen is the bar.
   const stop = "ctrl-c to stop";
-  if (!input.budgetMs || input.budgetMs <= 0) return `${spinner} ${input.label}  ${elapsed}  ${stop}`;
-  const width = Math.max(4, input.width ?? 28);
-  const ratio = input.elapsedMs / input.budgetMs;
-  const filled = Math.min(width, Math.round(Math.min(ratio, 1) * width));
-  const bar = `${"#".repeat(filled)}${"-".repeat(width - filled)}`;
-  const over = ratio > 1 ? "  over budget" : "";
-  return `${spinner} [${bar}] ${elapsed} / ${formatElapsed(input.budgetMs)}  ${input.label}${over}  ${stop}`;
+  let compose: (label: string) => string;
+  if (!input.budgetMs || input.budgetMs <= 0) {
+    compose = (label) => `${spinner} ${label}  ${elapsed}  ${stop}`;
+  } else {
+    const width = Math.max(4, input.width ?? 28);
+    const ratio = input.elapsedMs / input.budgetMs;
+    const filled = Math.min(width, Math.round(Math.min(ratio, 1) * width));
+    const bar = `${"#".repeat(filled)}${"-".repeat(width - filled)}`;
+    const over = ratio > 1 ? "  over budget" : "";
+    const budget = formatElapsed(input.budgetMs);
+    compose = (label) => `${spinner} [${bar}] ${elapsed} / ${budget}  ${label}${over}  ${stop}`;
+  }
+  const line = compose(input.label);
+  if (input.columns === undefined || displayWidth(line) < input.columns) return line;
+  // The line is redrawn in place, and one that wraps leaves a row behind on
+  // every redraw (found 2026-11-09: 102 columns at 80, a new row every 250
+  // ms). The label gives way first; a terminal too narrow even for the rest
+  // gets the line cut.
+  const room = input.columns - 1 - displayWidth(compose(""));
+  return truncateToWidth(compose(room > 0 ? truncateToWidth(input.label, room) : ""), input.columns - 1);
 }

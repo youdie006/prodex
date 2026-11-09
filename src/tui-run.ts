@@ -411,12 +411,19 @@ export async function runInteractiveConsult(io: TuiIo, deps: InteractiveDeps): P
       tick += 1;
       io.write(
         CLEAR_LINE +
-          renderProgressBar({ elapsedMs: now() - startedAt, budgetMs, label, tick, width: Math.min(28, terminalWidth() - 52) })
+          renderProgressBar({
+            elapsedMs: now() - startedAt,
+            budgetMs,
+            label,
+            tick,
+            width: Math.min(28, terminalWidth() - 52),
+            columns: process.stdout.columns ?? 100
+          })
       );
     }, 250);
     try {
       const code = await deps.runConsult(args, (line) => {
-        label = progressLabel(line).slice(0, 60);
+        label = progressLabel(line);
       });
       clearInterval(timer);
       io.write(CLEAR_LINE);
