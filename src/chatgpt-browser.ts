@@ -799,15 +799,26 @@ export const CHATGPT_RENDERED_MESSAGE_TEXT_JS = `
  * and the request marker (measured 2026-10-07: 179 saved answers in one test
  * repo carried a project name). They now come only from the model selector
  * and the visible composer form, matched on word boundaries.
+ *
+ * Measured 2026-11-03, a page can hold more than the composer: a new chat keeps
+ * the home page's composer, with its own trigger, mounted but hidden ahead of
+ * the conversation's, and an "Edit message" editor is a visible form inside
+ * the user turn. Taking the first trigger and every visible form reported the
+ * hidden composer's model and the prompt being edited, so only the visible
+ * composer outside the messages counts, and not the text typed into it.
  */
 export const CHATGPT_MODEL_HINTS_JS = `
     const modelHintLines = () => {
       const sources = [];
-      const trigger = document.querySelector('button[aria-label="Select ChatGPT model"],[data-testid="model-switcher-dropdown-button"]');
+      const shown = (el) => el.getClientRects().length > 0 && !(el.parentElement && el.parentElement.closest('[data-message-author-role],[data-chatgpt-search-unit-key]'));
+      const trigger = [...document.querySelectorAll('button[aria-label="Select ChatGPT model"],[data-testid="model-switcher-dropdown-button"]')].find(shown);
       // The trigger's text names the model; its aria-label only names the control.
       if (trigger) sources.push(trigger.innerText || "");
-      for (const form of [...document.querySelectorAll("form")]) {
-        if (form.getClientRects().length > 0) sources.push(form.innerText || "");
+      const editor = [...document.querySelectorAll('#prompt-textarea,[contenteditable="true"],textarea')].find(shown);
+      const form = editor && editor.closest("form");
+      if (form) {
+        const typed = (editor.innerText || editor.value || "").split(String.fromCharCode(10)).map((line) => line.trim());
+        sources.push((form.innerText || "").split(String.fromCharCode(10)).filter((line) => !typed.includes(line.trim())).join(String.fromCharCode(10)));
       }
       const modelish = /\\b(?:ChatGPT|GPT(?:-[\\w.]+)?|Pro|Plus|Thinking|Instant|Extra High|High|Medium|Auto|Latest)\\b/i;
       const seen = [];
