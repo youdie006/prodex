@@ -30,6 +30,9 @@ export interface CrossProcessFileLockOptions {
   onWait?: (holder: CrossProcessFileLockHolder) => void;
   busyError: (holder: CrossProcessFileLockHolder) => Error;
   unavailableError: () => Error;
+  /** Stop waiting for the lock once this aborts, throwing abortedError. */
+  signal?: AbortSignal;
+  abortedError?: () => Error;
 }
 
 let testHooks: SafeFileTestHooks = {};
@@ -82,6 +85,7 @@ export async function withCrossProcessFileLock<T>(
   let retriedMissingAtDeadline = false;
   let lease: FileLockLease | undefined;
   for (;;) {
+    if (options.signal?.aborted) throw options.abortedError?.() ?? new Error("Stopped waiting for the lock: the caller cancelled");
     lease = await tryAcquireFileLock(filePath, parentSnapshot);
     if (lease) break;
 
@@ -110,7 +114,7 @@ export async function withCrossProcessFileLock<T>(
       waited = true;
       options.onWait?.(snapshot.holder);
     }
-    await delay(Math.min(retryMs, Math.max(1, deadline - Date.now())));
+    await delay(Math.min(retryMs, Math.max(1, deadline - Date.now())), options.signal);
   }
 
   try {
@@ -750,8 +754,18 @@ function linuxProcessStartTicks(pid: number): string | undefined {
   }
 }
 
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+/** Resolves after ms, or as soon as signal aborts. */
+function delay(ms: number, signal?: AbortSignal): Promise<void> {
+  if (!signal) return new Promise((resolve) => setTimeout(resolve, ms));
+  return new Promise((resolve) => {
+    const done = (): void => {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", done);
+      resolve();
+    };
+    const timer = setTimeout(done, ms);
+    signal.addEventListener("abort", done, { once: true });
+  });
 }
 
 function procFdPath(fd: number): string {
