@@ -67,12 +67,16 @@ export interface SearchRepoResult {
   limit: number;
 }
 
+// ripgrep names a path or line that is not UTF-8 as base64 "bytes" instead
+// of "text".
+type RipgrepJsonText = { text: string } | { bytes: string };
+
 interface RipgrepJsonMatch {
   type: "match";
   data: {
-    path: { text: string };
+    path: RipgrepJsonText;
     line_number: number;
-    lines: { text: string };
+    lines: RipgrepJsonText;
   };
 }
 
@@ -93,11 +97,17 @@ export function assertRepoRelativePath(repoPath: string): void {
   assertNotSensitiveRepoPath(normalized);
 }
 
+// "..notes.md" is a file in the root; only ".." itself or a path through it
+// leaves it.
+function escapesRoot(relative: string): boolean {
+  return relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative);
+}
+
 export function resolveRepoPath(root: string, repoPath: string): string {
   assertRepoRelativePath(repoPath);
   const resolved = path.resolve(root, repoPath);
   const relative = path.relative(root, resolved);
-  if (relative.startsWith("..") || path.isAbsolute(relative)) {
+  if (escapesRoot(relative)) {
     throw new Error(`Path ${repoPath} escapes the repository root`);
   }
   return resolved;
@@ -141,6 +151,9 @@ export async function searchRepoWithMetadata(root: string, query: string, glob?:
   if (!query.trim()) {
     throw new Error("Search query must not be empty");
   }
+  if (/[\r\n]/.test(query)) {
+    throw new Error("repo_search matches one line at a time, so a query cannot contain a line break; search for one of its lines.");
+  }
   if (glob) {
     assertRepoRelativeGlob(glob);
   }
@@ -148,11 +161,19 @@ export async function searchRepoWithMetadata(root: string, query: string, glob?:
     "--no-config",
     "--no-follow",
     "--json",
+    // repo_read_file reads .github/, .eslintrc and the like, and without this
+    // ripgrep skipped every hidden file. Results still pass the same path
+    // policy as reads, and the globs below keep the sensitive ones unopened.
+    "--hidden",
     ...(glob ? ["--glob", glob] : []),
     "--glob",
     "!.bridge/**",
     "--glob",
     "!**/.bridge/**",
+    "--glob",
+    "!.git",
+    "--glob",
+    "!**/.git",
     "--glob",
     "!.git/**",
     "--glob",
@@ -192,32 +213,27 @@ export async function searchRepoWithMetadata(root: string, query: string, glob?:
       timeout: 10_000,
       maxBuffer: 1024 * 1024
     });
-    const parsedMatches = stdout
-      .split("\n")
-      .filter(Boolean)
-      .map(parseRipgrepJsonMatch)
-      .filter((match): match is SearchResult => match !== undefined);
-    const allowedMatches: SearchResult[] = [];
-    let truncated = false;
-    for (const match of parsedMatches) {
-      if (await isAllowedRepoSearchResult(root, match.path)) {
-        if (allowedMatches.length >= MAX_REPO_SEARCH_MATCHES) {
-          truncated = true;
-          break;
-        }
-        allowedMatches.push(match);
-      }
-    }
-    return { matches: allowedMatches, truncated, limit: MAX_REPO_SEARCH_MATCHES };
+    return await allowedSearchResult(root, stdout, false);
   } catch (error) {
     const maybe = error as { code?: number | string; stdout?: string };
     if (maybe.code === "ENOENT") {
       throw new Error("ripgrep (rg) is required on PATH for repo_search");
     }
     if (isSearchOutputTooLarge(error)) {
+      // A broad query outgrew the buffer: return the matches read so far,
+      // marked truncated, rather than none.
+      const partial = await allowedSearchResult(root, maybe.stdout ?? "", true);
+      if (partial.matches.length > 0) return partial;
       throw new Error("repo_search returned too many matches; narrow the query or glob and try again");
     }
     if (maybe.code === 1) return { matches: [], truncated: false, limit: MAX_REPO_SEARCH_MATCHES };
+    // ripgrep exits 2 when it could not read some path (a directory it may
+    // not enter, say) but still prints what it found elsewhere; that used to
+    // fail the whole search with the raw command line.
+    if (maybe.code === 2 && !ripgrepRegexError((error as { stderr?: string }).stderr)) {
+      const partial = await allowedSearchResult(root, maybe.stdout ?? "", false);
+      if (partial.matches.length > 0) return partial;
+    }
     // An invalid pattern used to surface as "Command failed: <rg path> ..."
     // with rg's parse error buried in it (measured 2026-10-21, query "(").
     const reason = ripgrepRegexError((error as { stderr?: string }).stderr);
@@ -228,6 +244,25 @@ export async function searchRepoWithMetadata(root: string, query: string, glob?:
     }
     throw error;
   }
+}
+
+async function allowedSearchResult(root: string, stdout: string, truncated: boolean): Promise<SearchRepoResult> {
+  const parsedMatches = stdout
+    .split("\n")
+    .filter(Boolean)
+    .map(parseRipgrepJsonMatch)
+    .filter((match): match is SearchResult => match !== undefined);
+  const allowedMatches: SearchResult[] = [];
+  for (const match of parsedMatches) {
+    if (await isAllowedRepoSearchResult(root, match.path)) {
+      if (allowedMatches.length >= MAX_REPO_SEARCH_MATCHES) {
+        truncated = true;
+        break;
+      }
+      allowedMatches.push(match);
+    }
+  }
+  return { matches: allowedMatches, truncated, limit: MAX_REPO_SEARCH_MATCHES };
 }
 
 function ripgrepRegexError(stderr: string | undefined): string | undefined {
@@ -245,10 +280,18 @@ function parseRipgrepJsonMatch(line: string): SearchResult | undefined {
   }
   if (!isRipgrepJsonMatch(event)) return undefined;
   return {
-    path: normalizeRipgrepMatchPath(event.data.path.text),
+    path: normalizeRipgrepMatchPath(ripgrepText(event.data.path)),
     line: event.data.line_number,
-    text: stripOneTrailingLineEnding(event.data.lines.text)
+    text: stripOneTrailingLineEnding(ripgrepText(event.data.lines))
   };
+}
+
+function ripgrepText(value: RipgrepJsonText): string {
+  return "text" in value ? value.text : Buffer.from(value.bytes, "base64").toString("utf8");
+}
+
+function isRipgrepJsonText(value: unknown): value is RipgrepJsonText {
+  return isRecord(value) && (typeof value.text === "string" || typeof value.bytes === "string");
 }
 
 function normalizeRipgrepMatchPath(matchPath: string): string {
@@ -258,14 +301,7 @@ function normalizeRipgrepMatchPath(matchPath: string): string {
 function isRipgrepJsonMatch(value: unknown): value is RipgrepJsonMatch {
   if (!isRecord(value) || value.type !== "match" || !isRecord(value.data)) return false;
   const { path: matchPath, line_number: lineNumber, lines } = value.data;
-  return (
-    isRecord(matchPath) &&
-    typeof matchPath.text === "string" &&
-    typeof lineNumber === "number" &&
-    Number.isFinite(lineNumber) &&
-    isRecord(lines) &&
-    typeof lines.text === "string"
-  );
+  return isRipgrepJsonText(matchPath) && typeof lineNumber === "number" && Number.isFinite(lineNumber) && isRipgrepJsonText(lines);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -542,7 +578,7 @@ export async function assertResolvedRepoPathAllowed(root: string, resolved: stri
     throw error;
   }
   const relative = path.relative(realRoot, realTarget);
-  if (relative.startsWith("..") || path.isAbsolute(relative)) {
+  if (escapesRoot(relative)) {
     throw new Error(`Path ${repoPath} escapes the repository root after resolving symlinks`);
   }
   if (relative) {
