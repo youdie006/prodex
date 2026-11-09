@@ -491,7 +491,6 @@ describe("cancelled MCP consults", () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-cancel-"));
     const { withBrowserSendLock } = await import("../src/browser-send-lock.js");
     const controller = new AbortController();
-    const startedAt = Date.now();
 
     const outcome = (await withBrowserSendLock(20_000, () => undefined, async () => {
       // Queued behind this holder with a 5s budget; the holder keeps the lock
@@ -504,8 +503,10 @@ describe("cancelled MCP consults", () => {
 
     expect(sendChatGptPromptMock).not.toHaveBeenCalled();
     expect(outcome.status).toBe("blocked");
+    // Had the cancel not ended the wait, the 5s budget would have, as
+    // browser_busy. No timing bound: CI on Windows and macOS Intel took 6-8s
+    // for the whole test, record writing included.
     expect(outcome.blocker.code).toBe("consult_cancelled");
-    expect(Date.now() - startedAt).toBeLessThan(4_000);
   });
 
   it("keeps and records the answer when the call is cancelled after the prompt was submitted", async () => {
