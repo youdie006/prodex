@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - One directory `repo_search` could not read (a database volume owned by another user, for one) failed the whole search with the raw ripgrep command line, and the matches found everywhere else were thrown away. Those matches are now returned.
 - A broad `repo_search` (a few thousand matching lines) failed as "returned too many matches" instead of returning its first 100 marked `truncated: true`. A query containing a line break failed with the raw ripgrep command line; it now says that a search matches one line at a time.
 - `repo_read_file` and the repo write tools refused a top-level file whose name starts with two dots, such as `..notes.md`, as escaping the repository.
+- Reading a task, session or receipt key while another prodex process updated it could fail as "Target path changed during read file operation", without naming the file. Records are replaced by renaming a new file over them, and the read refused when the file it had opened was no longer the one at the path. Found 2026-11-09: with one process rewriting a session, 171 of about 1,100 reads from another failed; `prodex tasks list`, `sessions show` and MCP `bridge_list_tasks` failed the same way while a consult was updating its records. Such a read is now made again, up to five times, with every check repeated; a file swapped for a symlink is still refused at once.
 
 ## 0.40.50
 
