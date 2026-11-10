@@ -133,6 +133,14 @@ This was checked from logs, without restarting Windows: a restart would end ever
   - The browser container was therefore down from about 21:37 to 21:46 after that restart.
   - The same applies whenever every WSL window is closed.
 - **Unrelated:** the logon task `WSL-PortProxy-Refresh` failed at that logon with result 0xFFFD0000. Its script `C:\Scripts\refresh-wsl-ssh.ps1` could not be read.
+- **Fix (on the user's request, 2026-11-10):** `[general] instanceIdleTimeout=-1` was appended to `C:\Users\KBS\.wslconfig`.
+  - The original file is kept as `.wslconfig.2026-11-10.bak`, and its other settings are unchanged.
+  - The setting takes effect the next time WSL starts. It has not been observed across a Windows restart yet.
+  - After the next restart, check:
+    - `journalctl --list-boots` shows one boot since logon;
+    - pm2's log shows no "Stopping app" lines shortly after logon;
+    - `docker inspect prodex-browser-browser-1` shows a StartedAt a minute or two after the Windows logon (System log event 7001).
+  - The container doc's WSL guidance was corrected in container PR #103.
 
 **Verified live on the WSL container (#96)**
 - A `prodex mcp` stdio session in the container got a 2,000,070-byte `ping` after initialize, then a small one. Both were answered, and nothing went to stderr. Before #96 the server closed on any message over 1 MiB.
