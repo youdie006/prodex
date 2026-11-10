@@ -33,11 +33,37 @@ export interface HelpRequestOptions {
   valueFlags?: readonly string[];
   booleanFlags?: readonly string[];
   maxPositionals?: number;
+  /** The command's unquoted words are its prompt (ask). */
+  promptWords?: boolean;
 }
 export function findHelpFlagIndexBeforePromptDelimiter(args: string[]): number {
   const delimiterIndex = args.indexOf("--");
   const limit = delimiterIndex === -1 ? args.length : delimiterIndex;
   return args.findIndex((arg, index) => index < limit && isHelpSubcommand(arg));
+}
+/**
+ * Where a help request is, or -1. In a command whose unquoted words are its
+ * prompt, the word "help" asks for help only on its own: found 2026-11-09,
+ * `prodex ask can you help me fix this` was taken for a help request and
+ * failed with "Unexpected argument for ask: can". --help and -h always ask.
+ */
+export function findHelpRequestIndex(args: string[], options: HelpRequestOptions = {}): number {
+  const delimiterIndex = args.indexOf("--");
+  const limit = delimiterIndex === -1 ? args.length : delimiterIndex;
+  const valueFlagSet = new Set(options.valueFlags ?? []);
+  const words: number[] = [];
+  for (let index = 0; index < limit; index += 1) {
+    const arg = args[index];
+    if (arg === "--help" || arg === "-h") return index;
+    if (valueFlagSet.has(arg)) {
+      index += 1;
+      continue;
+    }
+    if (!arg.startsWith("-")) words.push(index);
+  }
+  const helpWord = words.find((index) => args[index] === "help");
+  if (helpWord === undefined) return -1;
+  return !options.promptWords || words.length === 1 ? helpWord : -1;
 }
 export function assertHelpRequestArgs(args: string[], command: string, options: HelpRequestOptions): void {
   const delimiterIndex = args.indexOf("--");
@@ -401,7 +427,7 @@ export function printHelpIfRequested(
   printHelp: (stdout: (line: string) => void) => void,
   options: HelpRequestOptions = {}
 ): boolean {
-  const helpIndex = findHelpFlagIndexBeforePromptDelimiter(args);
+  const helpIndex = options.promptWords ? findHelpRequestIndex(args, options) : findHelpFlagIndexBeforePromptDelimiter(args);
   if (helpIndex === -1) return false;
   assertHelpRequestArgs(args, command, options);
   printHelp(stdout);

@@ -59,6 +59,7 @@ import {
   assertNoExtraArgs,
   assertOnlyOptions,
   findHelpFlagIndexBeforePromptDelimiter,
+  findHelpRequestIndex,
   formatCliCommand,
   hasAskProDryRunMode,
   hasAskProMode,
@@ -262,7 +263,8 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
       if (
         printHelpIfRequested(proArgs, "pro ask", io.stdout, printProHelp, {
           valueFlags: [...ASK_PRO_PREVIEW_VALUE_FLAGS],
-          booleanFlags: [...ASK_PRO_BOOLEAN_FLAGS]
+          booleanFlags: [...ASK_PRO_BOOLEAN_FLAGS],
+          promptWords: true
         })
       ) {
         return 0;
@@ -292,7 +294,9 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
         "--continue-task",
         "--auto-login",
         "--no-auto-login"
-      ].find((flag) => proArgs.includes(flag));
+        // Only before --: the words after it are the prompt, which may well
+        // mention an option (found 2026-11-09: "what does --project do").
+      ].find((flag) => (proArgs.includes("--") ? proArgs.slice(0, proArgs.indexOf("--")) : proArgs).includes(flag));
       if (straySendFlag) {
         throw new Error(`${straySendFlag} only applies when sending; \`prodex pro ask\` is a dry-run preview. Use \`prodex pro browser ask\` (or \`prodex ask\`) to send.`);
       }
@@ -637,7 +641,8 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
         if (
           printProBrowserHelpIfRequested(browserArgs, "pro browser ask", io, {
             valueFlags: [...ASK_PRO_VALUE_FLAGS],
-            booleanFlags: [...ASK_PRO_BOOLEAN_FLAGS]
+            booleanFlags: [...ASK_PRO_BOOLEAN_FLAGS],
+            promptWords: true
           })
         ) {
           return 0;
@@ -3716,7 +3721,7 @@ export function printBrowserLoginGuide(
 }
 
 export function printProBrowserHelpIfRequested(args: string[], command: string, io: CliIO, options: HelpRequestOptions): boolean {
-  const helpIndex = findHelpFlagIndexBeforePromptDelimiter(args);
+  const helpIndex = options.promptWords ? findHelpRequestIndex(args, options) : findHelpFlagIndexBeforePromptDelimiter(args);
   if (helpIndex === -1) return false;
   assertHelpRequestArgs(args, command, options);
   printProBrowserHelp(io.stdout, resolveOptionalFileFlag(io.cwd, args, "--source-cli"));
