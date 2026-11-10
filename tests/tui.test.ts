@@ -6,6 +6,7 @@ import { formatCommand } from "../src/tui-run.js";
 const { effortChoices, SEND_KINDS } = await import("../src/tui-flow.js");
 const {
   consultArgsFromChoices,
+  displayWidth,
   conversationThreadUrl,
   moveCursor,
   parseAttachmentLine,
@@ -505,6 +506,26 @@ describe("progress bar", () => {
     // Over budget is worth saying out loud rather than showing a full bar and
     // pretending the wait is done.
     expect(bar).toContain("over budget");
+  });
+
+  // Found 2026-11-09 at 80 columns: the frame for "prompt sent, waiting for
+  // answer (budget 5m)" was 102 columns wide, so it wrapped, and each redraw
+  // cleared only the wrapped row: a new line every 250 ms, ten in 2.5 s.
+  it("fits the terminal, cutting the label rather than the rest", () => {
+    const label = "prompt sent, waiting for answer (budget 5m)";
+    const bar = renderProgressBar({ elapsedMs: 0, budgetMs: 20 * 60_000, label, width: 28, columns: 80 });
+    expect(displayWidth(bar)).toBeLessThanOrEqual(79);
+    expect(bar).toContain("ctrl-c to stop");
+    expect(bar).toContain("0s / 20m");
+    expect(bar).toContain("prompt sent");
+    const korean = renderProgressBar({ elapsedMs: 0, label: "프롬프트를 보냈고 답변을 기다리는 중입니다 아주 길게", columns: 40 });
+    expect(displayWidth(korean)).toBeLessThanOrEqual(39);
+    const narrow = renderProgressBar({ elapsedMs: 0, budgetMs: 60_000, label, width: 4, columns: 30 });
+    expect(displayWidth(narrow)).toBeLessThanOrEqual(29);
+  });
+
+  it("leaves a line that fits as it is", () => {
+    expect(renderProgressBar({ elapsedMs: 0, label: "generating", columns: 200 })).toBe(renderProgressBar({ elapsedMs: 0, label: "generating" }));
   });
 
   it("degrades to an elapsed counter when there is no budget to measure against", () => {
