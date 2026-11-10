@@ -94,6 +94,27 @@ Release commit `952e8bb` on `main` (cut after PRs #88-#99, last merge `52f76d6`)
   - Port commits carry only `src`, `tests` and `docs`, so this root config had never reached the branch.
   - Two Ubuntu jobs failed first on a stalled `apt-get update`. Their reruns passed.
 
+**Cold start on M3 (on the user's request, 06:06-06:09 UTC)**
+- First, no send held the browser lock. The container had been up since 01:10 UTC, healthy and ready.
+- An MCP relay probe connected through the new client copy.
+- **Stop:** `colima stop --profile prodex-check` at 06:06:59 shut the VM down in 5 s. The container stopped with it.
+- **Start:** at 06:08:23, `launchctl kickstart` ran the LaunchAgent the way login does.
+  - `colima-start.sh` saw the VM Stopped and started it. It was Running after 5 s.
+  - The container came back by itself (`unless-stopped`) and was healthy after 20 s, at 06:08:36. It had restarts=0, 154 processes and no thread errors in its log.
+  - The first `status` after the start reported it ready: logged in, composer present, no blocker. No prompt was sent.
+- **Relay:** the probe reconnected 5 s after the container started, sent `tools/list_changed`, and a new `tools/list` returned 20 tools.
+  - A Claude Code relay already connected on M3 since 02:29 UTC (old client copy) reconnected at the same time.
+- **Downtime:** about 1 min 45 s from stop to healthy. That includes a 60 s wait for the held-request check below.
+- **Two defects found, fixed in container PR #102 (merge `d1ec949`, 06:31 UTC):**
+  - With the VM stopped, `status` and the held MCP request said "Docker context colima-prodex-check does not exist here". The cause: `colima stop` deletes the profile's Docker context, and `~/.colima/prodex-check/colima.yaml` stays. The client now says the VM looks stopped and names `colima start --profile prodex-check`.
+  - Run from macOS `/tmp` (a link to `/private/tmp`), the client exited 0 and did nothing. Its main-module check compared a resolved path with an unresolved one.
+- **Installed:** both client copies moved to `d1ec949` (sha256 `728b7d08...`).
+  - WSL: the pinned checkout.
+  - M3: the installed copy. The previous copy is kept as `container-client.mjs.aa2bbea.bak`.
+  - `status` reports both containers running, healthy and ready.
+  - On M3, with an empty `DOCKER_CONFIG` (the context missing while the profile stays, as in the cold start), the client named `colima start --profile prodex-check`.
+- **Not exercised:** a real macOS restart and console login, and a real `Broken` VM.
+
 **Verified live on the WSL container (#96)**
 - A `prodex mcp` stdio session in the container got a 2,000,070-byte `ping` after initialize, then a small one. Both were answered, and nothing went to stderr. Before #96 the server closed on any message over 1 MiB.
 - `pro_consult` cancellation was not exercised live; it is covered by #96's tests.
