@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Fixed
+- `npm run release:verify` stopped `npm test` after 15 minutes and reported it as `release verification failed: npm test: > @youdie006/prodex@0.40.51 test`, npm's banner line, as if a test had failed. Found 2026-11-10, when this stopped the 0.40.51 publish run on its macOS Intel runner with no test failed; CI's macOS Intel runners had taken 10.5 to 14 minutes for the suite. The suite now gets 25 minutes, `PRODEX_RELEASE_CHECK_TEST_TIMEOUT_MS` sets another budget in milliseconds, and a check stopped at its budget is reported as stopped, with the budget.
+- The test that a browser prodex cannot reach is closed waited a fixed 200 ms for the closed browser's exit to be reported, and failed the same publish run on its Windows runner, where the report came later. It now waits for the exit itself, up to 5 seconds.
+
 ## 0.40.51
 
 ### Fixed
