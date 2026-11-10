@@ -232,7 +232,9 @@ macOS and Windows the Linux VM that runs it. The helper below never starts eithe
 When the container cannot be reached, its `status`, `pro`, `viewer` and `mcp`
 commands say which of these it is, and what to run:
 
-- the Docker context does not exist;
+- the Docker context does not exist. `colima stop` deletes the profile's context
+  (seen in a cold start on M3 on 2026-11-10), so when a colima profile of that
+  name is on disk, the message says the VM looks stopped and names `colima start`;
 - the engine is not answering (with the start command for colima, Docker Desktop,
   OrbStack, Linux or WSL, judged by the context's socket);
 - the engine refuses this user (permission denied on its socket);
