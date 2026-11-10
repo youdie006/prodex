@@ -7,21 +7,72 @@ import { formatProConsultArtifact } from "../src/cli-pro.js";
 // /GPT|Pro|.../i, so the saved answer of every consult listed sidebar project
 // names ("prodex-smoke-project", "Projects"), conversation titles and the
 // request marker - 179 saved answers in one test repo carried a project name.
-function hints(options: { trigger?: string; forms?: string[] }): string[] {
+//
+// Measured 2026-11-03 in the browser container: a new chat leaves the home
+// page's composer mounted but hidden ahead of the conversation's, and an
+// "Edit message" editor is a visible form inside the user turn. Both are on
+// the page next to the real composer.
+type Fake = Record<string, unknown>;
+
+const TRIGGER = 'button[aria-label="Select ChatGPT model"]';
+
+function node(opts: { text?: string; visible?: boolean; inMessage?: boolean; form?: Fake | null }): Fake {
+  return {
+    innerText: opts.visible === false ? (opts.text ?? "").replace(/\n/g, "") : opts.text ?? "",
+    getClientRects: () => (opts.visible === false ? [] : [{}]),
+    parentElement: { closest: () => (opts.inMessage ? {} : null) },
+    closest: (selector: string) => (selector === "form" ? opts.form ?? null : null)
+  };
+}
+
+function composer(opts: { trigger: string; typed?: string; formLines?: string[]; visible?: boolean; inMessage?: boolean }) {
+  const form: Fake = {};
+  const lines = [opts.typed, ...(opts.formLines ?? []), opts.trigger].filter((line) => line !== undefined && line !== "");
+  Object.assign(form, node({ text: lines.join("\n"), visible: opts.visible, inMessage: opts.inMessage }));
+  const editor = node({ text: opts.typed ?? "", visible: opts.visible, inMessage: opts.inMessage, form });
+  const trigger = opts.trigger ? node({ text: opts.trigger, visible: opts.visible, inMessage: opts.inMessage, form }) : undefined;
+  return { form, editor, trigger };
+}
+
+function hints(composers: ReturnType<typeof composer>[]): string[] {
   const document = {
-    querySelector: () => (options.trigger === undefined ? null : { getAttribute: () => "Select ChatGPT model", innerText: options.trigger }),
+    querySelector: (selector: string) => (selector.includes(TRIGGER) ? composers.find((c) => c.trigger)?.trigger ?? null : null),
     querySelectorAll: (selector: string) =>
-      selector === "form" ? (options.forms ?? []).map((text) => ({ innerText: text, getClientRects: () => [{}] })) : []
+      selector.includes(TRIGGER)
+        ? composers.flatMap((c) => (c.trigger ? [c.trigger] : []))
+        : selector === "form"
+          ? composers.map((c) => c.form)
+          : selector.includes("contenteditable")
+            ? composers.map((c) => c.editor)
+            : []
   };
   return new Function("document", `${CHATGPT_MODEL_HINTS_JS}\n return modelHintLines();`)(document) as string[];
 }
 
 describe("model hints", () => {
   it("come from the model selector and the composer, not the sidebar", () => {
-    const result = hints({ trigger: "Pro", forms: ["Ask anything\nExtended Pro\nAdd files and more"] });
+    const result = hints([composer({ trigger: "Pro", formLines: ["Ask anything", "Extended Pro", "Add files and more"] })]);
     expect(result).toContain("Pro");
     expect(result).toContain("Extended Pro");
     expect(result.join("\n")).not.toMatch(/prodex-smoke-project|Projects|Select ChatGPT model/);
+  });
+
+  it("read the composer's model trigger", () => {
+    expect(hints([composer({ trigger: "Thinking effort\nPro" })])).toEqual(["Thinking effort", "Pro"]);
+  });
+
+  it("leave out the prompt of a message open for editing", () => {
+    const editing = composer({ trigger: "", typed: "Use the latest Pro plan\nKeep it high level", inMessage: true });
+    expect(hints([editing, composer({ trigger: "Thinking effort\nPro" })])).toEqual(["Thinking effort", "Pro"]);
+  });
+
+  it("read the visible composer, not a hidden one ahead of it", () => {
+    const hidden = composer({ trigger: "Instant", visible: false });
+    expect(hints([hidden, composer({ trigger: "Thinking effort\nPro" })])).toEqual(["Thinking effort", "Pro"]);
+  });
+
+  it("leave out text typed into the composer", () => {
+    expect(hints([composer({ trigger: "Pro", typed: "Pick Auto if unsure" })])).toEqual(["Pro"]);
   });
 
   it("are filtered again when an answer is saved", () => {
