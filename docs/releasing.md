@@ -63,6 +63,11 @@ Release commit `952e8bb` on `main` (cut after PRs #88-#99, last merge `52f76d6`)
   - It came up healthy with the 1024 process limit, using 165.
   - `pro browser check` reported logged in with a composer.
   - `pro browser smoke` answered `PRODEX_PRO_SMOKE_OK` with its request verified, after 42 s.
+  - Afterwards, on the user's request, a LaunchAgent now starts the VM at login. It is `~/Library/LaunchAgents/io.github.youdie006.prodex.colima-prodex-check.plist` on M3 and runs `colima start --profile prodex-check`.
+    - A failed start is retried every 60 s. The log is `~/Library/Logs/colima-prodex-check.log`.
+    - When loaded at 02:27 UTC it found the VM running, logged "already running, ignoring" and exited 0. The VM and container were left untouched.
+    - A cold start from a stopped VM was not exercised.
+    - M3 has no automatic login, so after a restart the VM starts once someone logs in at the console.
 
 **Verified live on the WSL container (#96)**
 - A `prodex mcp` stdio session in the container got a 2,000,070-byte `ping` after initialize, then a small one. Both were answered, and nothing went to stderr. Before #96 the server closed on any message over 1 MiB.
