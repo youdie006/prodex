@@ -224,6 +224,80 @@ docker compose -f containers/browser/compose.json up -d --no-build browser
 Do not run `down -v` unless intentionally deleting the entire profile. Do not
 share or mount the profile into another running browser.
 
+### Keep the Docker engine running
+
+The compose file's `restart: "unless-stopped"` brings the container back whenever
+its Docker engine starts, so after a restart only the engine has to start, and on
+macOS and Windows the Linux VM that runs it. The helper below never starts either.
+When the container cannot be reached, its `status`, `pro`, `viewer` and `mcp`
+commands say which of these it is, and what to run:
+
+- the Docker context does not exist;
+- the engine is not answering (with the start command for colima, Docker Desktop,
+  OrbStack, Linux or WSL, judged by the context's socket);
+- the engine refuses this user (permission denied on its socket);
+- the container does not exist, or exists and is stopped;
+- the `docker` command is not on the PATH the helper runs with.
+
+Before 2026-11-10 all of these read "was not found or Docker is unavailable".
+
+- **Linux:** `sudo systemctl enable --now docker` starts the engine at boot, with
+  nobody logged in.
+- **WSL:** with `systemd=true` under `[boot]` in `/etc/wsl.conf` and
+  `sudo systemctl enable docker`, the engine starts with the distro. The distro
+  itself starts when something on Windows starts it (a terminal, `wsl.exe`, or a
+  client that runs this helper through WSL), not when Windows boots. Checked on
+  the WSL host on 2026-11-10: systemd is PID 1 and docker is enabled and active.
+  A start after a Windows restart has not been observed there yet.
+- **Docker Desktop:** turn on its "Start Docker Desktop when you sign in" setting.
+- **macOS with colima:** colima has no boot service. A login LaunchAgent runs
+  `scripts/colima-start.sh PROFILE`, which starts the profile's VM. A macOS
+  restart can leave the VM `Broken` ("vz driver is running but host agent is
+  not"), and `colima start` fails until `colima stop --force` has run (Colima
+  FAQ); the script runs that first when `colima list` shows `Broken`. It leaves a
+  profile `colima list` does not show alone, since `colima start` would create a
+  new, empty VM under that name. A failed start exits non-zero, and launchd runs
+  it again after 60 seconds.
+
+  The agent runs only after a user logs in at the console. A Mac without
+  automatic login keeps the VM stopped until then, and macOS turns automatic
+  login off while FileVault is on. Install it from the repository root, with the
+  profile that runs the container:
+
+  ```sh
+  profile=prodex-check
+  label=io.github.youdie006.prodex.colima-$profile
+  mkdir -p ~/.local/bin ~/Library/Logs ~/Library/LaunchAgents
+  install -m 755 scripts/colima-start.sh ~/.local/bin/prodex-colima-start
+  cat > ~/Library/LaunchAgents/$label.plist <<PLIST
+  <?xml version="1.0" encoding="UTF-8"?>
+  <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+  <plist version="1.0">
+  <dict>
+    <key>Label</key><string>$label</string>
+    <key>ProgramArguments</key>
+    <array><string>/bin/sh</string><string>$HOME/.local/bin/prodex-colima-start</string><string>$profile</string></array>
+    <key>EnvironmentVariables</key>
+    <dict><key>PATH</key><string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string></dict>
+    <key>RunAtLoad</key><true/>
+    <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
+    <key>ThrottleInterval</key><integer>60</integer>
+    <key>AbandonProcessGroup</key><true/>
+    <key>StandardOutPath</key><string>$HOME/Library/Logs/colima-$profile.log</string>
+    <key>StandardErrorPath</key><string>$HOME/Library/Logs/colima-$profile.log</string>
+  </dict>
+  </plist>
+  PLIST
+  launchctl bootout gui/$(id -u)/$label 2>/dev/null
+  launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/$label.plist
+  ```
+
+  The script is copied out of the checkout so that switching the checkout's
+  branch does not change what runs at login. `AbandonProcessGroup` keeps launchd
+  from stopping the VM processes that `colima start` leaves running when the
+  script ends. Loading the agent runs the script once; on a running VM it logs
+  "is already running" and changes nothing.
+
 ## MCP transport
 
 ### Everyday checkout helper
@@ -279,7 +353,9 @@ leaves unset. Remove it with `setup --clear-model`.
   already be posted, so run `pro_recover` with its request id before sending it
   again;
 - runs `docker exec` again until the container is back, holding new requests
-  meanwhile (each one is answered with an error after 60 seconds);
+  meanwhile. Each one is answered with an error after 60 seconds, which says why
+  the container is away (a stopped Docker engine or colima VM, for example) and
+  what starts it, as in [Keep the Docker engine running](#keep-the-docker-engine-running);
 - replays the client's `initialize` and `notifications/initialized` to the new
   server, sends the client `notifications/tools/list_changed`, and passes the held
   requests on.

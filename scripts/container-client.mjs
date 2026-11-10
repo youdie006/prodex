@@ -140,8 +140,18 @@ export function buildProArgs(rest) {
     ...(selected ? [] : ["--effort", "Pro"]), ...rest];
 }
 
+function endpointLabel(target) {
+  return target.context ? `Docker context ${target.context}` : "the DOCKER_HOST endpoint";
+}
+
+function notRunning(inspect, target) {
+  const status = typeof inspect?.State?.Status === "string" && /^[a-z]{1,20}$/.test(inspect.State.Status) ? ` (${inspect.State.Status})` : "";
+  const start = ["docker", ...contextArgs(target), "start", target.container].join(" ");
+  return `${target.container} is not running${status} in ${endpointLabel(target)}; start it with \`${start}\`, then retry. This client never starts it.`;
+}
+
 function assertRunning(inspect, target) {
-  if (inspect?.State?.Running !== true) throw new Error(`${target.container} is not running in the selected Docker context; start it manually, then retry (no auto-start).`);
+  if (inspect?.State?.Running !== true) throw new Error(notRunning(inspect, target));
 }
 
 function safeToken(value, fallback = "unknown") {
@@ -281,6 +291,9 @@ const RELAY_ERROR = -32000;
 const LOST_IN_FLIGHT = "The prodex browser container restarted while this request was in flight, so its answer was lost. " +
   "If it was a consult, its prompt may already be posted: run pro_recover with its request id before sending it again.";
 const STILL_AWAY = "The prodex browser container is not reachable yet; the MCP relay keeps reconnecting. Retry shortly.";
+const stillAway = reason => reason
+  ? `The prodex browser container is not reachable: ${reason} The MCP relay keeps reconnecting and goes on once it is back.`
+  : STILL_AWAY;
 
 function lineSplitter(onLine) {
   const decoder = new StringDecoder("utf8");
@@ -311,8 +324,10 @@ function parseMessage(line) {
 // requests that were in flight with an error, starts `docker exec` again until
 // the container is back, replays the client's initialize and initialized
 // messages to the new server, and then passes on what the client sent meanwhile.
+// A request held too long is answered with why the container is away (from
+// `explainAway`, for example a stopped Docker engine) and what starts it.
 export function runMcpRelay(args, { parent = process, spawn = nodeSpawn, retryDelaysMs = [250, 500, 1000, 2000, 5000],
-  queueTimeoutMs = 60000, log = line => parent.stderr?.write(`${line}\n`) } = {}) {
+  queueTimeoutMs = 60000, log = line => parent.stderr?.write(`${line}\n`), explainAway = async () => undefined } = {}) {
   if (parent.stdin.isTTY === true) return runStreaming(args, { parent, spawn, closeInputStopsChild: true });
   return new Promise((resolve, reject) => {
     const ended = new WeakSet();
@@ -332,16 +347,29 @@ export function runMcpRelay(args, { parent = process, spawn = nodeSpawn, retryDe
     let retryTimer;
     let inputTimer;
     let stopTimer;
+    let explaining;
+    let loggedReason;
 
     const toClient = message => parent.stdout.write(`${typeof message === "string" ? message : JSON.stringify(message)}\n`);
     const answerError = (id, text) => toClient({ jsonrpc: "2.0", id, error: { code: RELAY_ERROR, message: text } });
+    // One look at a time, shared by every request that times out together.
+    const explain = () => {
+      explaining ??= Promise.resolve().then(explainAway).catch(() => undefined).then(reason => {
+        explaining = undefined;
+        if (typeof reason !== "string" || !reason) return undefined;
+        if (reason !== loggedReason) log(`prodex container-client: ${reason}`);
+        loggedReason = reason;
+        return reason;
+      });
+      return explaining;
+    };
     const hold = (line, id, { first = false } = {}) => {
       const entry = { line, id };
       if (id !== undefined) {
         entry.timer = setTimeout(() => {
           const index = held.indexOf(entry);
           if (index >= 0) held.splice(index, 1);
-          answerError(id, STILL_AWAY);
+          void explain().then(reason => { if (!settled) answerError(id, stillAway(reason)); });
         }, queueTimeoutMs);
         entry.timer.unref?.();
       }
@@ -355,6 +383,7 @@ export function runMcpRelay(args, { parent = process, spawn = nodeSpawn, retryDe
     const becomeReady = () => {
       ready = true;
       attempts = 0;
+      loggedReason = undefined;
       for (const entry of held.splice(0)) {
         clearTimeout(entry.timer);
         send(entry.line, entry.id);
@@ -482,13 +511,70 @@ export function runMcpRelay(args, { parent = process, spawn = nodeSpawn, retryDe
   });
 }
 
+const NO_DOCKER_COMMAND = "The docker command is not on this process's PATH; run this client with a PATH that includes the directory holding docker, then retry.";
+
 async function docker(target, args, options = {}) {
   try {
     const result = await execFile("docker", [...contextArgs(target), ...args], { timeout: 12000, maxBuffer: 1024 * 1024, ...options });
     return result.stdout.trim();
-  } catch {
+  } catch (error) {
+    if (error?.code === "ENOENT") throw Object.assign(new Error(NO_DOCKER_COMMAND), { code: "ENOENT" });
+    const denied = /permission denied/i.test(String(error?.stderr ?? ""));
+    if (denied) throw Object.assign(new Error("Docker refused this user: permission denied on its socket."), { code: "EACCES" });
     throw new Error("Docker command failed for the selected context; check Docker access and target, then retry. No container was started.");
   }
+}
+
+// What starts the Docker engine behind an endpoint, judged by where its socket
+// lives: colima keeps one per profile, Docker Desktop and OrbStack one per user,
+// and Linux (WSL included) runs the engine as a service.
+export function dockerStartHint(host, { platform = process.platform, env = process.env } = {}) {
+  const socket = typeof host === "string" && host.startsWith("unix://") ? host.slice("unix://".length) : undefined;
+  const colima = socket?.match(/\/\.colima\/([^/]+)\/docker\.sock$/);
+  if (colima) {
+    if (!NAME.test(colima[1])) return "Start its colima VM (`colima list` shows the profile); if it shows Broken, run `colima stop --force` on that profile first.";
+    const profile = colima[1] === "default" ? "" : ` --profile ${colima[1]}`;
+    return `Start its colima VM with \`colima start${profile}\`. If \`colima list\` shows it Broken, which a macOS restart can leave, run \`colima stop --force${profile}\` first.`;
+  }
+  if (socket?.endsWith("/.docker/run/docker.sock") || (typeof host === "string" && host.startsWith("npipe://"))) return "Start Docker Desktop.";
+  if (socket?.endsWith("/.orbstack/run/docker.sock")) return "Start OrbStack.";
+  if (host !== undefined && !socket) return "Check that this remote Docker host is up and reachable from here.";
+  if (platform === "linux" && (env.WSL_DISTRO_NAME || env.WSL_INTEROP)) {
+    return "Start the Docker engine in this WSL distro (`sudo systemctl start docker`), or Docker Desktop if it provides Docker here.";
+  }
+  if (platform === "linux") return "Start the Docker engine (`sudo systemctl start docker`).";
+  return "Start the Docker engine, or the Linux VM that runs it.";
+}
+
+// Why the selected container cannot be reached, in one message that says what
+// to start. A wrong context name, a stopped engine or Linux VM, and a missing
+// container all used to read "was not found or Docker is unavailable". Returns
+// undefined when the container is running. Nothing is started here.
+export async function explainUnavailable(target, { runDocker = docker, env = process.env, platform = process.platform } = {}) {
+  const fallback = error => error?.code === "ENOENT" ? NO_DOCKER_COMMAND
+    : error?.code === "EACCES" ? `${endpointLabel(target).replace(/^t/, "T")} refused this user (permission denied on the Docker socket); add the user to the docker group and log in again, or select a context this user may use.`
+    : undefined;
+  let host = target.context ? undefined : env.DOCKER_HOST;
+  if (target.context) {
+    try {
+      host = JSON.parse(await runDocker(target, ["context", "inspect", target.context]))?.[0]?.Endpoints?.docker?.Host;
+    } catch (error) {
+      return fallback(error) ?? `Docker context ${target.context} does not exist here; list the contexts with \`docker context ls\`.`;
+    }
+  }
+  try {
+    await runDocker(target, ["version", "--format", "{{.Server.Version}}"]);
+  } catch (error) {
+    const where = target.context ? `context ${target.context}` : "DOCKER_HOST";
+    return fallback(error) ?? `Docker for ${where} is not answering, so ${target.container} cannot run. ${dockerStartHint(host, { platform, env })}`;
+  }
+  let inspect;
+  try {
+    inspect = JSON.parse(await runDocker(target, ["container", "inspect", target.container]))?.[0];
+  } catch (error) {
+    return fallback(error) ?? `${target.container} does not exist in ${endpointLabel(target)}; create it from containers/browser as docs/container-browser.md describes.`;
+  }
+  return inspect?.State?.Running === true ? undefined : notRunning(inspect, target);
 }
 
 async function inspectContainer(target) {
@@ -497,7 +583,7 @@ async function inspectContainer(target) {
     const parsed = JSON.parse(await docker(target, ["container", "inspect", target.container]));
     inspect = parsed?.[0];
   } catch {
-    throw new Error(`${target.container} was not found or Docker is unavailable in the selected context; start the intended container manually (no auto-start).`);
+    throw new Error(await explainUnavailable(target) ?? `${target.container} could not be inspected in ${endpointLabel(target)}; check Docker access, then retry.`);
   }
   assertRunning(inspect, target);
   return inspect;
@@ -588,7 +674,7 @@ export async function runClient(argv = process.argv.slice(2)) {
   const target = freezeTarget(parsed, activeContext);
   const inspect = await inspectContainer(target);
   if (parsed.command === "mcp") {
-    return runMcpRelay(buildMcpServerArgs(target));
+    return runMcpRelay(buildMcpServerArgs(target), { explainAway: () => explainUnavailable(target) });
   }
   if (parsed.command === "pro") {
     return runStreaming(buildDockerExecArgs(target, proArgs));

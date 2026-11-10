@@ -18,7 +18,8 @@ import {
   runStreaming,
   runMcpRelay,
   copyViewerPassword,
-  writeClipboard
+  writeClipboard,
+  explainUnavailable
 } from "../scripts/container-client.mjs";
 
 const target = { context: "lab", container: "browser-2" };
@@ -123,7 +124,7 @@ describe("safe status and viewer", () => {
       image_id: `sha256:${"a".repeat(64)}`, version: "0.40.18", running: true, health: "healthy", browser_mode: "headed", ready: false,
       blocker: "login_required" });
     expect(JSON.stringify(result)).not.toMatch(/SECRET|private|title|url/i);
-    expect(() => parseStatus(target, { ...inspect, State: { Running: false } }, runtime)).toThrow(/not running.*start it manually/i);
+    expect(() => parseStatus(target, { ...inspect, State: { Running: false } }, runtime)).toThrow(/browser-2 is not running in Docker context lab.*`docker --context lab start browser-2`/);
     expect(() => parseStatus({ context: undefined, container: "browser-2" }, inspect, runtime)).toThrow(/context/i);
   });
 
@@ -226,6 +227,109 @@ describe("safe status and viewer", () => {
       expect(JSON.stringify(spawn.mock.calls)).not.toContain("AbC_123-");
       expect(parent.listenerCount("SIGTERM")).toBe(0);
     } finally { vi.useRealTimers(); }
+  });
+});
+
+// Found 2026-11-10: every way of not reaching the container read "was not found
+// or Docker is unavailable ... (no auto-start)": a wrong context name, a stopped
+// Docker engine or Linux VM, and a missing container alike. M3's colima VM stayed
+// stopped for about a day after a macOS restart, and nothing said that, or what
+// to start, on any platform.
+describe("saying what to start when the container cannot be reached", () => {
+  const colima = { context: "colima-prodex-check", container: "prodex-browser-browser-1" };
+  const endpoint = (host: string) => JSON.stringify([{ Endpoints: { docker: { Host: host } } }]);
+  const running = JSON.stringify([{ State: { Running: true, Status: "running" } }]);
+  /** A Docker CLI that answers only the subcommands given; the rest fail as an unreachable engine does. */
+  const dockerAnswering = (answers: Record<string, string>) => vi.fn(async (_target: unknown, args: string[]) => {
+    const answer = answers[args[0]];
+    if (answer === undefined) throw new Error("Docker command failed");
+    return answer;
+  });
+  const engineDown = (host: string) => dockerAnswering({ context: endpoint(host) });
+
+  it("names a Docker context that does not exist", async () => {
+    expect(await explainUnavailable(target, { runDocker: dockerAnswering({}) })).toMatch(/Docker context lab does not exist.*docker context ls/);
+  });
+
+  it("says to start a stopped colima VM, and how to clear the Broken state a macOS restart leaves", async () => {
+    const message = await explainUnavailable(colima, { runDocker: engineDown("unix:///Users/me/.colima/prodex-check/docker.sock"), platform: "darwin", env: {} });
+    expect(message).toMatch(/^Docker for context colima-prodex-check is not answering, so prodex-browser-browser-1 cannot run\./);
+    expect(message).toContain("`colima start --profile prodex-check`");
+    expect(message).toContain("`colima stop --force --profile prodex-check`");
+    const plain = await explainUnavailable({ context: "colima", container: "browser-2" },
+      { runDocker: engineDown("unix:///Users/me/.colima/default/docker.sock"), platform: "darwin", env: {} });
+    expect(plain).toContain("`colima start`");
+    expect(plain).not.toContain("--profile");
+    const odd = await explainUnavailable(colima, { runDocker: engineDown("unix:///Users/me/.colima/a;b/docker.sock"), platform: "darwin", env: {} });
+    expect(odd).toMatch(/colima/);
+    expect(odd).not.toContain("a;b");
+  });
+
+  it("says to start Docker Desktop for its socket or named pipe", async () => {
+    for (const host of ["unix:///Users/me/.docker/run/docker.sock", "npipe:////./pipe/dockerDesktopLinuxEngine"]) {
+      expect(await explainUnavailable(target, { runDocker: engineDown(host), platform: "darwin", env: {} })).toMatch(/Start Docker Desktop/);
+    }
+  });
+
+  it("says to start the Docker service on Linux, and in the distro on WSL", async () => {
+    const linux = await explainUnavailable(target, { runDocker: engineDown("unix:///var/run/docker.sock"), platform: "linux", env: {} });
+    expect(linux).toContain("`sudo systemctl start docker`");
+    expect(linux).not.toMatch(/WSL/);
+    const wsl = await explainUnavailable(target, { runDocker: engineDown("unix:///var/run/docker.sock"), platform: "linux", env: { WSL_DISTRO_NAME: "Ubuntu" } });
+    expect(wsl).toMatch(/WSL distro/);
+    expect(wsl).toContain("`sudo systemctl start docker`");
+  });
+
+  // A running engine this user may not use is not a stopped one.
+  it("says the user may not use the engine instead of asking to start it", async () => {
+    const runDocker = vi.fn(async (_target: unknown, args: string[]) => {
+      if (args[0] === "context") return endpoint("unix:///var/run/docker.sock");
+      throw Object.assign(new Error("Docker command failed"), { code: "EACCES" });
+    });
+    const message = await explainUnavailable(target, { runDocker, platform: "linux", env: {} });
+    expect(message).toMatch(/Docker context lab refused this user.*docker group/);
+    expect(message).not.toMatch(/systemctl start|not answering/);
+  });
+
+  it("asks to check a remote Docker host instead of naming a local engine", async () => {
+    const message = await explainUnavailable(target, { runDocker: engineDown("ssh://operator@example.org"), platform: "linux", env: {} });
+    expect(message).toMatch(/remote Docker host.*reachable/);
+    expect(message).not.toMatch(/systemctl|colima|Desktop|operator/);
+  });
+
+  it("reads the endpoint from DOCKER_HOST when no context was selected", async () => {
+    const selected = freezeTarget({ context: undefined, container: "browser-2" }, undefined, { DOCKER_HOST: "unix:///Users/me/.colima/work/docker.sock" });
+    const runDocker = dockerAnswering({});
+    const message = await explainUnavailable(selected, { runDocker, platform: "darwin", env: { DOCKER_HOST: "unix:///Users/me/.colima/work/docker.sock" } });
+    expect(message).toMatch(/^Docker for DOCKER_HOST is not answering/);
+    expect(message).toContain("`colima start --profile work`");
+    expect(runDocker.mock.calls.map(([, args]) => args[0])).not.toContain("context");
+  });
+
+  it("says a container that does not exist has to be created", async () => {
+    const runDocker = dockerAnswering({ context: endpoint("unix:///var/run/docker.sock"), version: "29.2.1" });
+    expect(await explainUnavailable(target, { runDocker })).toMatch(/browser-2 does not exist in Docker context lab.*containers\/browser/);
+  });
+
+  it("says how to start a stopped container, and does not start it", async () => {
+    const runDocker = dockerAnswering({ context: endpoint("unix:///var/run/docker.sock"), version: "29.2.1",
+      container: JSON.stringify([{ State: { Running: false, Status: "exited" } }]) });
+    expect(await explainUnavailable(target, { runDocker })).toMatch(/browser-2 is not running \(exited\) in Docker context lab.*`docker --context lab start browser-2`/);
+    expect(runDocker.mock.calls.map(([, args]) => args.join(" "))).not.toContainEqual(expect.stringMatching(/\bstart\b/));
+  });
+
+  it("says nothing when the container is running", async () => {
+    const runDocker = dockerAnswering({ context: endpoint("unix:///var/run/docker.sock"), version: "29.2.1", container: running });
+    expect(await explainUnavailable(target, { runDocker })).toBeUndefined();
+  });
+
+  // A client started from a GUI or launchd often has a short PATH without the
+  // directory that holds docker; that is not a missing context.
+  it("says the docker command is missing instead of blaming the context", async () => {
+    const runDocker = vi.fn(async () => { throw Object.assign(new Error("spawn docker ENOENT"), { code: "ENOENT" }); });
+    const message = await explainUnavailable(target, { runDocker });
+    expect(message).toMatch(/docker command is not on this process's PATH/);
+    expect(message).not.toMatch(/does not exist/);
   });
 });
 
@@ -443,6 +547,27 @@ describe("MCP relay across container restarts", () => {
     expect(parent.received().at(-1)).toMatchObject({ jsonrpc: "2.0", id: 5, error: { code: -32000, message: expect.stringMatching(/not reachable/) } });
     parent.emit("SIGTERM");
     await expect(running).resolves.toBe(143);
+  });
+
+  // An agent whose call failed this way could only retry; the reason (a stopped
+  // VM, say) and what starts it went nowhere the agent could read.
+  it("says why the container stays away, and what starts it, when it can tell", async () => {
+    const reason = "Docker for context lab is not answering, so browser-2 cannot run. Start the Docker engine (`sudo systemctl start docker`).";
+    const logged: string[] = [];
+    const relay = startRelay({ queueTimeoutMs: 30, explainAway: vi.fn(async () => reason), log: (line: string) => logged.push(line) });
+    relay.parent.send(initialize);
+    await settle();
+    relay.children[0].answer({ jsonrpc: "2.0", id: 1, result: serverInfo });
+    await settle();
+    relay.children[0].exit(137);
+    await settle();
+    relay.parent.send({ jsonrpc: "2.0", id: 6, method: "tools/list" });
+    await new Promise(resolve => setTimeout(resolve, 60));
+    expect(relay.parent.received().at(-1)).toMatchObject({ jsonrpc: "2.0", id: 6, error: { code: -32000,
+      message: `The prodex browser container is not reachable: ${reason} The MCP relay keeps reconnecting and goes on once it is back.` } });
+    expect(logged.filter(line => line.includes(reason))).toHaveLength(1);
+    relay.parent.emit("SIGTERM");
+    await expect(relay.running).resolves.toBe(143);
   });
 
   it("sends an unanswered initialize again instead of failing it", async () => {

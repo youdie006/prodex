@@ -23,6 +23,13 @@ export default defineConfig({
     // cli); the subprocess tests were simply missed. 30s bounds each test
     // while leaving a real margin instead of 1.2x. Full-suite duration varies
     // across native OSes.
-    testTimeout: 30_000,
+    //
+    // macOS Intel and Windows runners are 4-10x slower than Linux on the same
+    // tests (CI run 37424883404: Linux's slowest test 5.0s; macOS Intel and
+    // Windows had 12 and 8 tests over 15s, the slowest around 20s besides one
+    // with its own budget). Tests of that band crossed 30s on a slow runner
+    // and failed as timeouts four times on 2026-10-06/07, each a different
+    // test. Those two platforms get 90s; the rest keep 30s.
+    testTimeout: process.platform === "win32" || (process.platform === "darwin" && process.arch === "x64") ? 90_000 : 30_000,
   },
 });
