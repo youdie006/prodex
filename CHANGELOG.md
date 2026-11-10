@@ -4,7 +4,7 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 0.40.51
 
 ### Fixed
 - While `prodex ui` waited for an answer, its progress line was wider than the terminal, so it wrapped, and each redraw cleared only the wrapped row: found 2026-11-09 at 80 columns, the line for "prompt sent, waiting for answer (budget 5m)" was 102 columns, and a new row appeared every 250 ms until the answer came. The label is now cut to fit the terminal, counted in columns so Korean text fits as well, and the elapsed time, budget and "ctrl-c to stop" stay whole.
