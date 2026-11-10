@@ -68,6 +68,31 @@ Release commit `952e8bb` on `main` (cut after PRs #88-#99, last merge `52f76d6`)
     - When loaded at 02:27 UTC it found the VM running, logged "already running, ignoring" and exited 0. The VM and container were left untouched.
     - A cold start from a stopped VM was not exercised.
     - M3 has no automatic login, so after a restart the VM starts once someone logs in at the console.
+    - Replaced later that day by container PR #101 (merge `aa2bbea`). The agent now runs `/bin/sh ~/.local/bin/prodex-colima-start prodex-check`, a copy of `scripts/colima-start.sh`.
+      - When `colima list` shows the VM Broken, which a macOS restart can leave, it runs `colima stop --force` first.
+      - It was installed with the snippet in `docs/container-browser.md` at 04:42 UTC. The plist lints, and the agent ran once at load: it logged "prodex-check is already running" and exited 0. The VM stayed Running.
+      - The old plist is kept as `~/Library/io.github.youdie006.prodex.colima-prodex-check.plist.2026-11-10.bak`.
+      - M3 has FileVault on, so macOS keeps automatic login off.
+
+**Container client (container PR #101, merge `aa2bbea`, 05:40 UTC)**
+- `scripts/container-client.mjs` used to give one message for every way of not reaching the container. It now says which case it is and what to start:
+  - for an engine that is not answering: colima, Docker Desktop, OrbStack, or Linux and WSL;
+  - an unknown context, a refused user, or `docker` missing from PATH;
+  - a missing container, or a stopped one.
+  An MCP request held 60 s now gets the same reason. The client still starts nothing itself.
+- WSL: the pinned checkout `~/.local/share/prodex-maint/container-src` moved from `cd3b671` to `aa2bbea`.
+  - `status` reports the container running, healthy and ready.
+  - An unknown context gets its own message.
+- M3: the installed copy `~/.local/share/prodex/container-installed-8d7a094-wP3RK2/container-client.mjs` was replaced. The previous copy is kept as `container-client.mjs.cd3b671.bak`.
+  - Both copies hash to the merge's file (sha256 `ba842081...`).
+  - `status` reports the container running, healthy and ready.
+  - A missing colima socket names `colima start --profile ...`.
+- MCP sessions that were already connected keep the old code until they reconnect. New sessions use the new copy.
+- The image was not rebuilt: the client runs on the host.
+- CI: the branch also got `dc5b399`, a cherry-pick of main's `8f999ce`, which gives Windows and macOS Intel a 90 s test timeout.
+  - Without it, `tests/pro-list-receipts-once.test.ts` timed out at 30 s on Windows in both attempts. It took 51 s on main's Windows run.
+  - Port commits carry only `src`, `tests` and `docs`, so this root config had never reached the branch.
+  - Two Ubuntu jobs failed first on a stalled `apt-get update`. Their reruns passed.
 
 **Verified live on the WSL container (#96)**
 - A `prodex mcp` stdio session in the container got a 2,000,070-byte `ping` after initialize, then a small one. Both were answered, and nothing went to stderr. Before #96 the server closed on any message over 1 MiB.
