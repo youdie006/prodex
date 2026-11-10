@@ -1,4 +1,8 @@
+import { spawnSync } from "node:child_process";
 import { EventEmitter } from "node:events";
+import { mkdir, mkdtemp, symlink, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { PassThrough } from "node:stream";
 import { describe, expect, it, vi } from "vitest";
 
@@ -249,6 +253,37 @@ describe("saying what to start when the container cannot be reached", () => {
 
   it("names a Docker context that does not exist", async () => {
     expect(await explainUnavailable(target, { runDocker: dockerAnswering({}) })).toMatch(/Docker context lab does not exist.*docker context ls/);
+  });
+
+  // Found 2026-11-10 in a cold start on M3: `colima stop` deletes the profile's
+  // Docker context, so a stopped colima VM read "Docker context
+  // colima-prodex-check does not exist here", which names nothing to start.
+  async function colimaHome(...profiles: string[]) {
+    const home = await mkdtemp(path.join(tmpdir(), "prodex-colima-home-"));
+    for (const profile of profiles) {
+      await mkdir(path.join(home, profile), { recursive: true });
+      await writeFile(path.join(home, profile, "colima.yaml"), "cpu: 2\n");
+    }
+    return home;
+  }
+
+  it("says to start a stopped colima VM, whose Docker context colima removes", async () => {
+    const env = { COLIMA_HOME: await colimaHome("prodex-check", "default") };
+    const message = await explainUnavailable(colima, { runDocker: dockerAnswering({}), platform: "darwin", env });
+    expect(message).toMatch(/^colima profile prodex-check looks stopped: Docker context colima-prodex-check is gone, and colima removes it while the VM is stopped\./);
+    expect(message).toContain("`colima start --profile prodex-check`");
+    expect(message).toContain("`colima stop --force --profile prodex-check`");
+    const plain = await explainUnavailable({ context: "colima", container: "browser-2" }, { runDocker: dockerAnswering({}), platform: "darwin", env });
+    expect(plain).toContain("`colima start`");
+    expect(plain).not.toContain("--profile");
+  });
+
+  it("keeps the plain message for a colima-like context with no colima profile behind it", async () => {
+    const env = { COLIMA_HOME: await colimaHome("other") };
+    for (const context of ["colima-prodex-check", "colima-a;b"]) {
+      expect(await explainUnavailable({ context, container: "browser-2" }, { runDocker: dockerAnswering({}), platform: "darwin", env }))
+        .toMatch(/^Docker context .* does not exist here; list the contexts with `docker context ls`\.$/);
+    }
   });
 
   it("says to start a stopped colima VM, and how to clear the Broken state a macOS restart leaves", async () => {
@@ -596,5 +631,20 @@ describe("MCP relay across container restarts", () => {
     children[1].exit(1);
     await expect(running).resolves.toBe(0);
     expect(spawn).toHaveBeenCalledTimes(2);
+  });
+});
+
+// Found 2026-11-10 on M3: run from /tmp, which macOS links to /private/tmp, the
+// client exited 0 and printed nothing, because the check for being the main
+// module compared the resolved module URL with the unresolved argv path. An MCP
+// entry pointing through a symlink would have failed the same silent way.
+describe.skipIf(process.platform === "win32")("starting the client", () => {
+  it("runs when started through a symlink", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "prodex-client-link-"));
+    const link = path.join(dir, "container-client.mjs");
+    await symlink(path.resolve("scripts/container-client.mjs"), link);
+    const result = spawnSync(process.execPath, [link, "help"], { encoding: "utf8" });
+    expect(result.status).toBe(0);
+    expect(result.stdout).toMatch(/^Usage: node scripts\/container-client\.mjs/);
   });
 });

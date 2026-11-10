@@ -1,5 +1,8 @@
 #!/usr/bin/env node
 import { execFile as execFileCallback, spawn as nodeSpawn } from "node:child_process";
+import { existsSync, realpathSync } from "node:fs";
+import { homedir } from "node:os";
+import path from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
@@ -528,13 +531,27 @@ async function docker(target, args, options = {}) {
 // What starts the Docker engine behind an endpoint, judged by where its socket
 // lives: colima keeps one per profile, Docker Desktop and OrbStack one per user,
 // and Linux (WSL included) runs the engine as a service.
+function colimaStartHint(profile) {
+  const flag = profile === "default" ? "" : ` --profile ${profile}`;
+  return `Start its colima VM with \`colima start${flag}\`. If \`colima list\` shows it Broken, which a macOS restart can leave, run \`colima stop --force${flag}\` first.`;
+}
+
+// colima names a profile's Docker context `colima` (the default profile) or
+// `colima-PROFILE`, and deletes it on `colima stop`; the profile's directory
+// stays. Returns the profile when that directory is here.
+export function stoppedColimaProfile(context, env = process.env) {
+  const profile = context === "colima" ? "default" : context?.startsWith("colima-") ? context.slice("colima-".length) : undefined;
+  if (!profile || !NAME.test(profile)) return undefined;
+  const homes = env.COLIMA_HOME ? [env.COLIMA_HOME] : [path.join(homedir(), ".colima"), path.join(homedir(), ".config", "colima")];
+  return homes.some(home => existsSync(path.join(home, profile, "colima.yaml"))) ? profile : undefined;
+}
+
 export function dockerStartHint(host, { platform = process.platform, env = process.env } = {}) {
   const socket = typeof host === "string" && host.startsWith("unix://") ? host.slice("unix://".length) : undefined;
   const colima = socket?.match(/\/\.colima\/([^/]+)\/docker\.sock$/);
   if (colima) {
     if (!NAME.test(colima[1])) return "Start its colima VM (`colima list` shows the profile); if it shows Broken, run `colima stop --force` on that profile first.";
-    const profile = colima[1] === "default" ? "" : ` --profile ${colima[1]}`;
-    return `Start its colima VM with \`colima start${profile}\`. If \`colima list\` shows it Broken, which a macOS restart can leave, run \`colima stop --force${profile}\` first.`;
+    return colimaStartHint(colima[1]);
   }
   if (socket?.endsWith("/.docker/run/docker.sock") || (typeof host === "string" && host.startsWith("npipe://"))) return "Start Docker Desktop.";
   if (socket?.endsWith("/.orbstack/run/docker.sock")) return "Start OrbStack.";
@@ -559,7 +576,13 @@ export async function explainUnavailable(target, { runDocker = docker, env = pro
     try {
       host = JSON.parse(await runDocker(target, ["context", "inspect", target.context]))?.[0]?.Endpoints?.docker?.Host;
     } catch (error) {
-      return fallback(error) ?? `Docker context ${target.context} does not exist here; list the contexts with \`docker context ls\`.`;
+      const known = fallback(error);
+      if (known) return known;
+      const profile = stoppedColimaProfile(target.context, env);
+      if (profile) {
+        return `colima profile ${profile} looks stopped: Docker context ${target.context} is gone, and colima removes it while the VM is stopped. ${colimaStartHint(profile)}`;
+      }
+      return `Docker context ${target.context} does not exist here; list the contexts with \`docker context ls\`.`;
     }
   }
   try {
@@ -695,7 +718,15 @@ export async function runClient(argv = process.argv.slice(2)) {
   return 0;
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+// Node resolves symlinks in the main module's URL, so compare against the
+// resolved argv path; otherwise a client started through a link does nothing.
+function startedAsMain() {
+  if (!process.argv[1]) return false;
+  try { return import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href; }
+  catch { return false; }
+}
+
+if (startedAsMain()) {
   runClient().then(code => { process.exitCode = code; }).catch(error => {
     process.stderr.write(`${error instanceof Error ? error.message : "Container client failed."}\n`);
     process.exitCode = 1;
