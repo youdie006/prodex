@@ -186,6 +186,8 @@ export interface CliIO {
   isInteractive?: boolean;
   /** Internal TUI destination choice; navigation still occurs under the send lock. */
   navigateInteractiveTarget?: boolean;
+  /** Aborts when the caller (an MCP client) cancels; a send stops on it until its prompt is submitted. */
+  signal?: AbortSignal;
 }
 
 /**
@@ -431,7 +433,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
     // pro_consult is stdio-only: the HTTP MCP surface is exposed to ChatGPT
     // itself (and possibly a tunnel) and must never drive the user's browser.
     await runMcpServer(mcpCwd, {
-      browserConsult: (input, onProgress) => performBrowserConsultForMcp(mcpCwd, input, onProgress),
+      browserConsult: (input, onProgress, signal) => performBrowserConsultForMcp(mcpCwd, input, onProgress, signal),
       browserRecover: (input) => performBrowserRecoverForMcp(mcpCwd, input)
     });
     return 0;

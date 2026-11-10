@@ -26,7 +26,17 @@ const BridgeFileInputSchema = z.object({
   role: z.enum(["context", "artifact", "result"]).optional(),
   bytes: z.number().int().nonnegative().optional()
 });
-export const DEFAULT_STDIO_MESSAGE_LIMIT_BYTES = 1_048_576;
+/**
+ * Large enough for the largest call the tools accept. That is
+ * bridge_block_task with every list full: 100 commands and 100 warnings of
+ * 100,000 characters, 100 artifact paths of 10,000 and its text fields, about
+ * 21.2 million characters. JSON may write each one as a six-byte \uXXXX escape
+ * (a control character is one byte to the handlers' byte checks), so the frame
+ * can reach 127.3 MB. The old 1 MiB closed the session on a 1,000,000-character
+ * repo_write_file_dry_run that had only its newlines escaped. The limit still
+ * caps what a client that never sends a newline can make this process buffer.
+ */
+export const DEFAULT_STDIO_MESSAGE_LIMIT_BYTES = 128 * 1024 * 1024;
 
 export interface BrowserConsultToolInput {
   prompt: string;
@@ -58,9 +68,14 @@ export interface CreateMcpServerOptions {
    * to drive the user's browser. Injected from cli.ts to avoid an import
    * cycle (mcp -> cli-pro -> cli-server -> http-mcp -> mcp). The optional
    * onProgress receives human-readable progress lines for MCP progress
-   * notifications during multi-minute consults.
+   * notifications during multi-minute consults. The signal aborts when the
+   * client cancels the call (notifications/cancelled).
    */
-  browserConsult?: (input: BrowserConsultToolInput, onProgress?: (message: string) => void) => Promise<unknown>;
+  browserConsult?: (
+    input: BrowserConsultToolInput,
+    onProgress?: (message: string) => void,
+    signal?: AbortSignal
+  ) => Promise<unknown>;
   /**
    * When provided, registers pro_recover. Kept separate from browserConsult so
    * a host that wires only one of them still gets a coherent tool list.
@@ -395,9 +410,11 @@ export function createServer(cwd = process.cwd(), options: CreateMcpServerOption
                     // Progress delivery must never break the consult.
                   });
               };
+        // A client that cancels (Esc, its own timeout) aborts extra.signal.
+        // The consult stops on it until the prompt is submitted.
         return asText(
           withServerVersionNotice(
-            await browserConsult({ ...input, session_key: input.session_key ?? mcpSessionKey }, onProgress),
+            await browserConsult({ ...input, session_key: input.session_key ?? mcpSessionKey }, onProgress, extra.signal),
             serverVersionNotice()
           )
         );
@@ -427,9 +444,26 @@ export function createServer(cwd = process.cwd(), options: CreateMcpServerOption
   return server;
 }
 
-export async function runMcpServer(cwd = process.cwd(), options: CreateMcpServerOptions = {}): Promise<void> {
+export async function runMcpServer(
+  cwd = process.cwd(),
+  options: CreateMcpServerOptions = {},
+  stdio: { maxMessageBytes?: number } = {}
+): Promise<void> {
   const server = createServer(cwd, options);
-  const transport = new LimitedStdioServerTransport();
+  const transport = new LimitedStdioServerTransport(process.stdin, process.stdout, stdio);
+  // Set before connect, which chains its own close handler after this one.
+  transport.onclose = () => {
+    const reason = transport.fatalInputError;
+    if (!reason) return;
+    // The client is still waiting on its requests, and a closed transport
+    // answers none of them. Only the process exiting tells it the server is
+    // gone; without this it waited out its tool timeout (about 28 hours in
+    // Claude Code), or saw a clean exit 0, with nothing said either way.
+    process.exitCode = 1;
+    const exit = () => process.exit(1);
+    setTimeout(exit, 2_000);
+    process.stderr.write(`prodex mcp: ${reason.message}; closing the stdio session.\n`, exit);
+  };
   await server.connect(transport);
 }
 
@@ -440,7 +474,14 @@ export class LimitedStdioServerTransport implements Transport {
   sessionId?: string;
   setProtocolVersion?: Transport["setProtocolVersion"];
 
-  private buffer = Buffer.alloc(0);
+  /** Set when unreadable input closed the transport (an oversize message, a stdin error). */
+  fatalInputError?: Error;
+
+  // The unfinished message, as the chunks it arrived in. Joining each chunk
+  // onto one buffer and rescanning it for a newline made a large message cost
+  // time quadratic in its size.
+  private pending: Buffer[] = [];
+  private pendingBytes = 0;
   private started = false;
   private closed = false;
   private readonly maxMessageBytes: number;
@@ -472,7 +513,8 @@ export class LimitedStdioServerTransport implements Transport {
     if (this.stdin.listenerCount("data") === 0) {
       this.stdin.pause();
     }
-    this.buffer = Buffer.alloc(0);
+    this.pending = [];
+    this.pendingBytes = 0;
     this.onclose?.();
   }
 
@@ -512,49 +554,66 @@ export class LimitedStdioServerTransport implements Transport {
 
   private readonly onData = (chunk: Buffer | string): void => {
     try {
-      const buffer = Buffer.from(chunk);
-      this.buffer = this.buffer.length === 0 ? buffer : Buffer.concat([this.buffer, buffer]);
-      this.processBuffer();
+      this.processChunk(typeof chunk === "string" ? Buffer.from(chunk) : chunk);
     } catch (error) {
-      this.buffer = Buffer.alloc(0);
-      this.onerror?.(error instanceof Error ? error : new Error(String(error)));
-      void this.close();
+      this.failInput(error instanceof Error ? error : new Error(String(error)));
     }
   };
 
   private readonly onInputError = (error: Error): void => {
-    this.onerror?.(error);
-    void this.close();
+    this.failInput(error);
   };
 
-  private processBuffer(): void {
-    while (true) {
-      const newlineIndex = this.buffer.indexOf("\n");
+  private failInput(error: Error): void {
+    if (this.closed) return;
+    this.fatalInputError = error;
+    this.onerror?.(error);
+    void this.close();
+  }
+
+  private processChunk(chunk: Buffer): void {
+    let start = 0;
+    while (!this.closed) {
+      const newlineIndex = chunk.indexOf(0x0a, start);
       if (newlineIndex === -1) {
-        if (this.buffer.length > this.maxMessageBytes) {
-          throw new Error(`MCP stdio message is too large (${this.buffer.length} bytes > ${this.maxMessageBytes} bytes)`);
+        if (start < chunk.length) {
+          this.pending.push(chunk.subarray(start));
+          this.pendingBytes += chunk.length - start;
+        }
+        if (this.pendingBytes > this.maxMessageBytes) {
+          throw new Error(
+            `MCP stdio message is too large (at least ${this.pendingBytes} bytes, limit ${this.maxMessageBytes} bytes)`
+          );
         }
         return;
       }
-      if (newlineIndex > this.maxMessageBytes) {
-        throw new Error(`MCP stdio message is too large (${newlineIndex} bytes > ${this.maxMessageBytes} bytes)`);
+      const lineBytes = this.pendingBytes + newlineIndex - start;
+      if (lineBytes > this.maxMessageBytes) {
+        throw new Error(`MCP stdio message is too large (${lineBytes} bytes, limit ${this.maxMessageBytes} bytes)`);
       }
-      const line = this.buffer.toString("utf8", 0, newlineIndex).replace(/\r$/, "");
-      this.buffer = this.buffer.subarray(newlineIndex + 1);
-      if (line.trim().length === 0) continue;
-      let message: JSONRPCMessage;
-      try {
-        message = JSONRPCMessageSchema.parse(JSON.parse(line));
-      } catch (error) {
-        // A single malformed frame is recoverable: report it and keep
-        // processing the rest of the buffer instead of tearing down the whole
-        // session (which would also drop any valid pipelined messages after
-        // it). This matches the SDK's StdioServerTransport. Only the oversize
-        // guards above stay fatal.
-        this.onerror?.(error instanceof Error ? error : new Error(String(error)));
-        continue;
-      }
-      this.onmessage?.(message);
+      const tail = chunk.subarray(start, newlineIndex);
+      const lineBuffer = this.pending.length === 0 ? tail : Buffer.concat([...this.pending, tail], lineBytes);
+      this.pending = [];
+      this.pendingBytes = 0;
+      start = newlineIndex + 1;
+      this.processLine(lineBuffer.toString("utf8").replace(/\r$/, ""));
     }
+  }
+
+  private processLine(line: string): void {
+    if (line.trim().length === 0) return;
+    let message: JSONRPCMessage;
+    try {
+      message = JSONRPCMessageSchema.parse(JSON.parse(line));
+    } catch (error) {
+      // A single malformed frame is recoverable: report it and keep
+      // processing the rest of the buffer instead of tearing down the whole
+      // session (which would also drop any valid pipelined messages after
+      // it). This matches the SDK's StdioServerTransport. Only the oversize
+      // guards above stay fatal.
+      this.onerror?.(error instanceof Error ? error : new Error(String(error)));
+      return;
+    }
+    this.onmessage?.(message);
   }
 }

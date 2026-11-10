@@ -98,6 +98,17 @@ ChatGPT is still generating. Recover that marked request instead of resending it
 The separate `prodex start` HTTP server runs in the foreground and also needs its
 own process kept alive; neither command installs a background service.
 
+Cancelling a `pro_consult` (Esc in the client, or the client's own tool timeout,
+both of which send `notifications/cancelled`) stops it while its prompt has not been
+submitted: nothing is sent, the consult is recorded as blocked with
+`consult_cancelled`, and a follow-up spends none of its budget. After the prompt is
+submitted, cancelling changes nothing on prodex's side: the answer is still waited
+for and saved to the consult's record.
+
+One stdio message may be up to 128 MiB, which covers the largest call any tool
+accepts. A larger one ends the server with exit code 1 and a one-line reason on
+stderr, so the client sees the server go away instead of waiting on it.
+
 ## Claude Code
 
 See [claude.md](claude.md), or:

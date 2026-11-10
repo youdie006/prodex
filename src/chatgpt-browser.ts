@@ -323,7 +323,8 @@ export interface SendChatGptPromptOptions {
    * Runs once the prompt is typed and checked, right before it is submitted.
    * Throwing stops the send with nothing submitted; the typed prompt stays in
    * the composer, and the next send clears it. The MCP follow-up budget is
-   * spent here, so a send refused earlier does not use it up.
+   * spent here, so a send refused earlier does not use it up, and a cancelled
+   * MCP call stops here.
    */
   beforePromptSubmit?: () => Promise<void>;
   /**
