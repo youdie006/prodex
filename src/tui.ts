@@ -130,9 +130,12 @@ export function projectsWithIdsExpression(): string {
 })()`;
 }
 
-/** The conversations that live inside a project, or all of them without one. */
+/**
+ * The conversations that live inside a project. A project whose id is unknown
+ * claims none: returning all of them listed unrelated chats under its name.
+ */
 export function conversationsInProject(conversations: ConversationSummary[], projectId: string | undefined): ConversationSummary[] {
-  if (!projectId) return conversations;
+  if (!projectId) return [];
   return conversations.filter((conversation) => conversation.gizmoId === projectId);
 }
 
