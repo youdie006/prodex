@@ -913,10 +913,20 @@ export class BridgeStore {
     await this.assertBridgeDirIsRealDirectory();
     await this.assertArtifactsDirIsRealDirectory();
     const artifactPath = this.resolveArtifactPath(relativePath);
-    await this.assertArtifactParentDirectory(path.dirname(artifactPath));
-    return readVerifiedUtf8File(artifactPath, () => this.assertArtifactTargetInside(artifactPath), {
-      maxBytes: options.maxBytes ?? MAX_BRIDGE_ARTIFACT_READ_BYTES
-    });
+    try {
+      await this.assertArtifactParentDirectory(path.dirname(artifactPath));
+      return await readVerifiedUtf8File(artifactPath, () => this.assertArtifactTargetInside(artifactPath), {
+        maxBytes: options.maxBytes ?? MAX_BRIDGE_ARTIFACT_READ_BYTES
+      });
+    } catch (error) {
+      // The raw error named the machine's absolute path, often of the parent
+      // directory rather than the file, and went out to MCP clients as it was
+      // (found 2026-11-09). The code stays ENOENT for callers that test it.
+      if (isErrorCode(error, "ENOENT")) {
+        throw Object.assign(new Error(`Artifact not found: ${this.relativeToRoot(artifactPath)}`), { code: "ENOENT" });
+      }
+      throw error;
+    }
   }
 
   async writeReceipt(input: WriteReceiptInput): Promise<Receipt> {
