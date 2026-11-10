@@ -29,8 +29,9 @@ async function freePort(): Promise<number> {
   return port;
 }
 
-function launched(port: number): { launch: ChatGptBrowserLaunch; alive: () => boolean } {
+function launched(port: number): { launch: ChatGptBrowserLaunch; endedWithin: (ms: number) => Promise<boolean> } {
   const child = spawn(process.execPath, ["-e", "setTimeout(() => {}, 60000)"], { stdio: "ignore" });
+  const ended = new Promise<true>((resolve) => child.once("exit", () => resolve(true)));
   const launch: ChatGptBrowserLaunch = {
     command: "chrome",
     args: [],
@@ -39,7 +40,10 @@ function launched(port: number): { launch: ChatGptBrowserLaunch; alive: () => bo
     port,
     waitForEarlyExit: async () => undefined
   };
-  return { launch, alive: () => child.exitCode === null && child.signalCode === null };
+  return {
+    launch,
+    endedWithin: (ms) => Promise.race([ended, new Promise<false>((resolve) => setTimeout(() => resolve(false), ms))])
+  };
 }
 
 describe("a browser launch whose DevTools endpoint never appears", () => {
@@ -52,9 +56,12 @@ describe("a browser launch whose DevTools endpoint never appears", () => {
   });
 
   it("ends the browser it started, so the next attempt is not refused as a wedged one", async () => {
-    const { launch, alive } = launched(await freePort());
+    const { launch, endedWithin } = launched(await freePort());
     await expect(assertBrowserLaunchStayedAlive(launch, 300)).rejects.toThrow(/did not expose a reachable DevTools endpoint/);
-    await new Promise((resolve) => setTimeout(resolve, 200));
-    expect(alive()).toBe(false);
+    // The browser is gone when that returns, but its exit reaches this process
+    // as an event. A fixed 200 ms wait for it failed on the 0.40.51 publish
+    // run's Windows runner (2026-11-10); the event is awaited instead. A browser
+    // left running would still fail this, as it lives for 60 s.
+    expect(await endedWithin(5_000)).toBe(true);
   });
 });

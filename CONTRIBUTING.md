@@ -15,7 +15,7 @@ npm run typecheck
 
 ## Before opening a pull request
 
-- `npm run release:verify` must pass — it chains tests, typecheck, build, package smoke, and `doctor`.
+- `npm run release:verify` must pass — it chains tests, typecheck, build, package smoke, and `doctor`. The tests get 25 minutes; on a slower machine set `PRODEX_RELEASE_CHECK_TEST_TIMEOUT_MS` (milliseconds).
 - Add tests for new behavior; the codebase favors test-first where practical.
 - Keep changes focused and small.
 - Code comments, commit messages, and docs are written in **English**.
