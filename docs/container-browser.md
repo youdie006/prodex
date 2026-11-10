@@ -247,10 +247,26 @@ Before 2026-11-10 all of these read "was not found or Docker is unavailable".
   nobody logged in.
 - **WSL:** with `systemd=true` under `[boot]` in `/etc/wsl.conf` and
   `sudo systemctl enable docker`, the engine starts with the distro. The distro
-  itself starts when something on Windows starts it (a terminal, `wsl.exe`, or a
-  client that runs this helper through WSL), not when Windows boots. Checked on
-  the WSL host on 2026-11-10: systemd is PID 1 and docker is enabled and active.
-  A start after a Windows restart has not been observed there yet.
+  starts when something on Windows starts it, not when Windows boots: a terminal,
+  `wsl.exe`, or a Startup-folder shortcut such as `wsl.exe -d DISTRO -- true` at
+  logon. WSL then shuts an idle distro down 15 seconds after its last `wsl.exe`
+  ends (`instanceIdleTimeout`), even with docker and the container running in it.
+  Turn that off in `%UserProfile%\.wslconfig`:
+
+  ```ini
+  [general]
+  instanceIdleTimeout=-1
+  ```
+
+  It takes effect the next time WSL starts, after `wsl --shutdown` or a Windows
+  restart. The WSL host's logs from its 2026-10-28 restart, read on 2026-11-10,
+  showed why this matters:
+  - a logon shortcut started the distro twice, and each time it shut down 18
+    seconds later;
+  - the browser container stayed down until a terminal was opened, 11 minutes
+    after logon;
+  - each time the distro did start, docker and the container came back within
+    about 3 seconds.
 - **Docker Desktop:** turn on its "Start Docker Desktop when you sign in" setting.
 - **macOS with colima:** colima has no boot service. A login LaunchAgent runs
   `scripts/colima-start.sh PROFILE`, which starts the profile's VM. A macOS
