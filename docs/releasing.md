@@ -115,6 +115,25 @@ Release commit `952e8bb` on `main` (cut after PRs #88-#99, last merge `52f76d6`)
   - On M3, with an empty `DOCKER_CONFIG` (the context missing while the profile stays, as in the cold start), the client named `colima start --profile prodex-check`.
 - **Not exercised:** a real macOS restart and console login, and a real `Broken` VM.
 
+**WSL after a Windows restart (on the user's request, 2026-11-10)**
+
+This was checked from logs, without restarting Windows: a restart would end every session on that PC. The sources were the Windows System log, pm2's log, systemd and Docker.
+
+- **What starts WSL:** two Startup-folder items in the Windows user's profile, both enabled. Windows has no automatic logon, so neither runs until someone signs in.
+  - `wsl.lnk` runs `wsl.exe -d Ubuntu -u xncb135 -- true`.
+  - `bsghcal-autostart.bat` runs `wsl ... pm2 resurrect`.
+- **Inside WSL:** docker and containerd are enabled under systemd, and the containers are `unless-stopped`.
+- **Last restart, 2026-10-28, KST:**
+  - Windows booted at 21:35:34 and the user logged on at 21:35:44.
+  - The distro started at 21:36:54 and shut down at 21:37:12, 18 s later.
+  - It started again at 21:37:24 and shut down at 21:37:42.
+  - It started again at 21:46:42 and has stayed up since, most likely because a terminal was opened.
+  - Each time the distro started, docker and its `unless-stopped` containers came back within about 3 s (docker active 21:46:45, containers started 21:46:44).
+- **Cause:** `.wslconfig` `[general] instanceIdleTimeout` defaults to 15000 ms, after which an idle distro shuts down ([Microsoft docs](https://learn.microsoft.com/en-us/windows/wsl/wsl-config)). The Startup items' `wsl.exe` calls exit at once, so the distro idles out with docker and the browser container. This `.wslconfig` does not set it.
+  - The browser container was therefore down from about 21:37 to 21:46 after that restart.
+  - The same applies whenever every WSL window is closed.
+- **Unrelated:** the logon task `WSL-PortProxy-Refresh` failed at that logon with result 0xFFFD0000. Its script `C:\Scripts\refresh-wsl-ssh.ps1` could not be read.
+
 **Verified live on the WSL container (#96)**
 - A `prodex mcp` stdio session in the container got a 2,000,070-byte `ping` after initialize, then a small one. Both were answered, and nothing went to stderr. Before #96 the server closed on any message over 1 MiB.
 - `pro_consult` cancellation was not exercised live; it is covered by #96's tests.
