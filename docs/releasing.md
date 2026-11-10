@@ -16,6 +16,58 @@ Release target: `v0.40.13` on `main`. The GitHub Release records the resolved co
 
 The release adds a guarded, opt-in transition and more accurate blocker reporting. It does not claim that headless Pro consultation is verified on either deployment target or that authentication can be retained indefinitely.
 
+## 0.40.51 Release Record
+
+Release commit `952e8bb` on `main` (cut after PRs #88-#99, last merge `52f76d6`); tag `v0.40.51`, published 2026-11-10. Released on the user's go-ahead as a batch, together with the container swaps:
+- #88: model hints were read from more than the visible composer.
+- #89: repo writes dropped a file's mode, its final newline or a non-UTF-8 encoding, and staged paths as git patterns.
+- #90: `repo_search` skipped hidden files and threw away partial results.
+- #91: `tasks complete --artifact` wrote files before checking the task.
+- #92: a record read failed while another process replaced the record.
+- #93: a claim and a completion of the same task could interleave.
+- #94: a missing artifact was named by its absolute machine path.
+- #95: `prodex ui` dropped all but the first line of a pasted prompt, plus picker fixes.
+- #96: stdio MCP 1 MiB limit, `pro_consult` cancellation, HTTP MCP sessions never released.
+- #97: `doctor`'s port check.
+- #98: "help" and options after `--` in `ask` prompts.
+- #99: the picker's progress line wrapped.
+
+**Publishing**
+- `npm run release:verify` passed on the release commit after a build.
+- `publish.yml` run 42733208248 failed on its first attempt, and the publish job was skipped:
+  - macOS Intel: `release:verify` stopped `npm test` at its 15 minute budget with no test failed. It reported npm's banner line as the failure.
+  - Windows: `launch-port-unavailable`'s fixed 200 ms wait for a closed browser's exit event ran out.
+- The failed jobs were rerun on the same commit and passed. The run then published to npm with SLSA v1 provenance and created the GitHub Release (01:46 UTC), which lists the 26 entries from `CHANGELOG.md`.
+- Both causes were fixed afterwards in #100 (`f5c9c70`):
+  - the suite gets 25 minutes, and a check stopped at its budget says so;
+  - the launch test awaits the exit event.
+  - It ships in the next release.
+
+**Installed**
+- WSL, M3, Mac mini: `prodex --version` reports 0.40.51.
+- The maintainer watchdog checkout was pulled to `952e8bb` and rebuilt.
+- MacBook M4: not installed. `ssh m4` timed out before the cut and again after the publish. It stays on 0.40.49 until it can be reached.
+- No host-side `prodex mcp` or `prodex start` was running on WSL, M3 or the Mac mini. The MCP entries on WSL and M3 relay into the browser containers.
+
+**Container**
+- `container/redesign-patches` `88a8d96` ports #88-#99 on top of `c7c9f35`, one commit per PR (`35bb83b`..`88a8d96`).
+  - Each diff (src, tests, docs) applied unchanged.
+  - tsc, the full suite (2247 passed, 3 skipped) and `release:verify` pass on it.
+- The agent ran both build-and-swap scripts; the user had asked for the swaps.
+- WSL: image `9171fbf313e0`, recreated 01:08:29 UTC.
+  - No send held the browser lock.
+  - It came up healthy with the 1024 process limit, using 318, and logged no thread errors.
+  - `pro browser check` reported logged in with a composer, and `model_hints: Thinking effort | Pro`.
+- M3 (colima `prodex-check`): the VM had been stopped since M3 restarted about a day earlier, so its container was not running and the M3 relays had nothing to reach.
+  - The agent started the VM (01:09 UTC), then built image `15ee6095e2e3` and started the container at 01:10:26 UTC.
+  - It came up healthy with the 1024 process limit, using 165.
+  - `pro browser check` reported logged in with a composer.
+  - `pro browser smoke` answered `PRODEX_PRO_SMOKE_OK` with its request verified, after 42 s.
+
+**Verified live on the WSL container (#96)**
+- A `prodex mcp` stdio session in the container got a 2,000,070-byte `ping` after initialize, then a small one. Both were answered, and nothing went to stderr. Before #96 the server closed on any message over 1 MiB.
+- `pro_consult` cancellation was not exercised live; it is covered by #96's tests.
+
 ## 0.40.50 Release Record
 
 Release commit `759065f` on `main` (cut after PRs #84-#87, last merge `d8333f2`); tag `v0.40.50`, published 2026-11-04. Released on the user's go-ahead as a batch, together with the container swaps:
