@@ -10,7 +10,7 @@ RUN npm run build && npm prune --omit=dev --ignore-scripts --no-audit --no-fund
 
 FROM node:22-bookworm-slim AS browser
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    chromium xvfb xauth x11vnc novnc websockify procps fonts-noto-cjk \
+    chromium xvfb xauth x11vnc novnc websockify procps fonts-noto-cjk ripgrep \
     && rm -rf /var/lib/apt/lists/*
 RUN test -x /usr/lib/chromium/chromium
 WORKDIR /app

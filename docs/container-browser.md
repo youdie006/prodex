@@ -419,7 +419,12 @@ compose -f /absolute/path/to/prodex/containers/browser/compose.json exec -T brow
 For a named Docker context, put `--context CONTEXT` before `compose`. The `-T`
 option is required for clean stdio; do not allocate a terminal. Each client gets
 its own MCP process while the same-container bridge locks serialize shared work.
-The account-free smoke tests task locking, not real conversation identity.
+The account-free smoke tests actual repository searches (including an empty
+result), task locking and client independence, not real conversation identity.
+The image includes ripgrep for `repo_search`; a host installation of `rg` is not
+visible to the MCP process inside the container. Images built before this fix
+must be rebuilt and their idle browser service recreated with the same home
+volume. Changing the host PATH does not update an existing container.
 
 The compose file intentionally does not mount host repositories. The commands
 above change client settings only when explicitly run. A green
