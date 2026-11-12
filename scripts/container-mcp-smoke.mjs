@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -12,6 +12,8 @@ const cli = fileURLToPath(new URL("../dist/cli.js", import.meta.url));
 const root = await mkdtemp(path.join(tmpdir(), "prodex-container-mcp-smoke-"));
 const connections = [];
 try {
+  const marker = "prodex-container-repo-search-fixture";
+  await writeFile(path.join(root, "search-fixture.txt"), `first line\n${marker}\n`);
   for (const name of ["first", "second"]) {
     const transport = new StdioClientTransport({
       command: process.execPath,
@@ -39,6 +41,12 @@ try {
   }
   assert.notEqual(connections[0].pid, connections[1].pid);
   const [a, b] = connections.map(connection => connection.client);
+  const found = await call(a, "repo_search", { query: marker, glob: "search-fixture.txt" });
+  assert.deepEqual(found.matches, [{ path: "search-fixture.txt", line: 2, text: marker }]);
+  assert.equal(found.truncated, false);
+  const missing = await call(b, "repo_search", { query: `${marker}-absent`, glob: "search-fixture.txt" });
+  assert.deepEqual(missing.matches, []);
+  assert.equal(missing.truncated, false);
   const taskA = await call(a, "bridge_create_task", { title: "Container A", prompt: "synthetic-context-A" });
   const taskB = await call(b, "bridge_create_task", { title: "Container B", prompt: "synthetic-context-B" });
   assert.notEqual(taskA.task.id, taskB.task.id);
@@ -68,12 +76,12 @@ try {
   if (failure) throw failure;
   await rm(root, { recursive: true, force: true });
 }
-console.log("container_mcp_smoke=ok independent_processes=2 task_identity=ok claim_exclusion=ok client_disconnect=ok browser_prompts_sent=0 cleanup=ok");
+console.log("container_mcp_smoke=ok repo_search=ok independent_processes=2 task_identity=ok claim_exclusion=ok client_disconnect=ok browser_prompts_sent=0 cleanup=ok");
 
 async function call(client, name, args) {
   const result = await client.callTool({ name, arguments: args }, undefined, { timeout: 5_000 });
-  if (result.isError) throw new Error(`Synthetic ${name} failed`);
   const text = result.content.find(item => item.type === "text")?.text;
+  if (result.isError) throw new Error(`Synthetic ${name} failed: ${text}`);
   assert.equal(typeof text, "string");
   return JSON.parse(text);
 }
