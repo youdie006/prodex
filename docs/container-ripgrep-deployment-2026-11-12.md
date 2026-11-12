@@ -66,7 +66,8 @@ ready. No profile, cookie, token or conversation contents were copied or logged.
 - PASS: an exclusively created synthetic file in the container bridge was
   found by `repo_search` at its exact second line and read by `repo_read_file`.
   After verifying its contents, only that owned file was removed; another search
-  confirmed no matches. No existing user file was searched or changed.
+  confirmed no matches. The positive-match/read checks were confined to that
+  owned fixture; no existing user file was changed.
 
 This verifies container repository tools and connection recovery. No ChatGPT
 consult was submitted and no Pro answer was tested. Host repositories are still
