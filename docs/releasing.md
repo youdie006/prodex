@@ -46,7 +46,11 @@ Release commit `952e8bb` on `main` (cut after PRs #88-#99, last merge `52f76d6`)
 **Installed**
 - WSL, M3, Mac mini: `prodex --version` reports 0.40.51.
 - The maintainer watchdog checkout was pulled to `952e8bb` and rebuilt.
-- MacBook M4: not installed. `ssh m4` timed out before the cut and again after the publish. It stays on 0.40.49 until it can be reached.
+- MacBook M4: `ssh m4` timed out before the cut and again after the publish. It was installed on 2026-11-14, once it answered, going from 0.40.49 straight to 0.40.51.
+  - The auto-mode classifier refused the agent's `npm i` over SSH, so the user ran the agent's install script. The script updated the antigravity runtime copy behind `~/.local/bin/prodex` and the `/opt/homebrew` global copy.
+  - Both report 0.40.51. `package.json` now requires `^0.40.51`, and `~/.local/bin/prodex` still links to `runtime-prodex/node_modules/.bin/prodex`.
+  - An `initialize` sent to `prodex mcp` answered with `serverInfo` version 0.40.51.
+  - Four `prodex mcp` processes started by Codex or Claude sessions were running during the install. They keep running 0.40.49 until their clients restart.
 - No host-side `prodex mcp` or `prodex start` was running on WSL, M3 or the Mac mini. The MCP entries on WSL and M3 relay into the browser containers.
 
 **Container**
