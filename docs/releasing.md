@@ -58,6 +58,7 @@ Release commit `51da80d` on `main` (cut after PRs #100 and #105-#109, last merge
   - `pro browser check` reported logged in with a composer, and `model_hints: Thinking effort | Pro`.
   - `pro browser smoke`, in a new chat with a bridge in a temporary directory inside the container, answered `PRODEX_PRO_SMOKE_OK` with `requestVerified: true`: WSL after 30 s and 37 s, M3 after 29 s and 27 s.
 - After the second swap, `scripts/container-client.mjs status` reported each container running, healthy and ready.
+- An MCP `pro_consult` from a WSL Claude Code session, through the relay into the WSL container, answered `OK` with `request_verified: true` at 03:12 UTC (new chat, no project). The session whose four consults had been blocked was told it can send again.
 - The host-side client did not change: `scripts/container-client.mjs` and `scripts/colima-start.sh` are the same at `9969a64` as at `19eb1cb`. The WSL pinned checkout stays at `19eb1cb`, and M3's installed client copy was not replaced.
 
 ## 0.40.51 Release Record
