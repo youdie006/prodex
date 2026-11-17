@@ -1,7 +1,8 @@
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { renameReplacingFile } from "../src/safe-file.js";
 import { BridgeStore, readReplacedFileText } from "../src/store.js";
 
 // Found 2026-11-09: records are replaced by renaming a new file over them, and
@@ -46,9 +47,9 @@ describe("reading a record that is being replaced", () => {
   });
 
   // POSIX renames over a file another handle is reading. Windows refuses that
-  // rename with EPERM while the reader has the file open, so there the writer
-  // fails instead (a separate limitation, not this one).
-  it.skipIf(process.platform === "win32")("lists sessions while another store keeps rewriting one", async () => {
+  // rename with EPERM while the reader has the file open (CI, 2026-11-09), so
+  // the writer tries it again for a moment; see below.
+  it("lists sessions while another store keeps rewriting one", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "prodex-record-replace-"));
     const writer = new BridgeStore(root, { registerRoot: false });
     const reader = new BridgeStore(root, { registerRoot: false });
@@ -69,5 +70,77 @@ describe("reading a record that is being replaced", () => {
       await rewrites;
     }
     expect(failures).toEqual([]);
+  });
+});
+
+// Windows fails a rename over a file another handle has open with EPERM,
+// EACCES or EBUSY until that handle closes. CI on Windows failed the race
+// above from the writer side that way (2026-11-09).
+describe("replacing a file another process has open on Windows", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  const inUse = (code: string) => Object.assign(new Error(`${code}: operation not permitted, rename`), { code });
+
+  it("renames again while Windows reports the target in use", async () => {
+    vi.spyOn(process, "platform", "get").mockReturnValue("win32");
+    const codes = ["EPERM", "EACCES", "EBUSY"];
+    let calls = 0;
+    await renameReplacingFile("from.tmp", "to.json", {
+      rename: async (fromPath, toPath) => {
+        expect([fromPath, toPath]).toEqual(["from.tmp", "to.json"]);
+        calls += 1;
+        if (calls <= codes.length) throw inUse(codes[calls - 1]!);
+      }
+    });
+    expect(calls).toBe(4);
+  });
+
+  it("gives the rename's own error once the retry time is used up", async () => {
+    vi.spyOn(process, "platform", "get").mockReturnValue("win32");
+    const failure = inUse("EPERM");
+    let calls = 0;
+    const started = Date.now();
+    await expect(
+      renameReplacingFile("from.tmp", "to.json", {
+        retryForMs: 200,
+        rename: async () => {
+          calls += 1;
+          throw failure;
+        }
+      })
+    ).rejects.toBe(failure);
+    expect(calls).toBeGreaterThan(1);
+    expect(Date.now() - started).toBeGreaterThanOrEqual(150);
+    expect(Date.now() - started).toBeLessThan(2_000);
+  });
+
+  it("does not rename again for any other failure", async () => {
+    vi.spyOn(process, "platform", "get").mockReturnValue("win32");
+    let calls = 0;
+    await expect(
+      renameReplacingFile("from.tmp", "to.json", {
+        rename: async () => {
+          calls += 1;
+          throw Object.assign(new Error("ENOENT: no such file or directory, rename"), { code: "ENOENT" });
+        }
+      })
+    ).rejects.toThrow(/ENOENT/);
+    expect(calls).toBe(1);
+  });
+
+  it("does not rename again on other platforms, where EPERM is not a reader", async () => {
+    vi.spyOn(process, "platform", "get").mockReturnValue("linux");
+    let calls = 0;
+    await expect(
+      renameReplacingFile("from.tmp", "to.json", {
+        rename: async () => {
+          calls += 1;
+          throw inUse("EPERM");
+        }
+      })
+    ).rejects.toThrow(/EPERM/);
+    expect(calls).toBe(1);
   });
 });

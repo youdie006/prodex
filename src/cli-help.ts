@@ -88,7 +88,7 @@ Commands:
 Save a loopback-only HTTP MCP profile in .bridge/config.local.json. Use --token-ttl-hours before tunnels or ChatGPT Project use.
 
 Optional visible-browser send defaults (applied by \`pro browser ask\` when the matching per-ask flag is omitted):
-  --model      Composer model by its exact menu label. Only Pro applies on the current picker: it is a slider step, and the model rows cannot be clicked
+  --model      Composer model by its exact menu label, such as GPT-5.6 Sol. prodex picks the row with the keyboard, and a model the picker does not offer is a warning. A Chat step given as a model (--model Pro) moves the power slider instead
   --pro-mode   Pro sub-mode: 기본 (standard) or 확장 (extended)
   --effort     Reasoning effort: 즉시 / 중간 / 높음 / 매우 높음 / Max / Ultra / Pro. Max and Ultra are rungs of ChatGPT's Work surface and only apply when the browser is already on Work (prodex does not switch to Work for them); every other value is sent on Chat, whose top step is Pro
   --project    Sidebar project to enter before sending
@@ -181,13 +181,30 @@ Commands:
 Use \`prodex pro ask\` for dry-run/manual previews.
 Use \`prodex pro browser ask\` only when you want an explicit visible-browser send.
 Model/project selection (visible-browser send):
-  --model "label"              Pick the composer model by its exact menu label (verified: Pro). Submenu models (e.g. the GPT-5.6 Sol variants) are rejected for now.
+  --model "label"              Pick the composer model by its exact menu label (e.g. GPT-5.6 Sol); prodex picks the row with the keyboard, and a model the picker does not offer is a warning. A Chat step given as a model (--model Pro) moves the power slider instead.
   --pro-mode 기본 | 확장          Pro sub-mode (only when the model is Pro); a Pro selection raises the default timeout to 1200000 ms
-  --effort 즉시|중간|높음|매우 높음|Max|Ultra|Pro   Reasoning effort (aliases: instant/light, medium, high, extrahigh/max, ultra); picking one moves the single power slider
+  --effort 즉시|중간|높음|매우 높음|Max|Ultra|Pro   Reasoning effort (aliases: instant/light, medium, high, extrahigh, ultra; max in any letter case but "Max" means 매우 높음, while "Max" is Work's Max rung); picking one moves the single power slider
   --project "name"             Enter an existing sidebar project first (cannot combine with --target-url)
+  --project-new "name"         Create a sidebar project with this name and send inside it (cannot combine with --project or --target-url)
 Labels are matched in both the Korean and English (US) UI; run \`prodex pro browser models\` to list what your account shows.
-Persist defaults with \`prodex setup --model/--pro-mode/--effort/--project\`; clear them with setup --clear-model/--clear-pro-mode/--clear-effort/--clear-project.
-(Creating a new project from the CLI is planned; for now create it in ChatGPT and pass --project.)`);
+Persist defaults with \`prodex setup --model/--pro-mode/--effort/--project\`; clear them with setup --clear-model/--clear-pro-mode/--clear-effort/--clear-project.`);
+}
+export function printUiHelp(stdout: (line: string) => void): void {
+  stdout(`prodex ui
+
+Commands:
+  prodex ui
+
+Ask ChatGPT interactively in a terminal: prodex asks what to send and where, shows the send's progress, and prints the equivalent command so the flags are learnable. A plain \`prodex\` in a terminal opens it too.`);
+}
+export function printVersionHelp(stdout: (line: string) => void): void {
+  stdout(`prodex version
+
+Commands:
+  prodex --version
+  prodex version
+
+Print the installed prodex version.`);
 }
 export function printProjectHelp(stdout: (line: string) => void): void {
   stdout(`prodex project
@@ -306,9 +323,9 @@ Window mode (login and auto-recovery):
   --headed / --headless / --minimized / --virtual-display are mutually exclusive. An explicit flag selects the whole mode and overrides environment and saved state; --headed requests a visible interactive browser for login or captcha. Close any browser running in a different mode yourself before switching.
   If no mode flag is supplied, any non-empty PRODEX_HEADLESS / PRODEX_MINIMIZE_WINDOW / PRODEX_VIRTUAL_DISPLAY setting selects the whole environment mode, including 0/false/no values that explicitly select headed mode. Otherwise the last recorded login mode is reused; with no saved mode the default is headed.
 Model/project selection (ask):
-  --model      Composer model by its exact menu label. On the current picker only Pro applies - it is a step of the power slider, while the model rows carry pointer-events: none and no coordinate reaches them, so any other name warns and the send goes out on whatever the composer already had. Models whose menu entry opens a submenu of variants are rejected with a clear error for now.
+  --model      Composer model by its exact menu label, such as GPT-5.6 Sol. prodex picks the row with the keyboard; a model the picker does not offer is a warning, and the send goes out on whatever the composer already had. A Chat step given as a model (--model Pro) moves the power slider instead. Models whose menu entry opens a submenu of variants are rejected with a clear error for now.
   --pro-mode   Pro sub-mode: 기본 (standard) or 확장 (extended), used when the model is Pro. A Pro selection raises the default --timeout-ms to 1200000.
-  --effort     Reasoning effort: 즉시 / 중간 / 높음 / 매우 높음 / Max / Ultra / Pro (aliases: instant/light, medium, high, extrahigh/max, ultra). One power slider sets the model and the effort together, so picking an effort moves off Pro. Max and Ultra are rungs of the Work surface and only apply when the browser is already on Work; everything else is sent on Chat.
+  --effort     Reasoning effort: 즉시 / 중간 / 높음 / 매우 높음 / Max / Ultra / Pro (aliases: instant/light, medium, high, extrahigh, ultra; max in any letter case but "Max" means 매우 높음, while "Max" is Work's Max rung). One power slider sets the model and the effort together, so picking an effort moves off Pro. Max and Ultra are rungs of the Work surface and only apply when the browser is already on Work; everything else is sent on Chat.
   --project    Enter an existing sidebar project before sending. Cannot be combined with --target-url.
 
 Continuing a conversation (ask):

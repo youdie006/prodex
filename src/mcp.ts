@@ -209,7 +209,8 @@ export function createServer(cwd = process.cwd(), options: CreateMcpServerOption
   server.registerTool(
     "bridge_list_results",
     {
-      description: "List completed or blocked bridge results.",
+      description:
+        "List completed or blocked bridge results. A result without a trusted completion receipt is left out; `untrusted_skipped` counts those and `untrusted` gives each one's reason.",
       inputSchema: {}
     },
     async () => asText(await handlers.bridge_list_results())

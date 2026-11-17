@@ -121,7 +121,31 @@ function assertWritableContentSize(content: string): void {
   }
 }
 
+/**
+ * A name longer than the file system holds (255 bytes on most) failed with the
+ * raw ENAMETOOLONG, which names the absolute path, or the /proc/self/fd path
+ * the write went through, instead of the repo path (found 2026-11-09).
+ */
+async function refuseOverlongName<T>(repoPath: string, run: () => Promise<T>): Promise<T> {
+  try {
+    return await run();
+  } catch (error) {
+    if (isErrorCode(error, "ENAMETOOLONG")) {
+      throw new Error(`Path ${repoPath} has a file or folder name too long for the file system (most allow 255 bytes per name)`);
+    }
+    throw error;
+  }
+}
+
 export async function createRepoWriteDryRun(
+  root: string,
+  store: BridgeStore,
+  input: RepoWriteDryRunInput
+): Promise<RepoWriteDryRunResult> {
+  return refuseOverlongName(input.path, () => createRepoWriteDryRunUnchecked(root, store, input));
+}
+
+async function createRepoWriteDryRunUnchecked(
   root: string,
   store: BridgeStore,
   input: RepoWriteDryRunInput
@@ -198,6 +222,16 @@ export async function applyRepoWriteDryRun(
   }
 
   const newContent = await readDryRunReplacementContent(store, metadata);
+  return refuseOverlongName(metadata.path, () => applyRepoWriteToPath(root, store, input, metadata, newContent));
+}
+
+async function applyRepoWriteToPath(
+  root: string,
+  store: BridgeStore,
+  input: RepoWriteApplyInput,
+  metadata: DryRunMetadata,
+  newContent: string
+): Promise<RepoWriteApplyResult> {
   const resolvedPath = resolveRepoPath(root, metadata.path);
   await assertResolvedRepoPathAllowed(root, resolvedPath, metadata.path);
   const canonicalTarget = await realpath(resolvedPath);

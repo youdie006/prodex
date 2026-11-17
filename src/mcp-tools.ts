@@ -191,7 +191,22 @@ export function createMcpToolHandlers(context: McpToolContext) {
     },
 
     async bridge_list_results() {
-      return { results: (await store.listFinalizedResultsReadOnly()).map(redactResultForMcp) };
+      // An untrusted record is left out and named, as `prodex pro list` does,
+      // instead of failing the list for every trusted result beside it.
+      const { trusted, untrusted } = await store.listResultsByTrustReadOnly();
+      return {
+        results: trusted.map(redactResultForMcp),
+        ...(untrusted.length > 0
+          ? {
+              untrusted_skipped: untrusted.length,
+              untrusted: untrusted.map((error) => ({
+                task_id: error.taskId,
+                status: "untrusted" as const,
+                summary: redactContextText(error.message, [context.cwd])
+              }))
+            }
+          : {})
+      };
     },
 
     async bridge_fetch_result(input: { task_id: string }) {
