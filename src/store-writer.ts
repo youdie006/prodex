@@ -18,10 +18,10 @@
 // on relative names.
 import { closeSync, constants, fstatSync, lstatSync, openSync } from "node:fs";
 import { pathToFileURL } from "node:url";
-import { link, lstat, readdir, rename, rm } from "node:fs/promises";
+import { link, lstat, readdir, rm } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 
-import { writeVerifiedUtf8File } from "./safe-file.js";
+import { renameReplacingFile, writeVerifiedUtf8File } from "./safe-file.js";
 
 /** An inode identity, carried as strings because dev/ino can exceed a float. */
 export type DirectoryIdentity = { dev: string; ino: string };
@@ -182,7 +182,7 @@ export async function runAnchoredJob(job: AnchoredWriteJob): Promise<AnchoredWri
     await assertRegularFileIfExists(fileName);
     try {
       await writeVerifiedUtf8File(tmpName, content, stillPinned, { create: true, mode: job.mode });
-      await rename(tmpName, fileName);
+      await renameReplacingFile(tmpName, fileName, { beforeRetry: stillPinned });
       await assertRegularFileIfExists(fileName);
     } catch (error) {
       await rm(tmpName, { force: true }).catch(() => undefined);

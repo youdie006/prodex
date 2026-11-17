@@ -5,7 +5,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { loadLocalConfig, writeLocalConfig } from "../src/config.js";
 import { BridgeStore } from "../src/store.js";
-import { setSafeFileTestHooks } from "../src/safe-file.js";
+import { setSafeFileTestHooks, writeVerifiedUtf8File } from "../src/safe-file.js";
 
 vi.mock("node:fs/promises", async (importOriginal) => ({
   ...await importOriginal<typeof import("node:fs/promises")>()
@@ -117,5 +117,25 @@ describe("native platform storage", () => {
     await expect(new BridgeStore(root).ensure()).rejects.toThrow(/symlink|real directory/i);
     await expect(writeLocalConfig(root, { port: 9797, token: "test" })).rejects.toThrow(/symlink|real directory/i);
     expect(await readdir(outside)).toEqual([]);
+  });
+
+  it("replaces a file that Windows reports in use for a moment", async () => {
+    const root = await temporaryRoot();
+    const filePath = path.join(root, "record.json");
+    await writeFile(filePath, "old\n");
+    vi.spyOn(process, "platform", "get").mockReturnValue("win32");
+    const originalRename = fileSystem.rename;
+    let refused = 0;
+    vi.spyOn(fileSystem, "rename").mockImplementation(async (...args) => {
+      if (refused < 2) {
+        refused += 1;
+        throw Object.assign(new Error("EPERM: operation not permitted, rename"), { code: "EPERM" });
+      }
+      return originalRename(...args);
+    });
+    await writeVerifiedUtf8File(filePath, "new\n", async () => undefined);
+    expect(refused).toBe(2);
+    expect(await readFile(filePath, "utf8")).toBe("new\n");
+    expect(await readdir(root)).toEqual(["record.json"]);
   });
 });
