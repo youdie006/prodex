@@ -45,7 +45,7 @@ export async function runTasksCommand(rest: string[], io: CliIO): Promise<number
       return 0;
     }
     if (subcommand === "list") {
-      if (printHelpIfRequested(taskArgs, "tasks list", io.stdout, printTasksHelp, { valueFlags: ["--cwd", "--status"] })) return 0;
+      if (printHelpIfRequested(taskArgs, "tasks list", io.stdout, printTasksHelp, { valueFlags: ["--cwd", "--status"], booleanFlags: ["--json"] })) return 0;
       assertOnlyOptions(taskArgs, "tasks list", ["--cwd", "--status"], ["--json"]);
       const targetStore = new BridgeStore(resolveCwdFlag(io.cwd, taskArgs));
       const status = readTaskStatusFlag(taskArgs);
@@ -208,7 +208,7 @@ export async function runReceiptsCommand(rest: string[], io: CliIO): Promise<num
       return 0;
     }
     if (subcommand === "list") {
-      if (printHelpIfRequested(receiptArgs, "receipts list", io.stdout, printReceiptsHelp, { valueFlags: ["--cwd", "--kind", "--task-id"] })) return 0;
+      if (printHelpIfRequested(receiptArgs, "receipts list", io.stdout, printReceiptsHelp, { valueFlags: ["--cwd", "--kind", "--task-id"], booleanFlags: ["--json"] })) return 0;
       assertOnlyOptions(receiptArgs, "receipts list", ["--cwd", "--kind", "--task-id"], ["--json"]);
       const targetStore = new BridgeStore(resolveCwdFlag(io.cwd, receiptArgs));
       const receipts = await listReceiptsForInspection(targetStore, {
@@ -260,7 +260,7 @@ export async function runSessionsCommand(rest: string[], io: CliIO): Promise<num
       return 0;
     }
     if (subcommand === "list") {
-      if (printHelpIfRequested(sessionArgs, "sessions list", io.stdout, printSessionsHelp, { valueFlags: ["--cwd", "--status"] })) return 0;
+      if (printHelpIfRequested(sessionArgs, "sessions list", io.stdout, printSessionsHelp, { valueFlags: ["--cwd", "--status"], booleanFlags: ["--json"] })) return 0;
       assertOnlyOptions(sessionArgs, "sessions list", ["--cwd", "--status"], ["--json"]);
       const targetStore = new BridgeStore(resolveCwdFlag(io.cwd, sessionArgs));
       const status = readSessionStatusFlag(sessionArgs);
