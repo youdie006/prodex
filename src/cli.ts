@@ -189,6 +189,8 @@ export interface CliIO {
   navigateInteractiveTarget?: boolean;
   /** Aborts when the caller (an MCP client) cancels; a send stops on it until its prompt is submitted. */
   signal?: AbortSignal;
+  /** Told how long a browser send will wait for its answer, once that is decided; the picker's bar fills against it. */
+  onSendBudget?: (budgetMs: number) => void;
 }
 
 /**
@@ -240,10 +242,11 @@ async function runInteractiveUi(io: CliIO): Promise<number> {
         const listed = await listChatGptSidebarProjects({});
         return listed.projects;
       },
-      runConsult: (args, onProgress) =>
+      runConsult: (args, onProgress, onBudget) =>
         runCli(args, {
           ...io,
           navigateInteractiveTarget: true,
+          onSendBudget: onBudget,
           stderr: (line) => {
             if (line.startsWith("progress:")) onProgress(line);
             else io.stderr(line);

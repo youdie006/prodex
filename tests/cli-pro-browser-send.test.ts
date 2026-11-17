@@ -832,6 +832,27 @@ describe("pro browser ask persistence", () => {
     sendChatGptPromptMock.mockReset();
   });
 
+  // Found 2026-11-09: `prodex ui` drew its bar against a fixed 20 minutes while
+  // the send it started waited 5. The picker is now told the budget the send
+  // settled on, the same one the browser wait is given.
+  it("tells the caller the answer budget it settled on", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-send-"));
+    sendChatGptPromptMock.mockResolvedValue({ url: "https://chatgpt.com/c/x", title: "ChatGPT", answer: "ok", modelHints: [], warnings: [] });
+    for (const args of [["--model", "Pro"], [], ["--model", "Pro", "--timeout-ms", "1234"]]) {
+      const reported: number[] = [];
+      await runCli(["pro", "browser", "ask", ...args, "p"], {
+        cwd,
+        stdout: () => {},
+        stderr: () => {},
+        onSendBudget: (budgetMs) => reported.push(budgetMs)
+      });
+      const sentWith = (sendChatGptPromptMock.mock.lastCall?.[0] as { timeoutMs?: number }).timeoutMs;
+      expect(reported).toEqual([sentWith]);
+    }
+    expect(sendChatGptPromptMock.mock.calls.map((call) => (call[0] as { timeoutMs?: number }).timeoutMs)).toEqual([1_200_000, 300_000, 1234]);
+    sendChatGptPromptMock.mockReset();
+  });
+
   it("serializes concurrent browser sends via the machine-global lock", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "prodex-pro-send-"));
     const lockFile = path.join(cwd, "send.lock");

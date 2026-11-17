@@ -192,6 +192,53 @@ describe("select list", () => {
     expect(toggleSelection([1], 1)).toEqual([]);
     expect(toggleSelection([2], 1)).toEqual([1, 2]);
   });
+
+  // Found 2026-11-09 with 25 projects at 80x24: the list was printed whole, so
+  // the screen started at "4 Project number 4" and the title, the settings
+  // panel and the cursor on row 1 were scrolled off; rows 10 and on were a
+  // column to the right of rows 1-9.
+  const projects = Array.from({ length: 25 }, (_, index) => ({ label: `Project number ${index + 1}` }));
+  const footer = "  up/down move";
+
+  it("windows a list taller than its room around the cursor, saying what is hidden", () => {
+    for (const cursor of [0, 1, 11, 12, 23, 24]) {
+      const lines = renderSelectList({ title: "Which project?", options: projects, cursor, footer, maxLines: 12, color: false }).split("\n");
+      expect(lines.length).toBeLessThanOrEqual(12);
+      expect(lines[0]).toBe("Which project?");
+      expect(lines.at(-1)).toBe(footer);
+      const cursorRows = lines.filter((line) => line.includes("\u258c"));
+      expect(cursorRows).toHaveLength(1);
+      expect(cursorRows[0]).toMatch(new RegExp(`Project number ${cursor + 1}$`));
+      const shown = lines.flatMap((line) => /Project number (\d+)$/.exec(line)?.[1] ?? []).map(Number);
+      const above = Number(/(\d+) more above/.exec(lines.join("\n"))?.[1] ?? 0);
+      const below = Number(/(\d+) more below/.exec(lines.join("\n"))?.[1] ?? 0);
+      // The hidden counts and the rows shown add up to the whole list, in order.
+      expect(above).toBe(shown[0]! - 1);
+      expect(below).toBe(25 - shown.at(-1)!);
+      expect(shown).toEqual(Array.from({ length: shown.length }, (_, index) => shown[0]! + index));
+      expect(shown.length).toBeGreaterThanOrEqual(6);
+    }
+    const top = renderSelectList({ title: "T", options: projects, cursor: 0, maxLines: 12, color: false });
+    expect(top).not.toContain("more above");
+    expect(top).toContain("more below");
+    const bottom = renderSelectList({ title: "T", options: projects, cursor: 24, maxLines: 12, color: false });
+    expect(bottom).toContain("more above");
+    expect(bottom).not.toContain("more below");
+  });
+
+  it("leaves a list that fits alone", () => {
+    const options = projects.slice(0, 5);
+    expect(renderSelectList({ title: "T", options, cursor: 2, footer, maxLines: 9, color: false })).toBe(
+      renderSelectList({ title: "T", options, cursor: 2, footer, color: false })
+    );
+  });
+
+  it("keeps the labels in one column past row 9", () => {
+    const lines = renderSelectList({ title: "T", options: projects, cursor: 3, color: false }).split("\n");
+    const labelColumn = (row: number) => lines.find((line) => line.endsWith(`Project number ${row}`))!.indexOf("Project");
+    expect(labelColumn(10)).toBe(labelColumn(1));
+    expect(labelColumn(25)).toBe(labelColumn(9));
+  });
 });
 
 describe("attachments", () => {
@@ -220,6 +267,33 @@ describe("attachments", () => {
     expect(parseAttachmentLine(String.raw`docs\report.pdf C:\\share\x.txt`)).toEqual([
       String.raw`docs\report.pdf`,
       String.raw`C:\\share\x.txt`
+    ]);
+  });
+
+  // Found 2026-11-09. Each of these was refused as a missing file afterwards,
+  // so nothing wrong was uploaded, but the file could not be attached at all.
+  it("joins quoted and unquoted parts of one word, the way a shell reads them", () => {
+    // GNOME Terminal and other VTE terminals quote a dropped path and write an
+    // apostrophe in it as '\'' - this came back as three paths.
+    expect(parseAttachmentLine("'/home/u/repo/Bob'\\''s notes.pdf' ")).toEqual(["/home/u/repo/Bob's notes.pdf"]);
+    expect(parseAttachmentLine("'/home/u/a b.pdf' '/home/u/Bob'\\''s.pdf' ")).toEqual(["/home/u/a b.pdf", "/home/u/Bob's.pdf"]);
+    // Python's shlex.quote writes the apostrophe as '"'"'.
+    expect(parseAttachmentLine(`'Bob'"'"'s notes.pdf'`)).toEqual(["Bob's notes.pdf"]);
+    expect(parseAttachmentLine('"My File".pdf')).toEqual(["My File.pdf"]);
+    expect(parseAttachmentLine('docs/"My File.pdf" b.md')).toEqual(["docs/My File.pdf", "b.md"]);
+    expect(parseAttachmentLine("Bob\\'s\\ notes.pdf")).toEqual(["Bob's notes.pdf"]);
+    // An apostrophe between letters is still part of the name, and a quote
+    // with nothing to close it is taken as written.
+    expect(parseAttachmentLine("it's.txt 'q1 report.xlsx'")).toEqual(["it's.txt", "q1 report.xlsx"]);
+    expect(parseAttachmentLine("'draft.md")).toEqual(["'draft.md"]);
+  });
+
+  it("keeps every backslash of a Windows path", () => {
+    // `\#` read as an escaped "#" dropped the separator before "#1".
+    expect(parseAttachmentLine(String.raw`C:\repo\#1\a.pdf`)).toEqual([String.raw`C:\repo\#1\a.pdf`]);
+    expect(parseAttachmentLine(String.raw`"C:\Users\me\My (1) File.pdf" \\server\share\[x].txt`)).toEqual([
+      String.raw`C:\Users\me\My (1) File.pdf`,
+      String.raw`\\server\share\[x].txt`
     ]);
   });
 });
@@ -431,6 +505,35 @@ describe("readability", () => {
     expect(cut).toBe("ab...");
     expect(/[\ud800-\udbff](?![\udc00-\udfff])/.test(cut)).toBe(false);
     expect(columns(truncateToWidth("한국어제목입니다", 9))).toBeLessThanOrEqual(9);
+  });
+
+  // Found 2026-11-09: a check mark, a star and a red heart (U+2705, U+2B50,
+  // U+2764 U+FE0F) were counted one column each, which terminals draw two
+  // wide, so a title holding one overran its row by a column per emoji.
+  it("counts emoji drawn two columns wide as two", () => {
+    expect(displayWidth("\u2705")).toBe(2);
+    expect(displayWidth("\u2b50")).toBe(2);
+    expect(displayWidth("\u231a")).toBe(2);
+    expect(displayWidth("\u2764\ufe0f")).toBe(2);
+    expect(displayWidth("a\u2705b\u2764\ufe0fc")).toBe(7);
+    // Without the emoji selector the heart is a text symbol, one column wide.
+    expect(displayWidth("\u2764")).toBe(1);
+    expect(displayWidth("\u2192")).toBe(1);
+    expect(truncateToWidth("ab\u2705cdefgh", 6)).toBe("ab...");
+    expect(displayWidth(truncateToWidth("a\u2764\ufe0f\u2764\ufe0fcdefgh", 7))).toBeLessThanOrEqual(7);
+  });
+
+  it("cuts the title and the footer to the width as well as the rows", () => {
+    const rendered = renderSelectList({
+      title: "How much reasoning?",
+      step: { index: 2, total: 4 },
+      options: [{ label: "Keep the current selection", hint: "whatever this repo pinned" }],
+      cursor: 0,
+      footer: "  up/down move   1-9 choose directly   enter confirm   q cancel",
+      width: 32,
+      color: true
+    });
+    for (const line of rendered.split("\n")) expect(displayWidth(line)).toBeLessThanOrEqual(32);
   });
 
   it("lines up hints after wide labels", () => {
