@@ -115,14 +115,31 @@ export function stripTokenFromServerUrl(serverUrl: string): string {
   }
 }
 
-export function normalizeLoopbackHttpHost(host: string): string {
+/**
+ * `savedIn` names the config field the host was read from. A hand-edited host
+ * was a dead end: status, start and plain setup all refused it with the same
+ * sentence, and nothing said that `setup --host 127.0.0.1` replaces it or that
+ * the value came from the config file (found 2026-11-09).
+ */
+export function normalizeLoopbackHttpHost(host: string, savedIn?: "host" | "server_url"): string {
   const normalized = host.trim().toLowerCase();
   const isLocalhost = normalized === "localhost";
   const isIpv4Loopback = isIP(normalized) === 4 && normalized.startsWith("127.");
   if (isLocalhost || isIpv4Loopback) return normalized;
   // ::1 IS loopback; it was refused as if it were not. The listener and every
   // URL prodex prints are IPv4-shaped, so say that rather than "loopback-only".
-  if (normalized.replace(/^\[|\]$/g, "") === "::1") {
+  const isIpv6Loopback = normalized.replace(/^\[|\]$/g, "") === "::1";
+  if (savedIn) {
+    const origin = `HTTP MCP host ${JSON.stringify(host)}, ${savedIn === "host" ? "saved as host" : "saved in server_url"} in .bridge/config.local.json,`;
+    // server_url is rebuilt from host and port, so plain setup replaces it.
+    const fix = savedIn === "host" ? "`prodex setup --host 127.0.0.1`" : "`prodex setup`";
+    throw new Error(
+      isIpv6Loopback
+        ? `${origin} is IPv6 loopback, which prodex does not serve: it prints and serves IPv4 URLs. Run ${fix} to replace it.`
+        : `${origin} is not loopback-only. prodex listens only on loopback hosts such as 127.0.0.1 or localhost; run ${fix} to replace it. Keep prodex local and put your own tunnel in front of it when needed.`
+    );
+  }
+  if (isIpv6Loopback) {
     throw new Error("HTTP MCP host ::1 (IPv6 loopback) is not supported: prodex prints and serves IPv4 URLs. Use --host 127.0.0.1 or localhost.");
   }
   throw new Error(
@@ -130,16 +147,37 @@ export function normalizeLoopbackHttpHost(host: string): string {
   );
 }
 
-export function assertLoopbackHttpHost(host: string): void {
-  normalizeLoopbackHttpHost(host);
+/**
+ * What setup could not keep from an existing config that failed validation.
+ * Undefined when there was no config or it was valid.
+ */
+export interface LocalConfigRecovery {
+  /** The file was not a prodex config at all (not JSON, not an object, another schema version), so nothing in it was kept. */
+  unreadable: boolean;
+  /** Fields left out because their saved value was missing or invalid, such as "browser_defaults.effort". */
+  dropped: string[];
+  /** The saved token could not be kept and setup made a new one the caller did not ask for. */
+  tokenReplaced: boolean;
 }
 
 export async function writeLocalConfig(cwd: string, input: WriteLocalConfigInput = {}): Promise<LocalConfig> {
+  return (await writeLocalConfigWithRecovery(cwd, input)).config;
+}
+
+/** writeLocalConfig, also saying what it could not keep from an invalid existing config. */
+export async function writeLocalConfigWithRecovery(
+  cwd: string,
+  input: WriteLocalConfigInput = {}
+): Promise<{ config: LocalConfig; recovery?: LocalConfigRecovery }> {
   await ensureBridgeLocalFiles(cwd);
   await assertLocalConfigTargetSafe(cwd);
   const now = new Date().toISOString();
-  const existing = await readExistingConfig(cwd);
-  const host = normalizeLoopbackHttpHost(input.host ?? existing?.host ?? "127.0.0.1");
+  const read = await readExistingConfig(cwd);
+  const existing = read?.config;
+  const host =
+    input.host !== undefined
+      ? normalizeLoopbackHttpHost(input.host)
+      : normalizeLoopbackHttpHost(existing?.host ?? "127.0.0.1", existing?.host !== undefined ? "host" : undefined);
   const port = input.port ?? existing?.port ?? 8787;
   // A setup re-run that only adjusts defaults/host/port must NOT rotate the
   // token - that would silently 401 every client holding the old MCP URL.
@@ -164,7 +202,11 @@ export async function writeLocalConfig(cwd: string, input: WriteLocalConfigInput
     create: true,
     mode: 0o600
   });
-  return config;
+  if (!read || (!read.unreadable && read.dropped.length === 0)) return { config };
+  return {
+    config,
+    recovery: { unreadable: read.unreadable, dropped: read.dropped, tokenReplaced: !tokenExplicitlyRequested && existing?.token === undefined }
+  };
 }
 
 export async function loadLocalConfig(cwd: string): Promise<LocalConfig> {
@@ -186,8 +228,8 @@ export async function loadLocalConfig(cwd: string): Promise<LocalConfig> {
     if (error instanceof z.ZodError) throw new LocalConfigCorruptError(error);
     throw error;
   }
-  assertLoopbackHttpHost(config.host);
-  assertLoopbackHttpHost(new URL(config.server_url).hostname);
+  normalizeLoopbackHttpHost(config.host, "host");
+  normalizeLoopbackHttpHost(new URL(config.server_url).hostname, "server_url");
   // Configs written before the split still carry the token in the URL. Drop it
   // in memory AND rewrite the file: leaving it on disk is the whole problem
   // being fixed - an operator reading config.local.json would still find the
@@ -347,7 +389,14 @@ function computeTokenExpiresAt(tokenTtlHours: number | undefined, nowIso: string
   if (expiresAtMs > MAX_TOKEN_EXPIRES_AT_MS) {
     throw new Error("--token-ttl-hours is too large: the token would expire after year 9999. Use a smaller value, such as 8760 for a year.");
   }
-  return new Date(expiresAtMs).toISOString();
+  // The expiry is kept to the millisecond, so a TTL under one (1e-9 hours)
+  // made a token that had expired when setup reported it saved (found
+  // 2026-11-09), with a hint for a token that never expires.
+  const expiresAt = new Date(expiresAtMs);
+  if (expiresAt.getTime() <= Date.parse(nowIso)) {
+    throw new Error("--token-ttl-hours is too small: the token would expire the moment it is created. Use a larger value, such as 1 for an hour.");
+  }
+  return expiresAt.toISOString();
 }
 
 function isTokenExpired(tokenExpiresAt: string, now: Date): boolean {
@@ -373,14 +422,66 @@ function effectiveUrlPort(url: URL): number {
   return url.protocol === "http:" ? 80 : Number.NaN;
 }
 
-async function readExistingConfig(cwd: string): Promise<LocalConfig | undefined> {
+type SalvagedConfig = Partial<Pick<LocalConfig, "host" | "port" | "token" | "token_expires_at" | "browser_defaults" | "created_at">>;
+
+/**
+ * The existing config's fields that are still valid. Any failure used to count
+ * as no config at all, so one invalid optional field (an effort of "Extra
+ * High") made setup rotate the token, drop the valid defaults and the expiry
+ * and reset created_at, without a word (found 2026-11-09). server_url and
+ * updated_at are rebuilt on every write and are not salvaged.
+ */
+async function readExistingConfig(cwd: string): Promise<{ config: SalvagedConfig; dropped: string[]; unreadable: boolean } | undefined> {
+  const unreadable = { config: {}, dropped: [], unreadable: true };
+  let parsed: unknown;
   try {
-    return LocalConfigSchema.parse(
-      JSON.parse(await readVerifiedUtf8File(localConfigPath(cwd), () => assertLocalConfigTargetSafe(cwd, { allowMissing: false })))
-    );
-  } catch {
-    return undefined;
+    parsed = JSON.parse(await readVerifiedUtf8File(localConfigPath(cwd), () => assertLocalConfigTargetSafe(cwd, { allowMissing: false })));
+  } catch (error) {
+    return isMissingFileError(error) ? undefined : unreadable;
   }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return unreadable;
+  const raw = parsed as Record<string, unknown>;
+  if (raw.schema_version !== SCHEMA_VERSION) return unreadable;
+  const whole = LocalConfigSchema.safeParse(raw);
+  if (whole.success) return { config: whole.data, dropped: [], unreadable: false };
+
+  const config: SalvagedConfig = {};
+  const dropped: string[] = [];
+  const keep = <K extends keyof SalvagedConfig & keyof typeof LocalConfigSchema.shape>(key: K, required: boolean): void => {
+    if (raw[key] === undefined) {
+      if (required) dropped.push(key);
+      return;
+    }
+    const field = LocalConfigSchema.shape[key].safeParse(raw[key]);
+    if (field.success) config[key] = field.data as SalvagedConfig[K];
+    else dropped.push(key);
+  };
+  keep("host", true);
+  keep("port", true);
+  keep("token", true);
+  keep("token_expires_at", false);
+  keep("created_at", true);
+  // A token is kept only together with the expiry it was saved with: keeping
+  // it without one would turn a token meant to lapse into one that never does.
+  if (dropped.includes("token") || dropped.includes("token_expires_at")) {
+    delete config.token;
+    delete config.token_expires_at;
+  }
+  const defaults = raw.browser_defaults;
+  if (typeof defaults === "object" && defaults !== null && !Array.isArray(defaults)) {
+    const kept: BrowserDefaults = {};
+    for (const key of Object.keys(BrowserDefaultsSchema.shape) as Array<keyof BrowserDefaults>) {
+      const value = (defaults as Record<string, unknown>)[key];
+      if (value === undefined) continue;
+      const field = BrowserDefaultsSchema.shape[key].safeParse(value);
+      if (field.success) (kept as Record<string, unknown>)[key] = field.data;
+      else dropped.push(`browser_defaults.${key}`);
+    }
+    if (Object.keys(kept).length > 0) config.browser_defaults = kept;
+  } else if (defaults !== undefined) {
+    dropped.push("browser_defaults");
+  }
+  return { config, dropped, unreadable: false };
 }
 
 async function ensureBridgeLocalFiles(cwd: string): Promise<void> {
