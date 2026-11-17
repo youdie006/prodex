@@ -252,6 +252,32 @@ export async function replaceVerifiedUtf8File(
   });
 }
 
+// File systems hold names of up to 255 bytes (Linux and macOS count UTF-8
+// bytes; NTFS counts UTF-16 units, never more than the UTF-8 bytes).
+const MAX_NAME_BYTES = 255;
+
+/**
+ * The hidden file a replacement is written to, beside the file it replaces.
+ *
+ * The pid, time and UUID add about 63 bytes to the target's name, so a target
+ * whose name was over about 192 bytes passed repo_write_file_dry_run and
+ * failed repo_write_file_apply with ENAMETOOLONG (found 2026-11-09). The copy
+ * of the target's name gives way, cut on a character boundary; the leading
+ * dot, the start of the name and the ".tmp" end stay.
+ */
+function temporaryPathFor(filePath: string): string {
+  const suffix = `.${process.pid}.${Date.now()}.${randomUUID()}.tmp`;
+  const room = MAX_NAME_BYTES - 1 - Buffer.byteLength(suffix);
+  let base = "";
+  let bytes = 0;
+  for (const char of path.basename(filePath)) {
+    bytes += Buffer.byteLength(char);
+    if (bytes > room) break;
+    base += char;
+  }
+  return path.join(path.dirname(filePath), `.${base}${suffix}`);
+}
+
 async function replaceByVerifiedTempFile(
   filePath: string,
   content: string,
@@ -273,7 +299,7 @@ async function replaceByVerifiedTempFile(
     await testHooks.beforeOpen?.(filePath, "write");
   }
   await assertParentSnapshotStable(parentSnapshot);
-  const tmpPath = path.join(path.dirname(filePath), `.${path.basename(filePath)}.${process.pid}.${Date.now()}.${randomUUID()}.tmp`);
+  const tmpPath = temporaryPathFor(filePath);
   try {
     const tmpHandle = await openStableNoFollow(tmpPath, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL, "write", parentSnapshot, options.mode);
     try {

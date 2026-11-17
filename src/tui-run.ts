@@ -137,18 +137,62 @@ function isConfirm(key: Key): boolean {
   return key.name === "return" || key.name === "enter";
 }
 
-async function pick(io: TuiIo, input: Omit<SelectListInput, "cursor">, header = ""): Promise<number | undefined> {
+/** What is drawn above a question: the logo, then the settings panel. */
+interface ScreenHeader {
+  banner: string;
+  panel: string;
+}
+
+const NO_HEADER: ScreenHeader = { banner: "", panel: "" };
+
+function lineCount(text: string): number {
+  return text.split("\n").length - 1;
+}
+
+// Title, blank line, "more above", five rows, "more below", blank line, footer.
+const MIN_WINDOW_LINES = 11;
+
+/** Rows left under `text` on a terminal `rows` tall; the screen ends with a
+ *  line break, so the terminal's cursor takes the last row. */
+function roomUnder(text: string, rows: number): number {
+  return rows - 1 - lineCount(text);
+}
+
+/**
+ * As much of the header as the terminal has room for, with `wanted` lines
+ * under it (or at least `needed`). The logo gives way first, then the panel:
+ * with both, 15 of 24 rows were gone before the first choice, and the 49
+ * columns of the logo wrapped on a narrow terminal (found 2026-11-09).
+ */
+function fitHeader(header: ScreenHeader, wanted: number, needed = wanted): string {
+  const width = terminalWidth();
+  const candidates = [header.banner + header.panel, header.panel, ""].filter((text) =>
+    text.split("\n").every((line) => displayWidth(line) <= width)
+  );
+  const rows = terminalRows();
+  if (rows === undefined) return candidates[0] ?? "";
+  return candidates.find((text) => roomUnder(text, rows) >= wanted) ?? candidates.find((text) => roomUnder(text, rows) >= needed) ?? "";
+}
+
+async function pick(io: TuiIo, input: Omit<SelectListInput, "cursor">, header: ScreenHeader = NO_HEADER): Promise<number | undefined> {
   let cursor = 0;
   for (;;) {
+    const footer = "  up/down move   1-9 choose directly   enter confirm   q cancel";
+    // A longer list than the rows left scrolled its own title and cursor off
+    // the screen (found 2026-11-09); it is windowed to what is left instead.
+    const top = fitHeader(header, 2 + input.options.length + 2, MIN_WINDOW_LINES);
+    const rows = terminalRows();
+    const maxLines = rows === undefined ? undefined : Math.max(7, roomUnder(top, rows));
     io.write(
       CLEAR +
-        header +
+        top +
         renderSelectList({
           ...input,
           cursor,
           width: terminalWidth(),
           color: colorEnabled(),
-          footer: "  up/down move   1-9 choose directly   enter confirm   q cancel"
+          footer,
+          ...(maxLines !== undefined ? { maxLines } : {})
         }) +
         "\n"
     );
@@ -162,8 +206,15 @@ async function pick(io: TuiIo, input: Omit<SelectListInput, "cursor">, header = 
   }
 }
 
+function terminalRows(): number | undefined {
+  const rows = process.stdout.rows;
+  return typeof rows === "number" && rows > 0 ? rows : undefined;
+}
+
+// Rows were cut at 40 columns at the least, so on a narrower terminal every
+// row with a hint wrapped (found 2026-11-09 at 32). Below 24 nothing fits.
 function terminalWidth(): number {
-  return Math.max(40, Math.min(process.stdout.columns ?? 100, 120));
+  return Math.max(24, Math.min(process.stdout.columns ?? 100, 120));
 }
 
 function colorEnabled(): boolean {
@@ -273,7 +324,8 @@ export interface InteractiveDeps {
   /** Projects with the id their conversations carry, for "open the project". */
   listProjectsWithIds?: () => Promise<Array<{ id: string; name: string }>>;
   listProjects: () => Promise<string[]>;
-  runConsult: (args: string[], onProgress: (line: string) => void) => Promise<number>;
+  /** `onBudget` is told how long the send will wait for its answer, once it has decided. */
+  runConsult: (args: string[], onProgress: (line: string) => void, onBudget?: (budgetMs: number) => void) => Promise<number>;
   now?: () => number;
 }
 
@@ -299,7 +351,7 @@ export async function runInteractiveConsult(io: TuiIo, deps: InteractiveDeps): P
   io.input.resume();
   keys = new KeyQueue(io.input);
   io.write(ALT_SCREEN_ON + HIDE_CURSOR);
-  let header = "";
+  let header: ScreenHeader = NO_HEADER;
   // Why the picker stopped is written once the alternate screen is gone.
   // Written while it was up, the reason vanished with it and the picker exited
   // with nothing on screen.
@@ -334,7 +386,7 @@ export async function runInteractiveConsult(io: TuiIo, deps: InteractiveDeps): P
         step: { index: 1 },
         options: SEND_KINDS.map((kind) => ({ label: kind.label, ...(kind.hint ? { hint: kind.hint } : {}) }))
       },
-      banner
+      { banner, panel: "" }
     );
     if (kindChoice === undefined) return cancel();
     const tools = SEND_KINDS[kindChoice].tools;
@@ -353,15 +405,17 @@ export async function runInteractiveConsult(io: TuiIo, deps: InteractiveDeps): P
           step: { index: 2, total: steps },
           options: efforts.map((entry) => ({ label: entry.label, ...(entry.hint ? { hint: entry.hint } : {}) }))
         },
-        banner
+        { banner, panel: "" }
       );
       if (chosen === undefined) return cancel();
       effort = efforts[chosen].effort;
     }
 
     const rows = (await contextPromise) ?? [];
-    if (rows.length > 0) header = `${banner}${renderContextPanel(rows, { color: colorEnabled(), width: terminalWidth() })}\n\n`;
-    else header = banner;
+    header = {
+      banner,
+      panel: rows.length > 0 ? `${renderContextPanel(rows, { color: colorEnabled(), width: terminalWidth() })}\n\n` : ""
+    };
 
     const pinnedProject = await pinnedPromise;
     const destinations = destinationChoices(pinnedProject);
@@ -417,7 +471,7 @@ export async function runInteractiveConsult(io: TuiIo, deps: InteractiveDeps): P
         }
       }
     } else if (destination === "project-new") {
-      projectName = await askLine(io, `${CLEAR}${header}New project\n\n  name: `);
+      projectName = await askLine(io, `${CLEAR}${fitHeader(header, 3)}New project\n\n  name: `);
       if (projectName === undefined) return cancel();
       if (!projectName) return cancel();
       projectMode = "new";
@@ -426,7 +480,8 @@ export async function runInteractiveConsult(io: TuiIo, deps: InteractiveDeps): P
     }
 
     // The prompt comes last: what you type depends on what you just decided.
-    io.write(CLEAR + header + SHOW_CURSOR);
+    // Room for the prompt and the files question under it.
+    io.write(CLEAR + fitHeader(header, 6) + SHOW_CURSOR);
     const kindLabel = SEND_KINDS[kindChoice].label;
     const prompt = await askLine(io, `${kindLabel}   Step ${steps} of ${steps}\n\n  prompt: `, { multiline: true });
     io.write(HIDE_CURSOR);
@@ -466,7 +521,11 @@ export async function runInteractiveConsult(io: TuiIo, deps: InteractiveDeps): P
     io.input.setRawMode?.(false);
     io.write(`Sending. Equivalent command:\n  prodex ${formatCommand(args)}\n\n`);
 
-    const budgetMs = 20 * 60_000;
+    // The send decides how long it waits for the answer (20 minutes for a Pro
+    // selection, 5 otherwise, longer for some tools) and says so; a fixed 20
+    // minutes read "0s / 20m ... (budget 5m)" (found 2026-11-09). The fixed
+    // value stands in only until the send has said.
+    let budgetMs = 20 * 60_000;
     const startedAt = now();
     let label = "starting";
     let tick = 0;
@@ -485,9 +544,15 @@ export async function runInteractiveConsult(io: TuiIo, deps: InteractiveDeps): P
       );
     }, 250);
     try {
-      const code = await deps.runConsult(args, (line) => {
-        label = progressLabel(line);
-      });
+      const code = await deps.runConsult(
+        args,
+        (line) => {
+          label = progressLabel(line);
+        },
+        (decided) => {
+          if (Number.isFinite(decided) && decided > 0) budgetMs = decided;
+        }
+      );
       clearInterval(timer);
       io.write(CLEAR_LINE);
       return code;

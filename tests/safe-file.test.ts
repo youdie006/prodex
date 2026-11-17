@@ -1,4 +1,4 @@
-import { link, open, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { link, open, mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
 import type { Stats } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -118,5 +118,43 @@ describe("safe file reads", () => {
     await expect(writeVerifiedUtf8File(filePath, "new\n", async () => undefined)).rejects.toThrow(/hard link|linked/i);
     await expect(readFile(filePath, "utf8")).resolves.toBe("old\n");
     await expect(readFile(hardLinkPath, "utf8")).resolves.toBe("new\n");
+  });
+});
+
+describe("the temporary file a replacement is written to", () => {
+  afterEach(() => {
+    setSafeFileTestHooks({});
+  });
+
+  // Found 2026-11-09: the temporary name adds about 63 bytes to the target's,
+  // so a file whose name was over about 192 bytes passed repo_write_file_dry_run
+  // and failed repo_write_file_apply with ENAMETOOLONG. Names are limited to
+  // 255 bytes, counted in UTF-8, where a Hangul syllable takes 3.
+  it.skipIf(process.platform === "win32").each([
+    ["a 255-byte name", `${"a".repeat(252)}.md`],
+    ["a 255-byte Hangul name", `${"\uD55C".repeat(84)}.md`],
+    ["a short name", "note.txt"]
+  ])("fits the name limit for %s", async (_name, fileName) => {
+    expect(Buffer.byteLength(fileName)).toBeLessThanOrEqual(255);
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-safe-file-"));
+    const filePath = path.join(root, fileName);
+    await writeFile(filePath, "old\n", "utf8");
+    const temporary: string[] = [];
+    setSafeFileTestHooks({
+      beforeRename: async (_filePath, tmpPath) => {
+        temporary.push(path.basename(tmpPath));
+      }
+    });
+
+    await replaceVerifiedUtf8File(filePath, "new\n", async () => undefined, () => undefined);
+
+    await expect(readFile(filePath, "utf8")).resolves.toBe("new\n");
+    expect(await readdir(root)).toEqual([fileName]);
+    expect(temporary).toHaveLength(1);
+    expect(Buffer.byteLength(temporary[0]!)).toBeLessThanOrEqual(255);
+    // Still a hidden ".tmp" file that starts with the target's name.
+    expect(temporary[0]!.startsWith(`.${[...fileName].slice(0, 20).join("")}`)).toBe(true);
+    expect(temporary[0]!.endsWith(".tmp")).toBe(true);
+    expect(temporary[0]!.includes("\ufffd")).toBe(false);
   });
 });

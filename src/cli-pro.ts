@@ -1621,6 +1621,7 @@ export async function runAskProCommand(
     const browserTimeoutMs = hasSendMode
       ? (readPositiveIntegerFlag(parsedAskPro.optionArgs, "--timeout-ms") ?? defaultTimeoutForTools(tools, defaultBrowserTimeoutMs))
       : undefined;
+    if (browserTimeoutMs !== undefined) io.onSendBudget?.(browserTimeoutMs);
     const sourceCli = resolveOptionalFileFlag(io.cwd, parsedAskPro.optionArgs, "--source-cli");
     const bundle = await buildDryRunBundle(targetCwd, { prompt: promptText, files });
     if (hasSendMode) {
