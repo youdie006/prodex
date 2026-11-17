@@ -1056,9 +1056,14 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
               ...(result.blocker ? { blocker: reclassifyRecordedBlocker(result.blocker) } : {})
             });
           }
-        } catch {
-          // A root that has been deleted or is unreadable is not a failure of
-          // the report; it just has nothing to contribute.
+        } catch (error) {
+          // A bare catch here turned one corrupt record into "No consults
+          // recorded in this repo." with rc=0 (found 2026-11-09). A deleted
+          // root does not get here: it reads as empty or is not listed. The
+          // repo asked for fails with the record's own advice; across every
+          // root, the rest are still reported and this one is named.
+          if (scopedToOneRepo) throw error;
+          io.stderr(`blockers_warning: skipped ${root}: ${errorMessage(error)}`);
         }
       }
       const report = buildBlockerReport({
@@ -3439,6 +3444,14 @@ export function readSinceFlag(args: string[]): string | undefined {
   const parsed = /^\d{4}-\d{2}-\d{2}(?:[T ]|$)/.test(raw.trim()) ? Date.parse(raw) : Number.NaN;
   if (!Number.isFinite(parsed)) {
     throw new Error(`--since expects a date or an age like 7d or 24h, not "${raw}".`);
+  }
+  // Date.parse rolls a day the month lacks into the next month: 2026-02-30
+  // was read as 2026-03-02 (found 2026-11-09).
+  const [year, month, day] = raw.trim().slice(0, 10).split("-").map(Number) as [number, number, number];
+  const calendarDay = new Date(0);
+  calendarDay.setUTCFullYear(year, month - 1, day);
+  if (calendarDay.getUTCFullYear() !== year || calendarDay.getUTCMonth() !== month - 1 || calendarDay.getUTCDate() !== day) {
+    throw new Error(`--since ${raw} names a day that does not exist; use a date like 2026-01-01 or an age like 7d or 24h.`);
   }
   return new Date(parsed).toISOString();
 }

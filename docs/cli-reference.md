@@ -332,6 +332,8 @@ prodex results reseal <task-id> --confirm-current-result
 
 This writes a new local `task_completed` receipt for the current result payload. Prefer the explicit task id you just reviewed; `latest` is accepted for convenience but resolves from the current raw result list at execution time. It does not reseal unsigned receipts, forged receipts, or receipts that already point at a different result digest.
 
+An untrusted result does not hide the others: `results show latest` and `results artifact latest` resolve to the newest trusted result, as `pro latest` does, and MCP `bridge_list_results` lists the trusted results with `untrusted_skipped` (how many were left out) and `untrusted` (each one's task id and reason). Naming an untrusted result by its task id still refuses it.
+
 Receipts are HMAC-signed with a local key in `.bridge/receipt-key.local`. If you suspect the key was exposed, rotate it:
 
 ```bash

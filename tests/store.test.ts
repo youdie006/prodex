@@ -46,12 +46,16 @@ describe("BridgeStore", () => {
       await store.completeTask(task.id, { status: "done", summary: `done ${i}`, artifacts: [], commands: [] });
       taskIds.push(task.id);
     }
-    const results = await store.listFinalizedResultsReadOnly();
-    expect(results.map((r) => r.task_id).sort()).toEqual([...taskIds].sort());
+    const { trusted, untrusted } = await store.listResultsByTrustReadOnly();
+    expect(trusted.map((r) => r.task_id).sort()).toEqual([...taskIds].sort());
+    expect(untrusted).toEqual([]);
     // A result whose completion receipt is missing must still be rejected.
     await rm(path.join(root, ".bridge", "receipts"), { recursive: true, force: true });
     await mkdir(path.join(root, ".bridge", "receipts"), { recursive: true, mode: 0o700 });
-    await expect(store.listFinalizedResultsReadOnly()).rejects.toThrow(/task_completed receipt/i);
+    const missing = await store.listResultsByTrustReadOnly();
+    expect(missing.trusted).toEqual([]);
+    expect(missing.untrusted.map((error) => error.taskId).sort()).toEqual([...taskIds].sort());
+    for (const error of missing.untrusted) expect(error.message).toMatch(/task_completed receipt/i);
   });
 
   it("creates, claims, completes, and fetches task results", async () => {
