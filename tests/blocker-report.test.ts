@@ -1,7 +1,12 @@
+import { mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { buildBlockerReport } from "../src/blocker-report.js";
+import { runCli } from "../src/cli.js";
 import { formatBlockerReport, readSinceFlag } from "../src/cli-pro.js";
+import { BridgeStore } from "../src/store.js";
 
 // Half of every consult on this machine ends in a blocker, and until now the
 // only way to ask WHICH failure dominates was an ad-hoc script: `pro list`
@@ -188,6 +193,16 @@ describe("reading the window flag", () => {
     expect(() => readSinceFlag(["--since", "12"])).toThrow(/7d or 24h/);
   });
 
+  it("refuses a day the month does not have instead of rolling it into the next month", () => {
+    // Found 2026-11-09: `--since 2026-02-30` was read as 2026-03-02.
+    expect(() => readSinceFlag(["--since", "2026-02-30"])).toThrow(/--since 2026-02-30 names a day that does not exist/);
+    expect(() => readSinceFlag(["--since", "2026-04-31"])).toThrow(/--since 2026-04-31 names a day that does not exist/);
+    expect(() => readSinceFlag(["--since", "2025-02-29T08:00:00Z"])).toThrow(/--since 2025-02-29T08:00:00Z names a day that does not exist/);
+    expect(readSinceFlag(["--since", "2026-02-28"])).toBe("2026-02-28T00:00:00.000Z");
+    expect(readSinceFlag(["--since", "2028-02-29"])).toBe("2028-02-29T00:00:00.000Z");
+    expect(readSinceFlag(["--since", "2026-04-30T23:30:00Z"])).toBe("2026-04-30T23:30:00.000Z");
+  });
+
   it("refuses an age too large to be a date, rather than failing with a raw RangeError", () => {
     // Measured: `--since 999999999d` printed only "Invalid time value".
     expect(() => readSinceFlag(["--since", "999999999d"])).toThrow(/--since .*too far back/);
@@ -233,5 +248,60 @@ describe("laying the report out", () => {
 
   it("says so when there is nothing to report at all", () => {
     expect(formatBlockerReport({ totalConsults: 0, blocked: 0, roots: 0, groups: [] })).toMatch(/No consults recorded/);
+  });
+});
+
+describe("reading the repos' records", () => {
+  const corruptRecord = path.join(".bridge", "results", "task_20990101_000000_gpt-pro-consult.json");
+
+  async function repoWithBlockedConsults(count: number): Promise<string> {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-blockers-"));
+    const store = new BridgeStore(cwd, { registerRoot: false });
+    for (let i = 0; i < count; i += 1) {
+      const task = await store.createTask({ source: "codex", title: "GPT Pro consult", prompt: `Consult ${i}`, provenance: { adapter: "chatgpt-control" } });
+      await store.completeTask(task.id, {
+        status: "blocked",
+        summary: "The answer did not arrive in time.",
+        blocker: { code: "send_timeout", message: "The answer did not arrive in time.", retryable: true }
+      });
+    }
+    return cwd;
+  }
+
+  async function blockers(args: string[]): Promise<{ stdout: string; stderr: string }> {
+    const stdout: string[] = [];
+    const stderr: string[] = [];
+    await runCli(["pro", "blockers", ...args], { cwd: tmpdir(), stdout: (line) => stdout.push(line), stderr: (line) => stderr.push(line) });
+    return { stdout: stdout.join("\n"), stderr: stderr.join("\n") };
+  }
+
+  it("names a corrupt record instead of reporting the repo as having no consults", async () => {
+    // Found 2026-11-09: one corrupt result made `pro blockers --cwd <repo>`
+    // print "No consults recorded in this repo." with rc=0, where it had
+    // reported "3 of 3 consults" before the file was added.
+    const cwd = await repoWithBlockedConsults(3);
+    expect((await blockers(["--cwd", cwd])).stdout).toContain("3 of 3 consults");
+    await writeFile(path.join(cwd, corruptRecord), "{not json", "utf8");
+
+    await expect(blockers(["--cwd", cwd])).rejects.toThrow(
+      "Result record is corrupt: .bridge/results/task_20990101_000000_gpt-pro-consult.json. Move it aside or fix the JSON, then retry."
+    );
+    await expect(blockers(["--cwd", cwd, "--json"])).rejects.toThrow(/Result record is corrupt: \.bridge\/results\//);
+  });
+
+  it("reports the other repos and says which one it skipped, when reading every repo", async () => {
+    const good = await repoWithBlockedConsults(2);
+    const bad = await repoWithBlockedConsults(1);
+    await writeFile(path.join(bad, corruptRecord), "{not json", "utf8");
+    const registry = path.join(await mkdtemp(path.join(tmpdir(), "prodex-blockers-registry-")), "bridges.json");
+    await writeFile(registry, JSON.stringify({ roots: [good, bad] }), "utf8");
+    process.env.PRODEX_BRIDGES_REGISTRY = registry;
+
+    const { stdout, stderr } = await blockers([]);
+    expect(stdout).toContain("2 of 2 consults (100%) across 1 bridge root");
+    expect(stderr).toContain(
+      `blockers_warning: skipped ${bad}: Result record is corrupt: .bridge/results/task_20990101_000000_gpt-pro-consult.json. Move it aside or fix the JSON, then retry.`
+    );
+    expect(stderr).not.toContain(good);
   });
 });

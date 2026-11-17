@@ -329,10 +329,19 @@ export async function latestRawResultTaskId(store: BridgeStore): Promise<string>
 }
 
 export async function latestResultTaskId(store: BridgeStore, options: { readOnly?: boolean } = {}): Promise<string> {
-  const results = options.readOnly ? await listResultsForInspection(store) : await store.listResults();
-  const result = results.at(-1);
-  if (!result) throw new Error("No results found");
-  return result.task_id;
+  if (!options.readOnly) {
+    const result = (await store.listResults()).at(-1);
+    if (!result) throw new Error("No results found");
+    return result.task_id;
+  }
+  // The newest trusted result, stepping past untrusted ones the way `pro
+  // latest` does; with none trusted, the newest untrusted one's reason.
+  const { trusted, untrusted } = await listResultsForInspection(store);
+  const result = trusted.at(-1);
+  if (result) return result.task_id;
+  const newestUntrusted = untrusted.at(-1);
+  if (newestUntrusted) throw newestUntrusted;
+  throw new Error("No results found");
 }
 
 export async function latestTask(
@@ -402,8 +411,8 @@ export async function listTasksForInspection(
   return store.listTasksReadOnly(status);
 }
 
-export async function listResultsForInspection(store: BridgeStore): Promise<Awaited<ReturnType<BridgeStore["listResults"]>>> {
-  return store.listFinalizedResultsReadOnly();
+export async function listResultsForInspection(store: BridgeStore): Promise<Awaited<ReturnType<BridgeStore["listResultsByTrustReadOnly"]>>> {
+  return store.listResultsByTrustReadOnly();
 }
 
 export async function listRawResultsForInspection(store: BridgeStore): Promise<Awaited<ReturnType<BridgeStore["listResults"]>>> {
