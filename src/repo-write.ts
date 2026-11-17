@@ -108,23 +108,32 @@ export function keepFileConventions(current: string, next: string): string {
   return content;
 }
 
+/**
+ * The limit is in UTF-8 bytes, the size of the file on disk, while the MCP
+ * schema can only say characters: Korean text reaches it at a third of the
+ * schema's maxLength. The refusal says the size in bytes so the two can be
+ * told apart.
+ */
+function assertWritableContentSize(content: string): void {
+  const bytes = Buffer.byteLength(content, "utf8");
+  if (bytes > MAX_WRITE_BYTES) {
+    throw new Error(`New content is too large to write through repo tools (${bytes} bytes > ${MAX_WRITE_BYTES} bytes in UTF-8)`);
+  }
+}
+
 export async function createRepoWriteDryRun(
   root: string,
   store: BridgeStore,
   input: RepoWriteDryRunInput
 ): Promise<RepoWriteDryRunResult> {
   const head = await assertGitHead(root, input.expected_head);
-  if (Buffer.byteLength(input.content, "utf8") > MAX_WRITE_BYTES) {
-    throw new Error(`New content is too large to write through repo tools`);
-  }
+  assertWritableContentSize(input.content);
 
   const current = await readWritableExistingFile(root, input.path);
   const content = keepFileConventions(current.content, input.content);
   // Restoring CRLF and a BOM adds bytes, so the limit is checked again on what
   // will be written: content that apply refuses used to pass the dry run.
-  if (Buffer.byteLength(content, "utf8") > MAX_WRITE_BYTES) {
-    throw new Error(`New content is too large to write through repo tools`);
-  }
+  assertWritableContentSize(content);
   if (current.content === content) {
     throw new Error(`No changes for ${input.path}`);
   }
