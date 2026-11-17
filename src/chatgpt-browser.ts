@@ -405,9 +405,10 @@ interface ChatGptPageStatus extends ChatGptPageTextState {
 // Text/buttons for login and status detection: exclude message bodies and the
 // composer, but KEEP the sidebar/nav - the logged-in signals ("New chat",
 // "Projects", the profile button, the plan hint) live there.
+// A unit key is "fallback-turn-<n>:<position>:<role>" or, measured 2026-11-17,
+// "<turn uuid>:<position>:<role>"; the page script checks the exact shape.
 export const CHATGPT_FALLBACK_TRANSCRIPT_MESSAGE_SELECTOR =
-  '[data-content-search-unit-key^="fallback-turn-"][data-content-search-unit-key$=":user"],' +
-  '[data-content-search-unit-key^="fallback-turn-"][data-content-search-unit-key$=":assistant"]';
+  '[data-content-search-unit-key$=":user"],[data-content-search-unit-key$=":assistant"]';
 export const CHATGPT_TRANSCRIPT_MESSAGE_SELECTOR =
   `[data-message-author-role],${CHATGPT_FALLBACK_TRANSCRIPT_MESSAGE_SELECTOR}`;
 export const CHATGPT_USER_MESSAGE_BUBBLE_SELECTOR = '[data-user-message-bubble="true"]';
@@ -6549,7 +6550,9 @@ function chatGptTranscriptExpressionHelpers(): string {
   return `${CHATGPT_RENDERED_MESSAGE_TEXT_JS}${CHATGPT_EXPAND_USER_TURN_JS}
     const transcriptMessageSelector = ${transcriptMessageSelector};
     const userMessageBubbleSelector = ${userMessageBubbleSelector};
-    const fallbackMessageKeyPattern = /^fallback-turn-(\\d+):(\\d+):(user|assistant)$/;
+    // The turn is numbered ("fallback-turn-3") or, measured 2026-11-17, named
+    // by its id (a UUID); a named turn's order is its place on the page.
+    const fallbackMessageKeyPattern = /^(?:fallback-turn-(\\d+)|([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})):(\\d+):(user|assistant)$/;
     const readChatGptTranscriptMessage = (node) => {
       const legacyRole = node.getAttribute('data-message-author-role');
       const fallbackKey = node.getAttribute('data-content-search-unit-key') || "";
@@ -6558,13 +6561,15 @@ function chatGptTranscriptExpressionHelpers(): string {
       let source;
       let role;
       let turn;
+      let turnId;
       let position;
       if (fallbackMatch) {
         source = "fallback";
-        role = fallbackMatch[3];
-        turn = Number(fallbackMatch[1]);
-        position = Number(fallbackMatch[2]);
-        if (!Number.isSafeInteger(turn) || !Number.isSafeInteger(position)) return { invalid: true, source, turn, position };
+        role = fallbackMatch[4];
+        turnId = fallbackMatch[2];
+        turn = turnId === undefined ? Number(fallbackMatch[1]) : undefined;
+        position = Number(fallbackMatch[3]);
+        if ((turnId === undefined && !Number.isSafeInteger(turn)) || !Number.isSafeInteger(position)) return { invalid: true, source, turn, position };
         if (legacyRole !== null && legacyRole !== role) return { invalid: true, source, turn, position };
       } else if (legacyMessageRole) {
         source = "legacy";
@@ -6591,7 +6596,7 @@ function chatGptTranscriptExpressionHelpers(): string {
           body?.tagName?.toLowerCase() === "div";
         if (measuredAssistantShape && !selection) messageText = renderedMessageText(body);
       }
-      return { source, role, turn, position, text: messageText, modelSlug, node };
+      return { source, role, turn, turnId, position, text: messageText, modelSlug, node };
     };
     const isInsideChatGptTranscriptMessage = (node) => {
       if (!node || typeof node.closest !== "function") return false;
@@ -6618,6 +6623,17 @@ function chatGptTranscriptExpressionHelpers(): string {
         if (legacyMessageNodes.some((node) => !fallbackNodes.includes(node))) return [];
         const fallbackMessages = fallbackNodes.map(readChatGptTranscriptMessage);
         if (fallbackMessages.some((message) => !message || message.invalid)) return [];
+        // Named turns are numbered in page order. A page mixing both kinds of
+        // key has no order prodex can trust, so it reads as no transcript.
+        const named = fallbackMessages.filter((message) => message.turnId !== undefined);
+        if (named.length > 0) {
+          if (named.length !== fallbackMessages.length) return [];
+          const order = [];
+          for (const message of named) {
+            if (!order.includes(message.turnId)) order.push(message.turnId);
+            message.turn = order.indexOf(message.turnId);
+          }
+        }
         const coordinates = new Set();
         for (const message of fallbackMessages) {
           const coordinate = message.turn + ":" + message.position;
