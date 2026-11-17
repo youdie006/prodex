@@ -16,6 +16,50 @@ Release target: `v0.40.13` on `main`. The GitHub Release records the resolved co
 
 The release adds a guarded, opt-in transition and more accurate blocker reporting. It does not claim that headless Pro consultation is verified on either deployment target or that authentication can be retained indefinitely.
 
+## 0.40.52 Release Record
+
+Release commit `51da80d` on `main` (cut after PRs #100 and #105-#109, last merge `36bda26`); tag `v0.40.52`, published 2026-11-17. Released on the user's go-ahead as a batch, together with the container swaps:
+- #100: `release:verify`'s 15 minute `npm test` budget, and a launch test's fixed 200 ms wait. Both stopped the 0.40.51 publish run.
+- #105: one untrusted result hid every other result from `results show latest`, `results artifact latest` and `bridge_list_results`; `pro blockers --cwd` reported a repo with one corrupt result as having no consults; `sessions cancel` made the cancelled session the latest; `--since 2026-02-30` rolled into March.
+- #106: macOS and Windows started a process per record read; Windows record replacement failed with `EPERM` while another process read the record; an unreadable record was not named.
+- #107: a single-value option given twice kept the first value without a word; a value starting with `--` was refused as missing; `ui --help`, `version --bogus` and help wording.
+- #108: the picker's progress bar ignored the send's budget, long lists scrolled the screen away, the attach line split quoted paths and some emoji were measured one column wide; `repo_write_file_apply` failed for names over about 192 bytes.
+- #109: MCP tools refused Korean text at about a third of the advertised character limits; `repo_id: ""` returned a raw validation dump; setup printed follow-ups that did not work, replaced a config with one invalid field, and left a non-loopback host a dead end.
+
+**Publishing**
+- `npm run release:verify` passed on the release commit after a build.
+- `publish.yml` run 44005418895 passed on its first attempt, all six platform jobs included (macOS Intel finished inside #100's 25 minute budget). It published to npm with SLSA v1 provenance and created the GitHub Release (03:04 UTC), which lists the 29 entries from `CHANGELOG.md`.
+
+**Installed**
+- WSL, M3, Mac mini: `prodex --version` reports 0.40.52.
+- The maintainer watchdog checkout was pulled to `51da80d` and rebuilt.
+- No host-side `prodex mcp` or `prodex start` was running on WSL, M3 or the Mac mini. The MCP entries on WSL and M3 relay into the browser containers.
+- MacBook M4: `ssh m4` timed out before and after the publish, so it still runs 0.40.51. The install script is the 0.40.51 one with the version changed; it has to be run once M4 answers.
+
+**Container: `request_mismatch` on every consult (container PR #110, merge `58650ce`)**
+- Found 2026-11-17: every consult through the browser container failed with `request_mismatch` after its prompt was posted, including a one-line test prompt; reconnecting did not help.
+- Cause: ChatGPT now keys each transcript unit as `<turn uuid>:<position>:<role>` (`data-content-search-unit-key`), and the container branch's transcript reader accepted only `fallback-turn-<n>:<position>:<role>`. It read no messages, so it could not find the prompt it had just sent. Checked read-only on the live tab: the deployed reader saw 0 user and 0 assistant messages, `main`'s reader and the fix 1 and 1, with the request marker.
+- npm installs were not affected: `main`'s reader matches the new keys.
+- The four blocked consults had been posted, and ChatGPT answered them. The agent did not resend them.
+
+**Container swaps**
+- Each swap was gated on the send lock being free. None held it.
+- First, to unblock consults, both images were built from `58650ce`:
+  - WSL: image `d7db8be91bec`, recreated 02:39:23 UTC. Healthy, 1024 process limit, using 339, no thread errors.
+  - M3 (colima `prodex-check`, Running): image `b3498d38b98a`, started 02:40:29 UTC. Healthy, using 185 processes, no thread errors.
+- Then container PR #111 (merge `9969a64`) ported #100 and #105-#109, one commit per PR (`131f0b9`..`fa69a66`):
+  - Each diff (src, tests, docs, scripts, README.md, CONTRIBUTING.md) applied unchanged. #100's change to `tests/launch-port-unavailable.test.ts` and its CHANGELOG line were left out, as that test does not exist on the branch.
+  - Build, typecheck, the full suite (2343 passed, 3 skipped) and `release:verify` passed locally; the PR's CI passed.
+  - `scripts/release-check.mjs` now matches `main`.
+- Both images were rebuilt from `9969a64`:
+  - WSL: image `cac6d199afeb`, recreated 03:05:36 UTC. Healthy, using 360 processes, no thread errors.
+  - M3: image `ed5db5c55385`, started 03:06:28 UTC. Healthy, using 198 processes, no thread errors. The M3 checkout `~/.local/share/prodex-maint/container-src` is now at `9969a64`.
+- After each swap, on both hosts:
+  - `pro browser check` reported logged in with a composer, and `model_hints: Thinking effort | Pro`.
+  - `pro browser smoke`, in a new chat with a bridge in a temporary directory inside the container, answered `PRODEX_PRO_SMOKE_OK` with `requestVerified: true`: WSL after 30 s and 37 s, M3 after 29 s and 27 s.
+- After the second swap, `scripts/container-client.mjs status` reported each container running, healthy and ready.
+- The host-side client did not change: `scripts/container-client.mjs` and `scripts/colima-start.sh` are the same at `9969a64` as at `19eb1cb`. The WSL pinned checkout stays at `19eb1cb`, and M3's installed client copy was not replaced.
+
 ## 0.40.51 Release Record
 
 Release commit `952e8bb` on `main` (cut after PRs #88-#99, last merge `52f76d6`); tag `v0.40.51`, published 2026-11-10. Released on the user's go-ahead as a batch, together with the container swaps:
