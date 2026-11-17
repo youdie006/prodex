@@ -2,6 +2,7 @@ import { PassThrough } from "node:stream";
 import { describe, expect, it } from "vitest";
 
 import { formatCommand, runInteractiveConsult, type InteractiveDeps } from "../src/tui-run.js";
+import { displayWidth } from "../src/tui.js";
 
 /** A stdin the test can type into, recording every raw-mode switch. */
 function fakeInput(): { stream: PassThrough & NodeJS.ReadStream; rawModes: boolean[] } {
@@ -501,6 +502,124 @@ describe("after a send", () => {
       expect(picker.state.out.split("\u001b[?1049l")).toHaveLength(2);
       expect(picker.state.out.indexOf("\u001b[?1049l")).toBeLessThan(picker.state.out.indexOf("Sending."));
     } finally {
+      picker.stream.destroy();
+      await settleWithin(picker.finished);
+    }
+  });
+});
+
+describe("the progress bar during a send", () => {
+  // Found 2026-11-09: the bar filled against a fixed 20 minutes while the send
+  // itself waited 5, so it read "0s / 20m  prompt sent, waiting for answer
+  // (budget 5m)" and a send that timed out had filled a quarter of it.
+  async function sendAndWatch(budgetMs: number | undefined): Promise<string> {
+    let screen = "";
+    const picker = startPicker({
+      now: () => 0,
+      runConsult: async (_args, _onProgress, onBudget) => {
+        if (budgetMs !== undefined) onBudget?.(budgetMs);
+        await waitFor(() => /\[[#-]+\]/.test(picker.state.out.slice(picker.state.out.indexOf("Sending."))), "a drawn progress bar");
+        screen = picker.state.out.slice(picker.state.out.indexOf("Sending."));
+        return 0;
+      }
+    });
+    try {
+      await reachPrompt(picker);
+      picker.stream.write("how long\r");
+      await waitFor(() => picker.rawModes.length >= 4, "the attachment reader");
+      picker.stream.write("\r");
+      expect(await picker.finished).toBe(0);
+      return screen;
+    } finally {
+      picker.stream.destroy();
+      await settleWithin(picker.finished);
+    }
+  }
+
+  it("fills against the budget the send settled on", async () => {
+    const screen = await sendAndWatch(5 * 60_000);
+    expect(screen).toContain("0s / 5m");
+    expect(screen).not.toContain("/ 20m");
+  });
+
+  it("falls back to 20 minutes when the send names no budget", async () => {
+    expect(await sendAndWatch(undefined)).toContain("0s / 20m");
+  });
+});
+
+describe("a list taller than the terminal", () => {
+  // Found 2026-11-09 in a pty at 80x24 with 25 projects: the screen started at
+  // "4 Project number 4", so the question, the settings panel and the cursor
+  // were all scrolled off it. With colour on, the logo and the panel alone
+  // took 15 of the 24 rows.
+  it("keeps the question, the settings and the cursor on screen", async () => {
+    const saved = { rows: process.stdout.rows, columns: process.stdout.columns, isTTY: process.stdout.isTTY, noColor: process.env.NO_COLOR };
+    Object.assign(process.stdout, { rows: 24, columns: 80, isTTY: true });
+    delete process.env.NO_COLOR;
+    const picker = startPicker({
+      describeContext: async () => [
+        { label: "repo", value: "/home/user/project" },
+        { label: "browser", value: "ready" }
+      ],
+      listProjectsWithIds: async () => Array.from({ length: 25 }, (_, index) => ({ id: `g-p-${index + 10}`, name: `Project number ${index + 1}` }))
+    });
+    const screen = () => picker.state.out.slice(picker.state.out.lastIndexOf("\u001b[2J")).replace(/\u001b\[[0-9;?]*[A-Za-z]/g, "");
+    try {
+      await waitFor(() => picker.state.out.includes("What kind of send is this?"), "the first question");
+      picker.stream.write("2");
+      await waitFor(() => picker.state.out.includes("Where should it go?"), "the destination question");
+      picker.stream.write("3");
+      await waitFor(() => picker.state.out.includes("Which project?"), "the project question");
+      for (const [moves, row] of [[0, 1], [12, 13], [12, 25]] as const) {
+        const before = picker.state.out.length;
+        for (let move = 0; move < moves; move += 1) picker.stream.write("j");
+        if (moves > 0) await waitFor(() => picker.state.out.length > before && screen().includes(`\u258c ${String(row).padStart(2)} Project number ${row}`), `row ${row}`);
+        // The screen ends with a line break, so its last line is the one the
+        // terminal's cursor waits on: every line has to fit in the 24 rows.
+        const lines = screen().split("\n");
+        expect(lines.length).toBeLessThanOrEqual(24);
+        expect(screen()).toContain("Which project?");
+        expect(screen()).toContain("browser");
+        expect(screen()).toContain(`\u258c ${String(row).padStart(2)} Project number ${row}`);
+        for (const line of lines) expect(displayWidth(line)).toBeLessThanOrEqual(80);
+      }
+      expect(screen()).toContain("more above");
+      picker.stream.write("q");
+      expect(await settleWithin(picker.finished)).toBe(130);
+    } finally {
+      Object.assign(process.stdout, { rows: saved.rows, columns: saved.columns, isTTY: saved.isTTY });
+      if (saved.noColor === undefined) delete process.env.NO_COLOR;
+      else process.env.NO_COLOR = saved.noColor;
+      picker.stream.destroy();
+      await settleWithin(picker.finished);
+    }
+  });
+});
+
+describe("a terminal narrower than 40 columns", () => {
+  // Found 2026-11-09 at 32 columns: rows were cut at 40, so each one with a
+  // hint wrapped and the hints sat on lines of their own; the title and the
+  // footer wrapped too.
+  it("cuts every line to the terminal's own width", async () => {
+    const saved = { rows: process.stdout.rows, columns: process.stdout.columns, isTTY: process.stdout.isTTY, noColor: process.env.NO_COLOR };
+    Object.assign(process.stdout, { rows: 24, columns: 32, isTTY: true });
+    delete process.env.NO_COLOR;
+    const picker = startPicker();
+    const screen = () => picker.state.out.slice(picker.state.out.lastIndexOf("\u001b[2J"));
+    try {
+      await waitFor(() => picker.state.out.includes("What kind of send is this?"), "the first question");
+      for (const line of screen().split("\n")) expect(displayWidth(line.replace(/\u001b\[[0-9;?]*[A-Za-z]/g, ""))).toBeLessThanOrEqual(32);
+      picker.stream.write("1");
+      await waitFor(() => picker.state.out.includes("How much reasoning?"), "the reasoning question");
+      const lines = screen().split("\n");
+      for (const line of lines) expect(displayWidth(line.replace(/\u001b\[[0-9;?]*[A-Za-z]/g, ""))).toBeLessThanOrEqual(32);
+      expect(screen()).toContain("Keep the current selection");
+      picker.stream.write("q");
+      expect(await settleWithin(picker.finished)).toBe(130);
+    } finally {
+      Object.assign(process.stdout, { rows: saved.rows, columns: saved.columns, isTTY: saved.isTTY });
+      if (saved.noColor === undefined) delete process.env.NO_COLOR;
+      else process.env.NO_COLOR = saved.noColor;
       picker.stream.destroy();
       await settleWithin(picker.finished);
     }

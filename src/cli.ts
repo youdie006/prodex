@@ -146,7 +146,9 @@ import {
   printStatusHelp,
   printTasksHelp,
   printTunnelHelp,
-  printTunnelUrlHelp
+  printTunnelUrlHelp,
+  printUiHelp,
+  printVersionHelp
 } from "./cli-help.js";
 
 const execFileAsync = promisify(execFile);
@@ -189,6 +191,8 @@ export interface CliIO {
   navigateInteractiveTarget?: boolean;
   /** Aborts when the caller (an MCP client) cancels; a send stops on it until its prompt is submitted. */
   signal?: AbortSignal;
+  /** Told how long a browser send will wait for its answer, once that is decided; the picker's bar fills against it. */
+  onSendBudget?: (budgetMs: number) => void;
 }
 
 /**
@@ -240,10 +244,11 @@ async function runInteractiveUi(io: CliIO): Promise<number> {
         const listed = await listChatGptSidebarProjects({});
         return listed.projects;
       },
-      runConsult: (args, onProgress) =>
+      runConsult: (args, onProgress, onBudget) =>
         runCli(args, {
           ...io,
           navigateInteractiveTarget: true,
+          onSendBudget: onBudget,
           stderr: (line) => {
             if (line.startsWith("progress:")) onProgress(line);
             else io.stderr(line);
@@ -258,6 +263,10 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
   const store = new BridgeStore(io.cwd);
 
   if (command === "--version" || command === "-v" || command === "version") {
+    // Found 2026-11-09: `prodex version --bogus` printed the version and
+    // exited 0, where every other command refuses what it does not take.
+    if (printHelpIfRequested(rest, "version", io.stdout, printVersionHelp)) return 0;
+    assertOnlyOptions(rest, "version", []);
     io.stdout(CLI_VERSION);
     return 0;
   }
@@ -277,6 +286,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
   }
 
   if (command === "ui") {
+    if (printHelpIfRequested(rest, "ui", io.stdout, printUiHelp)) return 0;
     assertOnlyOptions(rest, "ui", []);
     return runInteractiveUi(io);
   }

@@ -515,7 +515,7 @@ describe("browser product check", () => {
     const text = out.join("\n");
     expect(code).toBe(0);
     expect(text).toContain("chatgpt: ok logged_in=true composer=true");
-    expect(text).toContain("latest_pro: unavailable Target path is hard linked");
+    expect(text).toContain(`latest_pro: unavailable Task record is hard linked: .bridge/tasks/${task.id}.json`);
   });
 
   it("reports the latest trusted Pro answer even when older Pro history is untrusted", async () => {

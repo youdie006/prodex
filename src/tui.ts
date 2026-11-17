@@ -65,21 +65,73 @@ export function consultArgsFromChoices(choices: ConsultChoices): string[] {
   return args;
 }
 
+// Characters a backslash escapes outside quotes: a space or shell punctuation.
+const ESCAPED_BY_BACKSLASH = /[ ()\[\]{}'"&;!$`*?#~<>|]/;
+// A drive letter or a UNC share: such a word's backslashes are separators.
+const WINDOWS_PATH_START = /^["']?(?:[A-Za-z]:[\\/]|\\\\)/;
+
+/** Where the quote opened at `open` closes, or -1 when nothing closes it. */
+function closingQuote(line: string, open: number, windows: boolean): number {
+  const quote = line[open];
+  for (let index = open + 1; index < line.length; index += 1) {
+    if (quote === '"' && !windows && line[index] === "\\") index += 1;
+    else if (line[index] === quote) return index;
+  }
+  return -1;
+}
+
 /**
  * Split the one line a person types into the paths the send wants one flag at
- * a time. Quotes are honoured because file names have spaces in them.
+ * a time, reading it the way a shell reads words: file names have spaces in
+ * them, and a dropped file arrives quoted or escaped by the terminal.
  */
 export function parseAttachmentLine(line: string): string[] {
   const out: string[] = [];
-  // An unquoted word may carry backslash escapes: dropping a file onto a macOS
-  // terminal types `My\ File.pdf`, which used to split into two paths that do
-  // not exist. Only a space or shell punctuation counts as escaped, so a
-  // Windows separator (a backslash before a letter or another backslash) stays.
-  const pattern = /"([^"]*)"|'([^']*)'|((?:\\[ ()\[\]{}'"&;!$`*?#~<>|]|\S)+)/g;
-  let match: RegExpExecArray | null;
-  while ((match = pattern.exec(line)) !== null) {
-    const unquoted = match[3]?.replace(/\\([ ()\[\]{}'"&;!$`*?#~<>|])/g, "$1");
-    const value = (match[1] ?? match[2] ?? unquoted ?? "").trim();
+  let index = 0;
+  while (index < line.length) {
+    if (/\s/.test(line[index]!)) {
+      index += 1;
+      continue;
+    }
+    // A Windows path keeps every backslash: `C:\repo\#1\a.pdf` read `\#` as an
+    // escaped "#" and lost the separator (found 2026-11-09).
+    const windows = WINDOWS_PATH_START.test(line.slice(index));
+    let word = "";
+    // Quoted and unquoted parts next to each other are one word, as in a
+    // shell. Found 2026-11-09: GNOME Terminal drops `Bob's notes.pdf` as
+    // '/home/u/Bob'\''s notes.pdf', which came back as three paths, and
+    // "My File".pdf as two.
+    let lastPart: "plain" | "other" | undefined;
+    while (index < line.length && !/\s/.test(line[index]!)) {
+      const char = line[index]!;
+      // An apostrophe between letters is part of the name (`it's.txt`), as it
+      // always was, and a quote with nothing to close it is taken as written.
+      const apostrophe = char === "'" && lastPart === "plain" && /[\p{L}\p{N}]/u.test(word.at(-1) ?? "");
+      if ((char === "'" || char === '"') && !apostrophe) {
+        const close = closingQuote(line, index, windows);
+        if (close !== -1) {
+          const quoted = line.slice(index + 1, close);
+          // In double quotes a backslash escapes only what a shell lets it.
+          word += char === '"' && !windows ? quoted.replace(/\\(["\\$`])/g, "$1") : quoted;
+          index = close + 1;
+          lastPart = "other";
+          continue;
+        }
+      }
+      // Dropping a file onto a macOS terminal types `My\ File.pdf`, which used
+      // to split into two paths that do not exist. Only a space or shell
+      // punctuation counts as escaped, so `docs\report.pdf` keeps its backslash.
+      if (char === "\\" && !windows && ESCAPED_BY_BACKSLASH.test(line[index + 1] ?? "")) {
+        word += line[index + 1];
+        index += 2;
+        lastPart = "other";
+        continue;
+      }
+      word += char;
+      index += 1;
+      lastPart = "plain";
+    }
+    const value = word.trim();
     if (value.length > 0) out.push(value);
   }
   return out;
@@ -208,6 +260,9 @@ export interface SelectListInput {
    *  where the remaining length depends on the answer being given. */
   step?: { index: number; total?: number };
   width?: number;
+  /** Lines the whole list may take, title and footer included; a longer list
+   *  is shown as a window around the cursor. Omit to print every row. */
+  maxLines?: number;
   color?: boolean;
 }
 
@@ -224,6 +279,24 @@ function paint(text: string, code: string, color: boolean): string {
 
 // Color codes take no columns, and must be carried through a cut whole.
 const SGR_PATTERN = /^\u001b\[[0-9;]*m/;
+
+// Wide (East Asian Width W) symbols outside the blocks charColumns checks as
+// a whole: the emoji that are drawn as emoji without a selector, from
+// Unicode's EastAsianWidth.txt. Found 2026-11-09: U+2705, U+2B50 and the like
+// were counted one column, and terminals draw them two wide.
+const WIDE_SYMBOLS: ReadonlyArray<readonly [number, number]> = [
+  [0x231a, 0x231b], [0x2329, 0x232a], [0x23e9, 0x23ec], [0x23f0, 0x23f0], [0x23f3, 0x23f3],
+  [0x25fd, 0x25fe], [0x2614, 0x2615], [0x2648, 0x2653], [0x267f, 0x267f], [0x2693, 0x2693],
+  [0x26a1, 0x26a1], [0x26aa, 0x26ab], [0x26bd, 0x26be], [0x26c4, 0x26c5], [0x26ce, 0x26ce],
+  [0x26d4, 0x26d4], [0x26ea, 0x26ea], [0x26f2, 0x26f3], [0x26f5, 0x26f5], [0x26fa, 0x26fa],
+  [0x26fd, 0x26fd], [0x2705, 0x2705], [0x270a, 0x270b], [0x2728, 0x2728], [0x274c, 0x274c],
+  [0x274e, 0x274e], [0x2753, 0x2755], [0x2757, 0x2757], [0x2795, 0x2797], [0x27b0, 0x27b0],
+  [0x27bf, 0x27bf], [0x2b1b, 0x2b1c], [0x2b50, 0x2b50], [0x2b55, 0x2b55], [0x1f004, 0x1f004],
+  [0x1f0cf, 0x1f0cf], [0x1f18e, 0x1f18e], [0x1f191, 0x1f19a], [0x1f200, 0x1f202], [0x1f210, 0x1f23b],
+  [0x1f240, 0x1f248], [0x1f250, 0x1f251], [0x1f260, 0x1f265]
+];
+
+const EMOJI_SELECTOR = 0xfe0f;
 
 /**
  * Terminal columns a character takes: two for East Asian wide characters
@@ -245,16 +318,30 @@ function charColumns(codePoint: number): number {
     (codePoint >= 0xff00 && codePoint <= 0xff60) ||
     (codePoint >= 0xffe0 && codePoint <= 0xffe6) ||
     (codePoint >= 0x1f300 && codePoint <= 0x1faff) ||
-    (codePoint >= 0x20000 && codePoint <= 0x3fffd)
+    (codePoint >= 0x20000 && codePoint <= 0x3fffd) ||
+    (codePoint >= 0x231a && WIDE_SYMBOLS.some(([first, last]) => codePoint >= first && codePoint <= last))
   ) {
     return 2;
   }
   return 1;
 }
 
+/**
+ * Columns a character adds after one that took `previous`. The emoji selector
+ * (U+FE0F) after a one-column symbol asks for the emoji, which terminals draw
+ * two wide: U+2764 alone is a one-column heart, U+2764 U+FE0F a two-column one.
+ */
+function stepColumns(codePoint: number, previous: { codePoint: number; columns: number } | undefined): number {
+  if (codePoint === EMOJI_SELECTOR) {
+    return previous && previous.columns === 1 && previous.codePoint >= 0xa9 && previous.codePoint !== EMOJI_SELECTOR ? 1 : 0;
+  }
+  return charColumns(codePoint);
+}
+
 /** Columns a string takes on screen, ignoring color codes. */
 export function displayWidth(text: string): number {
   let columns = 0;
+  let previous: { codePoint: number; columns: number } | undefined;
   for (let index = 0; index < text.length; ) {
     const sgr = SGR_PATTERN.exec(text.slice(index));
     if (sgr) {
@@ -262,7 +349,9 @@ export function displayWidth(text: string): number {
       continue;
     }
     const codePoint = text.codePointAt(index)!;
-    columns += charColumns(codePoint);
+    const step = stepColumns(codePoint, previous);
+    columns += step;
+    previous = { codePoint, columns: step };
     index += codePoint > 0xffff ? 2 : 1;
   }
   return columns;
@@ -285,6 +374,7 @@ export function truncateToWidth(text: string, width: number): string {
   let out = "";
   let columns = 0;
   let colored = false;
+  let previous: { codePoint: number; columns: number } | undefined;
   for (let index = 0; index < text.length; ) {
     const sgr = SGR_PATTERN.exec(text.slice(index));
     if (sgr) {
@@ -294,10 +384,12 @@ export function truncateToWidth(text: string, width: number): string {
       continue;
     }
     const codePoint = text.codePointAt(index)!;
-    const step = charColumns(codePoint);
+    const step = stepColumns(codePoint, previous);
+    // A selector that would not fit is left off: its symbol stays, one column.
     if (columns + step > budget) break;
     out += String.fromCodePoint(codePoint);
     columns += step;
+    previous = { codePoint, columns: step };
     index += codePoint > 0xffff ? 2 : 1;
   }
   return `${out}${width <= 3 ? "" : "..."}${colored ? RESET : ""}`;
@@ -310,25 +402,53 @@ export function renderSelectList(input: SelectListInput): string {
   const step = input.step
     ? paint(`   Step ${input.step.index}${input.step.total ? ` of ${input.step.total}` : ""}`, DIM, color)
     : "";
-  const lines = [`${paint(input.title, BOLD, color)}${step}`, ""];
+  // The title and footer are cut like the rows: at 32 columns they wrapped.
+  const lines = [truncateToWidth(`${paint(input.title, BOLD, color)}${step}`, width), ""];
   // Hints line up in their own column; ragged hints read as noise next to the
   // labels they belong to.
   const labelWidth = Math.max(...input.options.map((option) => displayWidth(option.label)), 0);
-  input.options.forEach((option, index) => {
+  // Numbers are right-aligned: "10" left-aligned like "9" pushed every label
+  // from row 10 on a column to the right (found 2026-11-09).
+  const ordinalWidth = String(input.options.length).length;
+  const row = (option: SelectOption, index: number): string => {
     const onCursor = index === input.cursor;
     // A left bar reads as a cursor even once the row is colored, where a ">"
     // competes with the text. Rows that are not on the cursor keep the same
     // indent so nothing shifts as it moves.
     const bar = onCursor ? paint(CURSOR_BAR, ACCENT, color) : " ";
     // A number per row means a choice can be typed instead of arrowed to.
-    const ordinal = paint(`${index + 1}`, onCursor ? ACCENT : DIM, color);
+    const ordinal = paint(`${index + 1}`.padStart(ordinalWidth), onCursor ? ACCENT : DIM, color);
     const box = input.multi ? (selected.has(index) ? "[x] " : "[ ] ") : "";
     const label = onCursor ? paint(option.label, BOLD, color) : option.label;
+    const base = ` ${bar} ${ordinal} ${box}${label}`;
     const gap = " ".repeat(Math.max(0, labelWidth - displayWidth(option.label)));
-    const hint = option.hint ? `${gap}    ${paint(option.hint, DIM, color)}` : "";
-    lines.push(truncateToWidth(` ${bar} ${ordinal} ${box}${label}${hint}`, width));
-  });
-  if (input.footer) lines.push("", paint(input.footer, DIM, color));
+    // On a narrow terminal the hint gives way before the label does: a cut
+    // from the right took "Keep the current selection" down to "Keep the
+    // current sele..." to make room for a hint it then cut anyway.
+    if (!option.hint || displayWidth(base) + gap.length + 4 + 4 > width) return truncateToWidth(base, width);
+    return truncateToWidth(`${base}${gap}    ${paint(option.hint, DIM, color)}`, width);
+  };
+  const footerLines = input.footer ? 2 : 0;
+  const room = input.maxLines === undefined ? Infinity : input.maxLines - lines.length - footerLines;
+  if (input.options.length <= room) {
+    input.options.forEach((option, index) => lines.push(row(option, index)));
+  } else {
+    // A list printed whole on a short terminal scrolled its own title and the
+    // cursor off the top (found 2026-11-09: 25 projects at 24 rows). Show the
+    // rows around the cursor, with a line above and below saying how many are
+    // out of view; those two lines are always there, so rows do not jump as
+    // the window starts to move.
+    const visible = Math.max(1, room - 2);
+    const cursor = Math.min(Math.max(input.cursor, 0), input.options.length - 1);
+    const start = Math.min(Math.max(0, cursor - Math.floor(visible / 2)), input.options.length - visible);
+    const end = start + visible;
+    const indent = " ".repeat(3 + ordinalWidth + 1);
+    lines.push(start > 0 ? truncateToWidth(paint(`${indent}... ${start} more above`, DIM, color), width) : "");
+    input.options.slice(start, end).forEach((option, offset) => lines.push(row(option, start + offset)));
+    const below = input.options.length - end;
+    lines.push(below > 0 ? truncateToWidth(paint(`${indent}... ${below} more below`, DIM, color), width) : "");
+  }
+  if (input.footer) lines.push("", truncateToWidth(paint(input.footer, DIM, color), width));
   return lines.join("\n");
 }
 

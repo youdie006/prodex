@@ -10,8 +10,8 @@ import { JSONRPCMessageSchema, type JSONRPCMessage } from "@modelcontextprotocol
 import { z } from "zod";
 import {
   createMcpToolHandlers,
-  MAX_MCP_BRIDGE_TEXT_BYTES,
-  MAX_MCP_SHORT_TEXT_BYTES,
+  MAX_MCP_BRIDGE_TEXT_CHARS,
+  MAX_MCP_SHORT_TEXT_CHARS,
   staleServerWarning,
   withServerVersionNotice
 } from "./mcp-tools.js";
@@ -19,8 +19,8 @@ import { ProdexRequestIdSchema, ReceiptKindSchema, SessionKeySchema, type Source
 import type { z as zod } from "zod";
 
 type BridgeSource = zod.infer<typeof SourceSchema>;
-const McpBridgeTextSchema = z.string().max(MAX_MCP_BRIDGE_TEXT_BYTES);
-const McpShortTextSchema = z.string().max(MAX_MCP_SHORT_TEXT_BYTES);
+const McpBridgeTextSchema = z.string().max(MAX_MCP_BRIDGE_TEXT_CHARS);
+const McpShortTextSchema = z.string().max(MAX_MCP_SHORT_TEXT_CHARS);
 const BridgeFileInputSchema = z.object({
   path: McpShortTextSchema,
   role: z.enum(["context", "artifact", "result"]).optional(),
@@ -31,8 +31,8 @@ const BridgeFileInputSchema = z.object({
  * bridge_block_task with every list full: 100 commands and 100 warnings of
  * 100,000 characters, 100 artifact paths of 10,000 and its text fields, about
  * 21.2 million characters. JSON may write each one as a six-byte \uXXXX escape
- * (a control character is one byte to the handlers' byte checks), so the frame
- * can reach 127.3 MB. The old 1 MiB closed the session on a 1,000,000-character
+ * (the handlers count characters, as the schemas do), so the frame can reach
+ * 127.3 MB. The old 1 MiB closed the session on a 1,000,000-character
  * repo_write_file_dry_run that had only its newlines escaped. The limit still
  * caps what a client that never sends a newline can make this process buffer.
  */
@@ -137,7 +137,9 @@ export function createServer(cwd = process.cwd(), options: CreateMcpServerOption
       inputSchema: {
         title: McpShortTextSchema.min(1),
         prompt: McpBridgeTextSchema.min(1),
-        repo_id: McpShortTextSchema.optional(),
+        // The bridge store requires a non-empty repo_id; "" used to pass here
+        // and come back as the store's raw validation dump.
+        repo_id: McpShortTextSchema.min(1).optional(),
         files: z.array(BridgeFileInputSchema).max(100).optional()
       }
     },
@@ -207,7 +209,8 @@ export function createServer(cwd = process.cwd(), options: CreateMcpServerOption
   server.registerTool(
     "bridge_list_results",
     {
-      description: "List completed or blocked bridge results.",
+      description:
+        "List completed or blocked bridge results. A result without a trusted completion receipt is left out; `untrusted_skipped` counts those and `untrusted` gives each one's reason.",
       inputSchema: {}
     },
     async () => asText(await handlers.bridge_list_results())
@@ -295,7 +298,12 @@ export function createServer(cwd = process.cwd(), options: CreateMcpServerOption
       description: "Create a receipt-gated write preview for an existing repo-relative text file. Does not modify files. The file keeps its CRLF line endings, UTF-8 BOM and final newline when the new content leaves them out, and keeps its file mode. A file that is not UTF-8 text is refused.",
       inputSchema: {
         path: McpShortTextSchema,
-        content: z.string().max(1_000_000),
+        content: z
+          .string()
+          .max(1_000_000)
+          .describe(
+            "The new file content: at most 1,000,000 bytes as UTF-8, the size the repo tools read and write (a Korean character takes 3 bytes, so about 333,000 of them). maxLength counts characters and is only the outer bound."
+          ),
         expected_head: McpShortTextSchema.min(1)
       }
     },

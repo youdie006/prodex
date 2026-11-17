@@ -252,6 +252,32 @@ export async function replaceVerifiedUtf8File(
   });
 }
 
+// File systems hold names of up to 255 bytes (Linux and macOS count UTF-8
+// bytes; NTFS counts UTF-16 units, never more than the UTF-8 bytes).
+const MAX_NAME_BYTES = 255;
+
+/**
+ * The hidden file a replacement is written to, beside the file it replaces.
+ *
+ * The pid, time and UUID add about 63 bytes to the target's name, so a target
+ * whose name was over about 192 bytes passed repo_write_file_dry_run and
+ * failed repo_write_file_apply with ENAMETOOLONG (found 2026-11-09). The copy
+ * of the target's name gives way, cut on a character boundary; the leading
+ * dot, the start of the name and the ".tmp" end stay.
+ */
+function temporaryPathFor(filePath: string): string {
+  const suffix = `.${process.pid}.${Date.now()}.${randomUUID()}.tmp`;
+  const room = MAX_NAME_BYTES - 1 - Buffer.byteLength(suffix);
+  let base = "";
+  let bytes = 0;
+  for (const char of path.basename(filePath)) {
+    bytes += Buffer.byteLength(char);
+    if (bytes > room) break;
+    base += char;
+  }
+  return path.join(path.dirname(filePath), `.${base}${suffix}`);
+}
+
 async function replaceByVerifiedTempFile(
   filePath: string,
   content: string,
@@ -273,7 +299,7 @@ async function replaceByVerifiedTempFile(
     await testHooks.beforeOpen?.(filePath, "write");
   }
   await assertParentSnapshotStable(parentSnapshot);
-  const tmpPath = path.join(path.dirname(filePath), `.${path.basename(filePath)}.${process.pid}.${Date.now()}.${randomUUID()}.tmp`);
+  const tmpPath = temporaryPathFor(filePath);
   try {
     const tmpHandle = await openStableNoFollow(tmpPath, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL, "write", parentSnapshot, options.mode);
     try {
@@ -293,12 +319,57 @@ async function replaceByVerifiedTempFile(
     await assertParentSnapshotStable(parentSnapshot);
     await testHooks.beforeRename?.(filePath, tmpPath);
     await assertExistingTargetNotHardLinked(tmpPath);
-    await rename(tmpPath, filePath);
+    await renameReplacingFile(tmpPath, filePath, {
+      beforeRetry: async () => {
+        await validate();
+        await assertParentSnapshotStable(parentSnapshot);
+        await assertExistingTargetNotHardLinked(tmpPath);
+      }
+    });
     await validate();
     await testHooks.afterWrite?.(filePath, "write");
   } catch (error) {
     await cleanupTempIfParentStable(tmpPath, parentSnapshot);
     throw error;
+  }
+}
+
+// Windows refuses to rename a file over one another handle has open: the rename
+// fails with EPERM, EACCES or EBUSY until that handle closes. Found on CI
+// 2026-11-09, a session rewrite failed with EPERM while another store was
+// reading the session. A reader holds a file for milliseconds, so the rename is
+// tried again for a short while, as graceful-fs does, and after that fails with
+// the rename's own error. Elsewhere a rename replaces an open file, and EPERM is
+// a real permission error.
+const WINDOWS_IN_USE_RENAME_RETRY_MS = 2_000;
+const WINDOWS_IN_USE_RENAME_CODES = new Set(["EPERM", "EACCES", "EBUSY"]);
+
+export async function renameReplacingFile(
+  fromPath: string,
+  toPath: string,
+  options: {
+    rename?: (fromPath: string, toPath: string) => Promise<void>;
+    retryForMs?: number;
+    /** Repeats the caller's checks before each further attempt. */
+    beforeRetry?: () => Promise<void>;
+  } = {}
+): Promise<void> {
+  const renameFile = options.rename ?? rename;
+  if (process.platform !== "win32") {
+    await renameFile(fromPath, toPath);
+    return;
+  }
+  const deadline = Date.now() + (options.retryForMs ?? WINDOWS_IN_USE_RENAME_RETRY_MS);
+  for (let waitMs = 10; ; waitMs = Math.min(waitMs + 10, 100)) {
+    try {
+      await renameFile(fromPath, toPath);
+      return;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException | undefined)?.code;
+      if (!code || !WINDOWS_IN_USE_RENAME_CODES.has(code) || Date.now() + waitMs > deadline) throw error;
+    }
+    await delay(waitMs);
+    await options.beforeRetry?.();
   }
 }
 
@@ -391,9 +462,16 @@ async function assertSafeOpenFile(handle: FileHandle, filePath: string, operatio
   assertNotHardLinked(filePath, stat.nlink);
 }
 
+/** The file has another name on disk, so something else could change it. */
+export class HardLinkedFileError extends Error {
+  constructor() {
+    super("Target path is hard linked and cannot be used through safe file operations");
+  }
+}
+
 function assertNotHardLinked(filePath: string, linkCount: number | bigint): void {
   if (linkCount > 1) {
-    throw new Error("Target path is hard linked and cannot be used through safe file operations");
+    throw new HardLinkedFileError();
   }
 }
 

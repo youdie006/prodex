@@ -142,13 +142,18 @@ async function readRequiredPackageJson(packageJsonPath) {
 // evidence, because the process died before it printed anything - while running
 // the same command directly passed every check. CI runs this same path before
 // publishing, so the cap was a thin margin in the release path too.
+//
+// The suite's own budget was 15 minutes, while CI's macOS Intel runners took
+// 10.5 to 14 minutes for it. On 2026-11-10 the 0.40.51 publish run's runner
+// needed more, and `npm test` was stopped at 15:00 with nothing failed. It now
+// gets 25 minutes, still inside CI's 40 minute job limit with the other checks.
 async function runFullReleaseVerification(rootDir) {
   // Declared here, not at module scope: this file runs its entry point during
   // module evaluation, so a top-level const is still in its temporal dead zone
   // by the time this is called.
   const CHECK_TIMEOUT_MS = {
     default: 300_000,
-    "npm test": 900_000,
+    "npm test": testTimeoutMs(),
     "npm run smoke:package": 1_800_000
   };
   const checks = [
@@ -349,9 +354,24 @@ function formatPathList(paths) {
   return paths.length > 8 ? `${shown}, ... (${paths.length} files)` : shown;
 }
 
+function testTimeoutMs() {
+  const raw = process.env.PRODEX_RELEASE_CHECK_TEST_TIMEOUT_MS;
+  if (raw === undefined || raw.trim() === "") return 1_500_000;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new Error(`release verification failed: PRODEX_RELEASE_CHECK_TEST_TIMEOUT_MS must be a whole number of milliseconds, got ${JSON.stringify(raw)}`);
+  }
+  return value;
+}
+
+function formatBudget(ms) {
+  return ms < 120_000 ? `${Math.round(ms / 1000)} s` : `${Math.round(ms / 60_000)} min`;
+}
+
 async function run(command, commandArgs, cwd, timeoutMs = 300_000) {
   const commandLine = [command, ...commandArgs].join(" ");
   console.log(`release_check: ${commandLine}`);
+  const startedAt = Date.now();
   try {
     const execute = command === "npm"
       ? execNpm(commandArgs, {
@@ -370,6 +390,14 @@ async function run(command, commandArgs, cwd, timeoutMs = 300_000) {
     // stderr line, which npm noise ("npm warn ...") could occupy while the
     // actual test failure sat in stdout and was silently dropped.
     printCapturedOutputTail(error, commandLine);
+    // A check stopped at its budget has failed nothing yet; its first output
+    // line (npm's "> package@version test" banner) read like the failure.
+    if (error && typeof error === "object" && error.killed === true && Date.now() - startedAt >= timeoutMs) {
+      const hint = commandLine === "npm test" ? " On a slower machine, raise PRODEX_RELEASE_CHECK_TEST_TIMEOUT_MS (milliseconds)." : "";
+      throw new Error(
+        `release verification failed: ${commandLine}: stopped after its ${formatBudget(timeoutMs)} time budget, before it finished; the output it printed is above.${hint}`
+      );
+    }
     throw new Error(`release verification failed: ${commandLine}: ${commandFailureDetail(error)}`);
   }
 }

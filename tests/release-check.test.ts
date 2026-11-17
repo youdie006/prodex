@@ -605,6 +605,29 @@ describe("release-check", () => {
     expect(result.stderr).not.toContain("Command failed:");
     expect(result.stderr).not.toContain("Node.js v");
   });
+
+  // Found 2026-11-10: the 0.40.51 publish run stopped `npm test` on its macOS
+  // Intel runner when the 15 minute budget ran out, and reported it as
+  // "release verification failed: npm test: > @youdie006/prodex@0.40.51 test",
+  // npm's banner line, as if a test had failed.
+  it("says a check was stopped at its time budget instead of quoting its first line", async () => {
+    const root = await copyPackageJsonToTemp();
+    const npmCommand = expectedNpmCommand();
+    const fakeCommands = await createFakeReleaseCommands(root, { hangCommand: `${npmCommand}\ttest` });
+
+    const result = await runReleaseCheck(root, {
+      verificationOnly: true,
+      pathPrefix: fakeCommands.binDir,
+      logPath: fakeCommands.logPath,
+      env: { PRODEX_RELEASE_CHECK_TEST_TIMEOUT_MS: "1500" }
+    });
+
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain(`release verification failed: ${npmCommand} test: stopped after its 2 s time budget`);
+    expect(result.stderr).toContain("PRODEX_RELEASE_CHECK_TEST_TIMEOUT_MS");
+    expect(result.stderr).not.toContain("failed: npm test: > ");
+    expect(result.stdout).not.toContain(`release_check: ${npmCommand} run typecheck`);
+  });
 });
 
 async function copyPackageJsonToTemp(): Promise<string> {
@@ -649,7 +672,7 @@ function expectedNpmCommand(): "npm" {
 
 async function createFakeReleaseCommands(
   root: string,
-  options: { failCommand?: string; packStdout?: string; silentFail?: boolean } = {}
+  options: { failCommand?: string; hangCommand?: string; packStdout?: string; silentFail?: boolean } = {}
 ): Promise<{ binDir: string; logPath: string }> {
   const binDir = path.join(root, "fake-bin");
   const logPath = path.join(root, "release-check-commands.log");
@@ -673,11 +696,19 @@ async function createFakeReleaseCommands(
     "utf8"
   );
   await chmod(path.join(root, "dist", "cli.js"), 0o755);
-  await writeFakeCommand(npmCliPath, "npm", logPath, options.failCommand, options.packStdout ?? defaultPackStdout, options.silentFail);
+  await writeFakeCommand(npmCliPath, "npm", logPath, options.failCommand, options.packStdout ?? defaultPackStdout, options.silentFail, options.hangCommand);
   return { binDir, logPath };
 }
 
-async function writeFakeCommand(filePath: string, command: string, logPath: string, failCommand?: string, packStdout?: string, silentFail = false): Promise<void> {
+async function writeFakeCommand(
+  filePath: string,
+  command: string,
+  logPath: string,
+  failCommand?: string,
+  packStdout?: string,
+  silentFail = false,
+  hangCommand?: string
+): Promise<void> {
   await writeFile(
     filePath,
     [
@@ -688,6 +719,10 @@ async function writeFakeCommand(filePath: string, command: string, logPath: stri
       `if (commandLine === ${JSON.stringify(failCommand ?? "")}) {`,
       ...(silentFail ? [] : [`  console.error("fake release-check command failed: " + commandLine);`]),
       "  process.exit(42);",
+      "}",
+      `if (commandLine === ${JSON.stringify(hangCommand ?? "")}) {`,
+      `  console.log("> @youdie006/prodex@0.0.0 " + process.argv.slice(2).join(" "));`,
+      "  setTimeout(() => {}, 60_000);",
       "}",
       `if (${JSON.stringify(command === "npm")} && process.argv[2] === "pack") {`,
       `  console.log(${JSON.stringify(packStdout ?? JSON.stringify([{ files: [{ path: "package.json", mode: 420 }, { path: "LICENSE", mode: 420 }, { path: "dist/cli.js", mode: 493 }] }]))});`,
@@ -711,7 +746,7 @@ function normalizePackagePath(value: string): string {
 
 async function runReleaseCheck(
   root: string,
-  options: { metadataOnly?: boolean; verificationOnly?: boolean; pathPrefix?: string; logPath?: string } = {}
+  options: { metadataOnly?: boolean; verificationOnly?: boolean; pathPrefix?: string; logPath?: string; env?: Record<string, string> } = {}
 ): Promise<{ code: number; stdout: string; stderr: string }> {
   const args = [path.join(repoRoot, "scripts", "release-check.mjs")];
   if (options.verificationOnly) args.push("--verification-only");
@@ -721,7 +756,8 @@ async function runReleaseCheck(
     ...process.env,
     ...(options.pathPrefix ? { PATH: `${options.pathPrefix}${path.delimiter}${process.env.PATH ?? ""}` } : {}),
     ...(options.pathPrefix ? { npm_execpath: path.join(options.pathPrefix, "npm-cli.mjs") } : {}),
-    ...(options.logPath ? { PRODEX_RELEASE_CHECK_LOG: options.logPath } : {})
+    ...(options.logPath ? { PRODEX_RELEASE_CHECK_LOG: options.logPath } : {}),
+    ...options.env
   };
   try {
     const result = await execFileAsync(process.execPath, args, {

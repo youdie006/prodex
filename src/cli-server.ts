@@ -13,6 +13,7 @@ import {
   readPositiveNumberFlag,
   resolveCwdFlag,
   resolveOptionalFileFlag,
+  shellQuote,
   unknownSubcommandError,
   assertProjectName
 } from "./cli-args.js";
@@ -23,7 +24,8 @@ import {
   getTokenExpiryStatus,
   loadLocalConfig,
   type LocalConfig,
-  writeLocalConfig,
+  type LocalConfigRecovery,
+  writeLocalConfigWithRecovery,
   type WriteLocalConfigInput,
   composeServerUrlWithToken,
   lowercaseFirst
@@ -55,6 +57,7 @@ export async function runSetupCommand(rest: string[], io: CliIO): Promise<number
     if (printHelpIfRequested(rest, "setup", io.stdout, printSetupHelp, { valueFlags: setupValueFlags, booleanFlags: setupBooleanFlags })) return 0;
     assertOnlyOptions(rest, "setup", setupValueFlags, setupBooleanFlags);
     const targetCwd = resolveCwdFlag(io.cwd, rest);
+    const setupHintCwd = readFlag(rest, "--cwd") ? targetCwd : undefined;
     const interactive = rest.includes("--interactive");
     if (interactive) {
       const conflicting = [...ASK_PRO_SELECTION_DEFAULT_FLAGS, ...ASK_PRO_SELECTION_CLEAR_FLAGS].filter((flag) => rest.includes(flag));
@@ -65,23 +68,29 @@ export async function runSetupCommand(rest: string[], io: CliIO): Promise<number
     const browserDefaults = interactive
       ? await runBrowserDefaultsWizard(resolvePromptUser(io), io.stdout)
       : parseBrowserDefaultFlags(rest);
-    const config = await writeLocalConfig(targetCwd, {
+    const input: WriteLocalConfigInput = {
       host: readFlag(rest, "--host"),
       port: readPortFlag(rest, "--port"),
       token: readFlag(rest, "--token"),
       tokenTtlHours: readPositiveNumberFlag(rest, "--token-ttl-hours"),
       browserDefaults
+    };
+    const { config, recovery } = await writeLocalConfigWithRecovery(targetCwd, input).catch((error: unknown) => {
+      // A refusal that names a setup command (a non-loopback host saved in
+      // the config, say) has to name it for this repo.
+      const message = errorMessage(error);
+      const located = sourceAwareSetupMessage(message, undefined, { cwd: setupHintCwd });
+      throw located === message ? error : new Error(located, { cause: error });
     });
     io.stdout("Saved local ChatGPT Developer Mode MCP profile.");
+    if (recovery) {
+      const tokenRequested = input.token !== undefined || input.tokenTtlHours !== undefined;
+      for (const line of formatConfigRecovery(recovery, tokenRequested)) io.stdout(line);
+    }
     io.stdout(`Server URL: ${redactServerUrl(config.server_url)}`);
-    io.stdout(formatTokenExpiryLine(config));
-    // A token without expiry is refused by plain `status --show-token`, which
-    // is what setup creates by default; the hint has to be one that works.
-    io.stdout(
-      getTokenExpiryStatus(config).status === "valid"
-        ? "The token is stored (once) in .bridge/config.local.json; print the full URL with `prodex status --show-token --url-only`."
-        : "The token is stored (once) in .bridge/config.local.json; it never expires, so keep it local. Print the full URL with `prodex status --show-token --url-only --unsafe-show-non-expiring-token`, or rerun setup with --token-ttl-hours <hours> before sharing it."
-    );
+    const now = new Date();
+    io.stdout(formatTokenExpiryLine(config, now));
+    io.stdout(formatSetupTokenHint(config, setupHintCwd, now));
     if (config.browser_defaults) {
       io.stdout(`Browser send defaults: ${formatBrowserDefaults(config.browser_defaults)}`);
       // Ask the picker whether it can actually provide what was just pinned.
@@ -93,6 +102,56 @@ export async function runSetupCommand(rest: string[], io: CliIO): Promise<number
       if (warning) io.stdout(warning);
     }
     return 0;
+}
+
+/**
+ * Where to find the token setup just saved, as a command that works for it. A
+ * token without expiry is refused by plain `status --show-token`, which is
+ * what setup creates by default, and an expired one by every form of it:
+ * setup said "it never expires" for a token it had just reported expired, and
+ * named commands without the --cwd it was run with (found 2026-11-09).
+ */
+function formatSetupTokenHint(config: LocalConfig, setupHintCwd: string | undefined, now: Date): string {
+  const status = ["prodex status", setupHintCwd ? `--cwd ${shellQuote(setupHintCwd)}` : undefined, "--show-token --url-only"]
+    .filter(Boolean)
+    .join(" ");
+  const tokenStatus = getTokenExpiryStatus(config, now);
+  if (tokenStatus.status === "valid") {
+    return `The token is stored (once) in .bridge/config.local.json; print the full URL with \`${status}\`.`;
+  }
+  if (tokenStatus.status === "non_expiring") {
+    return `The token is stored (once) in .bridge/config.local.json; it never expires, so keep it local. Print the full URL with \`${status} --unsafe-show-non-expiring-token\`, or rerun setup with --token-ttl-hours <hours> before sharing it.`;
+  }
+  return sourceAwareSetupMessage(
+    "The token stored in .bridge/config.local.json has expired, so clients using it are refused and `prodex status --show-token` will not print it. Run `prodex setup --token-ttl-hours <hours>` to create a new URL, then restart `prodex start`.",
+    undefined,
+    { cwd: setupHintCwd }
+  );
+}
+
+/**
+ * What setup could not keep from an invalid config. Never the values: the
+ * token is a secret, and a field that failed validation may hold anything.
+ */
+function formatConfigRecovery(recovery: LocalConfigRecovery, tokenRequested: boolean): string[] {
+  const lines: string[] = [];
+  if (recovery.unreadable) {
+    lines.push("Replaced .bridge/config.local.json: it could not be read as a prodex config, so none of its settings were kept.");
+  }
+  if (recovery.dropped.length > 0) {
+    // The token goes with its expiry, so a dropped expiry is a dropped token,
+    // which the next line says.
+    const others = recovery.tokenReplaced ? "" : " Every other saved setting was kept.";
+    lines.push(`Dropped ${recovery.dropped.join(", ")} from .bridge/config.local.json: the saved value was missing or not valid.${others}`);
+  }
+  if (recovery.tokenReplaced) {
+    lines.push(
+      "The token changed: setup could not keep the saved one, so every client holding the old MCP URL is refused until it is given the new URL, and a running `prodex start` must be restarted."
+    );
+  } else if (!tokenRequested) {
+    lines.push("The saved token was kept.");
+  }
+  return lines;
 }
 
 /** A best-effort warning must not outlast the command it decorates. */
@@ -372,8 +431,8 @@ export function formatServerUrlForOutput(value: string, options: { showToken: bo
   }
 }
 
-export function formatTokenExpiryLine(config: { token_expires_at?: string }): string {
-  const tokenStatus = getTokenExpiryStatus(config);
+export function formatTokenExpiryLine(config: { token_expires_at?: string }, now: Date = new Date()): string {
+  const tokenStatus = getTokenExpiryStatus(config, now);
   if (tokenStatus.status === "valid") return `Token expires: ${tokenStatus.token_expires_at}`;
   if (tokenStatus.status === "expired") return `Token expired: ${tokenStatus.token_expires_at}`;
   return "Token expires: never (local-only; use --token-ttl-hours before exposing through a tunnel).";
