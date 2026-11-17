@@ -129,9 +129,10 @@ export function sourceAwareBrowserBlocker<T extends { next_step?: string }>(bloc
 export function sourceAwareSetupMessage(message: string, sourceCli?: string, options: { cwd?: string } = {}): string {
   if (!sourceCli && !options.cwd) return message;
   const setupCommand = formatSetupCommand(sourceCli, options);
-  return message
-    .replaceAll("`prodex setup --token-ttl-hours <hours>`", `\`${setupCommand} --token-ttl-hours <hours>\``)
-    .replaceAll("`prodex setup`", `\`${setupCommand}\``);
+  // Every quoted setup command, whatever its flags (--token-ttl-hours,
+  // --host 127.0.0.1): naming one without the repo's --cwd sends the user to
+  // the wrong directory's config.
+  return message.replace(/`prodex setup((?: [^`]*)?)`/g, (_match, flags: string) => `\`${setupCommand}${flags}\``);
 }
 
 export function sourceAwareReleaseMessage(message: string, sourceCli?: string, options: { cwd?: string } = {}): string {
