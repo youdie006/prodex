@@ -11,7 +11,7 @@ import { spawn } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { AnchoredWriteJob, AnchoredWriteOutcome } from "./store-writer.js";
 import { assertRepoRelativePath } from "./repo.js";
-import { readVerifiedUtf8File, withCrossProcessFileLock, writeVerifiedUtf8File } from "./safe-file.js";
+import { HardLinkedFileError, readVerifiedUtf8File, withCrossProcessFileLock, writeVerifiedUtf8File } from "./safe-file.js";
 import {
   type BridgeFile,
   type Blocker,
@@ -42,6 +42,9 @@ export type BridgeStoreTestHooks = {
   // writes its own key, so a test can simulate another process winning the
   // create race in that exact window.
   afterReceiptKeyReadMiss?: () => Promise<void> | void;
+  // Fires as the anchored writer process is about to start, so a test can
+  // count the processes an operation costs.
+  beforeAnchoredWriterStart?: (op: AnchoredWriteJob["op"]) => void;
   disableDirectoryFdPaths?: boolean;
 };
 
@@ -1187,7 +1190,12 @@ export class BridgeStore {
       if (options.cleanupTempHardLinks ?? true) {
         await this.cleanupRecordTempHardLinks(kind, filePath);
       }
-      const raw = await readReplacedFileText(() => readVerifiedUtf8File(filePath, () => this.assertRecordTargetInside(kind, filePath)));
+      let raw: string;
+      try {
+        raw = await readReplacedFileText(() => readVerifiedUtf8File(filePath, () => this.assertRecordTargetInside(kind, filePath)));
+      } catch (error) {
+        throw recordUnusableError(kind, id, filePath, this.root, error) ?? error;
+      }
       try {
         return JSON.parse(raw);
       } catch (error) {
@@ -1406,6 +1414,14 @@ export class BridgeStore {
       throw new Error(`Bridge record path must stay under .bridge/${kind}`);
     }
     if (!hasStableDirectoryFdPaths()) {
+      // The anchored writer costs a process, and every record read comes
+      // here: listing 200 receipts started 200 of them (found 2026-11-09).
+      // Only a record with a second link can have a temp file to clean, so
+      // look at the record first. That lookup follows the path as it is and
+      // only decides whether to start the writer: removal stays in the
+      // writer, which repeats the check from its pinned directory, and a
+      // hard-linked record this lookup missed is still refused by the read.
+      if (!(await mayHaveSecondLink(filePath))) return;
       await this.runAnchoredRecordJob(kind, filePath, { op: "cleanupTempHardLinks" });
       return;
     }
@@ -1646,6 +1662,30 @@ function recordCorruptError(kind: BridgeRecordKind, id: string, filePath: string
   });
 }
 
+// The open failed as "EACCES: permission denied, open
+// '/proc/self/fd/20/task_...json'", a descriptor path, and a hard-linked
+// record as "Target path is hard linked ...", naming no file (found
+// 2026-11-09). Both now name the record by its repo path, which is also all
+// an MCP client is told, and say what to do. EACCES keeps its code.
+function recordUnusableError(kind: BridgeRecordKind, id: string, filePath: string, root: string, cause: unknown): Error | undefined {
+  assertBridgeRecordId(kind, id);
+  const record = formatRecordPath(root, filePath);
+  if (cause instanceof HardLinkedFileError) {
+    return new Error(
+      `${recordLabel(kind)} record is hard linked: ${record} has another name on disk, so something else could change it. Remove the other name or move the record aside, then retry.`,
+      { cause }
+    );
+  }
+  const code = (cause as { code?: unknown } | undefined)?.code;
+  if (code === "EACCES" || code === "EPERM") {
+    return Object.assign(
+      new Error(`${recordLabel(kind)} record is not readable: ${record} (${code}). Give your user read and write access to it or move it aside, then retry.`, { cause }),
+      { code }
+    );
+  }
+  return undefined;
+}
+
 function untrustedResultError(root: string, taskId: string, reason: string): Error {
   const error = new Error(
     `Result record is untrusted: ${formatRecordPath(root, path.join(root, ".bridge", "results", `${taskId}.json`))} ${reason}. If this is a locally signed legacy completion receipt, review .bridge/results/${taskId}.json, then run \`prodex results reseal ${taskId} --confirm-current-result\`. Retry the completion path or move the result record aside, then retry.`
@@ -1696,6 +1736,18 @@ export async function readReplacedFileText(read: () => Promise<string>): Promise
 
 function isErrorCode(error: unknown, code: string): boolean {
   return typeof error === "object" && error !== null && "code" in error && (error as { code?: unknown }).code === code;
+}
+
+// Whether a record might have a temp hard link beside it. A record that is
+// missing, not a regular file or has one link has none; an lstat that fails
+// otherwise is left to the anchored writer to report.
+async function mayHaveSecondLink(filePath: string): Promise<boolean> {
+  try {
+    const stat = await lstat(filePath);
+    return !stat.isSymbolicLink() && stat.isFile() && stat.nlink > 1;
+  } catch (error) {
+    return !isErrorCode(error, "ENOENT");
+  }
 }
 
 function errorMessage(error: unknown): string {
@@ -2000,6 +2052,7 @@ async function runAnchoredWrite(
     await bridgeHandle.close();
   }
   const { command, args } = anchoredWriterCommand();
+  storeTestHooks.beforeAnchoredWriterStart?.(job.op);
   // cwd is resolved by path here, which is exactly the lookup an attacker could
   // redirect - so the child refuses to proceed unless the directory it landed in
   // is the inode just measured through the no-follow handle.
