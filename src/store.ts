@@ -115,6 +115,9 @@ export interface ResealResultOutput {
   receipt: Receipt;
 }
 
+/** A result refused for want of a trusted task_completed receipt. */
+export type UntrustedResultError = Error & { code: "EUNTRUSTED_RESULT"; taskId: string };
+
 
 // A bridge root has to be a real directory in a real filesystem. Field report
 // (macOS): an agent harness started `prodex mcp` with a working directory of
@@ -399,11 +402,24 @@ export class BridgeStore {
     );
   }
 
-  async listFinalizedResultsReadOnly(): Promise<Result[]> {
+  /**
+   * Every result, split into those a trusted task_completed receipt finalizes
+   * and the untrusted ones, each with the error that refuses it.
+   *
+   * This used to throw on the first untrusted result, so one old record whose
+   * receipt was moved away failed `results show latest` and MCP
+   * `bridge_list_results` for every newer result too (found 2026-11-09).
+   * Callers decide what to do with the untrusted ones; fetching one by id
+   * still refuses it.
+   */
+  async listResultsByTrustReadOnly(): Promise<{ trusted: Result[]; untrusted: UntrustedResultError[] }> {
     const results = await this.listResultsReadOnly();
-    if (results.length === 0) return results;
+    if (results.length === 0) return { trusted: [], untrusted: [] };
     if (!(await this.hasReadyStorageDirReadOnly("receipts"))) {
-      throw untrustedResultError(this.root, results[0].task_id, "has no trusted task_completed receipt");
+      return {
+        trusted: [],
+        untrusted: results.map((result) => untrustedResultError(this.root, result.task_id, "has no trusted task_completed receipt"))
+      };
     }
     // Read receipts ONCE and index them by task_id instead of re-reading and
     // re-parsing the whole receipts directory for every result, which was
@@ -415,10 +431,18 @@ export class BridgeStore {
       if (existing) existing.push(receipt);
       else completionReceiptsByTask.set(receipt.task_id, [receipt]);
     }
+    const trusted: Result[] = [];
+    const untrusted: UntrustedResultError[] = [];
     for (const result of results) {
-      await this.assertReceiptsTrustCompletion(result.task_id, result, completionReceiptsByTask.get(result.task_id) ?? []);
+      try {
+        await this.assertReceiptsTrustCompletion(result.task_id, result, completionReceiptsByTask.get(result.task_id) ?? []);
+        trusted.push(result);
+      } catch (error) {
+        if (!isUntrustedResultErrorCode(error)) throw error;
+        untrusted.push(error);
+      }
     }
-    return results;
+    return { trusted, untrusted };
   }
 
   async getResult(taskId: string): Promise<Result> {
@@ -625,18 +649,19 @@ export class BridgeStore {
       const why = existing.blocker?.code === "cancelled" ? "it was cancelled before" : "its outcome is recorded";
       throw new Error(`Session ${existing.id} is already ${existing.status}; ${why}, so there is nothing to cancel.`);
     }
-    return this.writeSession({
-      id: existing.id,
-      direction: existing.direction,
-      backend: existing.backend,
-      session_key: existing.session_key,
-      project: existing.project,
-      thread: existing.thread,
-      task_id: existing.task_id,
+    // Written directly rather than through writeSession, which stamps
+    // last_used_at: cancelling is not using the session, and an older one
+    // cancelled by id became "latest", so `sessions cancel latest` then
+    // refused it while a newer session kept running (found 2026-11-09).
+    await this.ensure();
+    const session = SessionSchema.parse({
+      ...existing,
+      schema_version: SCHEMA_VERSION,
       status: "blocked",
-      blocker: { code: "cancelled", message: "Session cancelled via CLI.", retryable: false },
-      warnings: existing.warnings
+      blocker: { code: "cancelled", message: "Session cancelled via CLI.", retryable: false }
     });
+    await this.writeRecordJson("sessions", existing.id, session);
+    return session;
   }
 
   async getSessionReadOnly(sessionId: string): Promise<Session> {
@@ -1646,13 +1671,17 @@ function recordCorruptError(kind: BridgeRecordKind, id: string, filePath: string
   });
 }
 
-function untrustedResultError(root: string, taskId: string, reason: string): Error {
+function untrustedResultError(root: string, taskId: string, reason: string): UntrustedResultError {
   const error = new Error(
     `Result record is untrusted: ${formatRecordPath(root, path.join(root, ".bridge", "results", `${taskId}.json`))} ${reason}. If this is a locally signed legacy completion receipt, review .bridge/results/${taskId}.json, then run \`prodex results reseal ${taskId} --confirm-current-result\`. Retry the completion path or move the result record aside, then retry.`
-  ) as Error & { code: "EUNTRUSTED_RESULT"; taskId: string };
+  ) as UntrustedResultError;
   error.code = "EUNTRUSTED_RESULT";
   error.taskId = taskId;
   return error;
+}
+
+function isUntrustedResultErrorCode(error: unknown): error is UntrustedResultError {
+  return error instanceof Error && (error as { code?: unknown }).code === "EUNTRUSTED_RESULT";
 }
 
 function formatRecordPath(root: string, filePath: string): string {
