@@ -1493,6 +1493,44 @@ describe("runCli", () => {
     expect(reread.status).toBe("blocked");
   });
 
+  it("does not make a session it cancels by id the latest one", async () => {
+    // Found 2026-11-09: cancelling an older session stamped it as just used,
+    // so `sessions show latest` showed the cancelled one and `sessions cancel
+    // latest` then failed with "already blocked; it was cancelled before"
+    // while the newer session was still running.
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
+    const store = new BridgeStore(cwd);
+    const older = await store.writeSession({ direction: "codex_to_chatgpt", backend: "manual", status: "running" });
+    const newer = await store.writeSession({ direction: "codex_to_chatgpt", backend: "manual", status: "running" });
+    // Back-date both, so "latest" does not depend on the clock ticking between writes.
+    for (const [session, lastUsedAt] of [
+      [older, "2026-01-01T00:00:00.000Z"],
+      [newer, "2026-01-02T00:00:00.000Z"]
+    ] as const) {
+      const file = path.join(cwd, ".bridge", "sessions", `${session.id}.json`);
+      const record = JSON.parse(await readFile(file, "utf8")) as Record<string, unknown>;
+      await writeFile(file, `${JSON.stringify({ ...record, created_at: lastUsedAt, last_used_at: lastUsedAt }, null, 2)}\n`, "utf8");
+    }
+    const run = async (args: string[]) => {
+      const out: string[] = [];
+      await runCli(args, { cwd, stdout: (line) => out.push(line), stderr: () => {} });
+      return out.join("\n");
+    };
+
+    await run(["sessions", "cancel", older.id]);
+    const cancelled = await new BridgeStore(cwd).getSessionReadOnly(older.id);
+    expect(cancelled.status).toBe("blocked");
+    expect(cancelled.last_used_at).toBe("2026-01-01T00:00:00.000Z");
+    expect(JSON.parse(await run(["sessions", "show", "latest"]))).toEqual(expect.objectContaining({ id: newer.id, status: "running" }));
+    expect(await run(["sessions", "cancel", "latest"])).toBe(`${newer.id}\tblocked\tcancelled`);
+    expect((await run(["sessions", "list"])).split("\n").map((line) => line.split("\t")[0])).toEqual([newer.id, older.id]);
+
+    // Using a session still makes it the latest.
+    const resumed = await store.writeSession({ id: older.id, direction: older.direction, backend: older.backend, status: "done" });
+    expect(resumed.last_used_at > "2026-01-02T00:00:00.000Z").toBe(true);
+    expect(JSON.parse(await run(["sessions", "show", "latest"]))).toEqual(expect.objectContaining({ id: older.id }));
+  });
+
   it("lists and shows consult sessions", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-"));
     const previewOut: string[] = [];

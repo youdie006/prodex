@@ -319,12 +319,57 @@ async function replaceByVerifiedTempFile(
     await assertParentSnapshotStable(parentSnapshot);
     await testHooks.beforeRename?.(filePath, tmpPath);
     await assertExistingTargetNotHardLinked(tmpPath);
-    await rename(tmpPath, filePath);
+    await renameReplacingFile(tmpPath, filePath, {
+      beforeRetry: async () => {
+        await validate();
+        await assertParentSnapshotStable(parentSnapshot);
+        await assertExistingTargetNotHardLinked(tmpPath);
+      }
+    });
     await validate();
     await testHooks.afterWrite?.(filePath, "write");
   } catch (error) {
     await cleanupTempIfParentStable(tmpPath, parentSnapshot);
     throw error;
+  }
+}
+
+// Windows refuses to rename a file over one another handle has open: the rename
+// fails with EPERM, EACCES or EBUSY until that handle closes. Found on CI
+// 2026-11-09, a session rewrite failed with EPERM while another store was
+// reading the session. A reader holds a file for milliseconds, so the rename is
+// tried again for a short while, as graceful-fs does, and after that fails with
+// the rename's own error. Elsewhere a rename replaces an open file, and EPERM is
+// a real permission error.
+const WINDOWS_IN_USE_RENAME_RETRY_MS = 2_000;
+const WINDOWS_IN_USE_RENAME_CODES = new Set(["EPERM", "EACCES", "EBUSY"]);
+
+export async function renameReplacingFile(
+  fromPath: string,
+  toPath: string,
+  options: {
+    rename?: (fromPath: string, toPath: string) => Promise<void>;
+    retryForMs?: number;
+    /** Repeats the caller's checks before each further attempt. */
+    beforeRetry?: () => Promise<void>;
+  } = {}
+): Promise<void> {
+  const renameFile = options.rename ?? rename;
+  if (process.platform !== "win32") {
+    await renameFile(fromPath, toPath);
+    return;
+  }
+  const deadline = Date.now() + (options.retryForMs ?? WINDOWS_IN_USE_RENAME_RETRY_MS);
+  for (let waitMs = 10; ; waitMs = Math.min(waitMs + 10, 100)) {
+    try {
+      await renameFile(fromPath, toPath);
+      return;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException | undefined)?.code;
+      if (!code || !WINDOWS_IN_USE_RENAME_CODES.has(code) || Date.now() + waitMs > deadline) throw error;
+    }
+    await delay(waitMs);
+    await options.beforeRetry?.();
   }
 }
 
@@ -417,9 +462,16 @@ async function assertSafeOpenFile(handle: FileHandle, filePath: string, operatio
   assertNotHardLinked(filePath, stat.nlink);
 }
 
+/** The file has another name on disk, so something else could change it. */
+export class HardLinkedFileError extends Error {
+  constructor() {
+    super("Target path is hard linked and cannot be used through safe file operations");
+  }
+}
+
 function assertNotHardLinked(filePath: string, linkCount: number | bigint): void {
   if (linkCount > 1) {
-    throw new Error("Target path is hard linked and cannot be used through safe file operations");
+    throw new HardLinkedFileError();
   }
 }
 

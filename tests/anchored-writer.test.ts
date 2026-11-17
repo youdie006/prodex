@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, readdir, rename, symlink } from "node:fs/promises";
+import { link, lstat, mkdtemp, readFile, readdir, rename, symlink } from "node:fs/promises";
 import { statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -40,6 +40,50 @@ describe("writing records without traversable directory fd paths", () => {
     const written = JSON.parse(await readFile(path.join(root, ".bridge", "receipts", entries[0]), "utf8"));
     expect(written.summary).toBe("Written without fd paths");
     expect(written.id).toBe(receipt.id);
+  });
+});
+
+// A record read first removes a temp hard link a crashed linkIfAbsent left
+// beside the record. Without fd paths that cleanup always started the
+// anchored writer, even with nothing to clean: found 2026-11-09, listing 200
+// receipts took 1956 ms against 264 ms on the fd path, one process each.
+describe("reading records without traversable directory fd paths", () => {
+  afterEach(() => {
+    setBridgeStoreTestHooks({});
+  });
+
+  async function storeWithReceipts(count: number): Promise<{ root: string; store: BridgeStore; ids: string[] }> {
+    const root = await mkdtemp(path.join(tmpdir(), "prodex-anchored-read-"));
+    const store = new BridgeStore(root, { registerRoot: false });
+    const ids: string[] = [];
+    for (let index = 0; index < count; index += 1) {
+      ids.push((await store.writeReceipt({ kind: "consult_preview", summary: `Receipt ${index}` })).id);
+    }
+    return { root, store, ids };
+  }
+
+  it("lists receipts without starting a process per receipt", async () => {
+    const { store } = await storeWithReceipts(12);
+    const started: string[] = [];
+    setBridgeStoreTestHooks({ disableDirectoryFdPaths: true, beforeAnchoredWriterStart: (op) => started.push(op) });
+
+    await expect(store.listReceipts()).resolves.toHaveLength(12);
+
+    expect(started).toEqual([]);
+  });
+
+  it("still removes a leftover temp hard link of the record it reads", async () => {
+    const { root, store, ids } = await storeWithReceipts(3);
+    const receiptsDir = path.join(root, ".bridge", "receipts");
+    const staleTemp = path.join(receiptsDir, `.${ids[1]}.json.stale.tmp`);
+    await link(path.join(receiptsDir, `${ids[1]}.json`), staleTemp);
+    const started: string[] = [];
+    setBridgeStoreTestHooks({ disableDirectoryFdPaths: true, beforeAnchoredWriterStart: (op) => started.push(op) });
+
+    await expect(store.listReceipts()).resolves.toHaveLength(3);
+
+    expect(started).toEqual(["cleanupTempHardLinks"]);
+    await expect(lstat(staleTemp)).rejects.toThrow(/ENOENT/);
   });
 });
 

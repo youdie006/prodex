@@ -269,7 +269,7 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
       ) {
         return 0;
       }
-      parseAskProArgs(proArgs, ASK_PRO_PREVIEW_VALUE_FLAGS);
+      parseAskProArgs(proArgs, ASK_PRO_PREVIEW_VALUE_FLAGS, "pro ask");
       if (hasAskProSendMode(proArgs)) {
         throw new Error("prodex pro ask is a dry-run preview. Use `prodex pro browser ask` for visible-browser sends.");
       }
@@ -1015,7 +1015,7 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
       throw new Error(`Use \`prodex pro browser ${legacyBrowserSubcommandReplacement(subcommand)}\` for explicit browser automation.`);
     }
     if (subcommand === "blockers") {
-      if (printHelpIfRequested(proArgs, "pro blockers", io.stdout, printProHelp, { valueFlags: ["--cwd", "--since", "--limit"] })) return 0;
+      if (printHelpIfRequested(proArgs, "pro blockers", io.stdout, printProHelp, { valueFlags: ["--cwd", "--since", "--limit"], booleanFlags: ["--json"] })) return 0;
       assertOnlyOptions(proArgs, "pro blockers", ["--cwd", "--since", "--limit"], ["--json"]);
       const scopedToOneRepo = readFlag(proArgs, "--cwd") !== undefined;
       // Default to every bridge root: the failures are spread across the repos
@@ -1037,9 +1037,14 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
               ...(result.blocker ? { blocker: reclassifyRecordedBlocker(result.blocker) } : {})
             });
           }
-        } catch {
-          // A root that has been deleted or is unreadable is not a failure of
-          // the report; it just has nothing to contribute.
+        } catch (error) {
+          // A bare catch here turned one corrupt record into "No consults
+          // recorded in this repo." with rc=0 (found 2026-11-09). A deleted
+          // root does not get here: it reads as empty or is not listed. The
+          // repo asked for fails with the record's own advice; across every
+          // root, the rest are still reported and this one is named.
+          if (scopedToOneRepo) throw error;
+          io.stderr(`blockers_warning: skipped ${root}: ${errorMessage(error)}`);
         }
       }
       const report = buildBlockerReport({
@@ -1056,7 +1061,7 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
       return 0;
     }
     if (subcommand === "list") {
-      if (printHelpIfRequested(proArgs, "pro list", io.stdout, printProHelp, { valueFlags: ["--cwd", "--source-cli"] })) return 0;
+      if (printHelpIfRequested(proArgs, "pro list", io.stdout, printProHelp, { valueFlags: ["--cwd", "--source-cli"], booleanFlags: ["--json"] })) return 0;
       assertOnlyOptions(proArgs, "pro list", ["--cwd", "--source-cli"], ["--json"]);
       const targetCwd = resolveCwdFlag(io.cwd, proArgs);
       const targetStore = new BridgeStore(targetCwd);
@@ -1095,7 +1100,7 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
       return 0;
     }
     if (subcommand === "report-issue") {
-      if (printHelpIfRequested(proArgs, "pro report-issue", io.stdout, printProHelp, { valueFlags: ["--cwd", "--task", "--repo"] })) return 0;
+      if (printHelpIfRequested(proArgs, "pro report-issue", io.stdout, printProHelp, { valueFlags: ["--cwd", "--task", "--repo"], booleanFlags: ["--confirm"] })) return 0;
       assertOnlyOptions(proArgs, "pro report-issue", ["--cwd", "--task", "--repo"], ["--confirm"]);
       const targetCwd = resolveCwdFlag(io.cwd, proArgs);
       const targetStore = new BridgeStore(targetCwd);
@@ -1134,7 +1139,7 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
       return 0;
     }
     if (subcommand === "latest") {
-      if (printHelpIfRequested(proArgs, "pro latest", io.stdout, printProHelp, { valueFlags: ["--cwd", "--source-cli"] })) return 0;
+      if (printHelpIfRequested(proArgs, "pro latest", io.stdout, printProHelp, { valueFlags: ["--cwd", "--source-cli"], booleanFlags: ["--json"] })) return 0;
       assertOnlyOptions(proArgs, "pro latest", ["--cwd", "--source-cli"], ["--json"]);
       const targetCwd = resolveCwdFlag(io.cwd, proArgs);
       const targetStore = new BridgeStore(targetCwd);
@@ -1156,7 +1161,7 @@ export async function runProCommand(rest: string[], io: CliIO, runCliFn: RunCliF
       return 0;
     }
     if (subcommand === "show") {
-      if (printHelpIfRequested(proArgs, "pro show", io.stdout, printProHelp, { valueFlags: ["--cwd", "--source-cli"], maxPositionals: 1 })) return 0;
+      if (printHelpIfRequested(proArgs, "pro show", io.stdout, printProHelp, { valueFlags: ["--cwd", "--source-cli"], booleanFlags: ["--json"], maxPositionals: 1 })) return 0;
       const [taskId] = readPositionalsWithOptions(proArgs, "pro show", 1, ["--cwd", "--source-cli"], ["--json"]);
       if (!taskId) throw new Error("pro show requires <task-id|latest>");
       const targetCwd = resolveCwdFlag(io.cwd, proArgs);
@@ -3485,6 +3490,14 @@ export function readSinceFlag(args: string[]): string | undefined {
   const parsed = /^\d{4}-\d{2}-\d{2}(?:[T ]|$)/.test(raw.trim()) ? Date.parse(raw) : Number.NaN;
   if (!Number.isFinite(parsed)) {
     throw new Error(`--since expects a date or an age like 7d or 24h, not "${raw}".`);
+  }
+  // Date.parse rolls a day the month lacks into the next month: 2026-02-30
+  // was read as 2026-03-02 (found 2026-11-09).
+  const [year, month, day] = raw.trim().slice(0, 10).split("-").map(Number) as [number, number, number];
+  const calendarDay = new Date(0);
+  calendarDay.setUTCFullYear(year, month - 1, day);
+  if (calendarDay.getUTCFullYear() !== year || calendarDay.getUTCMonth() !== month - 1 || calendarDay.getUTCDate() !== day) {
+    throw new Error(`--since ${raw} names a day that does not exist; use a date like 2026-01-01 or an age like 7d or 24h.`);
   }
   return new Date(parsed).toISOString();
 }
