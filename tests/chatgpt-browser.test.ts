@@ -2760,6 +2760,49 @@ Show more`;
     expect(state.modelSlug).toBeUndefined();
   });
 
+  // Measured 2026-11-17: the unit key carries the turn's id instead of
+  // "fallback-turn-N" (`<turn uuid>:0:user`, `<turn uuid>:2:assistant`), and
+  // prodex counted no messages at all: every send posted, then failed as
+  // request_mismatch because the user turn it had just sent was not found.
+  it("answerExpression reads turns keyed by turn ids, in page order", () => {
+    const doc = new FakeDocument([], []);
+    doc.body.innerText = "ChatGPT\nPro";
+    const firstTurn = "f1d0c9b8-0a1b-4c2d-8e3f-405162738495";
+    const secondTurn = "0a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d";
+    const user1 = turnKeyedTranscriptMessage(firstTurn, 0, "user", "first question");
+    const assistant1 = turnKeyedTranscriptMessage(firstTurn, 2, "assistant", "first answer");
+    const user2 = turnKeyedTranscriptMessage(secondTurn, 0, "user", "second question");
+    const assistant2 = turnKeyedTranscriptMessage(secondTurn, 2, "assistant", "second answer");
+    doc.searchUnitMessages = [user1, assistant1, user2, assistant2];
+
+    const state = evaluateBrowserStatusExpression<AnswerStateWithModel>(answerExpression(), doc);
+    expect(state.userMessageCount).toBe(2);
+    expect(state.assistantMessageCount).toBe(2);
+    expect(state.lastUserText).toBe("second question");
+    expect(state.answer).toBe("second answer");
+  });
+
+  it("acknowledges a request whose turn is keyed by its turn id", () => {
+    const requestId = "c24a5dc8ee93d8a54df431bc340d9925";
+    const marker = `[prodex-request:${requestId}]`;
+    const expression = chatGptPromptPostedExpression(requestId);
+    const doc = new FakeDocument([], []);
+    doc.searchUnitMessages = [turnKeyedTranscriptMessage("20c89963-f50d-58af-8872-7292f2f88cf8", 0, "user", `Reply with OK.\n\n${marker}`)];
+    expect(evaluateBrowserStatusExpression<boolean>(expression, doc)).toBe(true);
+    doc.searchUnitMessages.push(turnKeyedTranscriptMessage("7e95033d-2778-47e6-8e05-46790e4c79b0", 0, "user", "another question"));
+    expect(evaluateBrowserStatusExpression<boolean>(expression, doc)).toBe(false);
+  });
+
+  it("reads nothing from a page that mixes numbered and turn-id keys", () => {
+    const doc = new FakeDocument([], []);
+    doc.searchUnitMessages = [
+      fallbackTranscriptMessage(0, 0, "user", "numbered question"),
+      turnKeyedTranscriptMessage("7e95033d-2778-47e6-8e05-46790e4c79b0", 0, "user", "turn-id question")
+    ];
+    const state = evaluateBrowserStatusExpression<AnswerStateWithModel>(answerExpression(), doc);
+    expect(state.userMessageCount).toBe(0);
+  });
+
   it("acknowledges only the latest unambiguous user request in either transcript layout", () => {
     const requestId = "b0f3c430e8694f61be27709a2c65a9f0";
     const marker = `[prodex-request:${requestId}]`;
@@ -3098,6 +3141,13 @@ function fallbackTranscriptMessage(turn: number, position: number, role: "user" 
   return element;
 }
 
+function turnKeyedTranscriptMessage(turnId: string, position: number, role: "user" | "assistant", messageText: string): FakeElement {
+  const element = new FakeElement("div");
+  element.setAttribute("data-content-search-unit-key", `${turnId}:${position}:${role}`);
+  element.innerText = messageText;
+  return element;
+}
+
 function installFakeChatGptCdp(states: ReturnType<typeof fakeAnswerState>[], statusOverride: Record<string, unknown> = {}): string[] {
   const evaluations: string[] = [];
   let answerIndex = 0;
@@ -3403,14 +3453,14 @@ class FakeDocument {
       return nodes.filter((node) => {
         if (node.getAttribute("data-message-author-role") !== null) return true;
         const key = node.getAttribute("data-content-search-unit-key") ?? "";
-        return /^fallback-turn-\d+:\d+:(?:user|assistant)$/.test(key);
+        return /:(?:user|assistant)$/.test(key);
       });
     }
     if (selector === "[data-message-author-role]") return this.messages;
     if (selector.includes("[data-content-search-unit-key")) {
       return this.searchUnitMessages.filter((node) => {
         const key = node.getAttribute("data-content-search-unit-key") ?? "";
-        return /^fallback-turn-\d+:\d+:(?:user|assistant)$/.test(key);
+        return /:(?:user|assistant)$/.test(key);
       });
     }
     if (selector.includes("menuitemradio") || selector.includes('[role="menuitem"]')) return this.menuItems;
