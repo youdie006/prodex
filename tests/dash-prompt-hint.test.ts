@@ -7,13 +7,13 @@ import { unknownOptionError } from "../src/cli-args.js";
 // dash is read as an option; `--` before it is the way to send it.
 describe("an unknown option that is really a prompt", () => {
   it("says to put -- before it when it holds spaces", () => {
-    expect(unknownOptionError("-5 + 3, what is it?", undefined, ["--file"]).message).toBe(
+    expect(unknownOptionError("-5 + 3, what is it?", undefined, ["--file"], "ask").message).toBe(
       'Unknown option: -5 + 3, what is it?. If this is the prompt, put `--` before it: prodex ask -- "-5 + 3, what is it?"'
     );
   });
 
   it("says so for a dash word that cannot be a flag", () => {
-    expect(unknownOptionError("-5", undefined, ["--file"]).message).toContain("put `--` before it");
+    expect(unknownOptionError("-5", undefined, ["--file"], "ask").message).toContain("put `--` before it");
   });
 
   it("keeps the plain suggestion for a mistyped flag", () => {

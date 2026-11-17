@@ -146,7 +146,9 @@ import {
   printStatusHelp,
   printTasksHelp,
   printTunnelHelp,
-  printTunnelUrlHelp
+  printTunnelUrlHelp,
+  printUiHelp,
+  printVersionHelp
 } from "./cli-help.js";
 
 const execFileAsync = promisify(execFile);
@@ -258,6 +260,10 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
   const store = new BridgeStore(io.cwd);
 
   if (command === "--version" || command === "-v" || command === "version") {
+    // Found 2026-11-09: `prodex version --bogus` printed the version and
+    // exited 0, where every other command refuses what it does not take.
+    if (printHelpIfRequested(rest, "version", io.stdout, printVersionHelp)) return 0;
+    assertOnlyOptions(rest, "version", []);
     io.stdout(CLI_VERSION);
     return 0;
   }
@@ -277,6 +283,7 @@ export async function runCli(args: string[], io: CliIO = defaultIo()): Promise<n
   }
 
   if (command === "ui") {
+    if (printHelpIfRequested(rest, "ui", io.stdout, printUiHelp)) return 0;
     assertOnlyOptions(rest, "ui", []);
     return runInteractiveUi(io);
   }
