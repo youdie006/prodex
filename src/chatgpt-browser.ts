@@ -180,7 +180,12 @@ export function parseReasoningEffort(raw: string): ChatGptReasoningEffort {
   if (match) return match;
   const alias = REASONING_EFFORT_ALIASES[trimmed.toLowerCase().replace(/\s+/g, "")];
   if (alias) return alias;
-  throw new Error(`--effort must be one of ${REASONING_EFFORTS.join(", ")} (English aliases: instant/light, medium, high, extrahigh, max, ultra)`);
+  // "Max" as written is the Work rung and every other spelling of max is
+  // Extra High, so the list says which is which (found 2026-11-09).
+  throw new Error(
+    `--effort must be one of ${REASONING_EFFORTS.join(", ")} (English aliases: instant/light, medium, high, extrahigh, ultra, pro; ` +
+      'max in any letter case but "Max" means 매우 높음, while "Max" is Work\'s Max rung)'
+  );
 }
 
 /** Normalize a CLI Pro sub-mode value onto the exact ChatGPT menu label. */

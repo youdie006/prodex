@@ -85,7 +85,7 @@ export function assertHelpRequestArgs(args: string[], command: string, options: 
     }
     if (booleanFlagSet.has(arg)) continue;
     if (arg.startsWith("-")) {
-      throw unknownOptionError(arg, command, [...valueFlagSet, ...booleanFlagSet]);
+      throw unexpectedOptionError(arg, command, valueFlagSet, booleanFlagSet, options.promptWords ? command : undefined);
     }
     if (positionals >= maxPositionals) {
       throw new Error(`Unexpected argument for ${command}: ${arg}`);
@@ -103,17 +103,74 @@ export function unknownTopLevelCommandError(command: string): Error {
   const suggestionText = suggestion ? ` Did you mean \`prodex ${suggestion}\`?` : "";
   return new Error(`Unknown command: ${command}.${suggestionText} Run \`prodex help\`.`);
 }
-export function unknownOptionError(option: string, command: string | undefined, candidates: readonly string[]): Error {
+/**
+ * An option the command does not take.
+ *
+ * `promptCommand` is the command as typed when it takes a prompt (ask, pro
+ * ask, pro browser ask). Only then is a dash-led word likely to be the prompt:
+ * found 2026-11-09, `prodex tasks list -` was told to run `prodex ask -- "-"`.
+ */
+export function unknownOptionError(
+  option: string,
+  command: string | undefined,
+  candidates: readonly string[],
+  promptCommand?: string
+): Error {
+  const context = command ? ` for ${command}` : "";
   // A prompt that starts with a dash ("-5 + 3, what is it?") lands here.
   // Anything that cannot be a flag gets the way to send it instead of a guess.
   if (!/^--?[A-Za-z][\w-]*(=.*)?$/.test(option)) {
-    const context = command ? ` for ${command}` : "";
-    return new Error(`Unknown option${context}: ${option}. If this is the prompt, put \`--\` before it: prodex ask -- ${JSON.stringify(option)}`);
+    if (!promptCommand) return new Error(`Unknown option${context}: ${option}`);
+    return new Error(`Unknown option${context}: ${option}. If this is the prompt, put \`--\` before it: prodex ${promptCommand} -- ${JSON.stringify(option)}`);
   }
   const suggestion = closestSuggestion(option, candidates);
   const suggestionText = suggestion ? `. Did you mean \`${suggestion}\`?` : "";
-  const context = command ? ` for ${command}` : "";
   return new Error(`Unknown option${context}: ${option}${suggestionText}`);
+}
+/**
+ * An argument outside the command's option table, told apart from a typo.
+ *
+ * `--prompt=x` names an option the command takes, so "Did you mean
+ * `--prompt`?" left the reader to guess what was wrong with it (found
+ * 2026-11-09). prodex reads a value from the next argument only.
+ */
+function unexpectedOptionError(
+  arg: string,
+  command: string | undefined,
+  valueFlags: ReadonlySet<string>,
+  booleanFlags: ReadonlySet<string>,
+  promptCommand?: string
+): Error {
+  const inline = /^(--[A-Za-z][\w-]*)=([\s\S]*)$/.exec(arg);
+  if (inline && valueFlags.has(inline[1])) {
+    const [, flag, value] = inline;
+    if (value.startsWith("--")) return dashLedValueError(flag, value);
+    const context = command ? ` for ${command}` : "";
+    return new Error(`Unknown option${context}: ${arg}. Options do not take "=value"; give the value as the next argument: ${flag} ${JSON.stringify(value)}`);
+  }
+  return unknownOptionError(arg, command, [...valueFlags, ...booleanFlags], promptCommand);
+}
+function dashLedValueError(flag: string, value: string): Error {
+  return new Error(
+    `${flag} cannot take ${JSON.stringify(value)} as its value: an argument that starts with "--" is read as an option. ` +
+      'Reword the value so it does not start with "--" (for a path, put ./ in front).'
+  );
+}
+/**
+ * Value options that add one more value each time they are given. Each is
+ * read with readRepeatedFlag.
+ */
+export const REPEATABLE_VALUE_FLAGS: ReadonlySet<string> = new Set(["--file", "--attach", "--tool", "--command", "--artifact"]);
+/**
+ * Refuse a second value for an option that takes one. readFlag takes the
+ * first, so an agent that appended an override after its defaults got the
+ * default: found 2026-11-09, `--timeout-ms 300000 ... --timeout-ms 900000` sent
+ * with 300000, and `tasks create --title First --title Second` saved "First".
+ */
+function assertGivenOnce(seen: Set<string>, flag: string): void {
+  if (REPEATABLE_VALUE_FLAGS.has(flag)) return;
+  if (seen.has(flag)) throw new Error(`${flag} was given twice; give it once, with the value you mean.`);
+  seen.add(flag);
 }
 export function closestSuggestion<T extends string>(value: string, candidates: readonly T[]): T | undefined {
   let best: { command: string; distance: number; prefixMatch: boolean } | undefined;
@@ -239,16 +296,18 @@ export function resolveExistingDirectoryFlag(defaultCwd: string, value: string, 
 export function assertOnlyOptions(args: string[], command: string, valueFlags: readonly string[], booleanFlags: readonly string[] = []): void {
   const valueFlagSet = new Set(valueFlags);
   const booleanFlagSet = new Set(booleanFlags);
+  const seen = new Set<string>();
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
     if (valueFlagSet.has(arg)) {
       readFlagValue(args, index, arg);
+      assertGivenOnce(seen, arg);
       index += 1;
       continue;
     }
     if (booleanFlagSet.has(arg)) continue;
     if (arg.startsWith("-")) {
-      throw unknownOptionError(arg, command, [...valueFlagSet, ...booleanFlagSet]);
+      throw unexpectedOptionError(arg, command, valueFlagSet, booleanFlagSet);
     }
     throw new Error(`Unexpected argument for ${command}: ${arg}`);
   }
@@ -262,17 +321,19 @@ export function readPositionalsWithOptions(
 ): string[] {
   const valueFlagSet = new Set(valueFlags);
   const booleanFlagSet = new Set(booleanFlags);
+  const seen = new Set<string>();
   const positionals: string[] = [];
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
     if (valueFlagSet.has(arg)) {
       readFlagValue(args, index, arg);
+      assertGivenOnce(seen, arg);
       index += 1;
       continue;
     }
     if (booleanFlagSet.has(arg)) continue;
     if (arg.startsWith("-")) {
-      throw unknownOptionError(arg, command, [...valueFlagSet, ...booleanFlagSet]);
+      throw unexpectedOptionError(arg, command, valueFlagSet, booleanFlagSet);
     }
     if (positionals.length >= maxPositionals) {
       throw new Error(`Unexpected argument for ${command}: ${arg}`);
@@ -346,26 +407,37 @@ export const ASK_PRO_PREVIEW_VALUE_FLAGS = new Set([
 // intentionally excluded here.
 export const ASK_PRO_SELECTION_DEFAULT_FLAGS = ["--model", "--pro-mode", "--effort", "--project"] as const;
 export const ASK_PRO_SELECTION_CLEAR_FLAGS = ["--clear-model", "--clear-pro-mode", "--clear-effort", "--clear-project"] as const;
-export function parseAskProArgs(args: string[], valueFlags = ASK_PRO_VALUE_FLAGS): { optionArgs: string[]; promptParts: string[] } {
+/**
+ * `command` is the ask command as the dash-prompt hint should name it. Errors
+ * from the internal `ask-pro` dispatch are rewritten to the command the user
+ * typed, so that is the default.
+ */
+export function parseAskProArgs(
+  args: string[],
+  valueFlags = ASK_PRO_VALUE_FLAGS,
+  command = "ask-pro"
+): { optionArgs: string[]; promptParts: string[] } {
   const delimiterIndex = args.indexOf("--");
   const optionArgs = delimiterIndex === -1 ? args : args.slice(0, delimiterIndex);
   const promptTail = delimiterIndex === -1 ? [] : args.slice(delimiterIndex + 1);
   const positionalPromptParts: string[] = [];
+  const seen = new Set<string>();
 
   for (let index = 0; index < optionArgs.length; index += 1) {
     const arg = optionArgs[index];
     if (!arg.startsWith("--")) {
-      if (arg.startsWith("-")) throw unknownOptionError(arg, undefined, [...valueFlags, ...ASK_PRO_BOOLEAN_FLAGS]);
+      if (arg.startsWith("-")) throw unknownOptionError(arg, undefined, [...valueFlags, ...ASK_PRO_BOOLEAN_FLAGS], command);
       positionalPromptParts.push(arg);
       continue;
     }
     if (ASK_PRO_BOOLEAN_FLAGS.has(arg)) continue;
     if (valueFlags.has(arg)) {
       readFlagValue(optionArgs, index, arg);
+      assertGivenOnce(seen, arg);
       index += 1;
       continue;
     }
-    throw unknownOptionError(arg, undefined, [...valueFlags, ...ASK_PRO_BOOLEAN_FLAGS]);
+    throw unexpectedOptionError(arg, undefined, valueFlags, ASK_PRO_BOOLEAN_FLAGS, command);
   }
 
   return { optionArgs, promptParts: [...positionalPromptParts, ...promptTail] };
@@ -386,7 +458,14 @@ export function hasAskProDryRunMode(args: string[]): boolean {
 }
 export function readFlagValue(args: string[], index: number, flag: string): string {
   const value = args[index + 1];
-  if (!value || value.startsWith("--")) throw new Error(`${flag} requires a value`);
+  if (!value) throw new Error(`${flag} requires a value`);
+  if (value.startsWith("--")) {
+    // The next option, or the `--` that ends them: the value was left out.
+    if (/^--([A-Za-z][\w-]*)?$/.test(value)) throw new Error(`${flag} requires a value`);
+    // Anything else was meant as the value: found 2026-11-09, `--prompt
+    // "--dry-run should not write files"` said "--prompt requires a value".
+    throw dashLedValueError(flag, value);
+  }
   return value;
 }
 export function readSessionStatusFlag(args: string[]): Parameters<BridgeStore["listSessions"]>[0] {
