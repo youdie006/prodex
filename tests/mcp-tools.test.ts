@@ -198,7 +198,12 @@ describe("MCP tool handlers", () => {
       "utf8"
     );
 
-    await expect(handlers.bridge_list_results()).rejects.toThrow(/Result record is untrusted: .*task_completed receipt/i);
+    // Listed as skipped, not as a result.
+    const listed = await handlers.bridge_list_results();
+    expect(listed.results).toEqual([]);
+    expect(listed.untrusted_skipped).toBe(1);
+    expect(listed.untrusted?.[0]?.summary).toMatch(/Result record is untrusted: .*task_completed receipt/i);
+    expect(JSON.stringify(listed)).not.toContain("Raw unreceipted answer.");
     await expect(handlers.bridge_fetch_result({ task_id: task.id })).rejects.toThrow(/Result record is untrusted: .*task_completed receipt/i);
     await expect(handlers.bridge_fetch_result_artifact({ task_id: task.id })).rejects.toThrow(
       /Result record is untrusted: .*task_completed receipt/i
