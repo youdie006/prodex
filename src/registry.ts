@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { readVerifiedUtf8File, writeVerifiedUtf8File } from "./safe-file.js";
+import { readVerifiedUtf8File, renameReplacingFile, writeVerifiedUtf8File } from "./safe-file.js";
 
 const SCHEMA_VERSION = 1;
 
@@ -155,7 +155,8 @@ async function registerBridgeRootInner(root: string): Promise<void> {
           { create: true, exclusive: true, mode: 0o600 }
         );
         await assertRegistryWritePathsSafe(file, parentRealPath);
-        await fs.rename(tmp, file);
+        // Windows refuses the rename while another process reads the registry.
+        await renameReplacingFile(tmp, file, { beforeRetry: () => assertRegistryWritePathsSafe(file, parentRealPath) });
       } catch (error) {
         await cleanupRegistryTemp(tmp, parentRealPath);
         throw error;

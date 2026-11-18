@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - When a requested model could not be applied, the `model_not_applied` warning said the picker's model rows "cannot be clicked" and that the power slider was "the only lever prodex has on the model". prodex chooses a model row by walking the menu with the keyboard before it tries a click, and the warning only appears once both have failed, so it sent people to `--effort` for a model that can be chosen. It now says the keyboard walk did not reach the model and its row cannot be clicked, and still names what the picker offers.
+- On Windows, registering a bridge could silently leave it out of the machine-wide registry (`bridges.json`, which local indexers read) when another process was reading the registry at that moment: Windows refuses to rename over a file another handle has open, and the registry rename was not retried. It is now retried for up to 2 seconds while the file is in use, as record writes already are.
 
 ## 0.40.53
 
