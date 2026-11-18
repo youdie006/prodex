@@ -16,6 +16,22 @@ Release target: `v0.40.13` on `main`. The GitHub Release records the resolved co
 
 The release adds a guarded, opt-in transition and more accurate blocker reporting. It does not claim that headless Pro consultation is verified on either deployment target or that authentication can be retained indefinitely.
 
+## Unreleased: model_not_applied wording and the Windows registry rename (main PRs #114 and #115, container PR #116, 2026-11-18)
+
+Not in an npm release yet. The containers run both fixes; npm installs run 0.40.53.
+
+**Fix**
+- `main` PR #114 (`95f97d1`, merge `a9c0e80`): the `model_not_applied` warning for a listed but inert model row said the power slider was "the only lever prodex has on the model". The keyboard walk runs before the click and the warning only appears once both fail, so it now says that. CI passed all 7 checks.
+- `main` PR #115 (`70d599d`, merged with `main` as `f5fa2ff` after a CHANGELOG conflict with #114; merge `e5187b4`): `registerBridgeRoot` replaced `bridges.json` with a plain rename, which Windows refuses while another process reads the file, and the error was swallowed, so the bridge was left out. It now uses `renameReplacingFile`. CI passed all 7 checks, before and after the conflict fix.
+- Container PR #116 (`4f4a36a`, `5906ce4`, merge `fa4cb0a`) ports both unchanged. Build, typecheck and the full suite (183 files, 2348 passed, 3 skipped) passed locally; CI passed all 7 checks.
+
+**Container swaps (both built from `fa4cb0a`, send lock free before each, no thread errors before or after)**
+- The user asked for the swaps after the merges.
+- WSL: image `b7a7c69f14a7`, recreated 07:57:54 UTC. Healthy, 1024 process limit, using 347 processes after the checks below.
+- M3 (colima `prodex-check`, Running): image `737bde30a88f`. Healthy, 1024 process limit, using 191. The M3 checkout `~/.local/share/prodex-maint/container-src` is at `fa4cb0a`.
+- `scripts/` and `containers/` did not change between `49fdd05` and `fa4cb0a`, so neither host's client was replaced; `status` reported both containers running, healthy and ready.
+- `pro browser check` on both: logged in with a composer, `model_hints: Thinking effort | Pro`. `pro browser smoke` (new chat, bridge in a temporary directory inside the container): `PRODEX_PRO_SMOKE_OK`, `requestVerified: true`, no warnings, WSL after 29 s and M3 after 28 s.
+
 ## 0.40.53 Release Record
 
 Release commit `6cec5e3` on `main` (cut after PR #112 and its record `a36edc0`); tag `v0.40.53`, published 2026-11-18. It carries one fix: the answering model cannot be read from ChatGPT's page any more, so `model_used` says `"unknown"` and the response explains why.
