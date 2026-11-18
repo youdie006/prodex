@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Fixed
+- Consult answers came back with `model_used` and `pro_verified` missing, so a Pro consult could not be told apart from one nobody checked. ChatGPT stopped tagging answers with the model that wrote them: measured 2026-11-17, the page had no `data-message-model-slug` anywhere, and neither the answer's buttons nor its More actions menu name a model. prodex reads rendered page content only, so the answering model cannot be read. `model_used` is now `"unknown"` in that case, a `model_unverified` warning says why `pro_verified` is left out, and the new `picker_effort` field (CLI JSON, MCP `pro_consult`, the receipt and a `picker_effort:` line) records the step the picker's effort slider read once prodex had set it, before the prompt was typed. That shows what was selected, not what answered. When ChatGPT names the model again, `model_used` and `pro_verified` are filled from it as before.
+
 ## 0.40.52
 
 ### Fixed

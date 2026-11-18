@@ -348,6 +348,11 @@ export interface SendChatGptPromptResult {
   /** The model ChatGPT says produced the answer, e.g. "gpt-5-6-pro". */
   modelSlug?: string;
   /**
+   * The step the picker's effort slider read once prodex had moved it, before
+   * the prompt was typed. Evidence of what was selected, not of what answered.
+   */
+  pickerEffort?: string;
+  /**
    * The project id the composer was confirmed bound to before typing, so the
    * caller can check the answered thread against where the prompt was aimed
    * rather than recording the requested name as if it were proof.
@@ -4027,7 +4032,8 @@ export function sliderWalkPlan(state: { position?: number; min?: number; max?: n
 async function selectModelReasoning(
   cdp: CdpConnection,
   options: Pick<SendChatGptPromptOptions, "model" | "proMode" | "effort" | "allowSelectionFallback">,
-  selectionWarnings: string[] = []
+  selectionWarnings: string[] = [],
+  selectionEvidence: { effort?: string } = {}
 ): Promise<void> {
   if (!options.model && !options.proMode && !options.effort) return;
   // --pro-mode selects a Pro sub-mode, so it is meaningless with a non-Pro
@@ -4119,7 +4125,8 @@ async function selectModelReasoning(
           throw new Error("ChatGPT's model picker would not reopen after the model was chosen.");
         }
         try {
-          await selectPowerStepWithGrace(cdp, plan.sliderLabel);
+          const reached = await selectPowerStepWithGrace(cdp, plan.sliderLabel);
+          if (reached.effort) selectionEvidence.effort = reached.effort;
         } catch (error) {
           // Only "this slider has no such step" is the picker declining. A
           // slider that will not open, or will not move - the hydrating case,
@@ -5059,6 +5066,7 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
   let submitButtonFound = false;
   let submissionAttempted = false;
   const sendWarnings: string[] = [...preflightWarnings];
+  const selectionEvidence: { effort?: string } = {};
   // Anything the page put in front of prodex was answered on the caller's
   // behalf. The note is read at return time - there are several return paths -
   // so it is folded into the array rather than pushed from each of them.
@@ -5115,7 +5123,7 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
     }
     boundProjectId = await selectProject(cdp, options);
     try {
-      await selectModelReasoning(cdp, options, sendWarnings);
+      await selectModelReasoning(cdp, options, sendWarnings, selectionEvidence);
     } catch (modelError) {
       // Pro sub-mode isn't exposed in this UI yet (staged rollout). Pro itself is
       // already selected by this point, so degrade to plain Pro with a warning
@@ -5403,6 +5411,7 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
       title: completed.title,
       answer: CHATGPT_NON_TEXT_ANSWER_NOTE,
       modelHints: completed.modelHints,
+      ...(selectionEvidence.effort ? { pickerEffort: selectionEvidence.effort } : {}),
       ...(boundProjectId ? { boundProjectId } : {}),
       requestId,
       requestVerified: true,
@@ -5417,6 +5426,7 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
       answer: completed.answer.trim(),
       modelHints: completed.modelHints,
       ...(completed.modelSlug ? { modelSlug: completed.modelSlug } : {}),
+      ...(selectionEvidence.effort ? { pickerEffort: selectionEvidence.effort } : {}),
       ...(boundProjectId ? { boundProjectId } : {}),
       requestId,
       requestVerified: true,
@@ -5436,6 +5446,7 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
       answer: completed.answer.trim(),
       modelHints: completed.modelHints,
       ...(completed.modelSlug ? { modelSlug: completed.modelSlug } : {}),
+      ...(selectionEvidence.effort ? { pickerEffort: selectionEvidence.effort } : {}),
       ...(boundProjectId ? { boundProjectId } : {}),
       requestId,
       requestVerified: true,

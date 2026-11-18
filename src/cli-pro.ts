@@ -1879,11 +1879,14 @@ export async function runAskProCommand(
       if (consult.requestVerified === false && !persistenceWarnings.some((warning) => warning.startsWith("request_unverified:"))) {
         persistenceWarnings.push("request_unverified: the saved answer was not verified against its requested user turn. Review the original conversation before continuing.");
       }
+      if (!consult.modelSlug) persistenceWarnings.push(modelUnverifiedWarning(consult.pickerEffort));
+      const modelUsed = consult.modelSlug ?? "unknown";
       // Truncation and other send warnings must be visible at runtime, not
       // only inside the persisted receipt: a caller who never opens .bridge
       // would otherwise treat a cut-off answer as complete.
       for (const warning of persistenceWarnings) io.stderr(warning);
-      if (consult.modelSlug) io.stderr(`model_used: ${consult.modelSlug}`);
+      io.stderr(`model_used: ${modelUsed}`);
+      if (consult.pickerEffort) io.stderr(`picker_effort: ${consult.pickerEffort}`);
       if (consult.requestId) io.stderr(`request_id: ${consult.requestId}`);
       if (consult.requestVerified !== undefined) io.stderr(`request_verified: ${consult.requestVerified ? "yes" : "no"}`);
       // Which conversation this followed, and where the answer actually landed.
@@ -1930,7 +1933,8 @@ export async function runAskProCommand(
             ...(Object.keys(selectionMetadata).length > 0 ? { selection: selectionMetadata } : {}),
             // What actually answered, straight from ChatGPT's own tag - the
             // receipt used to record only what prodex asked for.
-            ...(consult.modelSlug ? { model_used: consult.modelSlug } : {}),
+            model_used: modelUsed,
+            ...(consult.pickerEffort ? { picker_effort: consult.pickerEffort } : {}),
             ...(proVerified !== undefined ? { pro_verified: proVerified } : {}),
             ...(consult.requestId ? { request_id: consult.requestId } : {}),
             ...(consult.requestVerified !== undefined ? { request_verified: consult.requestVerified } : {}),
@@ -1998,7 +2002,8 @@ export async function runAskProCommand(
               ...(consult.requestId ? { request_id: consult.requestId } : {}),
               ...(consult.requestVerified !== undefined ? { request_verified: consult.requestVerified } : {}),
               ...(continuedFromTaskId ? { continued_from: continuedFromTaskId } : {}),
-              ...(consult.modelSlug ? { model_used: consult.modelSlug } : {}),
+              model_used: modelUsed,
+              ...(consult.pickerEffort ? { picker_effort: consult.pickerEffort } : {}),
               ...(proVerified !== undefined ? { pro_verified: proVerified } : {}),
               destination: {
                 observed: destination.destination,
@@ -2124,6 +2129,8 @@ export interface BrowserConsultOutcome {
   request_id?: string;
   request_verified?: boolean;
   model_used?: string;
+  /** The step the picker's effort slider read before the prompt was typed. */
+  picker_effort?: string;
   pro_verified?: boolean;
   continued_from?: string;
   continuation?: Pick<BrowserConsultInput, "continue_task" | "session_key" | "model" | "effort" | "project">;
@@ -2975,6 +2982,22 @@ export function proSelectionVerified(selection: {
   if (!isProSelection(selection)) return undefined;
   if (!selection.modelSlug) return undefined;
   return /pro/i.test(selection.modelSlug);
+}
+
+/**
+ * Why model_used is "unknown" and pro_verified is missing. ChatGPT stopped
+ * tagging answers with the model that wrote them (measured 2026-11-17: no
+ * data-message-model-slug anywhere on the page, and nothing else on screen
+ * names it), and prodex reads rendered page content only. Leaving both fields
+ * out without a word read as "not checked" rather than "cannot be checked".
+ */
+export function modelUnverifiedWarning(pickerEffort: string | undefined): string {
+  return (
+    'model_unverified: the ChatGPT page did not name the model that wrote this answer, so model_used is "unknown" and pro_verified is left out.' +
+    (pickerEffort
+      ? ` Before the prompt was typed, the picker's effort slider read "${pickerEffort}"; that shows what was selected, not what answered.`
+      : "")
+  );
 }
 
 /**
