@@ -435,6 +435,30 @@ Show more`;
     expect(triggerReads).toBe(0);
   });
 
+  it("returns the step the power slider read once the walk reached it", async () => {
+    // The answer no longer names its model, so this reading, taken before the
+    // prompt is typed, is the only evidence of what was selected.
+    vi.useFakeTimers();
+    const thread = "https://chatgpt.com/c/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+    installFakeChatGptSendCdp(thread, [
+      { ...fakeAnswerState(thread, "", false), assistantMessageCount: 0, userMessageCount: 0 },
+      fakeAnswerState(thread, "correct answer", false)
+    ]);
+    const base = FakeCdpWebSocket.evaluate;
+    FakeCdpWebSocket.evaluate = (expression) => {
+      if (expression === modelButtonRectExpression()) return { ok: true, x: 20, y: 20 };
+      if (expression === menuOpenExpression() || expression.includes("document.elementFromPoint")) return true;
+      if (expression === powerSliderPresentExpression()) return true;
+      if (expression === powerSliderStateExpression()) return { ok: true, position: 4, min: 0, max: 4, effort: "Pro" };
+      if (expression === focusPowerSliderExpression()) return { ok: true };
+      return base(expression);
+    };
+    const send = sendChatGptPrompt({ port: 19338, prompt: "answer this", effort: "Pro", targetUrl: thread, timeoutMs: 10_000 });
+    void send.catch(() => undefined);
+    await vi.advanceTimersByTimeAsync(30_000);
+    await expect(send).resolves.toMatchObject({ answer: "correct answer", pickerEffort: "Pro" });
+  });
+
   it.each([
     "https://chatgpt.com/c/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
     "https://chatgpt.com/g/g-p-1234567890123456-project/c/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
