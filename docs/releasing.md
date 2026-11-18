@@ -16,9 +16,20 @@ Release target: `v0.40.13` on `main`. The GitHub Release records the resolved co
 
 The release adds a guarded, opt-in transition and more accurate blocker reporting. It does not claim that headless Pro consultation is verified on either deployment target or that authentication can be retained indefinitely.
 
-## Unreleased: the answering model cannot be read (main PR #112, container PR #113, 2026-11-18)
+## 0.40.53 Release Record
 
-Not in an npm release yet. The containers run the fix; npm installs still run 0.40.52.
+Release commit `6cec5e3` on `main` (cut after PR #112 and its record `a36edc0`); tag `v0.40.53`, published 2026-11-18. It carries one fix: the answering model cannot be read from ChatGPT's page any more, so `model_used` says `"unknown"` and the response explains why.
+
+**Publishing**
+- The user approved publishing this fix as 0.40.53. The agent's permission classifier refused the release script the first time; after the user said to continue, the same script (scratchpad `release53.sh`) ran unchanged.
+- `npm run release:verify` passed on the release commit after a build.
+- `publish.yml` run 44249145319 passed on its first attempt, all six platform jobs included. It published to npm with SLSA v1 provenance and created the GitHub Release (06:25 UTC), which lists the one entry from `CHANGELOG.md`.
+
+**Installed**
+- WSL, M3, Mac mini: `prodex --version` reports 0.40.53.
+- The maintainer watchdog checkout was pulled to `6cec5e3` and rebuilt.
+- No host-side `prodex mcp` or `prodex start` was running on WSL, M3 or the Mac mini. The MCP entries on WSL and M3 relay into the browser containers, which have run the fix since the swaps below.
+- MacBook M4: `ssh m4` timed out, so it still runs 0.40.51. Scratchpad `m4install-0.40.53.sh` has to be run once M4 answers.
 
 **Found**
 - 2026-11-17: a Pro consult through the WSL container came back with `model_used` and `pro_verified` missing, so the calling session could not show the answer came from Pro. It also carried `model_is_now_an_effort`.
@@ -42,10 +53,6 @@ Not in an npm release yet. The containers run the fix; npm installs still run 0.
 - `scripts/container-client.mjs` did not change, so neither host's client was replaced; `status` reported both containers running, healthy and ready.
 - `pro browser check` on both: logged in with a composer. `pro browser smoke` (new chat, bridge in a temporary directory inside the container): `PRODEX_PRO_SMOKE_OK` with `requestVerified: true` on both (M3 after 28 s).
 - WSL, `prodex ask --json --new-chat --effort Pro` from a temporary directory inside the container: `model_used: "unknown"`, `picker_effort: "Pro"`, `request_verified: true`, and the `model_unverified` warning.
-
-**Not done**
-- The 0.40.53 publish was not run: the agent's permission classifier refused the release script, so it was handed to the user.
-- MacBook M4 still runs 0.40.51 (`ssh m4` timed out on 2026-11-17).
 
 ## 0.40.52 Release Record
 
