@@ -4,7 +4,7 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 0.40.54
 
 ### Fixed
 - When a requested model could not be applied, the `model_not_applied` warning said the picker's model rows "cannot be clicked" and that the power slider was "the only lever prodex has on the model". prodex chooses a model row by walking the menu with the keyboard before it tries a click, and the warning only appears once both have failed, so it sent people to `--effort` for a model that can be chosen. It now says the keyboard walk did not reach the model and its row cannot be clicked, and still names what the picker offers.
