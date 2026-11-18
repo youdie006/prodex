@@ -413,6 +413,57 @@ describe("performBrowserConsultForMcp", () => {
     expect(outcome.notes.some((note) => note.startsWith("answer_incomplete:"))).toBe(true);
   });
 
+  // Measured 2026-11-17: ChatGPT stopped tagging answers with the model that
+  // wrote them, and a Pro consult came back with model_used and pro_verified
+  // simply missing. The caller could not tell "not checked" from "checked and
+  // unknowable", so it is said, with the one piece of evidence prodex has.
+  it("says the answering model is unknown when the page does not name it, and shows what the picker read", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-consult-"));
+    sendChatGptPromptMock.mockResolvedValueOnce({
+      url: "https://chatgpt.com/c/mcp-untagged",
+      title: "ChatGPT",
+      answer: "untagged answer",
+      modelHints: [],
+      pickerEffort: "Pro",
+      warnings: [],
+      requestId: "9cb9650622e74a62bd9074c42a311945",
+      requestVerified: true
+    });
+
+    const outcome = await performBrowserConsultForMcp(cwd, { prompt: "Untagged check", effort: "Pro" });
+    const { BridgeStore } = await import("../src/store.js");
+    const receipts = await new BridgeStore(cwd).listReceipts({ kind: "consult_answer_saved", task_id: outcome.task_id });
+
+    expect(outcome.model_used).toBe("unknown");
+    expect(outcome.pro_verified).toBeUndefined();
+    expect(outcome.picker_effort).toBe("Pro");
+    const warning = outcome.warnings?.find((line) => line.startsWith("model_unverified: "));
+    expect(warning).toContain('"Pro"');
+    expect(receipts[0]?.metadata).toEqual(expect.objectContaining({ model_used: "unknown", picker_effort: "Pro" }));
+    expect(receipts[0]?.metadata).not.toHaveProperty("pro_verified");
+  });
+
+  it("keeps quiet about the model when the page names it", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-consult-"));
+    sendChatGptPromptMock.mockResolvedValueOnce({
+      url: "https://chatgpt.com/c/mcp-tagged",
+      title: "ChatGPT",
+      answer: "tagged answer",
+      modelHints: [],
+      modelSlug: "gpt-6-pro",
+      pickerEffort: "Pro",
+      warnings: [],
+      requestId: "9cb9650622e74a62bd9074c42a311945",
+      requestVerified: true
+    });
+
+    const outcome = await performBrowserConsultForMcp(cwd, { prompt: "Tagged check", effort: "Pro" });
+
+    expect(outcome.model_used).toBe("gpt-6-pro");
+    expect(outcome.pro_verified).toBe(true);
+    expect(outcome.warnings?.some((line) => line.startsWith("model_unverified: "))).toBe(false);
+  });
+
   it("records the consult in the bridge ledger like a CLI ask", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-consult-"));
     sendChatGptPromptMock.mockResolvedValueOnce({
