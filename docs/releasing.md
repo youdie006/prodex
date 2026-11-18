@@ -16,6 +16,37 @@ Release target: `v0.40.13` on `main`. The GitHub Release records the resolved co
 
 The release adds a guarded, opt-in transition and more accurate blocker reporting. It does not claim that headless Pro consultation is verified on either deployment target or that authentication can be retained indefinitely.
 
+## Unreleased: the answering model cannot be read (main PR #112, container PR #113, 2026-11-18)
+
+Not in an npm release yet. The containers run the fix; npm installs still run 0.40.52.
+
+**Found**
+- 2026-11-17: a Pro consult through the WSL container came back with `model_used` and `pro_verified` missing, so the calling session could not show the answer came from Pro. It also carried `model_is_now_an_effort`.
+
+**Cause, checked read-only on the live WSL container tab**
+- The page had no `data-message-model-slug` (the tag both branches read), and no attribute name matched `model` or `slug`.
+- The answer's buttons (Copy, Rate response, Read aloud, Share, More actions) name no model. The More actions menu was opened once and closed: it lists the time, Regenerate response, View sources and Branch conversation. Regenerate response was not pressed.
+- During the investigation one diagnostic read of ChatGPT's own conversation record was made from inside the tab. It returned only the model fields, which named `gpt-6-pro` on each answer message, and nothing from it was printed or saved beyond that. The user chose to keep the rendered-page-only rule (README "What it will not do"), so prodex does not use that record.
+- `model_is_now_an_effort` came from both containers' saved default `browser_defaults: {model: "Pro"}`; Pro is an effort step of the picker now.
+
+**Fix**
+- `main` PR #112 (`c0bbd5a`, merge `d294d3e`): `model_used` is `"unknown"` when the page does not name the model, a `model_unverified` warning says why `pro_verified` is left out, and `picker_effort` records the step the effort slider read before the prompt was typed. `npm run release:verify` passed locally; CI passed all 7 checks.
+- Container PR #113 (`dbe1e24`, merge `49fdd05`) ports it. The test hunk in `tests/chatgpt-browser.test.ts` needed `git apply -C1`. Typecheck, build and the full suite (2346 passed, 3 skipped) passed locally; CI passed all 7 checks.
+
+**Saved defaults**
+- WSL and M3 containers: `prodex setup --clear-model --effort Pro` in `/home/node/bridge`, with the send lock free. `status` now shows `browser_defaults: {effort: "Pro"}`; the token was kept.
+
+**Container swaps (both built from `49fdd05`, send lock free before each)**
+- WSL: image `5c019e0024ca`, recreated 03:43:00 UTC. Healthy, 1024 process limit, using 344 processes afterwards.
+- M3 (colima `prodex-check`, Running): image `4e045e1a8105`. Healthy, 1024 process limit. The M3 checkout `~/.local/share/prodex-maint/container-src` is at `49fdd05`.
+- `scripts/container-client.mjs` did not change, so neither host's client was replaced; `status` reported both containers running, healthy and ready.
+- `pro browser check` on both: logged in with a composer. `pro browser smoke` (new chat, bridge in a temporary directory inside the container): `PRODEX_PRO_SMOKE_OK` with `requestVerified: true` on both (M3 after 28 s).
+- WSL, `prodex ask --json --new-chat --effort Pro` from a temporary directory inside the container: `model_used: "unknown"`, `picker_effort: "Pro"`, `request_verified: true`, and the `model_unverified` warning.
+
+**Not done**
+- The 0.40.53 publish was not run: the agent's permission classifier refused the release script, so it was handed to the user.
+- MacBook M4 still runs 0.40.51 (`ssh m4` timed out on 2026-11-17).
+
 ## 0.40.52 Release Record
 
 Release commit `51da80d` on `main` (cut after PRs #100 and #105-#109, last merge `36bda26`); tag `v0.40.52`, published 2026-11-17. Released on the user's go-ahead as a batch, together with the container swaps:
