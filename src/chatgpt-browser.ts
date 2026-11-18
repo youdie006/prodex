@@ -3224,14 +3224,14 @@ export function modelSelectionUnavailableWarning(
   // A listed row that refuses the click is a different thing from a model the
   // picker never had, and saying "does not offer X" while listing X two clauses
   // later reads as a bug in prodex. Measured on both surfaces: the model rows
-  // carry pointer-events: none and no coordinate reaches them, so the slider is
-  // the only lever prodex has on the model.
+  // carry pointer-events: none and no coordinate reaches them. This only runs
+  // once the keyboard walk (selectPickerModelByKeyboard) has also failed.
   if (/not clickable/i.test(reason)) {
     return (
-      `model_not_applied: this ChatGPT picker lists "${requested}" but its model rows cannot be clicked, ` +
+      `model_not_applied: this ChatGPT picker lists "${requested}" but prodex could not choose it: ` +
+      `walking the menu with the keyboard did not reach it, and its row cannot be clicked, ` +
       `so the send used whatever the composer already had.${offers} ` +
-      "The power slider is the only lever prodex has on the model - pick a step with --effort, " +
-      'or clear a saved default with `prodex setup --clear-model`.'
+      'Pick a step with --effort, or clear a saved default with `prodex setup --clear-model`.'
     );
   }
   return (
