@@ -16,9 +16,19 @@ Release target: `v0.40.13` on `main`. The GitHub Release records the resolved co
 
 The release adds a guarded, opt-in transition and more accurate blocker reporting. It does not claim that headless Pro consultation is verified on either deployment target or that authentication can be retained indefinitely.
 
-## Unreleased: model_not_applied wording and the Windows registry rename (main PRs #114 and #115, container PR #116, 2026-11-18)
+## 0.40.54 Release Record
 
-Not in an npm release yet. The containers run both fixes; npm installs run 0.40.53.
+Release commit `19719d5` on `main` (cut after PRs #114 and #115 and their record `0d52a6c`); tag `v0.40.54`, published 2026-11-18. Released on the user's go-ahead after the container swaps below. It carries two fixes: the `model_not_applied` wording and the Windows registry rename.
+
+**Publishing**
+- `npm run release:verify` passed on the release commit after a build (scratchpad `release54.sh`, `release53.sh` with the version changed).
+- `publish.yml` run 44422100875 passed on its first attempt, all six platform jobs included. It published to npm with SLSA v1 provenance and created the GitHub Release (23:52 UTC), which lists the two entries from `CHANGELOG.md`.
+
+**Installed**
+- WSL, M3, Mac mini: `prodex --version` reports 0.40.54.
+- The maintainer watchdog checkout was pulled to `19719d5` and rebuilt.
+- No host-side `prodex mcp` or `prodex start` was running on WSL, M3 or the Mac mini. The MCP entries on WSL and M3 relay into the browser containers, which have run both fixes since the swaps below.
+- MacBook M4: `ssh m4` timed out before and after the publish, so it still runs 0.40.51. Scratchpad `m4install-0.40.54.sh` has to be run once M4 answers.
 
 **Fix**
 - `main` PR #114 (`95f97d1`, merge `a9c0e80`): the `model_not_applied` warning for a listed but inert model row said the power slider was "the only lever prodex has on the model". The keyboard walk runs before the click and the warning only appears once both fail, so it now says that. CI passed all 7 checks.
