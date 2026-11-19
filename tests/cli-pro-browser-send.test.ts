@@ -887,7 +887,7 @@ describe("pro browser ask persistence", () => {
         stderr: () => {}
       });
       void first.catch(() => undefined);
-      await withTimeout(firstStarted, 20_000, "Timed out waiting for the first browser send to start");
+      await untilStartedOrEnded(firstStarted, first, "The first send");
 
       queued = runCli(["pro", "browser", "ask", "--model", "Pro", "--busy-wait-ms", "30000", "second prompt"], {
         cwd,
@@ -895,11 +895,7 @@ describe("pro browser ask persistence", () => {
         stderr: (line) => second.push(line)
       });
       void queued.catch(() => undefined);
-      const queuedBy = Date.now() + 10_000;
-      while (!second.some((line) => /another prodex send holds the browser/.test(line)) && Date.now() < queuedBy) {
-        await new Promise((resolve) => setTimeout(resolve, 50));
-      }
-      expect(second.join("\n")).toMatch(/another prodex send holds the browser/);
+      await untilQueuedBehindLock(second, queued);
       releaseFirst();
       await Promise.all([first, queued]);
       // The second send must not start until the first finished.
@@ -1000,13 +996,7 @@ describe("pro browser ask persistence", () => {
         stdout: () => {},
         stderr: (line) => err.push(line)
       });
-      // Wait for the queue notice by polling, not by a fixed sleep: a loaded
-      // CI box needs longer than a dev box to reach the lock.
-      const queuedBy = Date.now() + 20_000;
-      while (!err.some((line) => /another prodex send holds the browser/.test(line)) && Date.now() < queuedBy) {
-        await new Promise((resolve) => setTimeout(resolve, 50));
-      }
-      expect(err.join("\n")).toMatch(/another prodex send holds the browser/);
+      await untilQueuedBehindLock(err, send);
       // Release the lock while the send is queued; it must then proceed.
       await rm(lockFile, { force: true });
       await expect(send).resolves.toBeDefined();
@@ -3538,18 +3528,34 @@ describe("pro browser ask model/project selection", () => {
   });
 });
 
-async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
-  let timer: NodeJS.Timeout | undefined;
-  try {
-    return await Promise.race([
-      promise,
-      new Promise<T>((_, reject) => {
-        timer = setTimeout(() => reject(new Error(message)), timeoutMs);
-      })
-    ]);
-  } finally {
-    if (timer) clearTimeout(timer);
+// A send writes several records before it reaches the send lock, and on macOS
+// and Windows every record write runs in a child process (see
+// runAnchoredWrite), started through tsx when the tests run from sources. So
+// how long a send takes to get there depends on the machine: on CI's macOS
+// Intel runner the tests in this file took about 25 times as long as on Linux,
+// and once a queued send did not reach the lock within a 10 s window (run
+// 43987836115). These waits have no deadline of their own. They end when the
+// send gets there, or fail as soon as it ends without getting there; the
+// test's own timeout catches a send that hangs.
+async function untilQueuedBehindLock(lines: readonly string[], send: Promise<unknown>): Promise<void> {
+  let ended = false;
+  void send.then(
+    () => (ended = true),
+    () => (ended = true)
+  );
+  while (!lines.some((line) => /another prodex send holds the browser/.test(line))) {
+    if (ended) throw new Error(`The send ended without queueing behind the lock:\n${lines.join("\n")}`);
+    await new Promise((resolve) => setTimeout(resolve, 50));
   }
+}
+
+async function untilStartedOrEnded(started: Promise<void>, send: Promise<unknown>, which: string): Promise<void> {
+  await Promise.race([
+    started,
+    send.then(() => {
+      throw new Error(`${which} ended before its browser send started`);
+    })
+  ]);
 }
 
 function escapeRegExp(value: string): string {
