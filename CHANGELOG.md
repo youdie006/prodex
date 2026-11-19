@@ -4,7 +4,7 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 0.40.55
 
 ### Fixed
 - The test that a second browser send queues behind the machine-wide send lock gave the queued send 10 seconds from its start to say it was waiting, and failed CI on its macOS Intel runner once (run 43987836115) with nothing printed. Before it reaches the lock a send writes several records, and on macOS and Windows each record write runs in a child process, so on that runner getting there took longer than the window. The test and its sibling (which had a 20 second window) now wait until the send reports it is queued, and fail at once if it ends without queueing.
