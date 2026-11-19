@@ -16,6 +16,26 @@ Release target: `v0.40.13` on `main`. The GitHub Release records the resolved co
 
 The release adds a guarded, opt-in transition and more accurate blocker reporting. It does not claim that headless Pro consultation is verified on either deployment target or that authentication can be retained indefinitely.
 
+## 0.40.55 Release Record
+
+Release commit `c5ab976` on `main` (cut after PR #117, merge `e0f59e4`); tag `v0.40.55`, published 2026-11-19. Released on the user's go-ahead. It carries one test fix: the send-lock serialization test and its sibling no longer give a queued send a fixed time window to reach the lock.
+
+**The flaky test (PR #117, `d968648`)**
+- `tests/cli-pro-browser-send.test.ts` "serializes concurrent browser sends via the machine-global lock" failed once on CI's macOS Intel runner (run 43987836115, 2026-11-17): the queued send printed nothing within 10 s of its start.
+- Cause: before the lock a send writes five records. On macOS and Windows each write runs in a child process (`runAnchoredWrite`), started through tsx in tests. That run's test report put the median test in this file at 3.6 s on that runner, against 141 ms locally. Reproduced locally by forcing that path and delaying each write 2.5 s: the unchanged test failed with the CI assertion.
+- Both tests now wait until the send reports it is queued, and fail at once if it ends without queueing. In this release's publish run the two took 6.9 s and 7.5 s on macOS Intel.
+
+**Publishing**
+- `npm run release:verify` passed on the release commit after a build (scratchpad `release55.sh`).
+- `publish.yml` run 44431591175 passed on its first attempt, all six platform jobs included. It published to npm with SLSA v1 provenance and created the GitHub Release (01:03 UTC), which lists the one entry from `CHANGELOG.md`.
+
+**Installed**
+- WSL, M3, Mac mini: `prodex --version` reports 0.40.55.
+- The maintainer watchdog checkout was pulled to `c5ab976` and rebuilt.
+- No host-side `prodex mcp` or `prodex start` was running on WSL, M3 or the Mac mini.
+- The browser containers were not rebuilt: the release changes a test only, and they already run every runtime change in it (`fa4cb0a`).
+- MacBook M4: `ssh m4` timed out, so it still runs 0.40.51. Scratchpad `m4install-0.40.55.sh` has to be run once M4 answers.
+
 ## 0.40.54 Release Record
 
 Release commit `19719d5` on `main` (cut after PRs #114 and #115 and their record `0d52a6c`); tag `v0.40.54`, published 2026-11-18. Released on the user's go-ahead after the container swaps below. It carries two fixes: the `model_not_applied` wording and the Windows registry rename.
