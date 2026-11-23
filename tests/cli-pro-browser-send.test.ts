@@ -1556,9 +1556,9 @@ describe("pro browser ask persistence", () => {
         task_id: taskId,
         thread: "https://chatgpt.com/c/abc",
         // The send passed no model flag and this repo has no saved default, so
-        // the model-selection nudge is recorded alongside the send warning, and
-        // the answer named no model, which is said too.
-        warnings: ["model hint observed", expect.stringContaining("model_selection_warning"), expect.stringContaining("model_unverified")]
+        // the model-selection nudge is recorded alongside the send warning. An
+        // answer that names no model is the normal case and is not a warning.
+        warnings: ["model hint observed", expect.stringContaining("model_selection_warning")]
       })
     );
     const result = JSON.parse(await readFile(path.join(cwd, ".bridge", "results", `${taskId}.json`), "utf8")) as {
@@ -3025,7 +3025,7 @@ describe("pro browser ask model/project selection", () => {
     expect(payload.thread).toBe("https://chatgpt.com/c/json");
     expect(payload.answer).toBe("json answer");
     expect(payload.session_key).toBe("codex-thread-json");
-    expect(payload.warnings).toEqual([expect.stringContaining("model_selection_warning"), expect.stringContaining("model_unverified")]);
+    expect(payload.warnings).toEqual([expect.stringContaining("model_selection_warning")]);
   });
 
   it("starts an ordinary consult in a fresh chat while keeping the default project", async () => {

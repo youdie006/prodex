@@ -417,7 +417,9 @@ describe("performBrowserConsultForMcp", () => {
   // wrote them, and a Pro consult came back with model_used and pro_verified
   // simply missing. The caller could not tell "not checked" from "checked and
   // unknowable", so it is said, with the one piece of evidence prodex has.
-  it("says the answering model is unknown when the page does not name it, and shows what the picker read", async () => {
+  it("says in one note line, not a warning, that the page does not name the answering model", async () => {
+    // Every consult answers this way since ChatGPT stopped naming the model
+    // (2026-11-17), so a warning on each one only taught callers to repeat it.
     const cwd = await mkdtemp(path.join(tmpdir(), "prodex-mcp-consult-"));
     sendChatGptPromptMock.mockResolvedValueOnce({
       url: "https://chatgpt.com/c/mcp-untagged",
@@ -437,8 +439,10 @@ describe("performBrowserConsultForMcp", () => {
     expect(outcome.model_used).toBe("unknown");
     expect(outcome.pro_verified).toBeUndefined();
     expect(outcome.picker_effort).toBe("Pro");
-    const warning = outcome.warnings?.find((line) => line.startsWith("model_unverified: "));
-    expect(warning).toContain('"Pro"');
+    expect(outcome.warnings ?? []).toEqual([]);
+    expect(outcome.notes.filter((line) => /model/i.test(line) && !line.startsWith("picker_effort:"))).toEqual([
+      "model_used: unknown (the ChatGPT page does not name the answering model)"
+    ]);
     expect(receipts[0]?.metadata).toEqual(expect.objectContaining({ model_used: "unknown", picker_effort: "Pro" }));
     expect(receipts[0]?.metadata).not.toHaveProperty("pro_verified");
   });
