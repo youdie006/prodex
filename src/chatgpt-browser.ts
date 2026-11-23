@@ -2880,7 +2880,8 @@ export function modelButtonAlreadyShows(requestedModel: string | undefined, butt
   // model name as a WORD inside it rather than by equality.
   const label = buttonLabel.trim().toLowerCase();
   const escaped = wanted.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(`(^|[^a-z0-9])${escaped}([^a-z0-9]|$)`).test(label);
+  // A decimal continuation belongs to the model version, not its decoration.
+  return new RegExp(`(^|[^a-z0-9])${escaped}(?![a-z0-9]|\\.\\d)`).test(label);
 }
 
 
@@ -6106,7 +6107,6 @@ export async function inspectConfiguredBrowserSelectors(input: {
       const observedModels = offeredModelLabels(options) ?? [];
       const modelAlreadySelected =
         !plan.modelLabel ||
-        modelButtonAlreadyShows(plan.modelLabel, button.label) ||
         options.some(
           (option) =>
             option.kind === "radio" && option.checked && menuItemLabelMatches(option.label, [plan.modelLabel!])

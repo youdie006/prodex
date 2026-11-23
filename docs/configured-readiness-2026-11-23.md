@@ -97,6 +97,10 @@ The final source also rejects a requested model/effort combination when only
 a different model owns that effort step, and stops rather than answering a
 JavaScript confirmation during inspection, status or visibility reads. Those
 cases have mocked red/green regression evidence, not an account-backed rerun.
+Independent review additionally reproduced `GPT-5` matching a `GPT-5.6 Pro`
+button. The diagnostic now requires exact checked-model or slider evidence;
+the shared send-time button matcher also rejects decimal version prefixes.
+Both the helper and configured probe have a failing-before/passing-after test.
 No second host-control attempt was made after the active computer-use routing
 required a gated real-browser path. The host is a persistent signed-in Chrome
 on Xvfb display `:99`, not a disposable test profile. No profile was copied and
@@ -119,7 +123,8 @@ this source correction.
   used as red-test evidence.
 - PASS `npx vitest run tests/browser-selection-check.test.ts tests/cli-product-check.test.ts tests/sidebar-project-rows.test.ts tests/model-trigger-scope.test.ts tests/slider-restore.test.ts tests/pinned-default-check.test.ts tests/javascript-dialog.test.ts tests/cdp-port.test.ts`: 83 tests.
 - PASS `npm run typecheck` and `npm run build`.
-- PASS `npm test -- --reporter=dot`: 165 files, 2,037 tests passed,
+- PASS `npm test -- --reporter=dot` after the exact-model review correction:
+  165 files, 2,038 tests passed,
   three platform-specific tests skipped. These are WSL/Linux results, not
   native Windows or macOS certification.
 - An earlier full run before a build failed two package-bin tests because
@@ -131,6 +136,7 @@ this source correction.
 - PASS `npm run smoke:package`: isolated tarball install, HTTP/stdio MCP,
   task/result/artifact/receipt flows, write guards and package boundaries.
   This installs only into a temporary consumer directory, not the host CLI.
+- PASS after the review correction: `npx vitest run tests/browser-selection-check.test.ts tests/chatgpt-browser.test.ts tests/cli-product-check.test.ts`, 211 tests; typecheck, build and package smoke were rerun and passed as well.
 - PASS `git diff --check`. Native CI and source-delivery status are recorded
   in the PR; no unexecuted platform is treated as passed.
 - NOT PASSED: the single live candidate check exited 1 for the project
@@ -141,6 +147,10 @@ Source delivery uses branch `fix/configured-browser-readiness`. No version
 bump, release tag, npm publication or installation is implied by a pushed
 source change. The PR records the final commit, test results and installation
 boundary without credentials or private conversation URLs.
+
+A later read-only PATH check during this work returned version **0.40.56**,
+but its installed CLI module still lacked `browser_selectors`. That update
+was not performed by this change and is not installation of this patch.
 
 Attempts to notify the reporting Claude session and the separate repository
 owner were **not delivered**: the harness retained the messages after failing

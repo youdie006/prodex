@@ -220,6 +220,11 @@ describe("configured selector readiness without sending", () => {
     expect(await check({ model: "GPT-5" })).toMatchObject({ model: { state: "UNVERIFIED" } });
   });
 
+  it("does not infer an exact model selection from a version-prefix button label", async () => {
+    install({ buttonLabel: "GPT-5.6 Pro, 5 of 5", sliderModel: "GPT-5.6", submenuValue: "GPT-5.6" });
+    expect(await check({ model: "GPT-5" })).toMatchObject({ model: { state: "UNVERIFIED" } });
+  });
+
   it.each([
     { topModel: "GPT-5", expected: "MISSING" },
     { topModel: null, expected: "UNVERIFIED" }
