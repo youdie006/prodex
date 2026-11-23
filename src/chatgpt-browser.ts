@@ -427,8 +427,11 @@ export const CHATGPT_RUNTIME_BLOCKER_TEXT_EXCLUDED_ANCESTORS =
 // Text scanned for PAGE BLOCKERS (captcha/usage-limit/cloudflare/...) also
 // excludes the sidebar/nav: a past-chat title like "usage limit reset" or
 // "verify human" in the history list must not be matched as a live blocker.
+// For the same reason it excludes links to conversations, projects and GPTs
+// wherever they are listed: a project's home page lists its conversations in
+// the page body (measured 2026-11-23), and those titles are the user's words.
 export const CHATGPT_BLOCKER_SCAN_EXCLUDED_ANCESTORS =
-  `${`[data-message-author-role],${CHATGPT_USER_MESSAGE_BUBBLE_SELECTOR},script,style,noscript,[aria-hidden="true"],div[role="textbox"],textarea,[contenteditable="true"]`},nav,aside,[role="navigation"]`;
+  `${`[data-message-author-role],${CHATGPT_USER_MESSAGE_BUBBLE_SELECTOR},script,style,noscript,[aria-hidden="true"],div[role="textbox"],textarea,[contenteditable="true"]`},nav,aside,[role="navigation"],a[href*="/c/"],a[href^="/g/"],a[href*="chatgpt.com/g/"]`;
 // Messages no longer carry data-message-author-role; a turn is a search unit
 // (both attributes measured 2026-11-03). Without them an open "Edit message"
 // editor, a form with a Send button inside the turn, counted as a second
@@ -6699,8 +6702,10 @@ export function statusExpression(): string {
       // Right after a send, ChatGPT shows the sent prompt as the conversation
       // title, in the page header and in document.title (measured 2026-11-23).
       // A blocker scan that read it stopped a prompt mentioning "권한" as
-      // permission_required.
-      const conversationTitle = skipConversationTitle ? (document.title || "").trim() : "";
+      // permission_required. A project's home page is titled
+      // "ChatGPT - <project name>" and shows the name as its heading.
+      const pageTitle = skipConversationTitle ? (document.title || "").trim() : "";
+      const titledNames = pageTitle ? [pageTitle, pageTitle.replace(/^ChatGPT\\s*-\\s*/i, "")] : [];
       const parts = [];
       const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
       while (walker.nextNode()) {
@@ -6708,7 +6713,7 @@ export function statusExpression(): string {
         const parent = node.parentElement;
         const value = node.nodeValue?.trim();
         if (!parent || !value) continue;
-        if (conversationTitle && value === conversationTitle) continue;
+        if (titledNames.includes(value)) continue;
         if (parent.closest(excludedSelector)) continue;
         if (isInsideChatGptTranscriptMessage(parent)) continue;
         const style = window.getComputedStyle(parent);
@@ -7956,8 +7961,10 @@ export function answerExpression(): string {
     ${chatGptTranscriptExpressionHelpers()}
     const visibleTextOutsideMessages = (excludedSelector, skipConversationTitle = false) => {
       if (!document.body) return "";
-      // The conversation title can be the sent prompt itself; see statusExpression.
-      const conversationTitle = skipConversationTitle ? (document.title || "").trim() : "";
+      // The conversation title can be the sent prompt itself, and a project's
+      // home page is titled "ChatGPT - <project name>"; see statusExpression.
+      const pageTitle = skipConversationTitle ? (document.title || "").trim() : "";
+      const titledNames = pageTitle ? [pageTitle, pageTitle.replace(/^ChatGPT\\s*-\\s*/i, "")] : [];
       const parts = [];
       const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
       while (walker.nextNode()) {
@@ -7965,7 +7972,7 @@ export function answerExpression(): string {
         const parent = node.parentElement;
         const value = node.nodeValue?.trim();
         if (!parent || !value) continue;
-        if (conversationTitle && value === conversationTitle) continue;
+        if (titledNames.includes(value)) continue;
         if (parent.closest(excludedSelector)) continue;
         if (isInsideChatGptTranscriptMessage(parent)) continue;
         const style = window.getComputedStyle(parent);
