@@ -811,6 +811,69 @@ Show more`;
     expect(state.answer).toBe("");
   });
 
+  it.each([
+    { name: "status", expression: statusExpression },
+    { name: "answer", expression: answerExpression }
+  ])("leaves names the user gave to chats and projects out of the $name blocker scan", ({ expression }) => {
+    // Measured 2026-11-23 on a project's home page, where a send into the
+    // project types: document.title is "ChatGPT - <project name>", the name is
+    // the page's h1, and the project's conversations are listed in the page
+    // body as links to /g/g-p-<id>/c/<id>.
+    const linkMatches = (href: string, selector: string): boolean =>
+      selector.split(",").some((part) => {
+        const match = /^a\[href([*^])="([^"]+)"\]$/.exec(part.trim());
+        return match !== null && (match[1] === "*" ? href.includes(match[2]) : href.startsWith(match[2]));
+      });
+    const link = (href: string, label: string): FakeButton => {
+      const anchor = new FakeButton(label);
+      anchor.setAttribute("href", href);
+      anchor.closest = (selector) => (linkMatches(href, selector) ? anchor : undefined);
+      return anchor;
+    };
+    const pageWith = (title: string, texts: Array<{ value: string; parent: FakeElement }>, controls: FakeButton[]): FakeDocument => {
+      const root = new FakeElement("div");
+      root.buttons = controls;
+      const doc = new FakeDocument([], [root]);
+      doc.title = title;
+      return Object.assign(doc, {
+        createTreeWalker: () => {
+          let index = -1;
+          const walker: { currentNode?: { parentElement: FakeElement; nodeValue: string }; nextNode: () => boolean } = {
+            nextNode: () => {
+              index += 1;
+              const text = texts[index];
+              walker.currentNode = text && { parentElement: text.parent, nodeValue: text.value };
+              return index < texts.length;
+            }
+          };
+          return walker;
+        }
+      });
+    };
+    const projectChat = link("/g/g-p-0123456789abcdef0123456789abcdef-notes/c/6b03a504-1e30-83ee-8e8c-4fc174715229", "rate limit 정리");
+    const chat = link("https://chatgpt.com/c/6b03a504-1e30-83ee-8e8c-4fc174715229", "captcha 메모");
+    const gpt = link("/g/g-abc123-reviewer", "나중에 다시 볼 것");
+    const names = [
+      { value: "권한 관리", parent: new FakeElement("span") },
+      { value: "rate limit 정리", parent: projectChat },
+      { value: "captcha 메모", parent: chat },
+      { value: "나중에 다시 볼 것", parent: gpt }
+    ];
+    type ScanState = { textSample: string; blockerScanTextSample?: string; visibleButtonLabels: string[]; blockerButtonLabels?: string[] };
+
+    const project = evaluateBrowserStatusExpression<ScanState>(expression(), pageWith("ChatGPT - 권한 관리", names, [projectChat, chat, gpt]));
+    expect(project.blockerScanTextSample).toBe("");
+    expect(detectChatGptPageBlocker(project)).toBeUndefined();
+
+    // A real prompt on the same page is still found.
+    const limited = evaluateBrowserStatusExpression<ScanState>(
+      expression(),
+      pageWith("ChatGPT - 권한 관리", [...names, { value: "You've reached the message limit", parent: new FakeElement("div") }], [projectChat, chat, gpt])
+    );
+    expect(detectChatGptPageBlocker(limited)?.code).toBe("usage_limit");
+    expect(CHATGPT_BLOCKER_SCAN_EXCLUDED_ANCESTORS).toContain('a[href*="/c/"]');
+  });
+
   it("does not scan the conversation title for blockers", async () => {
     // Measured 2026-11-23 in the browser container: right after a send, ChatGPT
     // shows the sent prompt as the conversation title, in the page header and
