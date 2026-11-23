@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Changed
+- A browser consult no longer carries a `model_unverified` warning when the ChatGPT page does not name the model that answered. Since November 2026 the page never names it, so every consult carried the warning (twice in an MCP response, once among `warnings` and once among `notes`), and calling agents repeated "Pro was selected, but the answering model was not confirmed" after each answer. The fact is now one note line, `model_used: unknown (the ChatGPT page does not name the answering model)`. `model_used: "unknown"`, `picker_effort` and the missing `pro_verified` in the result and receipt are unchanged.
+
 ## 0.40.57
 
 ### Fixed
