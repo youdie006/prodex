@@ -387,6 +387,7 @@ interface ChatGptAnswerState {
   blockerTextSample: string;
   blockerScanTextSample?: string;
   visibleButtonLabels: string[];
+  blockerButtonLabels?: string[];
 }
 
 export interface ChatGptPageTextState {
@@ -394,6 +395,8 @@ export interface ChatGptPageTextState {
   blockerTextSample?: string;
   blockerScanTextSample?: string;
   visibleButtonLabels: string[];
+  /** Visible control labels outside everything the blocker scan excludes. */
+  blockerButtonLabels?: string[];
 }
 
 interface ChatGptPageStatus extends ChatGptPageTextState {
@@ -418,8 +421,11 @@ export const CHATGPT_RUNTIME_BLOCKER_TEXT_EXCLUDED_ANCESTORS =
 // Text scanned for PAGE BLOCKERS (captcha/usage-limit/cloudflare/...) also
 // excludes the sidebar/nav: a past-chat title like "usage limit reset" or
 // "verify human" in the history list must not be matched as a live blocker.
+// For the same reason it excludes links to conversations, projects and GPTs
+// wherever they are listed: a project's home page lists its conversations in
+// the page body (measured 2026-11-23), and those titles are the user's words.
 export const CHATGPT_BLOCKER_SCAN_EXCLUDED_ANCESTORS =
-  `${'[data-message-author-role],[data-chatgpt-search-unit-key],script,style,noscript,[aria-hidden="true"],div[role="textbox"],textarea,[contenteditable="true"]'},nav,aside,[role="navigation"]`;
+  `${'[data-message-author-role],[data-chatgpt-search-unit-key],script,style,noscript,[aria-hidden="true"],div[role="textbox"],textarea,[contenteditable="true"]'},nav,aside,[role="navigation"],a[href*="/c/"],a[href^="/g/"],a[href*="chatgpt.com/g/"]`;
 /**
  * The conversation's messages, whichever markup ChatGPT is rendering.
  *
@@ -1401,12 +1407,16 @@ export function inferLoggedInLikely(
   const hasLoginPrompt =
     text.includes("Sign up for free") ||
     text.includes("무료로 가입") ||
-    visibleButtonLabels.some((label) => /^(log in|sign up|로그인|회원가입)$/i.test(label.trim()));
+    visibleButtonLabels.some(isChatGptAuthControlLabel);
   const hasNewChat = loggedInSignalText.includes("New chat") || loggedInSignalText.includes("새 채팅");
   const hasProjectNav = loggedInSignalText.includes("Projects") || loggedInSignalText.includes("프로젝트");
   const hasProfileButton = visibleButtonLabels.some((label) => /profile|account|프로필|계정/i.test(label));
   const hasPlanHint = /\bPro\b|Plus|Team|Enterprise|매우 높음|Extra High/i.test(loggedInSignalText);
   return !hasLoginPrompt && hasNewChat && (hasProfileButton || hasProjectNav || hasPlanHint);
+}
+
+function isChatGptAuthControlLabel(label: string): boolean {
+  return /^(?:log in|sign up|로그인|회원가입)$/i.test(label.trim());
 }
 
 export function isUsableChatGptAnswer(answer: string): boolean {
@@ -1977,11 +1987,13 @@ function chatGptServiceErrorBlocker(): NonNullable<ChatGptBrowserStatus["blocker
 
 export function detectChatGptPageBlocker(state: ChatGptPageTextState & { title?: string; hasComposer?: boolean }): ChatGptBrowserStatus["blocker"] | undefined {
   // Blocker scan uses the nav-excluded sample so a sidebar chat title cannot
-  // fake a blocker; fall back to the nav-included sample / full text when the
-  // scan sample is absent (older callers).
+  // fake a blocker. Exact login/signup controls may live in nav, but other
+  // navigation labels cannot supply challenge, captcha, or limit evidence.
+  const blockerLabels = state.blockerButtonLabels ?? (state.blockerScanTextSample === undefined ? state.visibleButtonLabels : []);
+  const authControlLabels = state.visibleButtonLabels.filter(isChatGptAuthControlLabel);
   const rendered = detectChatGptBlocker(
     state.blockerScanTextSample ?? state.blockerTextSample ?? state.textSample,
-    state.visibleButtonLabels
+    [...blockerLabels, ...authControlLabels]
   );
   if (rendered) return rendered;
   // Cloudflare's 502 page is an upstream service failure, not a challenge or
@@ -2034,6 +2046,7 @@ export function chatGptBlockerErrorFromAnswerState(state: {
   blockerTextSample?: string;
   blockerScanTextSample?: string;
   visibleButtonLabels: string[];
+  blockerButtonLabels?: string[];
 }):string | undefined {
   return formatBlockerError(chatGptBlockerFromAnswerState(state));
 }
@@ -2043,6 +2056,7 @@ export function chatGptBlockerFromAnswerState(state: {
   blockerTextSample?: string;
   blockerScanTextSample?: string;
   visibleButtonLabels: string[];
+  blockerButtonLabels?: string[];
 }):ChatGptBrowserStatus["blocker"] | undefined {
   return detectChatGptPageBlocker(state);
 }
@@ -6731,8 +6745,10 @@ export function statusExpression(): string {
       // Right after a send, ChatGPT shows the sent prompt as the conversation
       // title, in the page header and in document.title (measured 2026-11-23).
       // A blocker scan that read it stopped a prompt mentioning "권한" as
-      // permission_required.
-      const conversationTitle = skipConversationTitle ? (document.title || "").trim() : "";
+      // permission_required. A project's home page is titled
+      // "ChatGPT - <project name>" and shows the name as its heading.
+      const pageTitle = skipConversationTitle ? (document.title || "").trim() : "";
+      const titledNames = pageTitle ? [pageTitle, pageTitle.replace(/^ChatGPT\\s*-\\s*/i, "")] : [];
       const parts = [];
       const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
       while (walker.nextNode()) {
@@ -6740,7 +6756,7 @@ export function statusExpression(): string {
         const parent = node.parentElement;
         const value = node.nodeValue?.trim();
         if (!parent || !value) continue;
-        if (conversationTitle && value === conversationTitle) continue;
+        if (titledNames.includes(value)) continue;
         if (parent.closest(excludedSelector)) continue;
         const style = window.getComputedStyle(parent);
         if (style.display === "none" || style.visibility === "hidden") continue;
@@ -6752,11 +6768,12 @@ export function statusExpression(): string {
     const blockerText = visibleTextOutsideMessages(runtimeExcludedTextSelector);
     const blockerScanText = visibleTextOutsideMessages(blockerScanExcludedSelector, true);
     const lines = text.split(String.fromCharCode(10)).map((line) => line.trim()).filter(Boolean);
-    const visibleButtonLabels = [...document.querySelectorAll('button,a,[role="button"]')]
+    const visibleControls = [...document.querySelectorAll('button,a,[role="button"]')]
       .filter((el) => !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length))
-      .filter((el) => !el.closest(runtimeExcludedTextSelector))
-      .map((el) => (el.innerText || el.getAttribute("aria-label") || el.getAttribute("data-testid") || "").trim())
-      .filter(Boolean);
+      .filter((el) => !el.closest(runtimeExcludedTextSelector));
+    const controlLabel = (el) => (el.innerText || el.getAttribute("aria-label") || el.getAttribute("data-testid") || "").trim();
+    const visibleButtonLabels = visibleControls.map(controlLabel).filter(Boolean);
+    const blockerButtonLabels = visibleControls.filter((el) => !el.closest(blockerScanExcludedSelector)).map(controlLabel).filter(Boolean);
     ${CHATGPT_MESSAGE_NODES_JS}
     const messages = chatMessageNodes().map((message) => ({
       role: message.role,
@@ -6776,6 +6793,7 @@ export function statusExpression(): string {
       blockerTextSample: blockerText.slice(0, 12000),
       blockerScanTextSample: blockerScanText.slice(0, 12000),
       visibleButtonLabels,
+      blockerButtonLabels,
       hasComposer,
       generating: placeholder || streamingSignalVisible() || visibleButtonLabels.some((label) => generatingControlPattern.test(label)),
       awaitingResponseChoice: Boolean(document.querySelector(${responseChoiceSelector})),
@@ -7950,8 +7968,10 @@ export function answerExpression(): string {
     const generatingControlPattern = new RegExp(${generatingControlPattern}, ${generatingControlFlags});
     const visibleTextOutsideMessages = (excludedSelector, skipConversationTitle = false) => {
       if (!document.body) return "";
-      // The conversation title can be the sent prompt itself; see statusExpression.
-      const conversationTitle = skipConversationTitle ? (document.title || "").trim() : "";
+      // The conversation title can be the sent prompt itself, and a project's
+      // home page is titled "ChatGPT - <project name>"; see statusExpression.
+      const pageTitle = skipConversationTitle ? (document.title || "").trim() : "";
+      const titledNames = pageTitle ? [pageTitle, pageTitle.replace(/^ChatGPT\\s*-\\s*/i, "")] : [];
       const parts = [];
       const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
       while (walker.nextNode()) {
@@ -7959,7 +7979,7 @@ export function answerExpression(): string {
         const parent = node.parentElement;
         const value = node.nodeValue?.trim();
         if (!parent || !value) continue;
-        if (conversationTitle && value === conversationTitle) continue;
+        if (titledNames.includes(value)) continue;
         if (parent.closest(excludedSelector)) continue;
         const style = window.getComputedStyle(parent);
         if (style.display === "none" || style.visibility === "hidden") continue;
@@ -7993,11 +8013,12 @@ export function answerExpression(): string {
     // Pair only within the latest user turn; a previous reply is not the
     // answer to a new question whose assistant node has not rendered yet.
     const assistant = lastUserIndex < 0 ? undefined : messages.slice(lastUserIndex + 1).filter((message) => message.role === "assistant").at(-1);
-    const buttons = [...document.querySelectorAll('button,[role="button"]')]
+    const visibleControls = [...document.querySelectorAll('button,[role="button"]')]
       .filter((node) => !!(node.offsetWidth || node.offsetHeight || node.getClientRects().length))
-      .filter((node) => !node.closest(excludedTextSelector))
-      .map((node) => (node.innerText || node.getAttribute("aria-label") || node.getAttribute("data-testid") || "").trim())
-      .filter(Boolean);
+      .filter((node) => !node.closest(excludedTextSelector));
+    const controlLabel = (node) => (node.innerText || node.getAttribute("aria-label") || node.getAttribute("data-testid") || "").trim();
+    const buttons = visibleControls.map(controlLabel).filter(Boolean);
+    const blockerButtonLabels = visibleControls.filter((node) => !node.closest(blockerScanExcludedSelector)).map(controlLabel).filter(Boolean);
     const answer = assistant?.text || "";
     const ansStripped = answer.trim().replace(/\\.+$/, "");
     const ansLines = ansStripped.split(/\\r?\\n/).filter((l) => l.trim());
@@ -8013,6 +8034,7 @@ export function answerExpression(): string {
       blockerTextSample: visibleTextOutsideMessages(excludedTextSelector).slice(0, 12000),
       blockerScanTextSample: visibleTextOutsideMessages(blockerScanExcludedSelector, true).slice(0, 12000),
       visibleButtonLabels: buttons,
+      blockerButtonLabels,
       generating: placeholder || streamingSignalVisible() || buttons.some((label) => generatingControlPattern.test(label)),
       awaitingResponseChoice: Boolean(document.querySelector(${responseChoiceSelector})),
       assistantMessageCount: assistantMessages.length,

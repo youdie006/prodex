@@ -11,6 +11,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Readiness inspection reveals hover-only project controls before hit-testing, verifies model/effort pairs on the same slider step, and stops without answering JavaScript confirmations. Base status and tab-visibility reads also leave those confirmations untouched.
 - A button showing `GPT-5.6` no longer satisfies a request for `GPT-5`. Configured readiness requires exact checked-model or slider evidence instead of inferring the active model from a decorated button label; send-time button matching also rejects decimal version prefixes.
 
+## 0.40.58
+
+### Changed
+- A browser consult no longer carries a `model_unverified` warning when the ChatGPT page does not name the model that answered. Since November 2026 the page never names it, so every consult carried the warning (twice in an MCP response, once among `warnings` and once among `notes`), and calling agents repeated "Pro was selected, but the answering model was not confirmed" after each answer. The fact is now one note line, `model_used: unknown (the ChatGPT page does not name the answering model)`. `model_used: "unknown"`, `picker_effort` and the missing `pro_verified` in the result and receipt are unchanged.
+
+## 0.40.57
+
+### Fixed
+- Names the user gave to chats and projects could still stop a browser send as a blocker (`permission_required`, `usage_limit`, `captcha_required`, `cloudflare_check`), if they contained a phrase from the blocker checks, such as "권한" or "rate limit". Three paths are closed:
+  - Sidebar links are controls, and the blocker check read every visible control's label, so one sidebar conversation titled with such a phrase blocked every send. The blocker check now reads only the labels of controls outside the sidebar and the messages, plus exact Log in / Sign up controls, as the container image has since September.
+  - A project's home page, where a send into a project types its prompt, lists the project's conversations in the page body. Links to conversations, projects and GPTs are now left out of the blocker scan wherever they appear.
+  - The home page is titled "ChatGPT - <project name>" and shows the name as its heading. The blocker scan now skips that name as it skips the conversation title.
+
 ## 0.40.56
 
 ### Fixed

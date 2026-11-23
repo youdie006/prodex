@@ -1880,13 +1880,12 @@ export async function runAskProCommand(
       if (consult.requestVerified === false && !persistenceWarnings.some((warning) => warning.startsWith("request_unverified:"))) {
         persistenceWarnings.push("request_unverified: the saved answer was not verified against its requested user turn. Review the original conversation before continuing.");
       }
-      if (!consult.modelSlug) persistenceWarnings.push(modelUnverifiedWarning(consult.pickerEffort));
       const modelUsed = consult.modelSlug ?? "unknown";
       // Truncation and other send warnings must be visible at runtime, not
       // only inside the persisted receipt: a caller who never opens .bridge
       // would otherwise treat a cut-off answer as complete.
       for (const warning of persistenceWarnings) io.stderr(warning);
-      io.stderr(`model_used: ${modelUsed}`);
+      io.stderr(modelUsedLine(consult.modelSlug));
       if (consult.pickerEffort) io.stderr(`picker_effort: ${consult.pickerEffort}`);
       if (consult.requestId) io.stderr(`request_id: ${consult.requestId}`);
       if (consult.requestVerified !== undefined) io.stderr(`request_verified: ${consult.requestVerified ? "yes" : "no"}`);
@@ -2991,14 +2990,11 @@ export function proSelectionVerified(selection: {
  * data-message-model-slug anywhere on the page, and nothing else on screen
  * names it), and prodex reads rendered page content only. Leaving both fields
  * out without a word read as "not checked" rather than "cannot be checked".
+ * Since that is every consult now, it is one line, not a warning: a
+ * model_unverified warning on each answer only taught callers to repeat it.
  */
-export function modelUnverifiedWarning(pickerEffort: string | undefined): string {
-  return (
-    'model_unverified: the ChatGPT page did not name the model that wrote this answer, so model_used is "unknown" and pro_verified is left out.' +
-    (pickerEffort
-      ? ` Before the prompt was typed, the picker's effort slider read "${pickerEffort}"; that shows what was selected, not what answered.`
-      : "")
-  );
+export function modelUsedLine(modelSlug: string | undefined): string {
+  return modelSlug ? `model_used: ${modelSlug}` : "model_used: unknown (the ChatGPT page does not name the answering model)";
 }
 
 /**

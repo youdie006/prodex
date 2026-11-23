@@ -89,6 +89,7 @@ import {
   selectChatGptPage,
   prepareComposerExpression,
   composerTextStateExpression,
+  statusExpression,
   answerExpression,
   modelButtonRectExpression,
   modelMenuOptionsExpression,
@@ -2020,6 +2021,157 @@ Show more`;
     };
     expect(inferChatGptPageLoggedInLikely(state)).toBe(true);
     expect(detectChatGptPageBlocker(state)).toBeUndefined();
+  });
+
+  // Ported from the container branch (692ded3): sidebar links are controls too,
+  // so their labels - conversation titles - reached the blocker check through
+  // the button labels even though the scanned text left the sidebar out.
+  it("ignores conversation navigation labels when blocker text excludes the sidebar", () => {
+    const state = {
+      hasComposer: true,
+      textSample: "New chat\nProjects\nJust a moment...\nPlease solve this captcha to continue",
+      blockerTextSample: "New chat\nProjects\nChatGPT Pro\nJust a moment...",
+      blockerScanTextSample: "",
+      visibleButtonLabels: ["Profile menu", "Just a moment..."]
+    };
+
+    expect(inferChatGptPageLoggedInLikely(state)).toBe(true);
+    for (const label of ["Just a moment...", "Please solve this captcha to continue", "You've reached the message limit", "권한 정리"]) {
+      expect(detectChatGptPageBlocker({ ...state, visibleButtonLabels: ["Profile menu", label] })).toBeUndefined();
+    }
+  });
+
+  it.each([
+    { name: "status", expression: statusExpression },
+    { name: "answer", expression: answerExpression }
+  ])("keeps visible labels but separates blocker-safe controls in $name snapshot", ({ expression }) => {
+    const root = new FakeElement("form");
+    const nav = new FakeElement("nav");
+    const message = new FakeElement("div");
+    const sidebarTitle = new FakeButton("Just a moment...");
+    const messageControl = new FakeButton("Please solve this captcha to continue");
+    const challenge = new FakeButton("Verifying you are human");
+    sidebarTitle.closest = (selector) => selector.includes("nav") ? nav : undefined;
+    messageControl.closest = (selector) => selector.includes('[data-message-author-role]') ? message : undefined;
+    root.buttons = [sidebarTitle, messageControl, challenge];
+    const doc = new FakeDocument([], [root]);
+    doc.body.innerText = "New chat\nProjects\nJust a moment...\nPlease solve this captcha to continue";
+
+    const state = evaluateBrowserStatusExpression<{
+      textSample: string;
+      blockerScanTextSample: string;
+      visibleButtonLabels: string[];
+      blockerButtonLabels: string[];
+    }>(expression(), doc);
+
+    expect(state.visibleButtonLabels).toEqual(["Just a moment...", "Verifying you are human"]);
+    expect(state.blockerButtonLabels).toEqual(["Verifying you are human"]);
+    expect(detectChatGptPageBlocker(state)?.code).toBe("cloudflare_check");
+
+    root.buttons = [sidebarTitle, messageControl];
+    const normalState = evaluateBrowserStatusExpression<typeof state>(expression(), doc);
+    expect(normalState.visibleButtonLabels).toEqual(["Just a moment..."]);
+    expect(normalState.blockerButtonLabels).toEqual([]);
+    expect(detectChatGptPageBlocker(normalState)).toBeUndefined();
+  });
+
+  it.each([
+    { labels: ["Log in", "Sign up"], code: "login_required" },
+    { labels: ["You've reached the message limit"], code: "usage_limit" }
+  ])("reports $code from a real non-navigation control", ({ labels, code }) => {
+    expect(detectChatGptPageBlocker({
+      textSample: "New chat\nProjects",
+      blockerScanTextSample: "",
+      visibleButtonLabels: ["Just a moment...", ...labels],
+      blockerButtonLabels: labels
+    })?.code).toBe(code);
+  });
+
+  it("keeps explicit login evidence from a composer-absent legacy snapshot", () => {
+    expect(detectChatGptPageBlocker({
+      textSample: "",
+      blockerTextSample: "",
+      blockerScanTextSample: "",
+      visibleButtonLabels: ["Log in", "Sign up"],
+      hasComposer: false
+    })?.code).toBe("login_required");
+  });
+
+  it.each([false, true])("reports nav-only login controls with hasComposer=%s", (hasComposer) => {
+    const state = {
+      textSample: "New chat\nProjects",
+      blockerTextSample: "New chat\nProjects",
+      blockerScanTextSample: "",
+      visibleButtonLabels: ["Log in", "Sign up"],
+      blockerButtonLabels: [],
+      hasComposer
+    };
+
+    expect(inferChatGptPageLoggedInLikely(state)).toBe(false);
+    expect(detectChatGptPageBlocker(state)?.code).toBe("login_required");
+  });
+
+  it.each([
+    { name: "status", expression: statusExpression },
+    { name: "answer", expression: answerExpression }
+  ])("leaves names the user gave to chats and projects out of the $name blocker scan", ({ expression }) => {
+    // Measured 2026-11-23 on a project's home page, where a send into the
+    // project types: document.title is "ChatGPT - <project name>", the name is
+    // the page's h1, and the project's conversations are listed in the page
+    // body as links to /g/g-p-<id>/c/<id>.
+    const linkMatches = (href: string, selector: string): boolean =>
+      selector.split(",").some((part) => {
+        const match = /^a\[href([*^])="([^"]+)"\]$/.exec(part.trim());
+        return match !== null && (match[1] === "*" ? href.includes(match[2]) : href.startsWith(match[2]));
+      });
+    const link = (href: string, label: string): FakeButton => {
+      const anchor = new FakeButton(label);
+      anchor.setAttribute("href", href);
+      anchor.closest = (selector) => (linkMatches(href, selector) ? anchor : undefined);
+      return anchor;
+    };
+    const pageWith = (title: string, texts: Array<{ value: string; parent: FakeElement }>, controls: FakeButton[]): FakeDocument => {
+      const root = new FakeElement("div");
+      root.buttons = controls;
+      const doc = new FakeDocument([], [root]);
+      doc.title = title;
+      return Object.assign(doc, {
+        createTreeWalker: () => {
+          let index = -1;
+          const walker: { currentNode?: { parentElement: FakeElement; nodeValue: string }; nextNode: () => boolean } = {
+            nextNode: () => {
+              index += 1;
+              const text = texts[index];
+              walker.currentNode = text && { parentElement: text.parent, nodeValue: text.value };
+              return index < texts.length;
+            }
+          };
+          return walker;
+        }
+      });
+    };
+    const projectChat = link("/g/g-p-0123456789abcdef0123456789abcdef-notes/c/6b03a504-1e30-83ee-8e8c-4fc174715229", "rate limit 정리");
+    const chat = link("https://chatgpt.com/c/6b03a504-1e30-83ee-8e8c-4fc174715229", "captcha 메모");
+    const gpt = link("/g/g-abc123-reviewer", "나중에 다시 볼 것");
+    const names = [
+      { value: "권한 관리", parent: new FakeElement("span") },
+      { value: "rate limit 정리", parent: projectChat },
+      { value: "captcha 메모", parent: chat },
+      { value: "나중에 다시 볼 것", parent: gpt }
+    ];
+    type ScanState = { textSample: string; blockerScanTextSample?: string; visibleButtonLabels: string[]; blockerButtonLabels?: string[] };
+
+    const project = evaluateBrowserStatusExpression<ScanState>(expression(), pageWith("ChatGPT - 권한 관리", names, [projectChat, chat, gpt]));
+    expect(project.blockerScanTextSample).toBe("");
+    expect(detectChatGptPageBlocker(project)).toBeUndefined();
+
+    // A real prompt on the same page is still found.
+    const limited = evaluateBrowserStatusExpression<ScanState>(
+      expression(),
+      pageWith("ChatGPT - 권한 관리", [...names, { value: "You've reached the message limit", parent: new FakeElement("div") }], [projectChat, chat, gpt])
+    );
+    expect(detectChatGptPageBlocker(limited)?.code).toBe("usage_limit");
+    expect(CHATGPT_BLOCKER_SCAN_EXCLUDED_ANCESTORS).toContain('a[href*="/c/"]');
   });
 
   it("detects ChatGPT browser blocker states before sending", () => {
