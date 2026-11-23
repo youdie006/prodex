@@ -16,6 +16,37 @@ Release target: `v0.40.13` on `main`. The GitHub Release records the resolved co
 
 The release adds a guarded, opt-in transition and more accurate blocker reporting. It does not claim that headless Pro consultation is verified on either deployment target or that authentication can be retained indefinitely.
 
+## 0.40.58 Release Record
+
+Release commit `7a1267e` on `main` (cut after PR #124, merge `71079f4`); tag `v0.40.58`, published 2026-11-23. Released on the user's go-ahead after the container swaps below. It carries one change: an answering model the ChatGPT page does not name is reported in one note line, not as a warning.
+
+**The change (PR #124, `f62daaa`)**
+- Since ChatGPT stopped naming the answering model (2026-11-17), every consult carried a `model_unverified` warning. An MCP response carried it twice, in `warnings` and in `notes`. The calling Codex session repeated "Pro was selected, but the answering model was not confirmed" after each answer, and the user asked for one line.
+- The warning is gone. The note line now reads `model_used: unknown (the ChatGPT page does not name the answering model)`.
+- `model_used: "unknown"`, `picker_effort` and the missing `pro_verified` in the result and receipt are unchanged, and nothing parsed either string.
+- Build, typecheck and the full suite (164 files, 2021 passed, 3 skipped) passed locally; CI passed all 7 checks.
+- Container PR #125 (`ec2e440`, merge `9a9d76a`) ports it with a plain `git apply`. The three updated tests failed with the source change stashed. Full suite: 183 files, 2351 passed, 3 skipped. CI passed all 7 checks.
+
+**Container swaps (both built from `9a9d76a`, send lock free before each, no thread errors after)**
+- WSL: image `513d40537ccb`, recreated 06:31:58 UTC. Healthy, 1024 process limit, using 354 processes after the checks below.
+- M3 (colima `prodex-check`): image `6c45b4a19c6b`, started 06:32:06 UTC. Healthy, using 191. The M3 checkout `~/.local/share/prodex-maint/container-src` is at `9a9d76a`.
+- `scripts/` and `containers/` did not change between `178e6ec` and `9a9d76a`, so neither host's client was replaced; `status` reported both containers running, healthy and ready.
+- `pro browser check` on both: logged in with a composer, `model_hints: Pro`. `pro browser smoke`: `PRODEX_PRO_SMOKE_OK`, `requestVerified: true`, no warnings, WSL after 30 s and M3 after 26 s.
+- On WSL, one `pro browser ask --temporary --json` with no model flag finished `done` in 29 s.
+  - The output had the single line `model_used: unknown (the ChatGPT page does not name the answering model)` and no `model_unverified` line.
+  - The JSON warnings were `temporary_chat` and `model_selection_warning`, both expected for that test.
+  - The shared tab was returned to `https://chatgpt.com/` afterwards.
+
+**Publishing**
+- `npm run release:verify` passed on the release commit after a build (scratchpad `release58.sh`).
+- `publish.yml` run 45124746230 passed on its first attempt, all 7 jobs included. It published to npm with SLSA v1 provenance and created the GitHub Release (06:50 UTC), which lists the one entry from `CHANGELOG.md`.
+
+**Installed**
+- WSL, M3, Mac mini: `prodex --version` reports 0.40.58.
+- The maintainer watchdog checkout was pulled to `7a1267e` and rebuilt.
+- No native host-side `prodex mcp` or `prodex start` was running on WSL, M3 or the Mac mini; the MCP relays are `docker exec` sessions into the swapped containers.
+- MacBook M4: `ssh m4` timed out, so it still runs 0.40.51. Scratchpad `m4install-0.40.58.sh` has to be run once M4 answers.
+
 ## 0.40.57 Release Record
 
 Release commit `7ac8298` on `main` (cut after PR #122, merge `b544a09`); tag `v0.40.57`, published 2026-11-23. Released on the user's go-ahead after the container swaps below. It carries one fix: names the user gave to chats and projects no longer reach the browser blocker check.
