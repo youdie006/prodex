@@ -16,6 +16,38 @@ Release target: `v0.40.13` on `main`. The GitHub Release records the resolved co
 
 The release adds a guarded, opt-in transition and more accurate blocker reporting. It does not claim that headless Pro consultation is verified on either deployment target or that authentication can be retained indefinitely.
 
+## 0.40.56 Release Record
+
+Release commit `182a7a5` on `main` (cut after PR #119, merge `38dc21b`); tag `v0.40.56`, published 2026-11-23. Released on the user's go-ahead after the container swaps below. It carries one fix: a prompt containing a blocker phrase no longer stops its own send.
+
+**The false blocker (PR #119, `be6d83b`)**
+- A Codex consult from WSL on 2026-11-23 (`task_20261123_022852_gpt-pro-consult`) was reported `permission_required` ("ChatGPT requires account verification or permission handling") 11 s after it was claimed. No verification screen existed. ChatGPT had taken the prompt and answered it. On the user's go-ahead, the Codex session recovered that answer with `pro_recover` at 04:52 UTC.
+- Cause: right after a send, ChatGPT shows the sent prompt as the conversation title, in the page header (`header[data-app-shell-titlebar]`) and in `document.title`. The blocker scan excluded messages, the composer and the sidebar, but not the header. The prompt's only "권한" was in its last line, and that matched the bare `권한` alternative of the permission pattern.
+- Reproduced in the WSL browser container with one temporary-chat send containing the word: blocked as `permission_required` after 9 s. A read-only DOM probe found the only scanned occurrence in the header title, equal to `document.title`. Before the fix, sends whose prompts contained other blocker phrases ("rate limit", "captcha") last completed on 2026-11-01. That predates the current page header.
+- The blocker scan in `statusExpression` and `answerExpression` now skips the text node that equals `document.title`. Build, typecheck and the full suite (164 files, 2011 passed, 3 skipped) passed locally; CI passed all 7 checks.
+- Container PR #120 (`4b5c8cc`, merge `dc91ec5`) applies the same change by hand, because that branch's scan also skips transcript units. Build, typecheck and the full suite (183 files, 2349 passed, 3 skipped) passed locally; CI passed all 7 checks.
+- Before the swap, on the live tab still showing the test chat, the old and new page scripts were evaluated read-only. The installed scripts reported `permission_required`; the new scripts reported no blocker.
+- Not changed: the bare `권한` alternative itself, and other labels the user controls that the header can show, such as a project name.
+
+**Container swaps (both built from `dc91ec5`, send lock free before each, no thread errors after)**
+- The user asked for the swaps and the release together.
+- WSL: image `5b8527296f95`, recreated 04:53:32 UTC. Healthy, 1024 process limit, using 349 processes after the checks below.
+- M3 (colima `prodex-check`, Running): image `a0d44301f2f0`, started 04:53:41 UTC. Healthy, 1024 process limit, using 190. The M3 checkout `~/.local/share/prodex-maint/container-src` is at `dc91ec5`.
+- `scripts/` and `containers/` did not change between `fa4cb0a` and `dc91ec5`, so neither host's client was replaced; `status` reported both containers running, healthy and ready.
+- `pro browser check` on both: logged in with a composer, `model_hints: Pro`. `pro browser smoke` (new chat, bridge in a temporary directory inside the container): `PRODEX_PRO_SMOKE_OK`, `requestVerified: true`, no warnings, WSL after 29 s and M3 after 28 s.
+- The fix on WSL after the swap: the same temporary-chat send with the word finished `done` with the answer "OK" in 34 s.
+- Each test send left the shared tab on its test chat. A send checks the current page for blockers before it navigates, so the tab was returned to `https://chatgpt.com/` both times and `check` passed afterwards.
+
+**Publishing**
+- `npm run release:verify` passed on the release commit after a build (scratchpad `release56.sh`, `release55.sh` with the version changed).
+- `publish.yml` run 45114822705 passed on its first attempt, all 7 jobs included. It published to npm with SLSA v1 provenance and created the GitHub Release (05:13 UTC), which lists the one entry from `CHANGELOG.md`.
+
+**Installed**
+- WSL, M3, Mac mini: `prodex --version` reports 0.40.56.
+- The maintainer watchdog checkout was pulled to `182a7a5` and rebuilt.
+- No native host-side `prodex mcp` or `prodex start` was running on WSL, M3 or the Mac mini. The 25 MCP relays on WSL and the 6 on M3 are `docker exec` sessions into the swapped containers.
+- MacBook M4: `ssh m4` timed out before and after the publish, so it still runs 0.40.51. Scratchpad `m4install-0.40.56.sh` has to be run once M4 answers.
+
 ## 0.40.55 Release Record
 
 Release commit `c5ab976` on `main` (cut after PR #117, merge `e0f59e4`); tag `v0.40.55`, published 2026-11-19. Released on the user's go-ahead. It carries one test fix: the send-lock serialization test and its sibling no longer give a queued send a fixed time window to reach the lock.
