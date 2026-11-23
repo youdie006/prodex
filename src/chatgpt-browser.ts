@@ -6407,8 +6407,13 @@ export function statusExpression(): string {
     const runtimeExcludedTextSelector = ${excludedTextSelector};
     const blockerScanExcludedSelector = ${blockerScanExcludedSelector};
     const generatingControlPattern = new RegExp(${generatingControlPattern}, ${generatingControlFlags});
-    const visibleTextOutsideMessages = (excludedSelector) => {
+    const visibleTextOutsideMessages = (excludedSelector, skipConversationTitle = false) => {
       if (!document.body) return "";
+      // Right after a send, ChatGPT shows the sent prompt as the conversation
+      // title, in the page header and in document.title (measured 2026-11-23).
+      // A blocker scan that read it stopped a prompt mentioning "권한" as
+      // permission_required.
+      const conversationTitle = skipConversationTitle ? (document.title || "").trim() : "";
       const parts = [];
       const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
       while (walker.nextNode()) {
@@ -6416,6 +6421,7 @@ export function statusExpression(): string {
         const parent = node.parentElement;
         const value = node.nodeValue?.trim();
         if (!parent || !value) continue;
+        if (conversationTitle && value === conversationTitle) continue;
         if (parent.closest(excludedSelector)) continue;
         const style = window.getComputedStyle(parent);
         if (style.display === "none" || style.visibility === "hidden") continue;
@@ -6425,7 +6431,7 @@ export function statusExpression(): string {
       return parts.join(String.fromCharCode(10));
     };
     const blockerText = visibleTextOutsideMessages(runtimeExcludedTextSelector);
-    const blockerScanText = visibleTextOutsideMessages(blockerScanExcludedSelector);
+    const blockerScanText = visibleTextOutsideMessages(blockerScanExcludedSelector, true);
     const lines = text.split(String.fromCharCode(10)).map((line) => line.trim()).filter(Boolean);
     const visibleButtonLabels = [...document.querySelectorAll('button,a,[role="button"]')]
       .filter((el) => !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length))
@@ -7623,8 +7629,10 @@ export function answerExpression(): string {
     const excludedTextSelector = ${excludedTextSelector};
     const blockerScanExcludedSelector = ${blockerScanExcludedSelector};
     const generatingControlPattern = new RegExp(${generatingControlPattern}, ${generatingControlFlags});
-    const visibleTextOutsideMessages = (excludedSelector) => {
+    const visibleTextOutsideMessages = (excludedSelector, skipConversationTitle = false) => {
       if (!document.body) return "";
+      // The conversation title can be the sent prompt itself; see statusExpression.
+      const conversationTitle = skipConversationTitle ? (document.title || "").trim() : "";
       const parts = [];
       const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
       while (walker.nextNode()) {
@@ -7632,6 +7640,7 @@ export function answerExpression(): string {
         const parent = node.parentElement;
         const value = node.nodeValue?.trim();
         if (!parent || !value) continue;
+        if (conversationTitle && value === conversationTitle) continue;
         if (parent.closest(excludedSelector)) continue;
         const style = window.getComputedStyle(parent);
         if (style.display === "none" || style.visibility === "hidden") continue;
@@ -7683,7 +7692,7 @@ export function answerExpression(): string {
       answer,
       textSample: text.slice(0, 12000),
       blockerTextSample: visibleTextOutsideMessages(excludedTextSelector).slice(0, 12000),
-      blockerScanTextSample: visibleTextOutsideMessages(blockerScanExcludedSelector).slice(0, 12000),
+      blockerScanTextSample: visibleTextOutsideMessages(blockerScanExcludedSelector, true).slice(0, 12000),
       visibleButtonLabels: buttons,
       generating: placeholder || streamingSignalVisible() || buttons.some((label) => generatingControlPattern.test(label)),
       awaitingResponseChoice: Boolean(document.querySelector(${responseChoiceSelector})),
