@@ -4,7 +4,7 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 0.40.57
 
 ### Fixed
 - Names the user gave to chats and projects could still stop a browser send as a blocker (`permission_required`, `usage_limit`, `captcha_required`, `cloudflare_check`), if they contained a phrase from the blocker checks, such as "권한" or "rate limit". Three paths are closed:
