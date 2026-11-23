@@ -16,6 +16,42 @@ Release target: `v0.40.13` on `main`. The GitHub Release records the resolved co
 
 The release adds a guarded, opt-in transition and more accurate blocker reporting. It does not claim that headless Pro consultation is verified on either deployment target or that authentication can be retained indefinitely.
 
+## 0.40.57 Release Record
+
+Release commit `7ac8298` on `main` (cut after PR #122, merge `b544a09`); tag `v0.40.57`, published 2026-11-23. Released on the user's go-ahead after the container swaps below. It carries one fix: names the user gave to chats and projects no longer reach the browser blocker check.
+
+**The fix (PR #122, `d4ee765`)**
+- After 0.40.56, the user asked for the remaining risk to be closed: names the user controls that contain a blocker phrase.
+- Measured read-only in the WSL browser container. The probes printed structure, lengths and hashes only, and the tab was returned to `https://chatgpt.com/` after each one.
+  - On a project's chat page, nothing in the scanned text was the project name: what was there besides UI text was a date separator (`<time>`) and the effort picker label.
+  - On a project's home page, where a send into the project types its prompt, 65 scanned text nodes were the project's conversation list (links to `/g/g-p-<id>/c/<id>`). The page is titled `ChatGPT - <project name>` and shows the name as its `h1`.
+- Changes:
+  - Links to conversations, projects and GPTs are excluded from the blocker scan.
+  - The scan skips the project name, as it skips the conversation title.
+  - `main` gets the container branch's `blockerButtonLabels` (`692ded3`, 2026-09-17). Until now, every visible control label on `main`, sidebar conversation links included, reached the blocker check.
+- Build, typecheck and the full suite (164 files, 2021 passed, 3 skipped) passed locally; CI passed all 7 checks.
+- Container PR #123 (`ab90224`, merge `178e6ec`) ports the link and title changes; that branch already had the label split. Full suite: 183 files, 2351 passed, 3 skipped. CI passed all 7 checks.
+- Before the swap, on one project's home page, the installed scripts' blocker scan read 2022 characters (81 lines) and 113 status labels; the new scripts read 49 characters (7 lines, UI text) and 63 labels. Neither reported a blocker there.
+- Not changed: the bare `권한` alternative of the permission pattern.
+
+**Container swaps (both built from `178e6ec`, send lock free before each, no thread errors after)**
+- WSL: image `6b2b7ccfe828`, recreated 05:57:16 UTC. Healthy, 1024 process limit, using 354 processes after the checks below.
+- M3 (colima `prodex-check`): image `112c887fe694`, started 05:57:22 UTC. Healthy, using 190. The M3 checkout `~/.local/share/prodex-maint/container-src` is at `178e6ec`.
+- `scripts/` and `containers/` did not change between `dc91ec5` and `178e6ec`, so neither host's client was replaced; `status` reported both containers running, healthy and ready.
+- `pro browser check` on both: logged in with a composer, `model_hints: Pro`. `pro browser smoke`: `PRODEX_PRO_SMOKE_OK`, `requestVerified: true`, no warnings, WSL after 26 s and M3 after 29 s.
+- After the swap, the installed scripts read the same project home page as 49 characters and 63 labels.
+- The Codex session that consults through the WSL container was not using prodex at the swap. Its last consult (05:36 UTC) had finished `done`.
+
+**Publishing**
+- `npm run release:verify` passed on the release commit after a build (scratchpad `release57.sh`).
+- `publish.yml` run 45121332783 waited in GitHub's queue for a runner, then passed on its first attempt with all 7 jobs. It published to npm with SLSA v1 provenance and created the GitHub Release (06:17 UTC), which lists the one entry from `CHANGELOG.md`.
+
+**Installed**
+- WSL, M3, Mac mini: `prodex --version` reports 0.40.57.
+- The maintainer watchdog checkout was pulled to `7ac8298` and rebuilt.
+- No native host-side `prodex mcp` or `prodex start` was running on WSL, M3 or the Mac mini; the MCP relays are `docker exec` sessions into the swapped containers.
+- MacBook M4: `ssh m4` timed out, so it still runs 0.40.51. Scratchpad `m4install-0.40.57.sh` has to be run once M4 answers.
+
 ## 0.40.56 Release Record
 
 Release commit `182a7a5` on `main` (cut after PR #119, merge `38dc21b`); tag `v0.40.56`, published 2026-11-23. Released on the user's go-ahead after the container swaps below. It carries one fix: a prompt containing a blocker phrase no longer stops its own send.
