@@ -849,6 +849,45 @@ Show more`;
     expect(state.answer).toBe("");
   });
 
+  it("does not scan the conversation title for blockers", async () => {
+    // Measured 2026-11-23 in the browser container: right after a send, ChatGPT
+    // shows the sent prompt as the conversation title, in the page header and
+    // in document.title. The blocker scan left out the sidebar but not the
+    // header, so a prompt that mentioned "권한" stopped its own send as
+    // permission_required.
+    const browser = await import("../src/chatgpt-browser.js");
+    const title = "권한 감지 테스트입니다. OK라고만 답해 주세요. [prodex-request:0123456789abcdef0123456789abcdef]";
+    const pageWith = (texts: readonly string[]): FakeDocument => {
+      const doc = new FakeDocument([], []);
+      doc.title = title;
+      const nodes = texts.map((nodeValue) => ({ parentElement: new FakeElement("div"), nodeValue }));
+      return Object.assign(doc, {
+        createTreeWalker: () => {
+          let index = -1;
+          const walker: { currentNode?: (typeof nodes)[number]; nextNode: () => boolean } = {
+            nextNode: () => {
+              index += 1;
+              walker.currentNode = nodes[index];
+              return index < nodes.length;
+            }
+          };
+          return walker;
+        }
+      });
+    };
+    type ScanState = { textSample: string; blockerTextSample?: string; blockerScanTextSample?: string; visibleButtonLabels: string[] };
+
+    for (const expression of [browser.statusExpression(), browser.answerExpression()]) {
+      const titleOnly = evaluateBrowserStatusExpression<ScanState>(expression, pageWith([title]));
+      expect(titleOnly.blockerScanTextSample).toBe("");
+      expect(browser.detectChatGptPageBlocker(titleOnly)).toBeUndefined();
+
+      // A real prompt elsewhere on the page is still found.
+      const prompted = evaluateBrowserStatusExpression<ScanState>(expression, pageWith([title, "Additional verification required"]));
+      expect(browser.detectChatGptPageBlocker(prompted)?.code).toBe("permission_required");
+    }
+  });
+
   it("answerExpression reports an answer the page failed to render", async () => {
     // Measured 2026-10-30 in the browser container: ChatGPT finished the answer
     // ("OK", finished_successfully on its side), but the page drew

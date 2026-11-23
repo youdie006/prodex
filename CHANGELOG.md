@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Fixed
+- A browser send whose prompt contained a phrase from the blocker checks, such as "권한", stopped its own send as `permission_required` ("ChatGPT requires account verification or permission handling") about ten seconds in, although ChatGPT had taken the prompt and went on to answer it. Right after a send, ChatGPT shows the sent prompt as the conversation title in the page header and in the document title, and the blocker scan left out the sidebar but not the header. The blocker scan now skips the text that matches the conversation title, so the send waits for its answer; a real verification, captcha, usage-limit or login prompt elsewhere on the page is still reported.
+
 ## 0.40.55
 
 ### Fixed
