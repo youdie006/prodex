@@ -82,7 +82,9 @@ calls and other bridge roots are outside this cooperative MCP guard.
 The response exposes `model_used`, `pro_verified`, `picker_effort`, `continued_from`,
 `request_id`, and `request_verified` when available. Since November 2026 the ChatGPT
 page no longer names the model that wrote an answer, so `model_used` is usually
-`"unknown"`, `pro_verified` is left out, and a `model_unverified` warning says so.
+`"unknown"`, `pro_verified` is left out, and one note line says so
+(`model_used: unknown (the ChatGPT page does not name the answering model)`). It is
+not a warning: it is true of every consult.
 `picker_effort` is the step the picker's effort slider read before the prompt was
 typed: evidence of what was selected, not of what answered. A ready-to-use `continuation` is only offered
 for a saved, request-verified conversation answer (or an approval checkpoint's
