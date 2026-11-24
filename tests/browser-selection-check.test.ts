@@ -3,9 +3,9 @@ import * as browser from "../src/chatgpt-browser.js";
 
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 
-function install(options: { busy?: boolean; draft?: boolean; missingProject?: boolean; menuFails?: boolean; restoreFails?: boolean; closeFails?: boolean; noPro?: boolean; cleanupReadFails?: boolean; pageChanges?: boolean; coveredModel?: boolean; submenuModel?: boolean; checkedModel?: boolean } = {}) {
+function install(options: { busy?: boolean; draft?: boolean; missingProject?: boolean; menuFails?: boolean; restoreFails?: boolean; closeFails?: boolean; noPro?: boolean; cleanupReadFails?: boolean; pageChanges?: boolean; coveredModel?: boolean; submenuModel?: boolean; checkedModel?: boolean; firstPressIgnored?: boolean; strictTriggerFailsOn?: number; checkedLabel?: string; sliderModel?: string; topModel?: string | null; dialog?: "connect" | "picker" } = {}) {
   vi.useFakeTimers();
-  const state = { position: 3, open: false, reachedTop: false, methods: [] as string[], keys: [] as string[] };
+  const state = { position: 3, open: false, reachedTop: false, releases: 0, strictHits: 0, methods: [] as string[], keys: [] as string[] };
   const url = "https://chatgpt.com/c/test-thread";
   vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => [{ type: "page", id: "test", url, title: "ChatGPT", webSocketDebuggerUrl: "ws://fake/test" }] })));
   class Socket extends EventTarget {
@@ -16,8 +16,15 @@ function install(options: { busy?: boolean; draft?: boolean; missingProject?: bo
       const { id, method, params } = JSON.parse(raw);
       state.methods.push(method);
       queueMicrotask(() => {
+        if ((options.dialog === "connect" && method === "Page.enable") ||
+            (options.dialog === "picker" && method === "Input.dispatchMouseEvent" && params.type === "mouseReleased")) {
+          this.dispatchEvent(new MessageEvent("message", { data: JSON.stringify({ method: "Page.javascriptDialogOpening", params: { type: "beforeunload" } }) }));
+        }
         let value: unknown;
-        if (method === "Input.dispatchMouseEvent" && params.type === "mouseReleased") state.open = !options.menuFails;
+        if (method === "Input.dispatchMouseEvent" && params.type === "mouseReleased") {
+          state.releases += 1;
+          state.open = !options.menuFails && !(options.firstPressIgnored && state.releases === 1);
+        }
         if (method === "Input.dispatchKeyEvent" && ["keyDown", "rawKeyDown"].includes(params.type)) {
           state.keys.push(params.key);
           if (params.key === "Escape" && !options.closeFails) state.open = false;
@@ -34,16 +41,23 @@ function install(options: { busy?: boolean; draft?: boolean; missingProject?: bo
           else if (e === browser.projectItemRectExpression("Codex")) value = options.missingProject ? { ok: false, reason: "project not found in sidebar" } : { ok: true, x: 10, y: 10 };
           else if (e === browser.modelButtonRectExpression()) value = { ok: true, x: 20, y: 20 };
           else if (e === browser.menuItemRectExpression("Other model")) value = { ok: true, x: 30, y: 30, role: "menuitemradio", haspopup: options.submenuModel ? "menu" : null };
+          else if (e.startsWith("(() => {") && e.includes("menu item not found")) value = { ok: false, reason: "menu item not found" };
+          else if (e.includes("selectorProbeStrictHit")) {
+            state.strictHits += 1;
+            value = options.strictTriggerFailsOn !== state.strictHits && !(options.coveredModel && e.includes("(30, 30)"));
+          }
           else if (e.includes("document.elementFromPoint")) value = !(options.coveredModel && e.includes("(30, 30)"));
           else if (e === browser.menuOpenExpression()) value = state.open;
-          else if (e === browser.modelMenuOptionsExpression()) value = options.checkedModel ? [{ label: "Other model", kind: "submenu", checked: true }] : [{ label: "Latest", kind: "radio", checked: true }];
+          else if (e === browser.menuClosedExpression()) value = !state.open;
+          else if (e === browser.modelSelectorReadsClosedExpression()) value = !state.open;
+          else if (e === browser.modelMenuOptionsExpression()) value = options.checkedModel ? [{ label: "Other model", kind: "submenu", checked: true }] : [{ label: options.checkedLabel ?? "Latest", kind: "radio", checked: true }];
           else if (e === browser.focusPowerSliderExpression()) value = { ok: true };
           else if (e === browser.powerSliderStateExpression()) {
             if (options.cleanupReadFails && state.reachedTop && state.position === 3) {
               this.dispatchEvent(new MessageEvent("message", { data: JSON.stringify({ id, error: { message: "Fixture cleanup read failed" } }) }));
               return;
             }
-            value = { ok: true, position: state.position, min: 0, max: 4, model: "Latest", effort: ["Instant", "Medium", "High", "Extra High", options.noPro ? "Max" : "Pro"][state.position] };
+            value = { ok: true, position: state.position, min: 0, max: 4, model: state.position === 4 && options.topModel !== undefined ? options.topModel : options.sliderModel ?? "Latest", effort: ["Instant", "Medium", "High", "Extra High", options.noPro ? "Max" : "Pro"][state.position] };
           }
           else if (e.includes('removeAttribute("data-prodex-click")')) value = true;
           else throw new Error(`Unhandled fixture expression: ${e.slice(0, 100)}`);
@@ -58,7 +72,11 @@ function install(options: { busy?: boolean; draft?: boolean; missingProject?: bo
 }
 
 async function check(timeoutMs = 15_000, model = "Pro") {
-  const done = browser.inspectConfiguredBrowserSelectors({ port: 19333, timeoutMs, selection: { model, project: "Codex" } });
+  return checkSelection({ model, project: "Codex" }, timeoutMs);
+}
+
+async function checkSelection(selection: { model?: string; effort?: string; project?: string }, timeoutMs = 15_000) {
+  const done = browser.inspectConfiguredBrowserSelectors({ port: 19333, timeoutMs, selection });
   await vi.advanceTimersByTimeAsync(120_000);
   return done;
 }
@@ -111,5 +129,36 @@ describe("configured selector readiness without sending", () => {
   it.each([{ coveredModel: true }, { submenuModel: true }, { submenuModel: true, checkedModel: true }])("does not verify unusable named-model controls: %j", async (options) => {
     install(options);
     expect(await check(15_000, "Other model")).toMatchObject({ model: { state: "UNVERIFIED" } });
+  });
+  // Ported from main PR #121.
+  it.each([{ strictTriggerFailsOn: 1 }, { firstPressIgnored: true, strictTriggerFailsOn: 2 }])("requires a strict native hit for every model-trigger press: %j", async (options) => {
+    const state = install(options);
+    expect(await check()).toMatchObject({ modelMenu: "UNVERIFIED", model: { state: "UNVERIFIED" } });
+    expect(state.releases).toBe(options.firstPressIgnored ? 1 : 0);
+  });
+  it("does not infer an exact model selection from a version-prefix label", async () => {
+    install({ checkedLabel: "GPT-5.6", sliderModel: "GPT-5.6" });
+    expect(await check(15_000, "GPT-5")).toMatchObject({ model: { state: "UNVERIFIED" } });
+  });
+  it.each([
+    { topModel: "Other model", expected: "MISSING" },
+    { topModel: null, expected: "UNVERIFIED" }
+  ])("verifies the configured model and effort on the same step: %j", async ({ topModel, expected }) => {
+    const state = install({ topModel });
+    expect(await checkSelection({ model: "Latest", effort: "Pro" })).toMatchObject({ effort: { state: expected } });
+    expect(state.position).toBe(3);
+  });
+  it("does not answer a JavaScript confirmation during selector inspection", async () => {
+    const state = install({ dialog: "picker" });
+    expect(await check()).toMatchObject({ model: { state: "UNVERIFIED" } });
+    expect(state.methods).not.toContain("Page.handleJavaScriptDialog");
+    expect(state.keys).toEqual([]);
+  });
+  it("does not answer a JavaScript confirmation during the base status read", async () => {
+    const state = install({ dialog: "connect" });
+    const done = browser.getChatGptBrowserStatus({ port: 19333, timeoutMs: 1000 }).then(() => undefined, (error: unknown) => error);
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(await done).toBeInstanceOf(Error);
+    expect(state.methods).not.toContain("Page.handleJavaScriptDialog");
   });
 });
