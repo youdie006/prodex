@@ -93,6 +93,27 @@ prodex pro browser smoke --cwd /absolute/path/to/your/repo
 
 If you use a non-default debug port or Chrome profile, pass it to `login`; the printed follow-up `check` and `smoke` commands keep the matching `--port`. To stop repeating `--port` on every command, export `PRODEX_CDP_PORT=<port>` once — explicit `--port` still wins. If you launch from outside the repo you want to inspect, pass `--cwd /absolute/path/to/your/repo` to `login`, `check`, or `smoke` so the command targets the same bridge. On slower first launches, add `--launch-timeout-ms 12000`.
 
+`pro browser check` resolves the saved model, effort and project from that same
+working directory. With configured selectors it takes the shared send lock
+without waiting, requires an idle page with an empty composer and no open
+overlay, and inspects the applicable controls. It does not send a question,
+enter a project, navigate to a new chat, launch a browser or open login.
+The check verifies restoration of the original model/effort, conversation
+and closed menu. Missing controls, a busy lock, an incomplete inspection or
+unverified restoration prevent a successful readiness result. The selector
+inspection budget defaults to 15 seconds; `--timeout-ms` overrides it.
+Cleanup has a separate five-second ceiling. A JavaScript confirmation stops
+the diagnostic without accepting or dismissing it. Project checks reveal
+hover-only buttons but do not expand hidden project lists or enter a project.
+When both model and effort are saved, they must be available together on a
+single slider step, not merely somewhere in the same menu.
+
+Read the `browser_selectors` line: `scope=configured-selection` reports which
+saved controls were verified; `scope=session-only` means no selection was
+configured and verifies no model. Readiness of the current controls cannot
+guarantee a later new-chat page load, per-request tools, answer generation or
+the model that actually answers. It never authorizes automatic retransmission.
+
 For a source checkout, keep the follow-up commands in source-checkout form too:
 
 ```bash

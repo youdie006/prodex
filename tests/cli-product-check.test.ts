@@ -1,9 +1,10 @@
 import { link, mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { BrowserProcessInspectionError } from "../src/browser-process.js";
 import { shellQuote } from "../src/cli-args.js";
+import type { WriteLocalConfigInput } from "../src/config.js";
 import { BridgeStore } from "../src/store.js";
 import { useDefaultCdpPort } from "./helpers/default-cdp-port.js";
 
@@ -25,6 +26,23 @@ const browserStatusFixture = vi.hoisted(() => ({
   }
 }));
 const findWedgedBrowserMock = vi.hoisted(() => vi.fn(() => [] as number[]));
+const getChatGptBrowserStatusMock = vi.hoisted(() => vi.fn(async () => browserStatusFixture.status));
+const inspectConfiguredBrowserSelectorsMock = vi.hoisted(() =>
+  vi.fn(async (input: { selection: Record<string, string | undefined> }) => {
+    const result: Record<string, unknown> = {
+      url: "https://chatgpt.com/",
+      modelMenu: input.selection.model || input.selection.proMode || input.selection.effort ? "OPENED" : "UNVERIFIED"
+    };
+    for (const field of ["model", "proMode", "effort", "project"] as const) {
+      const requested = input.selection[field];
+      if (requested !== undefined) result[field] = { state: "VERIFIED", requested, observed: [requested] };
+    }
+    return result;
+  })
+);
+const withBrowserSendLockMock = vi.hoisted(() =>
+  vi.fn(async (_waitMs: number, _onWait: (detail: string) => void, callback: () => Promise<unknown>) => callback())
+);
 
 vi.mock("../src/chatgpt-browser.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/chatgpt-browser.js")>();
@@ -33,11 +51,35 @@ vi.mock("../src/chatgpt-browser.js", async (importOriginal) => {
     // The wedged-browser scan reads the real process table, so leave it stubbed
     // here: a Chrome running on this machine must not decide a unit test.
     findWedgedBrowser: findWedgedBrowserMock,
-    getChatGptBrowserStatus: vi.fn(async () => browserStatusFixture.status)
+    getChatGptBrowserStatus: getChatGptBrowserStatusMock,
+    inspectConfiguredBrowserSelectors: inspectConfiguredBrowserSelectorsMock
   };
 });
 
+vi.mock("../src/browser-send-lock.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/browser-send-lock.js")>();
+  return { ...actual, withBrowserSendLock: withBrowserSendLockMock };
+});
+
 const { runCli } = await import("../src/cli.js");
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+  inspectConfiguredBrowserSelectorsMock.mockReset();
+  inspectConfiguredBrowserSelectorsMock.mockImplementation(async (input) => {
+    const result: Record<string, unknown> = {
+      url: "https://chatgpt.com/",
+      modelMenu: input.selection.model || input.selection.proMode || input.selection.effort ? "OPENED" : "UNVERIFIED"
+    };
+    for (const field of ["model", "proMode", "effort", "project"] as const) {
+      const requested = input.selection[field];
+      if (requested !== undefined) result[field] = { state: "VERIFIED", requested, observed: [requested] };
+    }
+    return result;
+  });
+  withBrowserSendLockMock.mockReset();
+  withBrowserSendLockMock.mockImplementation(async (_waitMs, _onWait, callback) => callback());
+});
 
 async function runBrowserCheckResult(): Promise<{ code: number; text: string }> {
   const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-product-check-"));
@@ -131,6 +173,43 @@ describe("browser product check", () => {
     });
 
     expect(out.join("\n")).toContain("browser_defaults: model=Pro, pro-mode=확장");
+  });
+
+  it("does not report a configured browser ready when its saved project is missing", async () => {
+    inspectConfiguredBrowserSelectorsMock.mockResolvedValueOnce({
+      modelMenu: "UNVERIFIED",
+      project: { state: "MISSING", requested: "Codex", reason: "project not found in sidebar" }
+    });
+    const cwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-configured-readiness-"));
+    const store = new BridgeStore(cwd);
+    await store.ensure();
+    const { writeLocalConfig } = await import("../src/config.js");
+    await writeLocalConfig(cwd, { token: "test-token", browserDefaults: { project: "Codex" } });
+    const prior = browserStatusFixture.status;
+    browserStatusFixture.status = {
+      reachable: true,
+      loggedInLikely: true,
+      hasComposer: true,
+      visibilityState: "visible",
+      url: "https://chatgpt.com/",
+      title: "ChatGPT",
+      modelHints: ["GPT-5 Pro"]
+    } as typeof browserStatusFixture.status;
+    const out: string[] = [];
+    try {
+      const code = await runCli(["pro", "browser", "check", "--cwd", cwd], {
+        cwd,
+        stdout: (line) => out.push(line),
+        stderr: () => {}
+      });
+
+      expect(code).toBe(1);
+      expect(out.join("\n")).toContain("browser_selectors: readiness=UNVERIFIED scope=configured-selection");
+      expect(out.join("\n")).toContain("project=MISSING");
+      expect(out.join("\n")).not.toContain("chatgpt: ok");
+    } finally {
+      browserStatusFixture.status = prior;
+    }
   });
 
   it("verifies only as many consults as it needs to find the latest trusted one", async () => {
@@ -517,5 +596,191 @@ describe("browser product check", () => {
     expect(text).toContain(`latest_pro: ok ${trusted.id}`);
     expect(text).not.toContain(untrusted.id);
     expect(text).not.toContain("Old raw untrusted browser answer.");
+  });
+});
+
+type BrowserDefaultsInput = NonNullable<WriteLocalConfigInput["browserDefaults"]>;
+
+function clearBrowserDefaultEnv(): void {
+  vi.stubEnv("PRODEX_DEFAULT_MODEL", "");
+  vi.stubEnv("PRODEX_DEFAULT_PRO_MODE", "");
+  vi.stubEnv("PRODEX_DEFAULT_EFFORT", "");
+  vi.stubEnv("PRODEX_DEFAULT_PROJECT", "");
+}
+
+async function runSelectionCheck(
+  defaults?: BrowserDefaultsInput,
+  options: { args?: string[]; busy?: boolean } = {}
+): Promise<{ code: number; text: string; targetCwd: string }> {
+  clearBrowserDefaultEnv();
+  const targetCwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-selection-target-"));
+  const launcherCwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-selection-launcher-"));
+  const store = new BridgeStore(targetCwd);
+  await store.ensure();
+  const { writeLocalConfig } = await import("../src/config.js");
+  await writeLocalConfig(targetCwd, { token: "test-token", ...(defaults ? { browserDefaults: defaults } : {}) });
+  const prior = browserStatusFixture.status;
+  browserStatusFixture.status = {
+    reachable: true,
+    loggedInLikely: true,
+    hasComposer: true,
+    visibilityState: "visible",
+    url: "https://chatgpt.com/",
+    title: "ChatGPT",
+    modelHints: ["GPT-6 Pro"],
+    ...(options.busy
+      ? {
+          blocker: {
+            code: "response_in_progress",
+            message: "ChatGPT is still generating a previous response in this thread.",
+            retryable: true,
+            next_step: "Wait for it to finish and retry."
+          }
+        }
+      : {})
+  } as typeof browserStatusFixture.status;
+  const out: string[] = [];
+  try {
+    const code = await runCli(["pro", "browser", "check", "--cwd", targetCwd, ...(options.args ?? [])], {
+      cwd: launcherCwd,
+      stdout: (line) => out.push(line),
+      stderr: () => {}
+    });
+    return { code, text: out.join("\n"), targetCwd };
+  } finally {
+    browserStatusFixture.status = prior;
+  }
+}
+
+describe("browser configured-selection check", () => {
+  it("verifies configured model, effort, and project under the fail-fast send lock", async () => {
+    const result = await runSelectionCheck({ model: "GPT-6", effort: "Pro", project: "Codex" });
+
+    expect(result.code).toBe(0);
+    expect(result.text).toContain("browser_selectors: readiness=VERIFIED scope=configured-selection");
+    expect(result.text).toContain("model=VERIFIED");
+    expect(result.text).toContain("effort=VERIFIED");
+    expect(result.text).toContain("project=VERIFIED");
+    expect(result.text).toContain("chatgpt: ok logged_in=true composer=true");
+    expect(withBrowserSendLockMock).toHaveBeenCalledWith(0, expect.any(Function), expect.any(Function));
+    expect(inspectConfiguredBrowserSelectorsMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        timeoutMs: 15_000,
+        selection: { model: "GPT-6", effort: "Pro", project: "Codex" }
+      })
+    );
+  });
+
+  it("uses an explicit timeout for both the base and configured-selector probes", async () => {
+    await runSelectionCheck({ model: "Pro" }, { args: ["--timeout-ms", "700"] });
+
+    expect(getChatGptBrowserStatusMock).toHaveBeenCalledWith(expect.objectContaining({ timeoutMs: 700 }));
+    expect(inspectConfiguredBrowserSelectorsMock).toHaveBeenCalledWith(expect.objectContaining({ timeoutMs: 700 }));
+  });
+
+  it("fails closed when the configured model menu never opens", async () => {
+    inspectConfiguredBrowserSelectorsMock.mockResolvedValueOnce({
+      modelMenu: "UNVERIFIED",
+      model: { state: "UNVERIFIED", requested: "Pro", reason: "model menu did not open" }
+    });
+
+    const result = await runSelectionCheck({ model: "Pro" });
+
+    expect(result.code).toBe(1);
+    expect(result.text).toContain("model-menu=UNVERIFIED");
+    expect(result.text).toContain("model=UNVERIFIED");
+    expect(result.text).toContain("reason=model menu did not open");
+    expect(result.text).not.toContain("chatgpt: ok");
+  });
+
+  it("fails closed without destructive guidance when the shared send lock is busy", async () => {
+    withBrowserSendLockMock.mockRejectedValueOnce(
+      new Error("Another prodex browser send is in progress and did not finish within the wait budget.")
+    );
+
+    const result = await runSelectionCheck({ model: "Pro" });
+
+    expect(result.code).toBe(1);
+    expect(result.text).toContain("browser_selectors: readiness=UNVERIFIED scope=configured-selection");
+    expect(result.text).toContain("reason=browser_send_lock_busy");
+    expect(result.text).not.toMatch(/pro browser (login|reset)/);
+    expect(inspectConfiguredBrowserSelectorsMock).not.toHaveBeenCalled();
+  });
+
+  it("marks a healthy browser with no saved selector defaults as session-only", async () => {
+    const result = await runSelectionCheck();
+
+    expect(result.code).toBe(0);
+    expect(result.text).toContain("browser_selectors: readiness=SKIPPED scope=session-only reason=none_configured");
+    expect(result.text).toContain("chatgpt: ok logged_in=true composer=true");
+    expect(result.text).toContain("scope=session-only");
+    expect(withBrowserSendLockMock).not.toHaveBeenCalled();
+    expect(inspectConfiguredBrowserSelectorsMock).not.toHaveBeenCalled();
+  });
+
+  it("does not treat an unreadable defaults source as no configured selection", async () => {
+    clearBrowserDefaultEnv();
+    const targetCwd = await mkdtemp(path.join(tmpdir(), "prodex-cli-selection-corrupt-"));
+    const store = new BridgeStore(targetCwd);
+    await store.ensure();
+    await writeFile(path.join(targetCwd, ".bridge", "config.local.json"), "{not-json}\n", "utf8");
+    const prior = browserStatusFixture.status;
+    browserStatusFixture.status = {
+      reachable: true,
+      loggedInLikely: true,
+      hasComposer: true,
+      visibilityState: "visible",
+      url: "https://chatgpt.com/",
+      title: "ChatGPT",
+      modelHints: ["GPT-6 Pro"]
+    } as typeof browserStatusFixture.status;
+    const out: string[] = [];
+    try {
+      const code = await runCli(["pro", "browser", "check", "--cwd", targetCwd], {
+        cwd: targetCwd,
+        stdout: (line) => out.push(line),
+        stderr: () => {}
+      });
+      const text = out.join("\n");
+      expect(code).toBe(1);
+      expect(text).toContain("browser_selectors: readiness=UNVERIFIED scope=defaults-unavailable");
+      expect(text).toContain("reason=browser_defaults_load_failed");
+      expect(text).not.toContain("reason=none_configured");
+      expect(text).not.toContain("chatgpt: ok");
+      expect(inspectConfiguredBrowserSelectorsMock).not.toHaveBeenCalled();
+    } finally {
+      browserStatusFixture.status = prior;
+    }
+  });
+
+  it("fails closed when a requested field is absent from the probe result", async () => {
+    inspectConfiguredBrowserSelectorsMock.mockResolvedValueOnce({ modelMenu: "OPENED" });
+
+    const result = await runSelectionCheck({ model: "Pro" });
+
+    expect(result.code).toBe(1);
+    expect(result.text).toContain("model=UNVERIFIED");
+    expect(result.text).toContain("reason=missing_probe_result");
+    expect(result.text).not.toContain("chatgpt: ok");
+  });
+
+  it("keeps a busy configured session non-destructive but unverified", async () => {
+    const result = await runSelectionCheck({ model: "Pro" }, { busy: true });
+
+    expect(result.code).toBe(1);
+    expect(result.text).toContain("chatgpt: busy response_in_progress");
+    expect(result.text).toContain("browser_selectors: readiness=UNVERIFIED scope=configured-selection");
+    expect(result.text).toContain("reason=response_in_progress");
+    expect(result.text).not.toContain("chatgpt: ok");
+    expect(inspectConfiguredBrowserSelectorsMock).not.toHaveBeenCalled();
+  });
+
+  it("preserves healthy busy status when no selector default is configured", async () => {
+    const result = await runSelectionCheck(undefined, { busy: true });
+
+    expect(result.code).toBe(0);
+    expect(result.text).toContain("chatgpt: busy response_in_progress");
+    expect(result.text).toContain("browser_selectors: readiness=SKIPPED scope=session-only reason=none_configured");
+    expect(inspectConfiguredBrowserSelectorsMock).not.toHaveBeenCalled();
   });
 });

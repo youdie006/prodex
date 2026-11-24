@@ -4,6 +4,13 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Fixed
+- `pro browser check` no longer treats login and an available composer as proof that saved model, effort and project selections can be used. It inspects configured controls under the shared send lock without sending or navigating, verifies UI restoration, and reports missing, busy or incomplete checks as unverified. A check with no saved selection is explicitly session-only. This brings the configured-readiness protection from the experimental branch into the current release line without replacing newer send logic; it does not prove response-model provenance or a future new-chat load.
+- Readiness inspection reveals hover-only project controls before hit-testing, verifies model/effort pairs on the same slider step, and stops without answering JavaScript confirmations. Base status and tab-visibility reads also leave those confirmations untouched.
+- A button showing `GPT-5.6` no longer satisfies a request for `GPT-5`. Configured readiness requires exact checked-model or slider evidence instead of inferring the active model from a decorated button label; send-time button matching also rejects decimal version prefixes.
+
 ## 0.40.58
 
 ### Changed
