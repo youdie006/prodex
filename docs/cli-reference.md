@@ -159,7 +159,10 @@ exit, and no `chatgpt: ok`. A check with no configured selectors explicitly says
 `scope=session-only`. `VERIFIED` describes UI controls, not a completed Pro
 answer; use a manually requested consultation for that. The selector budget is
 15 seconds by default; `--timeout-ms` overrides it and the base status budget,
-with a separate bounded cleanup attempt if inspection runs out of time.
+with a separate bounded cleanup attempt if inspection runs out of time. A
+JavaScript confirmation stops the check without accepting or dismissing it.
+When both a model and an effort are saved, they must be offered together on a
+single slider step, not merely somewhere in the same menu.
 
 `check --runtime` adds one `browser_runtime: {...}` JSON line. `browser_product`
 and `protocol_version` come from the local CDP endpoint; `actual_mode` comes

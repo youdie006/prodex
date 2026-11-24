@@ -752,6 +752,10 @@ Show more`;
     expect(modelButtonAlreadyShows("Pro", "GPT-5.6 Pro")).toBe(true);
     expect(modelButtonAlreadyShows("Pro", "Thinking")).toBe(false);
     expect(modelButtonAlreadyShows("Thinking", "Pro, 5 of 5.")).toBe(false);
+    // A model name cannot be a shorter version prefix of the selected model.
+    expect(modelButtonAlreadyShows("GPT-5", "GPT-5.6 Pro, 5 of 5")).toBe(false);
+    expect(modelButtonAlreadyShows("GPT-5.6", "GPT-5.60 Pro")).toBe(false);
+    expect(modelButtonAlreadyShows("GPT-5.6", "GPT-5.6 Pro")).toBe(true);
     // No requested model, or an unreadable button, must not claim a match.
     expect(modelButtonAlreadyShows(undefined, "Pro")).toBe(false);
     expect(modelButtonAlreadyShows("Pro", "")).toBe(false);

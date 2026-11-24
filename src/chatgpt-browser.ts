@@ -2123,7 +2123,8 @@ export async function getChatGptBrowserStatus(options: { port?: number; timeoutM
   let state: ChatGptPageStatus;
   try {
     state = await evaluateOnPage<ChatGptPageStatus>(page.page, statusExpression(), {
-      ...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {})
+      ...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
+      stopOnDialog: true
     });
   } catch (error) {
     if (!isCrashedTabError(error)) throw error;
@@ -2478,7 +2479,8 @@ export function modelButtonAlreadyShows(requestedModel: string | undefined, butt
   // model name as a WORD inside it rather than by equality.
   const label = buttonLabel.trim().toLowerCase();
   const escaped = wanted.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(`(^|[^a-z0-9])${escaped}([^a-z0-9]|$)`).test(label);
+  // A decimal continuation belongs to the model version, not its decoration.
+  return new RegExp(`(^|[^a-z0-9])${escaped}(?![a-z0-9]|\\.\\d)`).test(label);
 }
 
 
@@ -5517,10 +5519,35 @@ function selectorProbeSnapshotExpression(): string {
     const visible = (el) => Boolean(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
     const expanded = [...document.querySelectorAll('[aria-haspopup="menu"][aria-expanded="true"]')].some(visible);
     const overlays = [...document.querySelectorAll('[role="menu"],[role="dialog"]')].some(visible);
-    return { url: location.href,
+    return {
+      url: location.href,
       composerEmpty: Boolean(composer && !("value" in composer ? composer.value : composer.innerText || composer.textContent || "").trim()),
-      menuClosed: !expanded && !overlays, overlayOpen: expanded || overlays };
+      menuClosed: !expanded && !overlays,
+      overlayOpen: expanded || overlays
+    };
   })()`;
+}
+
+function selectorProbeStrictHitExpression(x: number, y: number): string {
+  return `(() => {
+    const selectorProbeStrictHit = true;
+    const target = document.querySelector('[data-prodex-click]');
+    const hit = document.elementFromPoint(${x}, ${y});
+    const ok = Boolean(target && hit && (target === hit || target.contains(hit)));
+    if (target) target.removeAttribute('data-prodex-click');
+    return ok;
+  })()`;
+}
+
+async function assertSelectorProbeStrictHit(cdp: CdpConnection, target: RectHit, label: string): Promise<void> {
+  if (!target.ok || target.x === undefined || target.y === undefined) {
+    throw new Error(target.reason ?? `${label} not found`);
+  }
+  await cdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: target.x, y: target.y });
+  await sleep(150);
+  if (!(await cdp.evaluate<boolean>(selectorProbeStrictHitExpression(target.x, target.y)))) {
+    throw new Error(`Configured selector check refused ${label}: its native control is covered or no longer at the inspected point`);
+  }
 }
 
 /** Caller holds the shared send lock. Never sends, navigates, launches, or logs in. */
@@ -5538,8 +5565,7 @@ export async function inspectConfiguredBrowserSelectors(input: {
   const invalidate = (reason: string): void => {
     for (const axis of axes) if (result[axis]) result[axis] = { ...result[axis]!, state: "UNVERIFIED", reason };
   };
-  const timeoutMs = input.timeoutMs ?? 15_000;
-  const deadline = Date.now() + timeoutMs;
+  const deadline = Date.now() + (input.timeoutMs ?? 15_000);
   const remaining = (): number => {
     const left = deadline - Date.now();
     if (left <= 0) throw new Error("Configured selector check timed out");
@@ -5550,15 +5576,14 @@ export async function inspectConfiguredBrowserSelectors(input: {
   let start: PowerSliderState | undefined;
   let originalUrl: string | undefined;
   const assertSamePage = async (): Promise<void> => {
-    if (originalUrl && await raw!.evaluate<string>("location.href") !== originalUrl) {
+    if (originalUrl && (await raw!.evaluate<string>("location.href")) !== originalUrl) {
       throw new Error("Conversation changed during selector inspection; no further input is allowed");
     }
   };
   try {
     const found = await findChatGptPage(resolveCdpPort(input.port), computePageDiscoveryTimeout(remaining()));
     if (!found.ok || !found.page) throwBlockerOrError(found.blocker, "ChatGPT browser page is not available");
-    const page = found.page!;
-    raw = await connectCdp(page.webSocketDebuggerUrl, Math.min(remaining(), 3_000));
+    raw = await connectCdp(found.page.webSocketDebuggerUrl, Math.min(remaining(), 3_000), { stopOnDialog: true });
     const cdp: CdpConnection = {
       ...raw,
       send: async (method, params) => {
@@ -5567,7 +5592,10 @@ export async function inspectConfiguredBrowserSelectors(input: {
         remaining();
         return raw!.send(method, params);
       },
-      evaluate: async <T>(expression: string) => { remaining(); return raw!.evaluate<T>(expression); }
+      evaluate: async <T>(expression: string) => {
+        remaining();
+        return raw!.evaluate<T>(expression);
+      }
     };
     const status = await cdp.evaluate<ChatGptPageStatus>(statusExpression());
     const blocker = detectChatGptPageBlocker(status);
@@ -5575,59 +5603,118 @@ export async function inspectConfiguredBrowserSelectors(input: {
     assertChatGptIdleAndReadyForPrompt(status);
     assertVisibleChatGptTab(status.visibilityState, status.url, undefined);
     const before = await cdp.evaluate<{ url: string; composerEmpty: boolean; overlayOpen: boolean }>(selectorProbeSnapshotExpression());
-    if (!before.composerEmpty || before.overlayOpen) throw new Error("Selector check requires an empty composer and no open menu or dialog");
+    if (!before.composerEmpty || before.overlayOpen) {
+      throw new Error("Selector check requires an empty composer and no open menu or dialog");
+    }
     originalUrl = before.url;
     result.url = before.url;
+
     if (result.project) {
       const target = await locateProjectNavigationTarget(cdp, result.project.requested);
       result.project = { ...result.project,
         state: target.ok ? "VERIFIED" : /project not found in sidebar/.test(target.reason ?? "") ? "MISSING" : "UNVERIFIED",
         reason: target.ok ? "Exact sidebar navigation control passed hover hit-testing; project was not opened" : target.reason ?? "Project target unavailable" };
     }
+
     if (result.model || result.effort || result.proMode) {
-      const button = await cdp.evaluate<RectHit>(modelButtonRectExpression());
-      if (!button.ok || button.x === undefined || button.y === undefined) throw new Error(button.reason ?? "Model selector not found");
+      let button = await cdp.evaluate<RectHit>(modelButtonRectExpression());
+      if (!button.ok || button.x === undefined || button.y === undefined) {
+        throw new Error(button.reason ?? "Model selector not found");
+      }
+      await assertSelectorProbeStrictHit(cdp, button, "model selector");
       openedByProbe = true;
-      await verifiedClickAt(cdp, button.x, button.y, "model selector", true);
-      if (!(await waitForExpressionTrue(cdp, menuOpenExpression(), Math.min(remaining(), MENU_OPEN_TIMEOUT_MS)))) {
-        throw new Error("ChatGPT model menu did not open after clicking the selector");
+      await dispatchMouseClickAt(cdp, button.x, button.y);
+      if (!(await waitForExpressionTrue(cdp, menuOpenExpression(), Math.min(remaining(), MODEL_MENU_FIRST_PRESS_MS)))) {
+        if (await cdp.evaluate<boolean>(modelSelectorReadsClosedExpression())) {
+          button = await cdp.evaluate<RectHit>(modelButtonRectExpression());
+          await assertSelectorProbeStrictHit(cdp, button, "model selector retry");
+          await dispatchMouseClickAt(cdp, button.x!, button.y!);
+        }
+        if (!(await waitForExpressionTrue(cdp, menuOpenExpression(), Math.min(remaining(), MENU_OPEN_TIMEOUT_MS)))) {
+          throw new Error("ChatGPT model menu did not open after clicking the selector");
+        }
       }
       result.modelMenu = "OPENED";
       const options = await cdp.evaluate<ChatGptModelOption[]>(modelMenuOptionsExpression());
       start = await cdp.evaluate<PowerSliderState>(powerSliderStateExpression());
       const plan = pickerSelectionPlan(input.selection);
-      const modelAlreadySelected = !plan.modelLabel || options.some((o) => o.kind === "radio" && o.checked && menuItemLabelMatches(o.label, [plan.modelLabel!]));
+      const observedModels = offeredModelLabels(options) ?? [];
+      const modelAlreadySelected =
+        !plan.modelLabel ||
+        options.some(
+          (option) =>
+            option.kind === "radio" && option.checked && menuItemLabelMatches(option.label, [plan.modelLabel!])
+        ) ||
+        Boolean(start?.ok && start.model && menuItemLabelMatches(start.model, [plan.modelLabel]));
       const modelControlUsable = async (target: RectHit): Promise<boolean> => {
         if (!target.ok || target.x === undefined || target.y === undefined || target.haspopup === "menu") return false;
         await cdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: target.x, y: target.y });
         await sleep(150);
-        return cdp.evaluate<boolean>(hoverVerifyExpression(target.x, target.y, true));
+        return cdp.evaluate<boolean>(selectorProbeStrictHitExpression(target.x, target.y));
       };
       if (result.model && plan.modelLabel) {
         const target = await cdp.evaluate<RectHit>(menuItemRectExpression(plan.modelLabel));
-        const usable = modelAlreadySelected || await modelControlUsable(target);
-        result.model = { ...result.model, observed: options.map((o) => o.label),
+        const usable = modelAlreadySelected || (await modelControlUsable(target));
+        result.model = {
+          ...result.model,
+          observed: observedModels,
           state: usable ? "VERIFIED" : "UNVERIFIED",
-          reason: modelAlreadySelected ? "Model is already selected" : usable ? "Model control passed hover hit-testing; selection was not changed" : target.reason ?? "Model control is covered or requires an unsupported submenu" };
+          reason: modelAlreadySelected
+            ? "Model is already selected"
+            : usable
+              ? "Model control passed strict hover hit-testing; selection was not changed"
+              : target.reason ?? "Model control is covered or requires an unsupported submenu"
+        };
       }
       if (plan.sliderLabel && start?.ok && modelAlreadySelected) {
         const steps = await readEffortSteps(cdp);
         remaining();
         const walk = sliderWalkPlan(start);
-        const positions = new Set(steps?.rungs.map((r) => r.position));
-        const complete = walk && positions.size === walk.climb + 1 &&
-          steps?.rungs.every((r) => r.position >= start!.min! && r.position <= start!.max!);
-        const observed = steps?.rungs.map((r) => r.effort) ?? [];
-        const state = complete ? observed.some((label) => powerLabelMatches(plan.sliderLabel!, label)) ? "VERIFIED" : "MISSING" : "UNVERIFIED";
+        const positions = new Set(steps?.rungs.map((rung) => rung.position));
+        const complete =
+          Boolean(walk) &&
+          positions.size === walk!.climb + 1 &&
+          Boolean(steps?.rungs.every((rung) => rung.position >= start!.min! && rung.position <= start!.max!));
+        const observed = steps?.rungs.map((rung) => rung.effort) ?? [];
+        const matchingEffort = steps?.rungs.filter((rung) => powerLabelMatches(plan.sliderLabel!, rung.effort)) ?? [];
+        const matchingPair = matchingEffort.some((rung) =>
+          !plan.modelLabel || Boolean(rung.model && menuItemLabelMatches(rung.model, [plan.modelLabel]))
+        );
+        const state = complete
+          ? matchingPair
+            ? "VERIFIED"
+            : plan.modelLabel && matchingEffort.some((rung) => !rung.model)
+              ? "UNVERIFIED"
+              : "MISSING"
+          : "UNVERIFIED";
         const axis = result.effort ? "effort" : "model";
-        result[axis] = { ...result[axis]!, state, observed, reason: complete ? "All effort steps inspected; original setting restored" : "Effort ladder could not be fully inspected" };
+        result[axis] = {
+          ...result[axis]!,
+          state,
+          observed,
+          reason: complete
+            ? plan.modelLabel
+              ? "Inspected model/effort pairs across all steps; original setting restored"
+              : "All effort steps inspected; original setting restored"
+            : "Effort ladder could not be fully inspected"
+        };
         if (result.model && !plan.modelLabel && result.effort) {
-          result.model = { ...result.model, state: "UNVERIFIED", reason: "Saved Pro model is overridden by an explicit effort; clear the obsolete model default" };
+          result.model = {
+            ...result.model,
+            state: "UNVERIFIED",
+            reason: "Saved model is overridden by the configured effort; clear the obsolete model default"
+          };
         }
       } else if (!start?.ok && result.model && !plan.modelLabel) {
         const target = await cdp.evaluate<RectHit>(menuItemRectExpression(result.model.requested));
         const usable = await modelControlUsable(target);
-        result.model = { ...result.model, state: usable ? "VERIFIED" : "UNVERIFIED", reason: usable ? "Legacy model control passed hover hit-testing" : target.reason ?? "Model control is covered or unsupported" };
+        result.model = {
+          ...result.model,
+          state: usable ? "VERIFIED" : "UNVERIFIED",
+          reason: usable
+            ? "Legacy model control passed strict hover hit-testing"
+            : target.reason ?? "Model control is covered or unsupported"
+        };
       }
       if (result.proMode) result.proMode.reason = "Pro sub-mode was not verified; no sub-mode was changed";
     }
@@ -5636,8 +5723,6 @@ export async function inspectConfiguredBrowserSelectors(input: {
     invalidate(error instanceof Error ? error.message : String(error));
   } finally {
     if (raw) {
-      // Cleanup has its own hard ceiling; an inspection deadline must not
-      // silently skip restoring the setting or leave a hanging CDP command.
       const cleanupTimer = setTimeout(() => {
         invalidate("Selector cleanup exceeded its 5000ms deadline; inspect the picker before sending");
         raw!.close();
@@ -5655,7 +5740,12 @@ export async function inspectConfiguredBrowserSelectors(input: {
           if (openedByProbe && start?.ok && start.position !== undefined) {
             await restorePowerSlider(cleanup, start.position);
             const restored = await cleanup.evaluate<PowerSliderState>(powerSliderStateExpression());
-            if (!restored?.ok || restored.position !== start.position || restored.model !== start.model || restored.effort !== start.effort) {
+            if (
+              !restored?.ok ||
+              restored.position !== start.position ||
+              restored.model !== start.model ||
+              restored.effort !== start.effort
+            ) {
               invalidate("Could not verify restoration of the original model/effort setting; inspect the picker before sending");
             }
           }
@@ -5663,6 +5753,10 @@ export async function inspectConfiguredBrowserSelectors(input: {
           if (openedByProbe) {
             await dispatchEscapeKey(cleanup);
             await sleep(150);
+            if (!(await cleanup.evaluate<boolean>(menuClosedExpression()))) {
+              await dispatchEscapeKey(cleanup);
+              await sleep(150);
+            }
           }
         }
         if (originalUrl) {
@@ -5904,7 +5998,10 @@ async function getChatGptPageVisibility(pages: DevtoolsPage[]): Promise<Map<stri
         try {
           visibilityByPage.set(
             page.webSocketDebuggerUrl,
-            await evaluateOnPage<string>(page, "document.visibilityState", { timeoutMs: PAGE_VISIBILITY_PROBE_TIMEOUT_MS })
+            await evaluateOnPage<string>(page, "document.visibilityState", {
+              timeoutMs: PAGE_VISIBILITY_PROBE_TIMEOUT_MS,
+              stopOnDialog: true
+            })
           );
         } catch (error) {
           if (isCrashedTabError(error)) visibilityByPage.set(page.webSocketDebuggerUrl, "crashed");
@@ -5934,8 +6031,8 @@ function throwBlockerOrError(blocker: ChatGptBrowserStatus["blocker"] | undefine
   throw new Error(fallback);
 }
 
-async function evaluateOnPage<T>(page: DevtoolsPage, expression: string, options: { timeoutMs?: number } = {}): Promise<T> {
-  const cdp = await connectCdp(page.webSocketDebuggerUrl, options.timeoutMs);
+async function evaluateOnPage<T>(page: DevtoolsPage, expression: string, options: { timeoutMs?: number; stopOnDialog?: boolean } = {}): Promise<T> {
+  const cdp = await connectCdp(page.webSocketDebuggerUrl, options.timeoutMs, options);
   try {
     await cdp.send("Runtime.enable");
     return await cdp.evaluate<T>(expression);
@@ -5955,7 +6052,7 @@ export function resolveCdpTimeoutMs(explicit?: number): number {
   return typeof explicit === "number" && explicit > 0 ? explicit : CDP_DEFAULT_TIMEOUT_MS;
 }
 
-async function connectCdp(webSocketUrl: string, timeoutMs?: number): Promise<{
+async function connectCdp(webSocketUrl: string, timeoutMs?: number, options: { stopOnDialog?: boolean } = {}): Promise<{
   send: (method: string, params?: Record<string, unknown>) => Promise<CdpResponse>;
   evaluate: <T>(expression: string) => Promise<T>;
   /** Dialog types answered on this connection, so a caller can say it happened. */
@@ -5972,6 +6069,7 @@ async function connectCdp(webSocketUrl: string, timeoutMs?: number): Promise<{
     { method: string; resolve: (value: CdpResponse) => void; reject: (error: Error) => void; timer?: ReturnType<typeof setTimeout> }
   >();
   let crashError: ChatGptBrowserBlockerError | undefined;
+  let dialogError: Error | undefined;
   /** Types of JavaScript dialog answered on this connection. */
   const dialogsAnswered: string[] = [];
   ws.addEventListener("message", (event) => {
@@ -6014,6 +6112,16 @@ async function connectCdp(webSocketUrl: string, timeoutMs?: number): Promise<{
     // of the "Chrome DevTools command timed out" wedge. Answering it here is
     // the only cure, and it has to be armed in advance.
     if ((message as { method?: string }).method === "Page.javascriptDialogOpening") {
+      if (options.stopOnDialog) {
+        dialogError = new Error("ChatGPT opened a JavaScript confirmation; diagnostic stopped without answering it");
+        for (const waiter of pending.values()) {
+          if (waiter.timer) clearTimeout(waiter.timer);
+          waiter.reject(dialogError);
+        }
+        pending.clear();
+        ws.close();
+        return;
+      }
       const type = (message as { params?: { type?: string } }).params?.type;
       const answer = javascriptDialogResponse(type);
       dialogsAnswered.push(type ?? "unknown");
@@ -6073,6 +6181,7 @@ async function connectCdp(webSocketUrl: string, timeoutMs?: number): Promise<{
   /** The timeout that closed this socket, so later commands can name it rather than a bare closed socket. */
   let closedByTimeout: string | undefined;
   const send = (method: string, params: Record<string, unknown> = {}) => {
+    if (dialogError) return Promise.reject(dialogError);
     if (crashError && method !== "Inspector.enable" && method !== "Page.reload") return Promise.reject(crashError);
     // Once a timeout has closed the socket, every later command would sit out
     // its own full timeout for an answer that cannot come. Measured cost of not
