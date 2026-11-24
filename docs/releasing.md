@@ -16,6 +16,40 @@ Release target: `v0.40.13` on `main`. The GitHub Release records the resolved co
 
 The release adds a guarded, opt-in transition and more accurate blocker reporting. It does not claim that headless Pro consultation is verified on either deployment target or that authentication can be retained indefinitely.
 
+## 0.40.59 Release Record
+
+Release commit `f641255` on `main` (cut after PR #121, merge `fb48083`); tag `v0.40.59`, published 2026-11-24, on the user's go-ahead to merge and publish. It carries one change, from another session's branch: `pro browser check` verifies saved model, effort and project selections before it reports readiness.
+
+**The change (PR #121, `fix/configured-browser-readiness`)**
+- `pro browser check` used to report `ok` from login and an available composer alone. It now inspects the saved model, effort and project controls under the shared send lock, without sending or navigating, and checks that the original setting, conversation and closed menu are restored. Missing, busy or incomplete checks are reported as unverified. A check with no saved selection says `scope=session-only`.
+- With both a model and an effort saved, both must be offered on one slider step. A button showing `GPT-5.6` no longer counts as `GPT-5`, at check time or at send time. Diagnostic reads stop at a JavaScript confirmation without answering it.
+- The branch conflicted with `main` in `CHANGELOG.md` only, after the 0.40.56-0.40.58 entries; `fb5349e` merged `main` into it. After that merge:
+  - Typecheck and build passed.
+  - The full suite had 2047 passed, 3 skipped and 1 failed. The failure was the slow-vs-dead closed-port test, which passed alone, 8/8.
+  - The branch's first CI run passed all 7 checks.
+- The PR's own record says live acceptance is incomplete. One account-backed, no-send check exited 1 before the hover fix, and the fix was not rerun live. This release did not add a live check.
+
+**Publishing**
+- `npm run release:verify` passed on the release commit (scratchpad `release59.sh`).
+- `publish.yml` run 45310522938 passed on its first attempt, all 7 jobs (02:11-02:30 UTC). It published to npm with SLSA v1 provenance and created the GitHub Release (02:30:15 UTC), which lists the three entries from `CHANGELOG.md`.
+
+**Installed**
+- WSL, M3, Mac mini: `prodex --version` reports 0.40.59.
+- The maintainer watchdog checkout was pulled to `f641255` and rebuilt.
+- No native host-side `prodex mcp` or `prodex start` was running on WSL, M3 or the Mac mini.
+- MacBook M4: `ssh m4` timed out, so it still runs 0.40.51. Scratchpad `m4install-0.40.59.sh` has to be run once M4 answers.
+
+**Container branch**
+- `container/redesign-patches` already had the configured check, from `77feb38`. PR #121's review follow-ups were ported in container PR #126 (`af08fc3`, merge `028c6b9`).
+- The ported cases from #121's tests failed against the old source, except two that the old check already failed closed on.
+- Container full suite after the port: 183 files, 2358 passed, 3 skipped. CI passed all 7 checks.
+- The swap is recorded with the next container change.
+
+**PR #7 closed**
+- PR #7 (`feat/headless-browser-compatibility`) was closed as superseded at the user's choice; the branch is kept.
+- All 46 of its commits are in `container/redesign-patches`.
+- It had conflicted with `main` since before 2026-11-23, and nothing builds or releases from it.
+
 ## 0.40.58 Release Record
 
 Release commit `7a1267e` on `main` (cut after PR #124, merge `71079f4`); tag `v0.40.58`, published 2026-11-23. Released on the user's go-ahead after the container swaps below. It carries one change: an answering model the ChatGPT page does not name is reported in one note line, not as a warning.
