@@ -43,7 +43,15 @@ Release commit `f641255` on `main` (cut after PR #121, merge `fb48083`); tag `v0
 - `container/redesign-patches` already had the configured check, from `77feb38`. PR #121's review follow-ups were ported in container PR #126 (`af08fc3`, merge `028c6b9`).
 - The ported cases from #121's tests failed against the old source, except two that the old check already failed closed on.
 - Container full suite after the port: 183 files, 2358 passed, 3 skipped. CI passed all 7 checks.
-- The swap is recorded with the next container change.
+
+**Container swaps (both built from `028c6b9`, on the user's go-ahead; send lock free before each, no thread errors after)**
+- `scripts/` and `containers/` did not change between `9a9d76a` and `028c6b9`, so neither host's client was replaced.
+- WSL: image `5e56a8f23466`, started 02:52:51 UTC. Healthy, 1024 process limit, using 364 processes.
+- M3 (colima `prodex-check`): image `5138485b9c3e`, started 02:53:18 UTC. Healthy, using 187. The M3 checkout `~/.local/share/prodex-maint/container-src` is at `028c6b9`.
+- `status` reported both containers running, healthy and ready, with no blocker.
+- `pro browser check` from a temporary directory inside each container, so no saved selection: `browser_selectors: readiness=SKIPPED scope=session-only reason=none_configured` and `chatgpt: ok logged_in=true composer=true`. The command exited 1 because that directory has no bridge; `model_hints` was `Medium`. The saved-selection path was not exercised live.
+- `pro browser smoke` on both: `PRODEX_PRO_SMOKE_OK`, `requestVerified: true`, no warnings.
+- Both shared tabs were returned to `https://chatgpt.com/` afterwards.
 
 **PR #7 closed**
 - PR #7 (`feat/headless-browser-compatibility`) was closed as superseded at the user's choice; the branch is kept.
