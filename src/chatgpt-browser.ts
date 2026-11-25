@@ -416,8 +416,13 @@ interface ChatGptPageStatus extends ChatGptPageTextState {
 // Text/buttons for login and status detection: exclude message bodies and the
 // composer, but KEEP the sidebar/nav - the logged-in signals ("New chat",
 // "Projects", the profile button, the plan hint) live there.
+// Also excluded: what the model writes while an answer is in progress. Measured
+// 2026-11-24, ChatGPT shows an answer's progress lines in its turn but outside
+// the message unit, as markdown in an activity stack, until the answer is
+// complete. A progress line containing "model limit" stopped a Pro send as
+// usage_limit; whatever the model writes is not a page blocker.
 export const CHATGPT_RUNTIME_BLOCKER_TEXT_EXCLUDED_ANCESTORS =
-  '[data-message-author-role],[data-chatgpt-search-unit-key],script,style,noscript,[aria-hidden="true"],div[role="textbox"],textarea,[contenteditable="true"]';
+  '[data-message-author-role],[data-chatgpt-search-unit-key],[data-markdown-text-style],[data-spacing="activity"],script,style,noscript,[aria-hidden="true"],div[role="textbox"],textarea,[contenteditable="true"]';
 // Text scanned for PAGE BLOCKERS (captcha/usage-limit/cloudflare/...) also
 // excludes the sidebar/nav: a past-chat title like "usage limit reset" or
 // "verify human" in the history list must not be matched as a live blocker.
@@ -425,7 +430,7 @@ export const CHATGPT_RUNTIME_BLOCKER_TEXT_EXCLUDED_ANCESTORS =
 // wherever they are listed: a project's home page lists its conversations in
 // the page body (measured 2026-11-23), and those titles are the user's words.
 export const CHATGPT_BLOCKER_SCAN_EXCLUDED_ANCESTORS =
-  `${'[data-message-author-role],[data-chatgpt-search-unit-key],script,style,noscript,[aria-hidden="true"],div[role="textbox"],textarea,[contenteditable="true"]'},nav,aside,[role="navigation"],a[href*="/c/"],a[href^="/g/"],a[href*="chatgpt.com/g/"]`;
+  `${CHATGPT_RUNTIME_BLOCKER_TEXT_EXCLUDED_ANCESTORS},nav,aside,[role="navigation"],a[href*="/c/"],a[href^="/g/"],a[href*="chatgpt.com/g/"]`;
 /**
  * The conversation's messages, whichever markup ChatGPT is rendering.
  *

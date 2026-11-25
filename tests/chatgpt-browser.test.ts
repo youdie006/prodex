@@ -2174,6 +2174,72 @@ Show more`;
     expect(CHATGPT_BLOCKER_SCAN_EXCLUDED_ANCESTORS).toContain('a[href*="/c/"]');
   });
 
+  it.each([
+    { name: "status", expression: statusExpression },
+    { name: "answer", expression: answerExpression }
+  ])("leaves the progress lines of an answer being written out of the $name blocker scan", ({ expression }) => {
+    // Measured 2026-11-24: while a Pro answer is written, ChatGPT shows short
+    // progress lines the model writes about its work (here a four-word line
+    // containing "model limit") in the answer's turn, outside the message
+    // unit, as assistant-message markdown in an activity stack. A send was
+    // stopped as usage_limit five minutes in; the answer finished 17 minutes
+    // after the send. Once the answer is complete the lines move inside it.
+    type Attrs = Record<string, string>;
+    const attributeMatches = (attrs: Attrs, part: string): boolean => {
+      const match = /^\[([a-z-]+)(?:="([^"]*)")?\]$/.exec(part.trim());
+      return match !== null && match[1] in attrs && (match[2] === undefined || attrs[match[1]] === match[2]);
+    };
+    const inside = (chain: Attrs[]): FakeElement => {
+      const el = new FakeElement("span");
+      el.closest = (selector) => (chain.some((attrs) => selector.split(",").some((part) => attributeMatches(attrs, part))) ? el : undefined);
+      return el;
+    };
+    const progressLine = (): FakeElement =>
+      inside([
+        { "data-markdown-text-style": "assistant-message", "data-markdown-text-tone": "tertiary" },
+        { "data-spacing": "activity" },
+        { "data-talvt-turn-state": "in_progress" },
+        { "data-turn-key": "6288b89a-38c5-43db-8c39-000000000000" }
+      ]);
+    const toolLine = (): FakeElement =>
+      inside([{ "data-spacing": "activity" }, { "data-talvt-turn-state": "in_progress" }, { "data-turn-key": "6288b89a-38c5-43db-8c39-000000000000" }]);
+    const pageWith = (texts: Array<{ value: string; parent: FakeElement }>): FakeDocument => {
+      const doc = new FakeDocument([], [new FakeElement("div")]);
+      return Object.assign(doc, {
+        createTreeWalker: () => {
+          let index = -1;
+          const walker: { currentNode?: { parentElement: FakeElement; nodeValue: string }; nextNode: () => boolean } = {
+            nextNode: () => {
+              index += 1;
+              const text = texts[index];
+              walker.currentNode = text && { parentElement: text.parent, nodeValue: text.value };
+              return index < texts.length;
+            }
+          };
+          return walker;
+        }
+      });
+    };
+    const lines = [
+      { value: "Checking the model limit", parent: progressLine() },
+      { value: "권한 범위 검토 중", parent: progressLine() },
+      { value: "Searched rate limit docs", parent: toolLine() }
+    ];
+    type ScanState = { textSample: string; blockerScanTextSample?: string; visibleButtonLabels: string[]; blockerButtonLabels?: string[] };
+
+    const writing = evaluateBrowserStatusExpression<ScanState>(expression(), pageWith(lines));
+    expect(writing.blockerScanTextSample).toBe("");
+    expect(detectChatGptPageBlocker(writing)).toBeUndefined();
+
+    // ChatGPT's own notice in the same turn, outside the model's text, is still found.
+    const turnNotice = inside([{ "data-talvt-turn-state": "in_progress" }, { "data-turn-key": "6288b89a-38c5-43db-8c39-000000000000" }]);
+    const limited = evaluateBrowserStatusExpression<ScanState>(
+      expression(),
+      pageWith([...lines, { value: "You've reached the message limit", parent: turnNotice }])
+    );
+    expect(detectChatGptPageBlocker(limited)?.code).toBe("usage_limit");
+  });
+
   it("detects ChatGPT browser blocker states before sending", () => {
     expect(detectChatGptBlocker("Just a moment... Checking if the site connection is secure", [])?.code).toBe("cloudflare_check");
     expect(detectChatGptBlocker("Please solve this captcha to continue", [])?.code).toBe("captcha_required");
