@@ -4,7 +4,7 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 0.40.60
 
 ### Fixed
 - A browser send could stop as a blocker (`usage_limit`, `permission_required`, `captcha_required`) while the answer was still being written, because of words the model itself wrote. While a Pro answer is in progress, ChatGPT shows short progress lines the model writes about its work in the answer's place, but outside the message, and the blocker scan read them as page text. A progress line containing "model limit" stopped a Pro consult as `usage_limit` five minutes in; the answer finished about twelve minutes later. The blocker scan now leaves out the model's markdown text and the progress area of an answer being written. ChatGPT's own notices, including one in the answer's place outside the model's text, are still reported.
