@@ -16,6 +16,41 @@ Release target: `v0.40.13` on `main`. The GitHub Release records the resolved co
 
 The release adds a guarded, opt-in transition and more accurate blocker reporting. It does not claim that headless Pro consultation is verified on either deployment target or that authentication can be retained indefinitely.
 
+## 0.40.60 Release Record
+
+Release commit `ee11093` on `main` (cut after PR #127, merge `69baa40`); tag `v0.40.60`, published 2026-11-25, on the user's go-ahead to merge, swap the containers and publish. It carries one fix: the blocker scan no longer reads what the model writes while a Pro answer is in progress.
+
+**The change (PR #127, `fix/blocker-scan-answer-activity`)**
+- On 2026-11-24 a Pro consult stopped as `usage_limit` five minutes in, and the answer finished about twelve minutes later.
+- Measured in the page: while an answer is written, ChatGPT shows the model's progress lines in the answer's turn but outside the message unit, as markdown in an activity area. One of those lines contained "model limit".
+- The blocker scan now leaves out `[data-markdown-text-style]` and `[data-spacing="activity"]`. ChatGPT's own notices, including one in the turn outside the model's text, are still reported.
+- The new test failed before the change, with the progress lines in `blockerScanTextSample`, and passes after it. Full suite: 165 files, 2050 passed, 3 skipped. CI passed all 7 checks.
+
+**Publishing**
+- `npm run release:verify` passed on the release commit (scratchpad `release60.sh`).
+- `publish.yml` run 45523601161 passed on its first attempt, all 7 jobs (01:09-01:26 UTC). It published to npm with SLSA v1 provenance and created the GitHub Release (01:26:22 UTC) from the one `CHANGELOG.md` entry.
+
+**Installed**
+- WSL, M3, Mac mini: `prodex --version` reports 0.40.60.
+- The maintainer watchdog checkout was pulled to `ee11093` and rebuilt.
+- No native host-side `prodex mcp` or `prodex start` was running on WSL, M3 or the Mac mini. The WSL `docker exec ... /app/dist/cli.js mcp` processes are container relays.
+- MacBook M4: `ssh m4` timed out, so it still runs 0.40.51. Scratchpad `m4install-0.40.60.sh` has to be run once M4 answers.
+
+**Container branch**
+- Container PR #128 (merge `66066fc`) makes the same change to the container's blocker scan. Main's test was inserted by hand, because the surrounding lines differ; it failed before the change and passes after it.
+- Container full suite: 183 files, 2360 passed, 3 skipped. CI passed all 7 checks.
+
+**Container swaps (both built from `66066fc` before the release; send lock free before each, no thread errors after)**
+- Only `CHANGELOG.md`, `src/chatgpt-browser.ts` and its test changed between `028c6b9` and `66066fc`, so neither host's client was replaced.
+- The built `dist` in both images contains the activity-area selector.
+- WSL: image `4f7f9562d72c`, started 01:00:03 UTC. Healthy, 1024 process limit, using 351 processes.
+- M3 (colima `prodex-check`): image `243b2a9ceba7`, started 01:01:55 UTC. Healthy, using 192. The M3 checkout `~/.local/share/prodex-maint/container-src` is at `66066fc`.
+- `status` reported both containers running, healthy and ready, with no blocker.
+- `pro browser check` from a temporary directory inside each container: `browser_selectors: readiness=SKIPPED scope=session-only reason=none_configured`, `chatgpt: ok logged_in=true composer=true` and `model_hints: 6 Pro`.
+- `pro browser smoke` on both: `PRODEX_PRO_SMOKE_OK`, `requestVerified: true`, no warnings (WSL 28 s, M3 24 s).
+- The fix itself was not exercised live: no Pro answer long enough to show progress lines was sent.
+- Both shared tabs were returned to `https://chatgpt.com/` afterwards.
+
 ## 0.40.59 Release Record
 
 Release commit `f641255` on `main` (cut after PR #121, merge `fb48083`); tag `v0.40.59`, published 2026-11-24, on the user's go-ahead to merge and publish. It carries one change, from another session's branch: `pro browser check` verifies saved model, effort and project selections before it reports readiness.
