@@ -4,7 +4,7 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 0.40.62
 
 ### Fixed
 - A send that found a crashed tab stopped as `cloudflare_check` when Cloudflare checked the reload prodex made to recover it, even though the check clears by itself. Measured 2026-11-27 on WSL: the send stopped 0.5 s after the reload, and the check cleared by itself 125 s later. After its own reload, prodex now waits up to three minutes, or the send's budget if shorter, for the check to clear. It only reads the page while it waits. Once the check clears it sends, and the result carries `cloudflare_check_cleared`. If the check has not cleared by then, the send stops with `cloudflare_check` and nothing is typed. A check already on the page when a send arrives still stops it at once. The general `cloudflare_check` next step no longer just says to complete the check manually: it says the check can clear by itself within a few minutes.
