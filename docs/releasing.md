@@ -43,7 +43,14 @@ The WSL browser container's ChatGPT tab was ended by the cgroup OOM killer durin
   - WSL passed in 26 s: `PRODEX_PRO_SMOKE_OK`, `requestVerified: true`, no warnings.
   - M3's first smoke after the swap timed out after 5 minutes. Its conversation address stayed at a `local-chatgpt:` id, and the container log showed nothing for it. Its tab was then sent home, so the page state was not kept.
   - A second M3 smoke passed in 26 s. A read-only structure probe during it showed the stop button and no error notice.
-  - The first timeout is not explained.
+  - Investigated afterwards (from the browser's history, the rendered page and the host and VM logs):
+    - A new ChatGPT chat first gets a local address, `/c/local-chatgpt:<id>`, and then a server id. In 36 sends on both hosts since 2026-11-18 that took 1.5 to 18.4 s.
+    - The failed smoke's local address appeared 5 s after the home page loaded, as usual, but never got a server id. At 5 minutes there was no stop button.
+    - The next new chat reused the same local id and got a server id 6 s later. That conversation shows one exchange only, so the first prompt never reached ChatGPT; it was not sent with the second one either.
+    - Ruled out: memory (`max 0`, no OOM), the colima VM journal, colima port forwarding (only the swap's own restart at 05:06:30), macOS sleep (none in `pmset -g log`), and a ChatGPT-wide outage (WSL sends at the same time passed). prodex only reads the page after the submit, so it did not move the tab.
+    - Why the page kept the prompt locally is inside ChatGPT's page and cannot be seen from rendered content.
+  - prodex then waited the whole 5 minutes and advised `recover --target-url .../c/local-chatgpt%3A...` and not resending. Neither fits a prompt that never reached ChatGPT. `conversationIdFromThreadUrl` does not accept a local address, so the wait never pinned a thread.
+  - A probe of ChatGPT's IndexedDB during this investigation printed fragments of a ChatGPT routing token into the session's tool output. That broke the rendered-page-only rule. Nothing from it was saved, and browser storage was not read again.
 - Both shared tabs were returned to `https://chatgpt.com/` afterwards.
 
 **Not explained:** between 03:08 and 05:05 UTC on 2026-11-25, Chromium in the WSL container exited six times with SIGTRAP. Each exit followed a loop of "Network service crashed or was terminated", 34,447 lines in all, and the service restarted it each time. The kernel log shows no OOM kill in that window. It has not recurred since 05:05 UTC that day.
