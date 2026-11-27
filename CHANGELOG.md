@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Fixed
+- A send whose prompt never reached ChatGPT waited out its whole budget and then advised against resending. ChatGPT first gives a new chat an address that exists only in the browser (`/c/local-chatgpt:...`) and switches to the server's conversation id once the server takes the prompt, 1.5 to 18 seconds later in 36 measured sends. On 2026-11-27 one send kept the local address for its full 5 minutes, with no answer being written. prodex then said "Do not resend" and pointed `pro browser recover` at the local address, where there is nothing to read. A send whose conversation is still local, with no answer being written, a minute after the prompt was posted now stops with `prompt_not_delivered` (retryable). Its next step says to send it again. A budget that ends earlier gives the same result.
+
 ## 0.40.60
 
 ### Fixed

@@ -5387,6 +5387,10 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
     }
     const runtimeBlocker = chatGptBlockerFromAnswerState(finalState);
     if (runtimeBlocker) throw new ChatGptBrowserBlockerError(submittedRequestBlocker(runtimeBlocker, requestId, pinnedThreadUrl));
+    if (!pinnedConversationId && Date.now() - started >= PROMPT_DELIVERY_DEADLINE_MS &&
+        promptStillLocal(finalState, beforeSubmit.assistantMessageCount)) {
+      throw attachSendWarnings(new ChatGptBrowserBlockerError(promptNotDeliveredBlocker(finalState.url, Date.now() - started)), sendWarnings);
+    }
     emitProgress("waiting", finalState.generating ? "generating" : "stabilizing");
     // A turn that answered with an image leaves no assistant message, so the
     // count below never moves and the send used to wait out its whole budget
@@ -5477,6 +5481,11 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
         `answer_incomplete: ChatGPT's answer did not reach a stable completed state after ${formatDurationMs(timeoutMs)} (${timeoutMs}ms), so the answer below may be truncated. Do not resend the question. Recover the original answer with --target-url ${pinnedThreadUrl ?? completed.url} --request-id ${requestId} once it finishes.`
       ])
     };
+  }
+  // A budget shorter than the delivery deadline ends here with the prompt still
+  // local; pointing recovery at that address would find nothing.
+  if (!pinnedConversationId && completed && promptStillLocal(completed, beforeSubmit.assistantMessageCount)) {
+    throw attachSendWarnings(new ChatGptBrowserBlockerError(promptNotDeliveredBlocker(completed.url, Date.now() - started)), sendWarnings);
   }
   // Carry the thread the prompt landed in: ChatGPT usually finishes the answer
   // after prodex gives up, and `pro browser recover --target-url` exists to
@@ -7523,6 +7532,37 @@ export function browserLostMidWaitBlocker(threadUrl: string | undefined, request
       ? `Run \`prodex pro browser login\` to reopen the browser, then collect the answer with \`prodex pro browser recover --target-url ${threadUrl}${requestId ? ` --request-id ${requestId}` : ""}\` (MCP: pro_recover with thread ${threadUrl}${requestId ? ` and request_id ${requestId}` : ""}).`
       : `Run \`prodex pro browser login\` to reopen the browser, then inspect the original chat before asking again. The prompt was already submitted; prodex did not capture its thread URL.${requestId ? ` Find [prodex-request:${requestId}] in that conversation before recovering its answer; do not resend automatically.` : ""}`,
     ...(threadUrl ? { thread: threadUrl } : {})
+  };
+}
+
+// Measured 2026-11-27 in the prodex browsers' history: ChatGPT gives a new chat
+// a local address (/c/local-chatgpt:<id>) and swaps in the server's conversation
+// id once the server takes the prompt, 1.5-18.4 s later in 36 sends. One M3 send
+// kept its local address for its whole 5-minute budget with no answer being
+// written; the prompt never reached ChatGPT. A minute is three times the slowest
+// measured swap.
+const PROMPT_DELIVERY_DEADLINE_MS = 60_000;
+
+export function isLocalChatGptThreadUrl(url: string): boolean {
+  return /\/c\/local-chatgpt(?::|%3A)/i.test(url);
+}
+
+function promptStillLocal(
+  state: Pick<ChatGptAnswerState, "url" | "generating" | "assistantMessageCount" | "nonTextAnswer">,
+  previousAssistantMessageCount: number
+): boolean {
+  return isLocalChatGptThreadUrl(state.url) && !state.generating &&
+    state.assistantMessageCount <= previousAssistantMessageCount && state.nonTextAnswer !== true;
+}
+
+function promptNotDeliveredBlocker(localUrl: string, waitedMs: number): NonNullable<ChatGptBrowserStatus["blocker"]> {
+  return {
+    code: "prompt_not_delivered",
+    message: `ChatGPT kept this prompt in a conversation that exists only in this browser (${localUrl}). ` +
+      `After ${formatDurationMs(waitedMs)} it had no server conversation id and no answer was being written, so the prompt did not reach ChatGPT.`,
+    // Nothing reached the server, so a second send cannot duplicate it.
+    retryable: true,
+    next_step: "Send it again. There is nothing to recover: `prodex pro browser recover` cannot read a conversation the server never received."
   };
 }
 
