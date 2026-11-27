@@ -61,7 +61,13 @@ This fixes the prodex side of M3's 5-minute smoke timeout (see the next section)
 The WSL browser container's ChatGPT tab was ended by the cgroup OOM killer during a long Pro answer, at 2026-11-27 02:18:54 UTC. The container itself kept running.
 - The kernel log names the container's cgroup (`465fa131b903`) and a Chromium renderer with 1 GiB of anonymous memory, against the 2 GiB limit. The cgroup's `memory.events` counted one `oom_kill` and 928,820 `max` events since the last start (2026-11-25 05:05 UTC).
 - The other large share was 28 connected stdio MCP clients' servers inside the container, using 774 MB in all.
-- The send stopped as `browser_tab_crashed`. Until the tab was reopened about 40 minutes later, `status` reported `ready: false` with that blocker, so every WSL consult would fail the same way. A recover task at 02:19 UTC saved the crashed send's answer.
+- The send stopped as `browser_tab_crashed`. The browser's history and the bridge records give the rest of the morning; an earlier version of this entry said the tab was reopened about 40 minutes later, which was wrong.
+  - 02:19 UTC: a recover task navigated the tab back to that conversation and saved the crashed send's answer.
+  - By 02:50 the tab had crashed again on the same conversation, and `status` reported `ready: false` with `browser_tab_crashed`. The kernel log shows no second OOM kill. The container log from before the 05:06 recreate is gone, so the second crash's cause is not known.
+  - 03:45:16: a Codex consult found the crashed tab. prodex reloaded it once at the same address before typing, as designed (history: a reload at 03:45:17).
+  - That page load got Cloudflare's challenge page: the address carried Cloudflare's `__cf_chl_rt_tk` parameter. The pre-send check, 0.5 s after the reload, reported `cloudflare_check` (retryable), and nothing was sent. The detection was correct, not a false match.
+  - 03:47:22: the challenge completed by itself, 125 s later, and redirected back to the conversation. Nobody resent that consult. Whether the tab was usable between 03:47 and 04:50 was not checked.
+  - 04:50 UTC: the tab was reopened at the home page (below), about 2.5 hours after the OOM kill.
 - M3's container has the same 2 GiB limit, but with 8 clients it never reached it (`max 0`).
 
 **Fixed in place, on the user's go-ahead (no restart; MCP connections kept)**
