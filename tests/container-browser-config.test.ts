@@ -37,6 +37,18 @@ describe("experimental container browser isolation", () => {
     expect(config.services.browser.pids_limit).toBeGreaterThanOrEqual(1024);
   });
 
+  it("leaves the ChatGPT tab room to grow during a long answer beside every connected client", () => {
+    // Measured 2026-11-27 on WSL: 28 connected stdio MCP clients' servers used
+    // 774 MB, and the ChatGPT tab's renderer reached 1 GiB during a long Pro
+    // answer. At the 2 GiB limit the cgroup OOM killer ended the renderer, and
+    // every send failed as browser_tab_crashed until the tab was reopened.
+    const config = JSON.parse(readFileSync(new URL("compose.json", root), "utf8"));
+    const match = /^(\d+)([kmg])b?$/i.exec(String(config.services.browser.mem_limit));
+    expect(match).not.toBeNull();
+    const bytes = Number(match![1]) * 1024 ** "kmg".indexOf(match![2].toLowerCase()) * 1024;
+    expect(bytes).toBeGreaterThanOrEqual(4 * 1024 ** 3);
+  });
+
   it("retains syscall filtering and enables only an attributed upstream profile", () => {
     const profile = JSON.parse(readFileSync(new URL("seccomp.json", root), "utf8"));
     expect(profile.defaultAction).toBe("SCMP_ACT_ERRNO");
