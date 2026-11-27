@@ -16,6 +16,33 @@ Release target: `v0.40.13` on `main`. The GitHub Release records the resolved co
 
 The release adds a guarded, opt-in transition and more accurate blocker reporting. It does not claim that headless Pro consultation is verified on either deployment target or that authentication can be retained indefinitely.
 
+## Cloudflare Wait After Reload and Container Swaps 2026-11-27
+
+This fixes the prodex side of the 03:45 UTC `cloudflare_check` (see "WSL Browser Container Memory 2026-11-27"), on the user's go-ahead to fix it and swap the containers. Not released to npm yet.
+
+**The change**
+- Main PR #132 (`fix/cloudflare-after-reload`, `ae083b0`, merge `2ca9784`). After prodex's own crashed-tab reload, a `cloudflare_check` is waited out for up to three minutes, or the send's budget if shorter.
+  - prodex only reads the page while it waits, every 3 s.
+  - If the check clears, the send goes ahead and carries `cloudflare_check_cleared`.
+  - If it stays, the send stops with `cloudflare_check` and nothing is typed.
+  - A check already on the page when a send arrives still stops it at once.
+  - The general `cloudflare_check` next step now says the check can clear by itself within a few minutes.
+- Three new tests in `tests/browser-crash-recovery.test.ts`: the two for the wait failed before the change and pass after it; the guard passed both times.
+  - main: 165 files, 2056 passed, 3 skipped.
+  - CI passed all 7 checks.
+- Container PR #133 (`port/cloudflare-after-reload`, `21082cb`, merge `cccad7c`) ports it. The diffs applied unchanged.
+  - The same tests failed before the change and pass after it.
+  - Container suite: 183 files, 2367 passed, 3 skipped. CI passed all 7 checks.
+
+**Container swaps to `cccad7c` (send lock free before each, no thread errors after)**
+- `scripts/` and `containers/` did not change since `3b0d0c7`, so neither host's client was replaced. Both built `dist` trees contain `cloudflare_check_cleared`.
+- WSL: image `4a51968fa048`, started 07:49:01 UTC. Healthy, 4 GiB memory limit, using 330 processes and 1.9 GiB.
+- M3 (colima `prodex-check`): image `9fe71dfab3a1`, started 07:49:39 UTC. Healthy, 4 GiB memory limit, using 189 processes and 0.8 GiB. The M3 checkout is at `cccad7c`.
+- `status` reported both containers ready with no blocker. `pro browser check` on both: `chatgpt: ok logged_in=true composer=true`, `model_hints: 6 Pro`.
+- `pro browser smoke` passed on both: WSL in 30 s, M3 in 25 s, `requestVerified: true`, no warnings.
+- The new wait was not exercised live; it needs a crashed tab whose reload Cloudflare checks.
+- Both shared tabs were returned to `https://chatgpt.com/`.
+
 ## 0.40.61 Release Record
 
 Release commit `4230da7` on `main` (cut after PR #130, merge `44f0f27`); tag `v0.40.61`, published 2026-11-27, on the user's go-ahead. It carries one fix: `prompt_not_delivered`. The next section covers the change and the container swaps.
