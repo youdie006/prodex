@@ -16,6 +16,31 @@ Release target: `v0.40.13` on `main`. The GitHub Release records the resolved co
 
 The release adds a guarded, opt-in transition and more accurate blocker reporting. It does not claim that headless Pro consultation is verified on either deployment target or that authentication can be retained indefinitely.
 
+## prompt_not_delivered Fix and Container Swaps 2026-11-27
+
+This fixes the prodex side of M3's 5-minute smoke timeout (see the next section), on the user's go-ahead to fix it and swap the containers. Not released to npm yet.
+
+**The change**
+- Main PR #130 (`fix/prompt-not-delivered`, `98ea6ea`, merge `44f0f27`). A send whose conversation is still at ChatGPT's local address (`/c/local-chatgpt:<id>`) a minute after the prompt was posted, with nothing being generated and no assistant message, now stops with `prompt_not_delivered`.
+  - The blocker is `retryable: true` and has no `thread`. Its next step says to send the prompt again, because there is nothing to recover.
+  - A budget shorter than a minute ends the same way, instead of with the timeout's recover advice.
+  - An answer being written at a local address keeps the wait going.
+- Three new tests: the two for the stop failed before the change and pass after it; the guard for an answer being written passed both times.
+  - main: 165 files, 2053 passed, 3 skipped.
+  - CI passed all 7 checks.
+- Container PR #131 (`port/prompt-not-delivered`, `b248e5b`, merge `3b0d0c7`) ports it. The hunks applied with reduced context.
+  - On that branch the same tests failed before the change and pass after it.
+  - Container suite: 183 files, 2364 passed, 3 skipped. CI passed all 7 checks.
+
+**Container swaps to `3b0d0c7` (send lock free before each, no thread errors after)**
+- `scripts/` and `containers/` did not change since `b97b190`, so neither host's client was replaced. Both built `dist` trees contain `prompt_not_delivered`.
+- WSL: image `6580d714ffa0`, started 05:54:59 UTC. Healthy, 4 GiB memory limit, using 338 processes and 2.0 GiB.
+- M3 (colima `prodex-check`): image `3fde548252b1`, started 05:55:33 UTC. Healthy, 4 GiB memory limit, using 190 processes and 0.8 GiB. The M3 checkout is at `3b0d0c7`.
+- `status` reported both containers ready with no blocker. `pro browser check` on both: `chatgpt: ok logged_in=true composer=true`, `model_hints: 6 Pro`.
+- `pro browser smoke`, the first send after each swap, passed on both: WSL in 32 s, M3 in 25 s, `requestVerified: true`, no warnings.
+- The new stop was not exercised live, because the stuck state did not recur.
+- Both shared tabs were returned to `https://chatgpt.com/`.
+
 ## WSL Browser Container Memory 2026-11-27
 
 The WSL browser container's ChatGPT tab was ended by the cgroup OOM killer during a long Pro answer, at 2026-11-27 02:18:54 UTC. The container itself kept running.
