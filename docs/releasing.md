@@ -16,6 +16,22 @@ Release target: `v0.40.13` on `main`. The GitHub Release records the resolved co
 
 The release adds a guarded, opt-in transition and more accurate blocker reporting. It does not claim that headless Pro consultation is verified on either deployment target or that authentication can be retained indefinitely.
 
+## 0.40.62 Release Record
+
+Release commit `c586b45` on `main` (cut after PR #132, merge `2ca9784`); tag `v0.40.62`, published 2026-11-27, on the user's go-ahead. It carries one fix: the wait for a Cloudflare check that prodex's own crashed-tab reload brought on. The next section covers the change and the container swaps.
+
+**Publishing**
+- `npm run release:verify` passed on the release commit (scratchpad `release62.sh`).
+- `publish.yml` run 45962852506 passed on its first attempt, all 7 jobs (08:04-08:37 UTC). It published to npm with SLSA v1 provenance and created the GitHub Release (08:37:04 UTC) from the one `CHANGELOG.md` entry.
+- The macOS Intel verification job took 29 min 48 s (08:04:19-08:34:07). In 0.40.61 the whole run took 17 minutes. It passed. It is worth watching against the 25-minute `npm test` budget from #100.
+
+**Installed**
+- WSL, M3, Mac mini: `prodex --version` reports 0.40.62.
+- The maintainer watchdog checkout was pulled to `c586b45` and rebuilt.
+- No native host-side `prodex mcp` or `prodex start` was running on WSL, M3 or the Mac mini. On WSL, the browser container's own processes were not counted.
+- MacBook M4: `ssh m4` timed out, so it still runs 0.40.51. Scratchpad `m4install-0.40.62.sh` has to be run once M4 answers.
+- The containers already carry the fix, through container PR #133 (`cccad7c`).
+
 ## Cloudflare Wait After Reload and Container Swaps 2026-11-27
 
 This fixes the prodex side of the 03:45 UTC `cloudflare_check` (see "WSL Browser Container Memory 2026-11-27"), on the user's go-ahead to fix it and swap the containers. Not released to npm yet.
