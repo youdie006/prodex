@@ -16,6 +16,26 @@ Release target: `v0.40.13` on `main`. The GitHub Release records the resolved co
 
 The release adds a guarded, opt-in transition and more accurate blocker reporting. It does not claim that headless Pro consultation is verified on either deployment target or that authentication can be retained indefinitely.
 
+## WSL Browser Container Memory 2026-11-27
+
+The WSL browser container's ChatGPT tab was ended by the cgroup OOM killer during a long Pro answer, at 2026-11-27 02:18:54 UTC. The container itself kept running.
+- The kernel log names the container's cgroup (`465fa131b903`) and a Chromium renderer with 1 GiB of anonymous memory, against the 2 GiB limit. The cgroup's `memory.events` counted one `oom_kill` and 928,820 `max` events since the last start (2026-11-25 05:05 UTC).
+- The other large share was 28 connected stdio MCP clients' servers inside the container, using 774 MB in all.
+- The send stopped as `browser_tab_crashed`. Until the tab was reopened about 40 minutes later, `status` reported `ready: false` with that blocker, so every WSL consult would fail the same way. A recover task at 02:19 UTC saved the crashed send's answer.
+- M3's container has the same 2 GiB limit, but with 8 clients it never reached it (`max 0`).
+
+**Fixed in place, on the user's go-ahead (no restart; MCP connections kept)**
+- `docker update --memory 4g --memory-swap 8g prodex-browser-browser-1`. Afterwards `memory.max` reports 4294967296.
+- The send lock was free. The crashed page target was sent to `https://chatgpt.com/` with CDP `Page.navigate`, and the composer came back.
+- Afterwards:
+  - `status` reported ready, with no blocker.
+  - `pro browser check`: `chatgpt: ok logged_in=true composer=true`.
+  - `pro browser smoke`: `PRODEX_PRO_SMOKE_OK`, `requestVerified: true`, no warnings.
+  - The container used 400 processes and 1.8 GiB, with no thread errors. The tab was returned to `https://chatgpt.com/`.
+- Container PR #129 (`fix/browser-container-memory-4g`, `7775273`) sets `mem_limit` to `4g` in `compose.json`, so a recreated container keeps the higher limit. Until it merges, a WSL swap from the branch would bring back 2 GiB. M3 keeps 2 GiB until its next rebuild.
+
+**Not explained:** between 03:08 and 05:05 UTC on 2026-11-25, Chromium in the WSL container exited six times with SIGTRAP. Each exit followed a loop of "Network service crashed or was terminated", 34,447 lines in all, and the service restarted it each time. The kernel log shows no OOM kill in that window. It has not recurred since 05:05 UTC that day.
+
 ## 0.40.60 Release Record
 
 Release commit `ee11093` on `main` (cut after PR #127, merge `69baa40`); tag `v0.40.60`, published 2026-11-25, on the user's go-ahead to merge, swap the containers and publish. It carries one fix: the blocker scan no longer reads what the model writes while a Pro answer is in progress.
