@@ -16,6 +16,21 @@ Release target: `v0.40.13` on `main`. The GitHub Release records the resolved co
 
 The release adds a guarded, opt-in transition and more accurate blocker reporting. It does not claim that headless Pro consultation is verified on either deployment target or that authentication can be retained indefinitely.
 
+## 0.40.61 Release Record
+
+Release commit `4230da7` on `main` (cut after PR #130, merge `44f0f27`); tag `v0.40.61`, published 2026-11-27, on the user's go-ahead. It carries one fix: `prompt_not_delivered`. The next section covers the change and the container swaps.
+
+**Publishing**
+- `npm run release:verify` passed on the release commit (scratchpad `release61.sh`).
+- `publish.yml` run 45949751420 passed on its first attempt, all 7 jobs (06:06-06:23 UTC). It published to npm with SLSA v1 provenance and created the GitHub Release (06:23:51 UTC) from the one `CHANGELOG.md` entry.
+
+**Installed**
+- WSL, M3, Mac mini: `prodex --version` reports 0.40.61.
+- The maintainer watchdog checkout was pulled to `4230da7` and rebuilt.
+- No native host-side `prodex mcp` or `prodex start` was running on WSL, M3 or the Mac mini. The 21 `node /app/dist/cli.js mcp` processes visible on WSL belong to the browser container.
+- MacBook M4: `ssh m4` timed out, so it still runs 0.40.51. Scratchpad `m4install-0.40.61.sh` has to be run once M4 answers.
+- The containers already carry the fix, through container PR #131 (`3b0d0c7`).
+
 ## prompt_not_delivered Fix and Container Swaps 2026-11-27
 
 This fixes the prodex side of M3's 5-minute smoke timeout (see the next section), on the user's go-ahead to fix it and swap the containers. Not released to npm yet.
