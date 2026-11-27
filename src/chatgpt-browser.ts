@@ -1472,7 +1472,7 @@ export function detectChatGptBlocker(
       code: "cloudflare_check",
       message: "ChatGPT is showing a Cloudflare or human-verification interstitial.",
       retryable: true,
-      next_step: "Complete the visible browser check manually."
+      next_step: "Cloudflare's check can clear by itself within a few minutes; if it stays, complete it in the visible browser."
     };
   }
   if (hasLikelyChatGptLoginPrompt(haystack)) {
@@ -2686,6 +2686,31 @@ async function reloadPageAndAwaitComposer(page: DevtoolsPage): Promise<{ rendere
   } finally {
     cdp.close();
   }
+}
+
+// Measured 2026-11-27 on WSL: prodex reloaded a crashed tab before a send,
+// Cloudflare answered that load with its check (the address carried
+// __cf_chl_rt_tk), and the check cleared by itself 125 s after the reload. The
+// send had stopped 0.5 s in. Waiting only reads the page; it never touches the
+// check.
+const CLOUDFLARE_SELF_CLEAR_WAIT_MS = 180_000;
+
+async function waitForCloudflareCheckToClear(
+  page: DevtoolsPage,
+  status: ChatGptPageStatus,
+  budgetMs: number
+): Promise<{ status: ChatGptPageStatus; waitedMs: number }> {
+  const started = Date.now();
+  while (Date.now() - started < budgetMs && detectChatGptPageBlocker(status)?.code === "cloudflare_check") {
+    await sleep(3_000);
+    try {
+      status = await readSettledChatGptPageStatus(page);
+    } catch (error) {
+      if (isCrashedTabError(error)) throw error;
+      // The check's own redirect replaces the document mid-read.
+    }
+  }
+  return { status, waitedMs: Date.now() - started };
 }
 
 /** A crashed renderer cannot mark its document or enable Runtime before reload. */
@@ -4439,6 +4464,7 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
   const page = pageResult.page;
   const preflightWarnings: string[] = [];
   let status: ChatGptPageStatus;
+  let reloadedBeforeSend = false;
   try {
     status = await readSettledChatGptPageStatus(page);
   } catch (error) {
@@ -4447,12 +4473,30 @@ export async function sendChatGptPrompt(options: SendChatGptPromptOptions): Prom
     const recovered = await recoverCrashedPageBeforeSend(port, page);
     status = recovered.state;
     if (recovered.reloaded) {
+      reloadedBeforeSend = true;
       preflightWarnings.push("browser_tab_recovered: Chrome reported a crashed tab; reloaded the same conversation before typing. No previous prompt was resent.");
       emitProgress("waiting", "crashed tab reloaded at the same address; rechecking readiness");
     }
   }
   status = await ensureVisibleChatGptPage(port, page, status);
-  const blocker = detectChatGptPageBlocker(status);
+  let blocker = detectChatGptPageBlocker(status);
+  // Only a check prodex's own reload brought on is waited out; one already on
+  // the page when the send arrived stops it as before.
+  if (blocker?.code === "cloudflare_check" && reloadedBeforeSend) {
+    emitProgress("waiting", "Cloudflare checked the reloaded page; waiting for it to clear by itself");
+    const waited = await waitForCloudflareCheckToClear(page, status, Math.min(CLOUDFLARE_SELF_CLEAR_WAIT_MS, timeoutMs));
+    status = waited.status;
+    blocker = detectChatGptPageBlocker(status);
+    if (!blocker) {
+      preflightWarnings.push(`cloudflare_check_cleared: Cloudflare checked the reloaded page and the check cleared by itself after ${formatDurationMs(waited.waitedMs)}. Nothing was typed before it did.`);
+    } else if (blocker.code === "cloudflare_check") {
+      blocker = {
+        ...blocker,
+        message: `Cloudflare checked the page prodex reloaded, and the check did not clear by itself within ${formatDurationMs(waited.waitedMs)}.`,
+        next_step: "Complete the check in the visible browser (for the browser container, in its viewer), then send again. Nothing was typed."
+      };
+    }
+  }
   if (blocker) {
     throw new ChatGptBrowserBlockerError(blocker);
   }

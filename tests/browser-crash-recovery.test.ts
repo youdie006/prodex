@@ -157,15 +157,63 @@ describe("confirmed renderer crashes", () => {
   });
 });
 
+describe("a Cloudflare check after prodex reloads a crashed tab", () => {
+  // Measured 2026-11-27 on WSL: prodex reloaded a crashed tab before a send,
+  // Cloudflare answered that load with its check, and the send stopped as
+  // cloudflare_check 0.5 s later. The check cleared by itself 125 s after the
+  // reload. prodex only reads the page while it waits.
+  it("waits for the check to clear by itself, then sends", async () => {
+    const fixture = install([{ id: "a", url: original, visible: true, crashed: true }], { challengeAfterReloadMs: 125_000 });
+    const send = sendChatGptPrompt({ port: 19333, prompt: "test question", targetUrl: original, timeoutMs: 600_000 });
+    const settled = send.then((value) => ({ value }), (error) => ({ error }));
+    await vi.advanceTimersByTimeAsync(200_000);
+    const result: { value?: any; error?: any } = await settled;
+    expect(result.error).toBeUndefined();
+    expect(result.value).toMatchObject({ answer: "test answer", requestVerified: true });
+    expect(result.value.warnings).toEqual(expect.arrayContaining([expect.stringMatching(/^cloudflare_check_cleared:/)]));
+    expect(fixture.reloads).toHaveLength(1);
+    expect(fixture.submissions).toBe(1);
+  });
+
+  it("stops as cloudflare_check when the check has not cleared at the end of the wait", async () => {
+    const fixture = install([{ id: "a", url: original, visible: true, crashed: true }], { challengeAfterReloadMs: Number.POSITIVE_INFINITY });
+    const send = sendChatGptPrompt({ port: 19333, prompt: "test question", targetUrl: original, timeoutMs: 600_000 });
+    const settled = send.then((value) => ({ value }), (error) => ({ error }));
+    await vi.advanceTimersByTimeAsync(240_000);
+    const result: { value?: any; error?: any } = await settled;
+    expect(result.error?.blocker).toMatchObject({ code: "cloudflare_check", retryable: true });
+    expect(result.error?.blocker.message).toMatch(/did not clear by itself/);
+    expect(fixture.reloads).toHaveLength(1);
+    expect(fixture.submissions).toBe(0);
+  });
+
+  it("does not wait on a check it did not cause", async () => {
+    const fixture = install([{ id: "a", url: original, visible: true, crashed: false }], { challengeFromStart: true });
+    const send = sendChatGptPrompt({ port: 19333, prompt: "test question", targetUrl: original, timeoutMs: 600_000 });
+    let settledAt: number | undefined;
+    const settled = send.then((value) => ({ value }), (error) => ({ error })).finally(() => { settledAt = Date.now(); });
+    const startedAt = Date.now();
+    await vi.advanceTimersByTimeAsync(200_000);
+    const result: { value?: any; error?: any } = await settled;
+    expect(result.error?.blocker).toMatchObject({ code: "cloudflare_check", retryable: true });
+    expect(settledAt! - startedAt).toBeLessThan(30_000);
+    expect(fixture.reloads).toEqual([]);
+    expect(fixture.submissions).toBe(0);
+  });
+});
+
 async function settle<T>(promise: Promise<T>): Promise<{ value?: T; error?: any }> {
   const settled = promise.then((value) => ({ value }), (error) => ({ error }));
   await vi.advanceTimersByTimeAsync(60_000);
   return settled;
 }
 
-function install(pages: Page[], options: { crashesAgain?: boolean; changesBeforeReload?: boolean; crashAfterAcceptance?: boolean; recoversBeforeReload?: boolean; postSubmitStatus?: "unknown" | "login" | "cloudflare"; runtimeLoginBlocker?: boolean; loginAfterAcceptance?: boolean; dispatchFailure?: boolean } = {}) {
+function install(pages: Page[], options: { crashesAgain?: boolean; changesBeforeReload?: boolean; crashAfterAcceptance?: boolean; recoversBeforeReload?: boolean; postSubmitStatus?: "unknown" | "login" | "cloudflare"; runtimeLoginBlocker?: boolean; loginAfterAcceptance?: boolean; dispatchFailure?: boolean; challengeAfterReloadMs?: number; challengeFromStart?: boolean } = {}) {
   vi.useFakeTimers();
-  const fixture = { reloads: [] as { id: string; url: string; submissions: number }[], submissions: 0, prompt: "", acceptedReads: 0 };
+  const fixture = { reloads: [] as { id: string; url: string; submissions: number }[], submissions: 0, prompt: "", acceptedReads: 0, reloadedAt: undefined as number | undefined };
+  // Cloudflare's interstitial as measured: an empty-titled body asking to verify, no composer.
+  const challenged = () => options.challengeFromStart === true ||
+    (options.challengeAfterReloadMs !== undefined && fixture.reloadedAt !== undefined && Date.now() - fixture.reloadedAt < options.challengeAfterReloadMs);
   const sockets: Socket[] = [];
   let discovery = 0;
   vi.stubGlobal("fetch", vi.fn(async () => {
@@ -197,6 +245,7 @@ function install(pages: Page[], options: { crashesAgain?: boolean; changesBefore
         if (request.method === "Inspector.enable" && page.crashed) this.emit({ method: "Inspector.targetCrashed", params: {} });
         if (request.method === "Page.reload") {
           fixture.reloads.push({ id: page.id, url: page.url, submissions: fixture.submissions });
+          fixture.reloadedAt = Date.now();
           page.crashed = options.crashesAgain === true;
           this.emit({ method: page.crashed ? "Inspector.targetCrashed" : "Inspector.targetReloadedAfterCrash", params: {} });
         }
@@ -216,7 +265,9 @@ function install(pages: Page[], options: { crashesAgain?: boolean; changesBefore
             visibleButtonLabels: [], hasComposer: true, generating: false, modelHints: ["Pro"],
             ...(fixture.submissions && options.postSubmitStatus ? { hasComposer: false, textSample: "", blockerTextSample: "", blockerScanTextSample: "",
               title: options.postSubmitStatus === "cloudflare" ? "Just a moment..." : "ChatGPT",
-              visibleButtonLabels: options.postSubmitStatus === "login" ? ["Log in", "Sign up"] : [] } : {})
+              visibleButtonLabels: options.postSubmitStatus === "login" ? ["Log in", "Sign up"] : [] } : {}),
+            ...(challenged() ? { title: "Just a moment...", hasComposer: false, textSample: "Verifying you are human.",
+              blockerTextSample: "Verifying you are human.", blockerScanTextSample: "Verifying you are human." } : {})
           };
           else if (expression.includes("const surfaces = buttons.map")) value = { surfaces: [{ label: "Chat", checked: true }] };
           else if (expression.includes("assistantMessageCount")) {
