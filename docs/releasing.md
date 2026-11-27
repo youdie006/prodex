@@ -32,7 +32,19 @@ The WSL browser container's ChatGPT tab was ended by the cgroup OOM killer durin
   - `pro browser check`: `chatgpt: ok logged_in=true composer=true`.
   - `pro browser smoke`: `PRODEX_PRO_SMOKE_OK`, `requestVerified: true`, no warnings.
   - The container used 400 processes and 1.8 GiB, with no thread errors. The tab was returned to `https://chatgpt.com/`.
-- Container PR #129 (`fix/browser-container-memory-4g`, `7775273`) sets `mem_limit` to `4g` in `compose.json`, so a recreated container keeps the higher limit. Until it merges, a WSL swap from the branch would bring back 2 GiB. M3 keeps 2 GiB until its next rebuild.
+- Container PR #129 (`fix/browser-container-memory-4g`, `7775273`, merge `b97b190`) sets `mem_limit` to `4g` in `compose.json`, so a recreated container keeps the higher limit. Its CI passed all 7 checks.
+
+**Container swaps to `b97b190` (on the user's go-ahead; send lock free before each, no thread errors after)**
+- Only `compose.json`, its test, the container doc and `CHANGELOG.md` changed since `66066fc`, so neither host's client was replaced.
+- WSL: image `4eb7c9081c6a`, started 05:06:39 UTC. Healthy, memory limit 4294967296 (swap total 8 GiB), 1024 process limit, using 376 processes and 2.2 GiB.
+- M3 (colima `prodex-check`): image `a92e5200758f`, started 05:06:30 UTC. Healthy, memory limit 4 GiB, which equals the VM's 4 GiB, so `docker stats` shows the VM's 3.8 GiB as the ceiling. Using 189 processes and 0.8 GiB. The M3 checkout `~/.local/share/prodex-maint/container-src` is at `b97b190`.
+- `status` reported both containers running, healthy and ready, with no blocker. `pro browser check` on both: `chatgpt: ok logged_in=true composer=true`, `model_hints: 6 Pro`.
+- `pro browser smoke`:
+  - WSL passed in 26 s: `PRODEX_PRO_SMOKE_OK`, `requestVerified: true`, no warnings.
+  - M3's first smoke after the swap timed out after 5 minutes. Its conversation address stayed at a `local-chatgpt:` id, and the container log showed nothing for it. Its tab was then sent home, so the page state was not kept.
+  - A second M3 smoke passed in 26 s. A read-only structure probe during it showed the stop button and no error notice.
+  - The first timeout is not explained.
+- Both shared tabs were returned to `https://chatgpt.com/` afterwards.
 
 **Not explained:** between 03:08 and 05:05 UTC on 2026-11-25, Chromium in the WSL container exited six times with SIGTRAP. Each exit followed a loop of "Network service crashed or was terminated", 34,447 lines in all, and the service restarted it each time. The kernel log shows no OOM kill in that window. It has not recurred since 05:05 UTC that day.
 
