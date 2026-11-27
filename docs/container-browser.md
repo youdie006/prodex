@@ -59,7 +59,7 @@ it does not grant container capabilities or permit bypassing website protections
 ## Start and connect
 
 This is an opt-in source-checkout experiment, not part of the npm installation.
-Use a Linux Docker engine with Compose, user-namespace support, at least 2 GB of
+Use a Linux Docker engine with Compose, user-namespace support, at least 4 GB of
 container memory, and sufficient disk for Chromium and fonts. macOS and Windows
 need a Linux VM; native Windows containers are not supported. Do not weaken the
 sandbox to accommodate a host that fails the account-free checks.
@@ -79,6 +79,15 @@ of 256, 16 connected clients left Chromium unable to start renderer threads, and
 answers were drawn as "This response couldn’t load". A container created
 before the change keeps its old limit until it is recreated;
 `docker update --pids-limit 1024 <container>` raises it in place.
+
+The service may use 4 GiB of memory (`mem_limit`). Measured 2026-11-27 on WSL:
+28 connected stdio MCP clients' servers used 774 MB, and the ChatGPT tab's
+renderer reached 1 GiB during a long Pro answer. At the earlier limit of 2 GiB
+the cgroup OOM killer ended the renderer, and every send failed as
+`browser_tab_crashed` until the tab was reopened. On a smaller Linux VM, such as
+a 4 GiB colima VM, the VM's own memory is the effective limit. A container
+created before the change keeps its old limit until it is recreated;
+`docker update --memory 4g --memory-swap 8g <container>` raises it in place.
 
 After the service is running, use the guided login on that same computer:
 
