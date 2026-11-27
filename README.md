@@ -300,6 +300,8 @@ Reports are deduplicated by blocker code, so something that stays broken adds to
 
 **The answer timed out.** Pro can take many minutes. Do not resend automatically. Recover the original marked turn with `prodex pro browser recover --target-url <thread> --request-id <request_id>` after it finishes.
 
+**It stopped with `prompt_not_delivered`.** ChatGPT gives a new chat an address that exists only in the browser (`/c/local-chatgpt:...`) and switches to the server's conversation id once the server takes the prompt, usually within 20 seconds. If the address is still local a minute later and no answer is being written, the prompt did not reach ChatGPT. Send it again; there is nothing to recover.
+
 **A consult returned an unrelated answer.** Current sends append a unique visible request marker and accept only the assistant turn following that marker. Ordinary calls also start fresh. A `request_mismatch` blocker is not retryable; inspect the named request instead of treating the returned page's last answer as the consult.
 
 **Every send says "still generating" and nothing is being written.** ChatGPT parked the thread on "which response do you prefer?". prodex reports `response_choice_pending` and names the buttons; pick one, or send with `--new-chat`.
