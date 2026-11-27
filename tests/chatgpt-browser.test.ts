@@ -599,6 +599,53 @@ Show more`;
     expect(evaluations.slice(navigation, typing).filter((expression) => expression.includes("assistantMessageCount"))).toHaveLength(2);
   });
 
+  describe("a prompt ChatGPT kept in a local conversation", () => {
+    // Measured 2026-11-27: a new chat starts at /c/local-chatgpt:<id> and gets
+    // the server's id once the server takes the prompt, 1.5-18.4 s later in 36
+    // sends. One M3 send kept its local address for its whole 5-minute budget,
+    // with no answer being written, and the prompt never reached ChatGPT.
+    const root = "https://chatgpt.com/";
+    const local = "https://chatgpt.com/c/local-chatgpt%3Aaaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+    const server = "https://chatgpt.com/c/11111111-2222-3333-4444-555555555555";
+    const before = { ...fakeAnswerState(root, "", false), assistantMessageCount: 0, userMessageCount: 0 };
+    const stuck = { ...fakeAnswerState(local, "", false), assistantMessageCount: 0, userMessageCount: 1 };
+
+    it("stops within a minute and says a resend is safe, not a recover", async () => {
+      vi.useFakeTimers();
+      installFakeChatGptSendCdp(root, [before, stuck]);
+      const send = sendChatGptPrompt({ port: 19338, prompt: "Review our research", timeoutMs: 300_000 });
+      let settled = false;
+      void send.catch(() => { settled = true; });
+      await vi.advanceTimersByTimeAsync(70_000);
+      expect(settled).toBe(true);
+      const error = await send.catch((caught: unknown) => caught) as { blocker: Record<string, unknown> };
+      expect(error.blocker).toMatchObject({ code: "prompt_not_delivered", retryable: true });
+      expect(error.blocker.thread).toBeUndefined();
+      expect(error.blocker.next_step).toMatch(/send it again/i);
+      expect(error.blocker.next_step).not.toMatch(/Do not (automatically )?resend|recover --target-url/);
+    });
+
+    it("gives the same answer when the budget ends first", async () => {
+      vi.useFakeTimers();
+      installFakeChatGptSendCdp(root, [before, stuck]);
+      const send = sendChatGptPrompt({ port: 19338, prompt: "Review our research", timeoutMs: 30_000 });
+      const rejection = expect(send).rejects.toMatchObject({ blocker: { code: "prompt_not_delivered", retryable: true } });
+      await vi.advanceTimersByTimeAsync(40_000);
+      await rejection;
+    });
+
+    it("keeps waiting while an answer is being written at the local address", async () => {
+      vi.useFakeTimers();
+      const writing = { ...fakeAnswerState(local, "", true), assistantMessageCount: 0, userMessageCount: 1 };
+      const done = { ...fakeAnswerState(server, "the answer", false), assistantMessageCount: 1, userMessageCount: 1 };
+      installFakeChatGptSendCdp(root, [before, ...Array<typeof writing>(90).fill(writing), done]);
+      const send = sendChatGptPrompt({ port: 19338, prompt: "Review our research", timeoutMs: 300_000 });
+      void send.catch(() => undefined);
+      await vi.advanceTimersByTimeAsync(120_000);
+      await expect(send).resolves.toMatchObject({ answer: "the answer", requestVerified: true });
+    });
+  });
+
   it("refuses another user's turn in the same conversation after acceptance", async () => {
     vi.useFakeTimers();
     const thread = "https://chatgpt.com/c/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
